@@ -1,6 +1,6 @@
 [mcp_servers.agentmesh]
 command = "docker"
-args = ["compose", "-f", "/absolute/path/to/agent-mesh/compose.yaml", "exec", "-T", "broker", "node", "src/cli.js", "mcp", "--project", "/data", "--name", "codex-1", "--provider", "openai", "--runtime", "codex-cli", "--role", "generalist"]
+args = ["compose", "-f", "/absolute/path/to/agent-mesh/compose.yaml", "exec", "-T", "broker", "node", "src/cli.ts", "mcp", "--project", "/data", "--name", "codex-1", "--provider", "openai", "--runtime", "codex-cli", "--role", "generalist"]
 startup_timeout_sec = 30
 # Waiting stays inside one tool call; allow up to an hour before the host cancels it.
 tool_timeout_sec = 3600

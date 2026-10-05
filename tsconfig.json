@@ -1,0 +1,72 @@
+{
+  // ---------------------------------------------------------------------------
+  // Agent Mesh TypeScript configuration.
+  //
+  // The project is pure TypeScript executed DIRECTLY by Node.js 24+ through its
+  // built-in type stripping. There is no build step and no emitted JavaScript:
+  // `tsc` is used purely as a type checker (`npm run typecheck`).
+  //
+  // Every strictness option TypeScript offers is enabled. Options are grouped
+  // and commented so a reader can see why each one exists.
+  // ---------------------------------------------------------------------------
+  "compilerOptions": {
+    // --- Runtime target ------------------------------------------------------
+    // The type library describes EXACTLY what Node 24 implements: all of
+    // ES2025 plus the esnext pieces V8 has shipped. `esnext` as a whole would
+    // also declare APIs Node 24 lacks (Temporal, Uint8Array#toHex), letting
+    // code typecheck and then crash at runtime.
+    "target": "es2025",
+    "lib": ["es2025", "esnext.array", "esnext.disposable", "esnext.error"],
+    // Only Node's own type definitions are loaded (no DOM globals).
+    "types": ["node"],
+
+    // --- Module system -------------------------------------------------------
+    // Native ESM resolution exactly as Node performs it at runtime.
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    // Node runs .ts files directly, so imports name the real `.ts` file.
+    "allowImportingTsExtensions": true,
+    // Type-only imports must say so (`import type`), so stripping them is a
+    // purely syntactic operation with no hidden runtime side effects.
+    "verbatimModuleSyntax": true,
+    // Each file must be transformable on its own, as Node's stripper does.
+    "isolatedModules": true,
+    // Forbid enums, namespaces, parameter properties and other TypeScript
+    // features that need code generation; Node can only ERASE types.
+    "erasableSyntaxOnly": true,
+    // A side-effect import (`import './x.ts'`) must resolve to a real module.
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": false,
+
+    // --- Output --------------------------------------------------------------
+    // Type checking only. Node executes the sources.
+    "noEmit": true,
+
+    // --- Strictness (all of it) ----------------------------------------------
+    "strict": true,
+    // `{ a?: string }` means "absent", not "absent or explicitly undefined".
+    "exactOptionalPropertyTypes": true,
+    // `array[i]` and `record[key]` include `undefined` until checked.
+    "noUncheckedIndexedAccess": true,
+    // Index-signature properties must use bracket access, making the
+    // possibly-missing nature of the key visible at the call site.
+    "noPropertyAccessFromIndexSignature": true,
+    // Subclass overrides must be marked with the `override` keyword.
+    "noImplicitOverride": true,
+    // Every code path of a function with a return type must return.
+    "noImplicitReturns": true,
+    // `case` clauses may not silently fall through to the next one.
+    "noFallthroughCasesInSwitch": true,
+    // Dead code and stray labels are errors rather than warnings.
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    // Unused declarations are errors. Intentionally unused parameters are
+    // prefixed with `_` (also enforced by ESLint).
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // Check declaration files of dependencies too, not only our own code.
+    "skipLibCheck": false
+  },
+  "include": ["types/**/*.d.ts", "src/**/*.ts", "test/**/*.ts", "scripts/**/*.ts", "eslint.config.ts"]
+}

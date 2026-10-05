@@ -1,8 +1,19 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
-	],
-	"settings": {}
+  "folders": [{ "path": "." }],
+  "settings": {
+    // Prettier formats every supported file on save; ESLint fixes are not
+    // applied automatically (review lint fixes before accepting them).
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    // Use the project's TypeScript 6 (matching `npm run typecheck`), not the
+    // version bundled with the editor.
+    "typescript.tsdk": "node_modules/typescript/lib",
+    // eslint.config.ts is loaded with Node's native type stripping.
+    "eslint.options": { "flags": ["unstable_native_nodejs_ts_config"] },
+    "eslint.validate": ["typescript"],
+    "files.eol": "\n",
+  },
+  "extensions": {
+    "recommendations": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"],
+  },
 }

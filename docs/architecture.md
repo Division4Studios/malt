@@ -22,22 +22,23 @@ In Docker, `docker compose exec -T` carries the stdio stream into the container;
 
 ## Source tour
 
-Read protocol.js first to see the public operations, then coordination.js for the worker rules, store.js for persistence, waiters.js for suspension, and finally broker/client/mcp for transport. Inline comments explain the important ordering and failure rules.
+Read protocol.ts first to see the public operations, then coordination.ts for the worker rules, store.ts and database.ts for persistence, waiters.ts for suspension, and finally broker/client/mcp for transport. Every file opens with a header describing its role, and inline comments explain the important ordering and failure rules.
 
-| Module | Responsibility |
-| --- | --- |
-| `src/config.js` | Project bootstrap, credentials and persisted identity files |
-| `src/protocol.js` | Provider-neutral validation schemas and error codes |
-| `src/store.js` | Transactional identity/presence, messaging, acknowledgements, events |
-| `src/coordination.js` | Durable work requests, designated lead authority, idle approval/revocation |
-| `src/waiters.js` | In-memory HTTP wait handles, committed-state wake-up, timeout/cancellation |
-| `src/broker.js` | HTTP boundary, authentication, request limits, presence sweeps |
-| `src/client.js` | Broker RPC and bridge heartbeat lifecycle |
-| `src/mcp.js` | Official MCP SDK stdio tool facade |
-| `src/cli.js` | Bootstrap, foreground daemon and human CLI commands |
-| `src/log.js` | Structured stderr-only diagnostics with level filtering |
+| Module                | Responsibility                                                             |
+| --------------------- | -------------------------------------------------------------------------- |
+| `src/config.ts`       | Project bootstrap, credentials and persisted identity files                |
+| `src/protocol.ts`     | Provider-neutral validation schemas, error codes and model-facing text     |
+| `src/database.ts`     | SQLite row schemas and validated, typed query helpers                      |
+| `src/store.ts`        | Transactional identity/presence, messaging, acknowledgements, events       |
+| `src/coordination.ts` | Durable work requests, designated lead authority, idle approval/revocation |
+| `src/waiters.ts`      | In-memory HTTP wait handles, committed-state wake-up, timeout/cancellation |
+| `src/broker.ts`       | HTTP boundary, authentication, request limits, presence sweeps             |
+| `src/client.ts`       | Broker RPC and bridge heartbeat lifecycle                                  |
+| `src/mcp.ts`          | Official MCP SDK stdio tool facade, held waits and participation prompts   |
+| `src/cli.ts`          | Bootstrap, foreground daemon and human CLI commands                        |
+| `src/log.ts`          | Structured stderr-only diagnostics with level filtering                    |
 
-Node.js 24 and JavaScript ESM minimize toolchain and native-module installation requirements across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; startup performs this additive migration inside a transaction. Unknown schema versions are rejected.
+Node.js 24 runs the TypeScript sources directly (type stripping), which keeps the toolchain free of build steps and native modules across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; startup performs this additive migration inside a transaction. Unknown schema versions are rejected.
 
 ## Transactions and wait delivery
 

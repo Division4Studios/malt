@@ -1,0 +1,5 @@
+# Dependencies, lockfiles and runtime data are never reformatted.
+node_modules/
+package-lock.json
+coverage/
+.agentmesh/

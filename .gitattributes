@@ -1,0 +1,3 @@
+# Normalise line endings to LF in the repository on every platform, matching
+# .editorconfig and Prettier's "endOfLine": "lf".
+* text=auto eol=lf

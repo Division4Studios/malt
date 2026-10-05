@@ -4,7 +4,27 @@
       "type": "stdio",
       "command": "docker",
       "timeout": 3600000,
-      "args": ["compose", "-f", "/absolute/path/to/agent-mesh/compose.yaml", "exec", "-T", "broker", "node", "src/cli.js", "mcp", "--project", "/data", "--name", "claude-lead", "--provider", "anthropic", "--runtime", "claude-code", "--role", "lead"]
+      "args": [
+        "compose",
+        "-f",
+        "/absolute/path/to/agent-mesh/compose.yaml",
+        "exec",
+        "-T",
+        "broker",
+        "node",
+        "src/cli.ts",
+        "mcp",
+        "--project",
+        "/data",
+        "--name",
+        "claude-lead",
+        "--provider",
+        "anthropic",
+        "--runtime",
+        "claude-code",
+        "--role",
+        "lead"
+      ]
     }
   }
 }

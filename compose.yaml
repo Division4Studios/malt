@@ -8,7 +8,7 @@ services:
       AGENTMESH_PROJECT_NAME: ${AGENTMESH_PROJECT_NAME:-agentmesh}
       AGENTMESH_LOG_LEVEL: ${AGENTMESH_LOG_LEVEL:-debug}
     ports:
-      - "127.0.0.1:${AGENTMESH_PORT:-4317}:4317"
+      - '127.0.0.1:${AGENTMESH_PORT:-4317}:4317'
     volumes:
       - mesh-data:/data
     read_only: true
@@ -23,10 +23,16 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "3"
+        max-size: '10m'
+        max-file: '3'
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4317/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:4317/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3

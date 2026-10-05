@@ -1,8 +1,18 @@
+# Continuous integration for Agent Mesh.
+#
+# `check` runs the full quality gate (typecheck, lint with zero warnings,
+# formatting, tests) on every supported operating system. `docker` builds the
+# image and runs the end-to-end Compose smoke test on Linux.
 name: Verify Agent Mesh
 on: [push, pull_request]
+
+permissions:
+  contents: read
+
 jobs:
-  test:
+  check:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -13,7 +23,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      - run: npm test
+      - run: npm run check
   docker:
     runs-on: ubuntu-latest
     steps:

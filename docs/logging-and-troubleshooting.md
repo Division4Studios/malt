@@ -28,22 +28,22 @@ Never redirect stderr into stdout for an MCP bridge. `2>&1` would combine diagno
 
 ## Follow a worker from check-in to resume
 
-| Category/event | Interpretation |
-| --- | --- |
-| `storage/database_ready` | SQLite opened; `schemaVersion` and `migrated` identify initialization. |
-| `broker/listening` | HTTP server bound successfully. |
-| `bridge/registered` | A bridge has a stable agent ID and current presence. |
-| `broker/rpc_received` | A validated operation name was recognized; arguments are not logged. |
-| `coordination/event_staged` + `WORK_REQUESTED` | A new request is being added in a transaction. |
-| `wait/wait_opened` | Broker retained a pending request without holding SQLite open. |
-| `wait/wait_finished` + `TIMEOUT` | One bounded HTTP wait expired. |
-| `bridge/wait_renewed` | Hold mode swallowed that timeout and continued the same MCP call. |
-| `coordination/event_staged` + `WORK_ASSIGNED` or `IDLE_APPROVED` | Lead decision is being recorded. |
-| `wait/wait_finished` + relevant reason | Waiting HTTP call resumed; the bridge can return a meaningful tool result. |
-| `broker/rpc_finished` | Response status and elapsed milliseconds for that RPC. |
-| `broker/rpc_failed` | Error code identifies why a request was rejected. |
-| `bridge/heartbeat_failed` | Presence renewal failed; inspect broker connectivity. |
-| `broker/shutdown_started` | Pending waits are being cancelled before storage closes. |
+| Category/event                                                   | Interpretation                                                             |
+| ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `storage/database_ready`                                         | SQLite opened; `schemaVersion` and `migrated` identify initialization.     |
+| `broker/listening`                                               | HTTP server bound successfully.                                            |
+| `bridge/registered`                                              | A bridge has a stable agent ID and current presence.                       |
+| `broker/rpc_received`                                            | A validated operation name was recognized; arguments are not logged.       |
+| `coordination/event_staged` + `WORK_REQUESTED`                   | A new request is being added in a transaction.                             |
+| `wait/wait_opened`                                               | Broker retained a pending request without holding SQLite open.             |
+| `wait/wait_finished` + `TIMEOUT`                                 | One bounded HTTP wait expired.                                             |
+| `bridge/wait_renewed`                                            | Hold mode swallowed that timeout and continued the same MCP call.          |
+| `coordination/event_staged` + `WORK_ASSIGNED` or `IDLE_APPROVED` | Lead decision is being recorded.                                           |
+| `wait/wait_finished` + relevant reason                           | Waiting HTTP call resumed; the bridge can return a meaningful tool result. |
+| `broker/rpc_finished`                                            | Response status and elapsed milliseconds for that RPC.                     |
+| `broker/rpc_failed`                                              | Error code identifies why a request was rejected.                          |
+| `bridge/heartbeat_failed`                                        | Presence renewal failed; inspect broker connectivity.                      |
+| `broker/shutdown_started`                                        | Pending waits are being cancelled before storage closes.                   |
 
 `rpc_finished` after a disconnected client can reflect the response's local status rather than a response actually received by the caller. Pair it with `rpc_failed`, wait cancellation, and the persisted event log when investigating ambiguous network failures.
 
@@ -87,7 +87,7 @@ Rebuild with `docker compose up -d --build --wait`, then reconnect the provider'
 ## Inspect committed history
 
 ```sh
-docker compose exec -T broker node src/cli.js events --project /data --after 0 --limit 100
+docker compose exec -T broker node src/cli.ts events --project /data --after 0 --limit 100
 ```
 
 Use the response's `nextCursor` for the next page. Relevant events include WORK_REQUESTED, WORK_ASSIGNED, IDLE_APPROVED, CHECKIN_REQUIRED, ORCHESTRATOR_CHANGED, CHECKIN_MESSAGE_RESOLVED, MESSAGE_SENT, MESSAGE_READ and AGENT_DISCONNECTED.

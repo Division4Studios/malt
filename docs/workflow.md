@@ -10,12 +10,12 @@
 
 **An open wait** is a temporary HTTP/MCP operation. It has no durable process identity of its own. Cancelling it does not cancel the worker's request or assignment.
 
-| Phase | Meaning | Normal worker action |
-| --- | --- | --- |
-| `CHECKIN_REQUIRED` | New information invalidated a previous request/idle grant. | Process/acknowledge the inbox, then check in. |
-| `AWAITING_LEAD` | A request is pending; no decision has been made. | Wait for the lead. Do not infer permission from silence. |
-| `WORK_ASSIGNED` | The lead assigned instructions. | Perform the work, then check in with results. |
-| `IDLE_APPROVED` | The lead explicitly said no work is needed now. | Keep a wait open for new communication. |
+| Phase              | Meaning                                                    | Normal worker action                                     |
+| ------------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
+| `CHECKIN_REQUIRED` | New information invalidated a previous request/idle grant. | Process/acknowledge the inbox, then check in.            |
+| `AWAITING_LEAD`    | A request is pending; no decision has been made.           | Wait for the lead. Do not infer permission from silence. |
+| `WORK_ASSIGNED`    | The lead assigned instructions.                            | Perform the work, then check in with results.            |
+| `IDLE_APPROVED`    | The lead explicitly said no work is needed now.            | Keep a wait open for new communication.                  |
 
 OFFLINE is not one of those phases. An offline worker can still have an assignment or an idle grant. A message arriving while it is offline revokes the grant in storage before it reconnects.
 
@@ -46,7 +46,7 @@ The real response also includes timestamps, instructions/decision note, orchestr
 Call `mesh_wait_for_work`:
 
 ```json
-{"afterRevision": 1}
+{ "afterRevision": 1 }
 ```
 
 `hold` defaults to true. The bridge waits internally until the result is meaningful. `afterRevision` is the revision from your previous response: it lets the broker return a decision that happened between your last read and the next wait.
@@ -54,7 +54,7 @@ Call `mesh_wait_for_work`:
 For a single bounded diagnostic wait:
 
 ```json
-{"hold": false, "timeoutMs": 5000, "afterRevision": 1}
+{ "hold": false, "timeoutMs": 5000, "afterRevision": 1 }
 ```
 
 The latter can return `TIMEOUT`. That means only that five seconds elapsed. It does not change the worker's phase or authorize idle.
@@ -81,7 +81,9 @@ The decision also resolves the corresponding `work_request` inbox notification f
 After doing the work, the worker processes/acknowledges any inbox messages and calls `mesh_check_in`:
 
 ```json
-{"summary":"Decoder tests pass: npm test, 18 tests. Corrected two assertions in decoder.test.js. Available for more work."}
+{
+  "summary": "Decoder tests pass: npm test, 18 tests. Corrected two assertions in decoder.test.js. Available for more work."
+}
 ```
 
 This replaces the completed assignment with a new pending request. Repeating the call while that request remains pending returns the same request ID and does not send another notification. If a worker needs to add information to an existing pending request, it can message the lead; the deduplicated request's original summary is not overwritten.
@@ -104,14 +106,14 @@ To call an idle worker back, send it a message. The message wakes its wait and r
 
 Every wait result includes `reason`, `state`, `messages`, `hasMore`, `nextCursor`, and `timedOut`.
 
-| Reason | Interpretation |
-| --- | --- |
-| `MESSAGES` | Unread messages are ready; reading did not acknowledge them. |
-| `WORK_ASSIGNED` | Assigned instructions are ready in the state. |
-| `IDLE_APPROVED` | A newer explicit idle decision was observed. |
-| `CHECKIN_REQUIRED` | Process any inbox content, then ask for work again. |
-| `STATE_CHANGED` | Coordination changed, for example after lead replacement. Reinspect the returned state. |
-| `TIMEOUT` | One bounded broker wait expired. Normally hidden by `hold: true`. |
+| Reason             | Interpretation                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| `MESSAGES`         | Unread messages are ready; reading did not acknowledge them.                            |
+| `WORK_ASSIGNED`    | Assigned instructions are ready in the state.                                           |
+| `IDLE_APPROVED`    | A newer explicit idle decision was observed.                                            |
+| `CHECKIN_REQUIRED` | Process any inbox content, then ask for work again.                                     |
+| `STATE_CHANGED`    | Coordination changed, for example after lead replacement. Reinspect the returned state. |
+| `TIMEOUT`          | One bounded broker wait expired. Normally hidden by `hold: true`.                       |
 
 Messages take priority over other wake reasons. A worker with an active assignment can receive `MESSAGES` while its phase remains `WORK_ASSIGNED`; the assignment has not disappeared.
 
