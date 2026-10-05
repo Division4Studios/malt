@@ -1,0 +1,5 @@
+node_modules/
+.agentmesh/
+coverage/
+*.log
+.env

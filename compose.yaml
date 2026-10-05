@@ -1,0 +1,37 @@
+services:
+  broker:
+    build: .
+    image: agentmesh:local
+    init: true
+    restart: unless-stopped
+    environment:
+      AGENTMESH_PROJECT_NAME: ${AGENTMESH_PROJECT_NAME:-agentmesh}
+      AGENTMESH_LOG_LEVEL: ${AGENTMESH_LOG_LEVEL:-debug}
+    ports:
+      - "127.0.0.1:${AGENTMESH_PORT:-4317}:4317"
+    volumes:
+      - mesh-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Verbose diagnostics are useful while developing, but idle teams can run
+    # for days. Bound container log retention; SQLite events remain durable.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4317/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 15s
+
+volumes:
+  mesh-data:
