@@ -25,7 +25,12 @@
  * - **Decisions are compare-and-set.** A decision names the exact pending
  *   `requestId`, so a delayed answer cannot apply to a newer request.
  * - **Authority is stored, not claimed.** The `lead_id` metadata row decides
- *   who the orchestrator is; a role label of "lead" only bootstraps it.
+ *   who the orchestrator is; a role label of "lead" only bootstraps it. A
+ *   session agent may claim the role only while it is vacant (no lead, or a
+ *   lead whose session ended) or its holder is disconnected.
+ * - **Ended sessions leave cleanly.** A session agent that disconnects can
+ *   never return, so its request is withdrawn, unfinished assigned work is
+ *   reported to the lead, and its unread inbox passes to the next lead.
  *
  * Every method here runs inside a transaction opened by the store; this module
  * never opens transactions itself and never awaits.
@@ -38,6 +43,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 
 import {
+  agentRowSchema,
   coordinationRowSchema,
   idRowSchema,
   run,
@@ -178,6 +184,17 @@ export class Coordination {
   }
 
   /**
+   * The orchestrator who can still act: the stored lead, unless its session
+   * has ended for good.
+   *
+   * @returns The acting orchestrator's ID, or `null` while the role is vacant.
+   */
+  public activeLeadId(): string | null {
+    const lead = this.leadId();
+    return lead === null || this.host.agent(lead).lifetime === 'ended' ? null : lead;
+  }
+
+  /**
    * Read an agent's coordination row without creating it.
    *
    * @param id - The agent's ID.
@@ -230,7 +247,8 @@ export class Coordination {
    * @returns Whether the agent is a worker.
    */
   public isWorker(id: string): boolean {
-    return id !== this.leadId() && this.host.agent(id).role !== 'observer';
+    const agent = this.host.agent(id);
+    return id !== this.leadId() && agent.role !== 'observer' && agent.lifetime !== 'ended';
   }
 
   /**
@@ -273,7 +291,7 @@ export class Coordination {
    */
   public snapshot(id: string): WorkState {
     const state = this.requireRow(id);
-    const lead = this.leadId();
+    const lead = this.activeLeadId();
     const unreadMessages = this.unread(id);
     let participant: Participant = 'observer';
     if (this.isWorker(id)) {
@@ -303,8 +321,8 @@ export class Coordination {
   /**
    * Apply registration side effects for a newly registered or reconnected agent.
    *
-   * - The first agent registering with role `lead` becomes orchestrator if no
-   *   orchestrator is designated yet.
+   * - An agent registering with role `lead` becomes orchestrator while the
+   *   role is vacant (never designated, or held by a session that ended).
    * - A worker with nothing to process automatically checks in, so connecting
    *   is itself a request for work.
    * - Presence is refreshed from the coordination phase.
@@ -313,7 +331,7 @@ export class Coordination {
    */
   public registered(id: string): void {
     this.ensure(id);
-    if (this.leadId() === null && this.host.agent(id).role === 'lead') {
+    if (this.activeLeadId() === null && this.host.agent(id).role === 'lead') {
       this.setLead(id);
     }
     if (this.isWorker(id) && this.requireRow(id).phase === 'CHECKIN_REQUIRED' && this.unread(id) === 0) {
@@ -351,11 +369,36 @@ export class Coordination {
   }
 
   /**
+   * Let a session agent take the orchestrator role it asked for.
+   *
+   * A live orchestrator is never displaced this way; that remains a human
+   * decision through the CLI.
+   *
+   * @param id - The claiming agent's ID.
+   * @throws {MeshError} LEAD_ACTIVE while another orchestrator is connected.
+   */
+  public claimLead(id: string): void {
+    const lead = this.activeLeadId();
+    if (lead === id) {
+      return;
+    }
+    if (lead !== null && !isDisconnected(this.host.agent(lead).status)) {
+      throw new MeshError(
+        'LEAD_ACTIVE',
+        `${this.host.agent(lead).name} already leads this team. Join as a worker, or have a human replace the lead with the CLI lead command.`,
+      );
+    }
+    this.setLead(id);
+  }
+
+  /**
    * Designate (or replace) the orchestrator.
    *
    * Replacement invalidates every outstanding decision except assignments in
    * progress: pending requests are re-raised to the new orchestrator, and idle
-   * approvals granted by the old one are revoked.
+   * approvals granted by the old one are revoked. When the previous lead's
+   * session ended, its unread inbox (handoffs, questions, notices of departed
+   * workers) passes to the new lead, since nobody else could ever read it.
    *
    * @param id - The new orchestrator's agent ID.
    * @returns The new orchestrator's coordination view.
@@ -363,7 +406,8 @@ export class Coordination {
   public setLead(id: string): WorkState {
     // Validates that the agent exists (throws NOT_FOUND otherwise).
     this.host.agent(id);
-    if (this.leadId() === id) {
+    const previous = this.leadId();
+    if (previous === id) {
       return this.snapshot(id);
     }
     run(
@@ -372,6 +416,9 @@ export class Coordination {
       id,
     );
     this.host.event('ORCHESTRATOR_CHANGED', id);
+    if (previous !== null) {
+      this.inheritInbox(previous, id);
+    }
 
     for (const agent of selectAll(this.db, idRowSchema, 'SELECT id FROM agents')) {
       const row = this.requireRow(agent.id);
@@ -430,9 +477,9 @@ export class Coordination {
     );
 
     // Notify the orchestrator through its inbox, so a waiting orchestrator
-    // wakes up. With no orchestrator yet, the request simply stays pending and
-    // is re-raised when one is designated.
-    const lead = this.leadId();
+    // wakes up. With no orchestrator yet (or one whose session ended), the
+    // request simply stays pending and is re-raised when one is designated.
+    const lead = this.activeLeadId();
     if (lead !== null) {
       const message = this.host.send(id, lead, {
         type: 'work_request',
@@ -492,6 +539,35 @@ export class Coordination {
   }
 
   /**
+   * Withdraw a session agent that is leaving for good.
+   *
+   * Its pending request is retired, so the orchestrator never answers it, and
+   * the coordination row is reset. If it still held assigned work, the lead
+   * receives a `worker_left` notice with the instructions so the work can be
+   * reassigned. The notice goes to the stored lead even if that lead's own
+   * session ended; the next lead then inherits it with the rest of the inbox.
+   *
+   * @param id - The departing agent's ID.
+   */
+  public depart(id: string): void {
+    const row = this.requireRow(id);
+    const lead = this.leadId();
+    if (lead !== null && lead !== id && row.phase === 'WORK_ASSIGNED') {
+      this.host.send(id, lead, {
+        type: 'worker_left',
+        body: JSON.stringify({
+          worker: this.host.agent(id).name,
+          instructions: row.instructions,
+          action: 'This session ended before checking in. Reassign the work if it is still needed.',
+        }),
+      });
+    }
+    this.retireRequest(row);
+    this.resetToCheckInRequired(id);
+    this.host.event('AGENT_LEFT', id, { phase: row.phase });
+  }
+
+  /**
    * Apply the coordination effects of a message delivered to `recipient`.
    *
    * A message is never itself an idle grant. Any new communication revokes an
@@ -537,6 +613,38 @@ export class Coordination {
   }
 
   /**
+   * Apply the schema 1 to 2 coordination migration, inside the store's
+   * migration transaction.
+   *
+   * Every agent receives a coordination row, the first `lead`-role agent
+   * becomes orchestrator, idle workers lose their unapproved idle status, and
+   * workers with nothing to process are checked in on their behalf.
+   */
+  public migrate(): void {
+    const agents = selectAll(
+      this.db,
+      agentRowSchema.pick({ id: true, role: true, status: true }),
+      'SELECT id, role, status FROM agents ORDER BY created_at',
+    );
+    for (const agent of agents) {
+      this.ensure(agent.id);
+    }
+    const lead = agents.find((agent) => agent.role === 'lead');
+    if (lead !== undefined) {
+      this.setLead(lead.id);
+    }
+    for (const agent of agents) {
+      const isWorker = this.isWorker(agent.id);
+      if (isWorker && this.requireRow(agent.id).phase === 'CHECKIN_REQUIRED' && this.unread(agent.id) === 0) {
+        this.checkIn(agent.id, 'Available after coordination upgrade.');
+      }
+      if (isWorker && agent.status === 'IDLE') {
+        this.host.setStatus(agent.id, 'WAITING', 'Orchestrator approval required');
+      }
+    }
+  }
+
+  /**
    * Validate that a decision may be applied, returning the pending request.
    *
    * @param actor - The deciding agent's ID; must be the orchestrator.
@@ -572,6 +680,28 @@ export class Coordination {
       throw new MeshError('INSTRUCTIONS_REQUIRED', 'Work assignments require instructions.');
     }
     return row;
+  }
+
+  /**
+   * Pass an ended lead's unread inbox to its successor, since nobody else
+   * could ever read it. A previous lead that can still return keeps its own.
+   *
+   * @param previous - The previous orchestrator's ID.
+   * @param successor - The new orchestrator's ID.
+   */
+  private inheritInbox(previous: string, successor: string): void {
+    if (this.host.agent(previous).lifetime !== 'ended') {
+      return;
+    }
+    const { changes } = run(
+      this.db,
+      'UPDATE messages SET recipient = ? WHERE recipient = ? AND acknowledged_at IS NULL',
+      successor,
+      previous,
+    );
+    if (changes > 0) {
+      this.host.event('INBOX_INHERITED', successor, { from: previous, count: changes });
+    }
   }
 
   /**

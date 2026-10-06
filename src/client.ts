@@ -7,9 +7,13 @@
  * which avoids reusing a dead keep-alive socket right after a broker restart.
  *
  * {@link AgentClient} represents one live agent session: it loads (or creates)
- * the agent's durable identity, registers with a fresh session UUID, attaches
+ * the agent's durable identity, or generates an in-memory session identity
+ * when no name is given, registers with a fresh session UUID, attaches
  * credentials to every call, renews presence with heartbeats, and disconnects
  * cleanly on close.
+ *
+ * {@link openTeamConfig} asks the broker for the team of a workspace folder
+ * and returns a configuration addressing that team.
  *
  * @file
  */
@@ -18,9 +22,10 @@ import { randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { loadIdentity } from './config.ts';
+import { loadIdentity, sessionIdentity } from './config.ts';
 import { log } from './log.ts';
 import { MeshError, WAIT_TIMEOUT_DEFAULT_MS, isMeshErrorCode } from './protocol.ts';
+import { teamAccessSchema } from './teams.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { AgentRow } from './database.ts';
@@ -162,6 +167,7 @@ export async function rpc(
         connection: 'close',
         authorization: `Bearer ${config.token}`,
         'x-agentmesh-project': config.projectId,
+        ...(config.team !== undefined && { 'x-agentmesh-team': config.team }),
       },
       body: JSON.stringify({ operation, input, credentials }),
     });
@@ -180,10 +186,34 @@ export async function rpc(
   return result;
 }
 
+/**
+ * Resolve the team of a workspace folder, creating it on first use.
+ *
+ * @param home - The home project's configuration (broker URL and token).
+ * @param workspace - The folder, as an absolute path or `file:` URI.
+ * @param signal - Optional cancellation signal.
+ * @returns A configuration addressing the workspace's team.
+ */
+export async function openTeamConfig(home: MeshConfig, workspace: string, signal?: AbortSignal): Promise<MeshConfig> {
+  const access = teamAccessSchema.parse(await rpc(home, 'open_team', { workspace }, { signal }));
+  return {
+    ...home,
+    name: access.name,
+    projectId: access.projectId,
+    token: access.token,
+    workspace: access.workspace,
+    team: access.team,
+  };
+}
+
 /** How an agent session describes itself when registering. */
 export interface AgentClientOptions {
-  /** The agent's unique name within the project. */
-  readonly name: string;
+  /**
+   * The agent's unique name within the project. Without a name the session
+   * gets a generated name and an in-memory secret: a session identity that
+   * ends when the session disconnects.
+   */
+  readonly name?: string | undefined;
   /** Model provider label, for example `anthropic`. */
   readonly provider?: string | undefined;
   /** Runtime label, for example `claude-code`. */
@@ -213,6 +243,8 @@ export class AgentClient {
     readonly runtime: string;
 
     readonly role: string;
+
+    readonly ephemeral: boolean;
   };
 
   /** Credentials obtained on registration; `undefined` until connected. */
@@ -236,10 +268,11 @@ export class AgentClient {
   public constructor(config: MeshConfig, options: AgentClientOptions) {
     this.config = config;
     this.registration = {
-      ...loadIdentity(config, options.name),
+      ...(options.name === undefined ? sessionIdentity(options.runtime) : loadIdentity(config, options.name)),
       provider: options.provider ?? 'unknown',
       runtime: options.runtime ?? 'attached',
       role: options.role ?? 'generalist',
+      ephemeral: options.name === undefined,
       // A new session UUID on every launch: the lease that fences out any
       // older bridge still running under the same identity.
       sessionId: randomUUID(),
@@ -247,15 +280,39 @@ export class AgentClient {
   }
 
   /**
+   * The agent's name, known before registration.
+   *
+   * @returns The configured or generated name.
+   */
+  public get name(): string {
+    return this.registration.name;
+  }
+
+  /**
+   * Whether this session has registered with the broker.
+   *
+   * @returns `true` once {@link AgentClient.connect} succeeded.
+   */
+  public get isConnected(): boolean {
+    return this.credentials !== undefined;
+  }
+
+  /**
    * Register this session with the broker.
    *
+   * @param role - Role label for this registration; defaults to the configured role.
    * @returns The registered agent's public row.
    */
-  public async connect(): Promise<AgentRow> {
+  public async connect(role: string = this.registration.role): Promise<AgentRow> {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- The broker in this same code base returns Store.register's AgentRow for `register`.
-    const agent = (await rpc(this.config, 'register', this.registration)) as AgentRow;
+    const agent = (await rpc(this.config, 'register', { ...this.registration, role })) as AgentRow;
     this.credentials = { agentId: agent.id, secret: this.registration.secret, sessionId: this.registration.sessionId };
-    log('info', 'bridge', 'registered', { actor: agent.id, name: agent.name, status: agent.status });
+    log('info', 'bridge', 'registered', {
+      actor: agent.id,
+      name: agent.name,
+      team: this.config.team,
+      status: agent.status,
+    });
     return agent;
   }
 

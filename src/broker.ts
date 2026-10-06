@@ -1,18 +1,22 @@
 /**
  * The Agent Mesh broker: a loopback HTTP JSON-RPC service.
  *
- * The broker is the single long-running process of a team. It owns the
- * {@link Store} (and therefore SQLite), validates every request, and wakes
- * parked waiters after each committed change.
+ * The broker is the single long-running process. It serves its home project
+ * plus any number of workspace teams (see teams.ts), each with its own
+ * {@link Store} (and therefore SQLite file) and waiter registry. It validates
+ * every request, routes it to its team, and wakes that team's parked waiters
+ * after each committed change.
  *
  * HTTP surface:
  *
  * - `GET /health` returns `{ ok: true, version }` for health checks.
  * - `POST /rpc` takes `{ operation, input, credentials }` and returns either
  *   `{ result }` or `{ error: { code, message } }` with a matching status.
+ *   An `x-agentmesh-team` header addresses a workspace team; without it the
+ *   request addresses the home project.
  *
  * Request pipeline, in order: reject browser origins (no CORS, ever), route,
- * verify the project bearer token and project ID, read a bounded JSON body,
+ * select the team, verify its bearer token and project ID, read a bounded JSON body,
  * validate the envelope and operation, validate the input, expire stale
  * presence, authenticate the agent (except for public operations), execute,
  * and finally notify waiters.
@@ -34,11 +38,13 @@ import { z } from 'zod';
 import { log } from './log.ts';
 import { MeshError, errorStatus, isOperation, parseInput } from './protocol.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
+import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
+import type { TeamAccess, TeamConfig } from './teams.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** The version reported by the health endpoint. */
@@ -104,14 +110,26 @@ export interface BrokerOptions {
   readonly now?: (() => number) | undefined;
 }
 
+/** One team the broker serves: its configuration, store and parked waits. */
+export interface Team {
+  /** The team's configuration (token, project ID, ...). */
+  readonly config: MeshConfig;
+  /** The team's store. */
+  readonly store: Store;
+  /** The team's registry of parked waits. */
+  readonly waiters: Waiters;
+}
+
 /** A running broker. */
 export interface Broker {
-  /** The project store. */
+  /** The home project's store. */
   readonly store: Store;
   /** The HTTP server. */
   readonly server: http.Server;
-  /** The registry of parked waits. */
+  /** The home project's registry of parked waits. */
   readonly waiters: Waiters;
+  /** Workspace teams opened since the broker started, keyed by slug. */
+  readonly teams: ReadonlyMap<string, Team>;
   /** The bound port (useful when port 0 was requested). */
   readonly port: number;
   /** Cancel waits, stop accepting requests and close the database. */
@@ -120,12 +138,47 @@ export interface Broker {
 
 /** Everything a request handler needs, created once per broker. */
 interface BrokerContext {
-  /** The project configuration (token, project ID, ...). */
-  readonly config: MeshConfig;
-  /** The project store. */
-  readonly store: Store;
-  /** The registry of parked waits. */
-  readonly waiters: Waiters;
+  /** The home project, addressed by requests without a team header. */
+  readonly home: Team;
+  /** Workspace teams opened so far, keyed by slug; opened lazily. */
+  readonly teams: Map<string, Team>;
+  /** Clock override for every store, used by tests. */
+  readonly now: (() => number) | undefined;
+}
+
+/**
+ * Open a workspace team's store and register it with the broker.
+ *
+ * @param context - The broker context.
+ * @param config - The team's configuration.
+ * @returns The opened team.
+ */
+function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
+  const store = new Store(config, { now: context.now });
+  const team: Team = { config, store, waiters: new Waiters(store) };
+  context.teams.set(config.team, team);
+  log('info', 'broker', 'team_opened', { team: config.team });
+  return team;
+}
+
+/**
+ * Open (creating on first use) the team of a workspace folder.
+ *
+ * @param context - The broker context.
+ * @param input - The raw `open_team` input.
+ * @returns What a client needs to address the team.
+ */
+function openWorkspaceTeam(context: BrokerContext, input: unknown): TeamAccess {
+  const workspace = normalizeWorkspace(parseInput('open_team', input).workspace);
+  const config = createTeam(context.home.config, workspace);
+  const team = context.teams.get(config.team) ?? openTeamStore(context, config);
+  return {
+    team: config.team,
+    name: team.config.name,
+    workspace: team.config.workspace ?? workspace.display,
+    projectId: team.config.projectId,
+    token: team.config.token,
+  };
 }
 
 /**
@@ -195,14 +248,14 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 /**
  * Run a `wait_for_work` request, cancelling the wait if the client leaves.
  *
- * @param context - The broker context.
+ * @param context - The team the wait belongs to.
  * @param input - The raw wait input.
  * @param credentials - The waiting agent's credentials.
  * @param response - The response, whose closure cancels the wait.
  * @returns The wake result.
  */
 async function handleWait(
-  context: BrokerContext,
+  context: Team,
   input: unknown,
   credentials: PresentedCredentials | undefined,
   response: ServerResponse,
@@ -226,9 +279,9 @@ async function handleWait(
 }
 
 /**
- * Execute one validated RPC operation.
+ * Execute one validated RPC operation of a team.
  *
- * @param context - The broker context.
+ * @param context - The team the operation belongs to.
  * @param operation - The validated operation name.
  * @param input - The raw operation input.
  * @param credentials - The caller's agent credentials, if any.
@@ -236,8 +289,8 @@ async function handleWait(
  * @throws {MeshError} For any validation, authentication or domain failure.
  */
 function executeOperation(
-  context: BrokerContext,
-  operation: Exclude<Operation, 'wait_for_work'>,
+  context: Team,
+  operation: Exclude<Operation, 'list_teams' | 'open_team' | 'wait_for_work'>,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): unknown {
@@ -261,7 +314,7 @@ function executeOperation(
 }
 
 /**
- * Handle one `POST /rpc` request after transport-level checks passed.
+ * Handle one `POST /rpc` request: authenticate its team, then run it.
  *
  * @param context - The broker context.
  * @param request - The incoming request.
@@ -276,6 +329,7 @@ async function handleRpc(
   response: ServerResponse,
   setOperation: (name: Operation) => void,
 ): Promise<unknown> {
+  const team = authenticateTeam(context, request);
   const envelope = envelopeSchema.safeParse(await readJson(request));
   if (!envelope.success) {
     throw new MeshError('INVALID_REQUEST', 'Expected an RPC object.');
@@ -285,41 +339,74 @@ async function handleRpc(
     throw new MeshError('UNKNOWN_OPERATION', 'Unknown operation.');
   }
   setOperation(operation);
-  log('debug', 'broker', 'rpc_received', { operation });
+  log('debug', 'broker', 'rpc_received', { operation, team: team.config.team });
+  if (operation === 'open_team' || operation === 'list_teams') {
+    // Team management spans teams, so only the home project's token grants it.
+    if (team !== context.home) {
+      throw new MeshError('UNKNOWN_OPERATION', 'Team operations are available only on the home project.');
+    }
+    return operation === 'open_team' ? openWorkspaceTeam(context, input) : listTeams(context.home.config);
+  }
   const credentials = readCredentials(envelope.data.credentials);
 
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
-  context.store.expire();
+  team.store.expire();
   if (operation === 'wait_for_work') {
-    return handleWait(context, input, credentials, response);
+    return handleWait(team, input, credentials, response);
   }
-  const result = executeOperation(context, operation, input, credentials);
+  const result = executeOperation(team, operation, input, credentials);
   // Every store mutation is a synchronous, already COMMITTED transaction, so
   // waiters woken here can never observe partial state.
-  context.waiters.notify();
+  team.waiters.notify();
   return result;
 }
 
 /**
- * Enforce the transport-level rules every RPC request must satisfy.
+ * Verify that a request carries a team's bearer token and project ID.
  *
- * @param context - The broker context.
+ * @param config - The addressed team's configuration.
  * @param request - The incoming request.
- * @throws {MeshError} NOT_FOUND, UNAUTHORIZED or WRONG_PROJECT.
+ * @throws {MeshError} UNAUTHORIZED or WRONG_PROJECT.
  */
-function assertRpcRequest(context: BrokerContext, request: IncomingMessage): void {
-  if (request.method !== 'POST' || request.url !== '/rpc') {
-    throw new MeshError('NOT_FOUND', 'Unknown endpoint.');
-  }
+function assertProjectCredentials(config: MeshConfig, request: IncomingMessage): void {
   // The project token proves the caller can read this project's files.
-  if (!isSameSecret(request.headers.authorization, `Bearer ${context.config.token}`)) {
+  if (!isSameSecret(request.headers.authorization, `Bearer ${config.token}`)) {
     throw new MeshError('UNAUTHORIZED', 'Project authentication required.');
   }
   // The project ID stops a token from one team being replayed at another.
-  if (request.headers['x-agentmesh-project'] !== context.config.projectId) {
+  if (request.headers['x-agentmesh-project'] !== config.projectId) {
     throw new MeshError('WRONG_PROJECT', 'Project identity does not match.');
   }
+}
+
+/**
+ * Enforce the transport-level rules every RPC request must satisfy and
+ * select the team it addresses.
+ *
+ * @param context - The broker context.
+ * @param request - The incoming request.
+ * @returns The authenticated team.
+ * @throws {MeshError} NOT_FOUND, UNKNOWN_TEAM, UNAUTHORIZED or WRONG_PROJECT.
+ */
+function authenticateTeam(context: BrokerContext, request: IncomingMessage): Team {
+  if (request.method !== 'POST' || request.url !== '/rpc') {
+    throw new MeshError('NOT_FOUND', 'Unknown endpoint.');
+  }
+  const slug = request.headers['x-agentmesh-team'];
+  if (slug === undefined) {
+    assertProjectCredentials(context.home.config, request);
+    return context.home;
+  }
+  if (Array.isArray(slug)) {
+    throw new MeshError('UNKNOWN_TEAM', 'No such team.');
+  }
+  // Only the team's configuration is read until the request authenticates;
+  // its store (and SQLite file) opens afterwards.
+  const opened = context.teams.get(slug);
+  const config = opened?.config ?? loadTeam(context.home.config, slug);
+  assertProjectCredentials(config, request);
+  return opened ?? openTeamStore(context, { ...config, team: slug });
 }
 
 /**
@@ -347,7 +434,6 @@ async function respond(
     sendJson(response, HTTP_OK, { ok: true, version: VERSION });
     return;
   }
-  assertRpcRequest(context, request);
   const result = await handleRpc(context, request, response, setOperation);
   sendJson(response, HTTP_OK, { result });
 }
@@ -389,9 +475,9 @@ async function handleRequest(
 }
 
 /**
- * Start a broker for a project and begin listening.
+ * Start a broker for a home project and begin listening.
  *
- * @param config - The project configuration.
+ * @param config - The home project's configuration.
  * @param options - Bind address, port and clock overrides.
  * @returns The running broker.
  * @throws {Error} When the database cannot be opened or the port is in use.
@@ -403,7 +489,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const context: BrokerContext = { config, store, waiters };
+  const context: BrokerContext = { home: { config, store, waiters }, teams: new Map(), now: options.now };
+  const allTeams = (): Team[] => [context.home, ...context.teams.values()];
 
   const server = http.createServer((request, response) => {
     void handleRequest(context, request, response);
@@ -423,11 +510,16 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   // anyone waiting on a presence-dependent state.
   const sweep = setInterval(
     () => {
-      try {
-        store.expire();
-        waiters.notify();
-      } catch (error) {
-        log('error', 'broker', 'presence_sweep_failed', { code: error instanceof MeshError ? error.code : 'ERROR' });
+      for (const team of allTeams()) {
+        try {
+          team.store.expire();
+          team.waiters.notify();
+        } catch (error) {
+          log('error', 'broker', 'presence_sweep_failed', {
+            team: team.config.team,
+            code: error instanceof MeshError ? error.code : 'ERROR',
+          });
+        }
       }
     },
     Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS),
@@ -442,15 +534,23 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
     store,
     server,
     waiters,
+    teams: context.teams,
     port: boundPort,
     close: async (): Promise<void> => {
       clearInterval(sweep);
-      log('info', 'broker', 'shutdown_started', { activeWaits: waiters.pending.size });
+      const teams = allTeams();
+      log('info', 'broker', 'shutdown_started', {
+        activeWaits: teams.reduce((total, team) => total + team.waiters.pending.size, 0),
+      });
       // Fail parked waits first so their responses complete and close() can
-      // finish; then stop the server, and only then close the database.
-      waiters.close();
+      // finish; then stop the server, and only then close the databases.
+      for (const team of teams) {
+        team.waiters.close();
+      }
       await closeServer(server);
-      store.close();
+      for (const team of teams) {
+        team.store.close();
+      }
     },
   };
 }

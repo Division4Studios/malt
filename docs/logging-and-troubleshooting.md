@@ -32,7 +32,8 @@ Never redirect stderr into stdout for an MCP bridge. `2>&1` would combine diagno
 | ---------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `storage/database_ready`                                         | SQLite opened; `schemaVersion` and `migrated` identify initialization.     |
 | `broker/listening`                                               | HTTP server bound successfully.                                            |
-| `bridge/registered`                                              | A bridge has a stable agent ID and current presence.                       |
+| `broker/team_opened`                                             | A workspace team's store opened (first use or first request since start).  |
+| `bridge/registered`                                              | A bridge has an agent ID, team and current presence.                       |
 | `broker/rpc_received`                                            | A validated operation name was recognized; arguments are not logged.       |
 | `coordination/event_staged` + `WORK_REQUESTED`                   | A new request is being added in a transaction.                             |
 | `wait/wait_opened`                                               | Broker retained a pending request without holding SQLite open.             |
@@ -52,7 +53,7 @@ The logger intentionally excludes project/agent secrets, message bodies, complet
 ## A worker is waiting forever
 
 1. Check `docker compose ps` and the broker's health/logs.
-2. Ask the worker for `mesh_work_status`. If `orchestrator` is null, register a lead or designate an existing agent with the human `lead` CLI command.
+2. Ask the worker for `mesh_work_status`. If `orchestrator` is null, run `/mcp__agentmesh__lead` in a session started in the same folder, or designate an existing agent with the human `lead` CLI command.
 3. Inspect the lead's presence. An offline lead cannot inspect requests merely because they are persisted.
 4. Have the lead call `mesh_list_check_ins` and decide each request with `mesh_answer_check_in`.
 5. If the worker has unread messages, handle/acknowledge them and submit a new check-in. A stale request must not be answered.
@@ -65,6 +66,18 @@ Waiting without a decision is intentional: silence never grants idle. If the lea
 There are two different timeouts. A **broker wait timeout** is normally consumed by the bridge under `hold: true`. A **host tool timeout** cancels the overall MCP call. Set an appropriate timeout in the provider configuration; the examples use an hour.
 
 After host cancellation, durable state remains. Ask the model to inspect `mesh_work_status` and reopen a wait when participation should continue. This does not override a human instruction to stop. `hold: false` is available for debugging with short tool calls.
+
+## A session cannot connect or join
+
+**Claude Code shows "Connection closed" for agentmesh.** A named bridge registers before the MCP handshake, so a registration failure ends the process before Claude Code sees any tool. The usual cause is `AGENT_ACTIVE`: two sessions launched with the same `--name`, typically because one fixed-name registration is shared by every session. Use the nameless configuration so each session gets its own identity, or give each session a distinct name. Run the configured command by hand to see the error on stderr.
+
+**`NOT_JOINED`.** The session has a nameless bridge and has not joined a team. Run `/mcp__agentmesh__worker` or `/mcp__agentmesh__lead`, or ask it to join. This is deliberate: sessions never join on their own.
+
+**`LEAD_ACTIVE`.** The folder's team already has a connected lead, named in the message. Join as a worker, or replace the lead with `lead --workspace PATH --name NAME`.
+
+**`NO_WORKSPACE`.** The host reported no MCP roots and no folder was configured. Start the bridge with `--workspace PATH`, or set `AGENTMESH_WORKSPACE` in its environment (inside the container for Docker: `docker compose exec -e AGENTMESH_WORKSPACE=...`).
+
+**Sessions in the same repository do not see each other.** Teams follow the folder each session started in. A session started in a subfolder, or a named bridge without `--workspace` (home project), is on a different team. `teams` lists every team with its folder.
 
 ## Duplicate name or identity errors
 
@@ -90,6 +103,6 @@ Rebuild with `docker compose up -d --build --wait`, then reconnect the provider'
 docker compose exec -T broker node src/cli.ts events --project /data --after 0 --limit 100
 ```
 
-Use the response's `nextCursor` for the next page. Relevant events include WORK_REQUESTED, WORK_ASSIGNED, IDLE_APPROVED, CHECKIN_REQUIRED, ORCHESTRATOR_CHANGED, CHECKIN_MESSAGE_RESOLVED, MESSAGE_SENT, MESSAGE_READ and AGENT_DISCONNECTED.
+Use the response's `nextCursor` for the next page. Relevant events include WORK_REQUESTED, WORK_ASSIGNED, IDLE_APPROVED, CHECKIN_REQUIRED, ORCHESTRATOR_CHANGED, CHECKIN_MESSAGE_RESOLVED, MESSAGE_SENT, MESSAGE_READ, AGENT_DISCONNECTED, AGENT_LEFT (a session ended) and INBOX_INHERITED (a new lead received an ended lead's unread messages). Add `--workspace PATH` to read a workspace team's history.
 
 Check-in notifications are resolved automatically when decided or superseded. That emits CHECKIN_MESSAGE_RESOLVED rather than pretending the model explicitly read an ordinary peer message.

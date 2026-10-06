@@ -23,9 +23,15 @@ OFFLINE is not one of those phases. An offline worker can still have an assignme
 
 The following JSON snippets are tool arguments, not shell commands. Tool response IDs vary; use the actual values returned by your session.
 
-### 1. Register and inspect
+### 1. Join and inspect
 
-Bridge startup automatically registers the configured name. New workers also submit their first request automatically. Call `mesh_work_status` with `{}` to inspect it:
+A bridge launched without a name joins its workspace folder's team when the model calls `mesh_join`:
+
+```json
+{ "role": "worker" }
+```
+
+A named bridge registers its configured name at startup instead. Either way, a new worker submits its first request automatically. Call `mesh_work_status` with `{}` to inspect it:
 
 ```json
 {
@@ -131,7 +137,9 @@ Host tool timeouts remain authoritative. A one-hour example setting is a finite 
 
 ## Orchestrator behavior
 
-The first registered `lead` becomes the orchestrator when no designation exists. A second agent with that role does not automatically replace it. Human CLI `lead --name NAME` replaces the stored designation.
+An agent registering or joining as `lead` becomes the orchestrator while the role is vacant: none was designated, or the designated lead was a session that has ended. A session that joins as `lead` also takes over from a lead that is offline. It never displaces a live lead; that join fails with `LEAD_ACTIVE`. A named agent with the role never replaces a lead that is merely offline. Human CLI `lead --name NAME` (with `--workspace PATH` for a workspace team) replaces the stored designation.
+
+When a lead's session ends, workers keep their assignments and their requests stay pending, with `orchestrator: null` in their state. The next lead receives the pending requests and inherits the ended lead's unread inbox, such as handoffs and `worker_left` notices, because nobody else could ever read it.
 
 The lead also uses `mesh_wait_for_work` when it has no immediate coordination actions. Worker requests are ordinary durable inbox notifications of type `work_request`, and therefore wake a waiting lead. The lead should call `mesh_list_check_ins` to get the authoritative current requests; notification text may reference a request that was superseded by new information.
 
@@ -144,6 +152,7 @@ After replacement, old idle approvals are revoked, pending requests are routed t
 - An unread inbox prevents a worker from checking in. Handle the messages first; the broker will not silently discard them to make an idle grant possible.
 - One agent can have only one open wait. A second receives `WAIT_ALREADY_ACTIVE`.
 - A session replacement invalidates old credentials, including old open waits.
+- A session identity ends when its bridge disconnects cleanly. Its pending request is withdrawn; assigned work it never checked in is reported to the lead as a `worker_left` message with the instructions. A crashed session expires to OFFLINE and cannot return, so the lead should reassign its work.
 - Shutdown cancels open waits with `BROKER_STOPPING` before closing SQLite.
 - No lead, an offline lead, a network failure, or a timeout ever creates an idle grant.
 - A human stop instruction always overrides this collaboration routine.

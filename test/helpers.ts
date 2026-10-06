@@ -21,12 +21,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { loadConfig } from '../src/config.ts';
 
 import type { ClientResults } from '../src/client.ts';
 import type { MeshConfig } from '../src/config.ts';
+import type { WorkState } from '../src/coordination.ts';
 import type { AgentRow } from '../src/database.ts';
 import type { ToolOperation } from '../src/protocol.ts';
 import type { InboxPage } from '../src/store.ts';
@@ -174,8 +176,22 @@ export function registration(name: string): TestRegistration {
   return { name, secret: randomUUID(), sessionId: randomUUID(), provider: 'test', runtime: 'test', role: 'generalist' };
 }
 
+/** The result of `mesh_join`. */
+export interface JoinResult {
+  /** Whether this call joined the team. */
+  readonly joined: boolean;
+  /** The team joined. */
+  readonly team: { readonly name: string; readonly workspace: string | null };
+  /** The session's agent record. */
+  readonly agent: AgentRow;
+  /** The session's coordination view. */
+  readonly state: WorkState;
+}
+
 /** The result type of each MCP tool, keyed by tool name. */
 export type ToolResults = { readonly [O in ToolOperation as `mesh_${O}`]: ClientResults[O] } & {
+  /** The membership created or confirmed by joining. */
+  readonly mesh_join: JoinResult;
   /** The identity registered for the bridge. */
   readonly mesh_register: AgentRow;
   /** The first page of unread messages. */
@@ -204,12 +220,18 @@ export interface BridgeHandle {
 
 /** Options for {@link startBridge}. */
 export interface BridgeOptions {
-  /** The agent's name. */
-  readonly name: string;
-  /** Role label, for example `lead` or `observer`. */
+  /** The agent's name; omit for a nameless session that joins on request. */
+  readonly name?: string;
+  /** Role label of a named agent, for example `lead` or `observer`. */
   readonly role?: string;
   /** Provider label. */
   readonly provider?: string;
+  /** Runtime label; also the prefix of a session's generated name. */
+  readonly runtime?: string;
+  /** The `--workspace` option of the bridge. */
+  readonly workspace?: string;
+  /** Workspace roots the test host reports through MCP roots. */
+  readonly roots?: readonly string[];
   /** Whether to run the bridge with debug logging. */
   readonly isVerbose?: boolean;
 }
@@ -233,12 +255,11 @@ export async function startBridge(config: MeshConfig, options: BridgeOptions): P
     'mcp',
     '--project',
     config.root,
-    '--name',
-    options.name,
-    '--role',
-    options.role ?? 'generalist',
+    ...(options.name === undefined ? [] : ['--name', options.name, '--role', options.role ?? 'generalist']),
     '--provider',
     options.provider ?? 'test',
+    ...(options.runtime === undefined ? [] : ['--runtime', options.runtime]),
+    ...(options.workspace === undefined ? [] : ['--workspace', options.workspace]),
     ...(options.isVerbose === true ? ['--verbose'] : []),
   ];
   const transport = new StdioClientTransport({ command: process.execPath, args, stderr: 'pipe' });
@@ -246,7 +267,14 @@ export async function startBridge(config: MeshConfig, options: BridgeOptions): P
   transport.stderr?.on('data', (chunk: Buffer) => {
     diagnostics += chunk.toString('utf8');
   });
-  const client = new Client({ name: 'agentmesh-test-host', version: '1.0' });
+  const { roots } = options;
+  const client = new Client(
+    { name: 'agentmesh-test-host', version: '1.0' },
+    roots === undefined ? {} : { capabilities: { roots: {} } },
+  );
+  if (roots !== undefined) {
+    client.setRequestHandler(ListRootsRequestSchema, () => ({ roots: roots.map((uri) => ({ uri })) }));
+  }
   await client.connect(transport);
 
   const callRaw = async (

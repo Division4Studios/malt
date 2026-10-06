@@ -8,6 +8,7 @@
  *     config.json            project ID, display name, broker URL, bearer token
  *     identities/<name>.json one durable secret per agent name
  *     state/mesh.db          SQLite state (plus WAL files)
+ *     teams/<slug>/          one nested project per workspace team (see teams.ts)
  * ```
  *
  * The project ID separates teams: a broker rejects requests carrying another
@@ -35,6 +36,15 @@ const STATE_DIRECTORY_NAME = '.agentmesh';
 
 /** Number of random bytes in project tokens and identity secrets. */
 const SECRET_BYTES = 32;
+
+/** Number of random bytes in the suffix of a generated session name. */
+const SESSION_SUFFIX_BYTES = 4;
+
+/** Longest prefix of a generated session name, leaving room for the suffix. */
+const SESSION_PREFIX_MAX = 40;
+
+/** Prefix of a generated session name when no runtime label is available. */
+const DEFAULT_SESSION_PREFIX = 'agent';
 
 /** Minimum heartbeat interval accepted from configuration, in milliseconds. */
 const HEARTBEAT_MIN_MS = 100;
@@ -80,6 +90,8 @@ const persistedConfigSchema = z
     token: z.string().min(SECRET_BYTES),
     heartbeatMs: z.number().int().min(HEARTBEAT_MIN_MS),
     offlineMs: z.number().int(),
+    // The workspace folder a team serves; absent for the home project.
+    workspace: z.string().optional(),
   })
   .refine((config) => config.offlineMs >= config.heartbeatMs * HEARTBEATS_PER_OFFLINE_WINDOW, {
     message: 'offlineMs must be at least twice heartbeatMs',
@@ -99,12 +111,27 @@ export interface MeshConfig extends Readonly<PersistedConfig> {
   readonly directory: string;
   /** Absolute path of the SQLite database file. */
   readonly database: string;
+
+  /**
+   * The workspace team this configuration addresses, sent to the broker with
+   * every request; absent for the home project. A team configuration obtained
+   * from the broker keeps the home project's paths: its own files live on the
+   * broker's side.
+   */
+  readonly team?: string | undefined;
 }
+
+/** Settings a newly created project starts with instead of the defaults. */
+export type InitialSettings = Partial<
+  Pick<PersistedConfig, 'heartbeatMs' | 'name' | 'offlineMs' | 'url' | 'workspace'>
+>;
 
 /** Options for {@link loadConfig}. */
 export interface LoadConfigOptions {
   /** Create the project (directories, config and token) if it is missing. */
   readonly create?: boolean;
+  /** Settings used only when this call creates the project. */
+  readonly initial?: InitialSettings;
 }
 
 /** Schema of an identity file. */
@@ -190,6 +217,7 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
       token: randomBytes(SECRET_BYTES).toString('hex'),
       heartbeatMs: DEFAULT_HEARTBEAT_MS,
       offlineMs: DEFAULT_OFFLINE_MS,
+      ...options.initial,
     };
     writeIfAbsent(file, `${JSON.stringify(initial, null, 2)}\n`);
   }
@@ -246,4 +274,42 @@ export function loadIdentity(config: MeshConfig, agentName: string): Identity {
     throw new Error(`Invalid identity file for ${agentName}.`, { cause: parsed.error });
   }
   return parsed.data;
+}
+
+/**
+ * Turn free text into a lowercase, hyphen-separated label of letters and
+ * digits, suitable for names and directory names.
+ *
+ * @param text - The text, such as a runtime label or a folder name.
+ * @param maxLength - The longest label to return.
+ * @returns The label; empty when the text has no letters or digits.
+ */
+export function toLabel(text: string, maxLength: number): string {
+  const words = text.toLowerCase().split(/[^\da-z]+/v);
+  // Cutting at maxLength can leave one trailing hyphen; drop it.
+  return words
+    .filter((word) => word !== '')
+    .join('-')
+    .slice(0, maxLength)
+    .replace(/-$/v, '');
+}
+
+/**
+ * Create a session identity for one bridge process.
+ *
+ * Unlike {@link loadIdentity}, nothing is written to disk: the secret exists
+ * only in the bridge's memory, so the identity ends with the process. The
+ * name combines a readable prefix (normally the runtime label, such as
+ * `claude-code`) with a random suffix, so concurrent sessions never collide.
+ *
+ * @param label - The label the name starts with; sanitized to the name pattern.
+ * @returns A fresh name and secret.
+ */
+export function sessionIdentity(label = ''): Identity {
+  const prefix = toLabel(label, SESSION_PREFIX_MAX);
+  const suffix = randomBytes(SESSION_SUFFIX_BYTES).toString('hex');
+  return {
+    name: `${prefix === '' ? DEFAULT_SESSION_PREFIX : prefix}-${suffix}`,
+    secret: randomBytes(SECRET_BYTES).toString('hex'),
+  };
 }

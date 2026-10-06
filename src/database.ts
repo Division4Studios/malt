@@ -19,7 +19,7 @@
 
 import { z } from 'zod';
 
-import { AGENT_STATES, COORDINATION_PHASES, STORED_MESSAGE_TYPES } from './protocol.ts';
+import { AGENT_LIFETIMES, AGENT_STATES, COORDINATION_PHASES, STORED_MESSAGE_TYPES } from './protocol.ts';
 
 import type { DatabaseSync, SQLInputValue } from 'node:sqlite';
 
@@ -39,6 +39,7 @@ export const agentRowSchema = z.object({
   role: z.string(),
   status: z.enum(AGENT_STATES),
   status_text: z.string(),
+  lifetime: z.enum(AGENT_LIFETIMES),
   created_at: z.number(),
   last_seen: z.number(),
 });
@@ -47,7 +48,8 @@ export const agentRowSchema = z.object({
 export type AgentRow = z.output<typeof agentRowSchema>;
 
 /** The column list matching {@link agentRowSchema}, for SELECT statements. */
-export const AGENT_PUBLIC_COLUMNS = 'id, name, provider, runtime, role, status, status_text, created_at, last_seen';
+export const AGENT_PUBLIC_COLUMNS =
+  'id, name, provider, runtime, role, status, status_text, lifetime, created_at, last_seen';
 
 /** An agent row including its credential columns; never returned to callers. */
 export const agentCredentialRowSchema = agentRowSchema.extend({ secret_hash: z.string(), session_id: z.string() });
@@ -109,6 +111,9 @@ export const valueRowSchema = z.object({ value: z.string() });
 
 /** The result row of a `SELECT id` query. */
 export const idRowSchema = z.object({ id: z.string() });
+
+/** One row of `pragma_table_info`: a column name. */
+export const columnRowSchema = z.object({ name: z.string() });
 
 // -----------------------------------------------------------------------------
 // Query helpers

@@ -5,10 +5,13 @@
  * component that reads or writes it. Its responsibilities:
  *
  * - **Schema and migrations.** Creating tables, refusing a database that
- *   belongs to another project, and migrating schema version 1 to 2 (which
- *   added coordination) without losing existing agents or messages.
+ *   belongs to another project, and migrating older schema versions (2 added
+ *   coordination, 3 added agent lifetimes) without losing existing agents or
+ *   messages.
  * - **Identity.** Registering agents, verifying their secrets and fencing out
- *   stale sessions so two live bridges can never share one identity.
+ *   stale sessions so two live bridges can never share one identity. Session
+ *   identities end when their bridge disconnects and then drop out of the
+ *   roster, broadcasts and messaging.
  * - **Presence.** Heartbeats and expiry of silent agents to OFFLINE.
  * - **Messaging.** Durable inboxes, replies, broadcasts and acknowledgements.
  * - **Operations.** A typed dispatcher executing every non-waiting RPC
@@ -34,6 +37,7 @@ import {
   AGENT_PUBLIC_COLUMNS,
   agentCredentialRowSchema,
   agentRowSchema,
+  columnRowSchema,
   countRowSchema,
   eventRowSchema,
   idRowSchema,
@@ -57,17 +61,26 @@ import type {
   WorkState,
 } from './coordination.ts';
 import type { AgentRow } from './database.ts';
-import type { AgentStatus, Handoff, Operation, OperationInput, OperationRawInput } from './protocol.ts';
+import type { AgentLifetime, AgentStatus, Handoff, Operation, OperationInput, OperationRawInput } from './protocol.ts';
 
 // -----------------------------------------------------------------------------
 // Operation typing
 // -----------------------------------------------------------------------------
 
 /**
- * Operations executed by {@link Store.execute}. Registration has its own entry
- * point, and waiting is implemented by the broker's waiter registry.
+ * Operations the store does not execute: registration has its own entry
+ * point, waiting is implemented by the broker's waiter registry, and team
+ * operations span projects, so the broker handles them above any one store.
  */
-export type StoreOperation = Exclude<Operation, 'register' | 'wait_for_work'>;
+const NON_STORE_OPERATIONS = [
+  'list_teams',
+  'open_team',
+  'register',
+  'wait_for_work',
+] as const satisfies readonly Operation[];
+
+/** Operations executed by {@link Store.execute}. */
+export type StoreOperation = Exclude<Operation, (typeof NON_STORE_OPERATIONS)[number]>;
 
 /**
  * Operations a caller may perform without agent credentials, authenticated by
@@ -96,7 +109,7 @@ export type ActorFor<O extends StoreOperation> = O extends PublicOperation ? str
  * @returns Whether {@link Store.execute} handles it.
  */
 export function isStoreOperation(operation: Operation): operation is StoreOperation {
-  return operation !== 'register' && operation !== 'wait_for_work';
+  return !(NON_STORE_OPERATIONS as readonly Operation[]).includes(operation);
 }
 
 /**
@@ -247,10 +260,10 @@ type Handlers = {
 // -----------------------------------------------------------------------------
 
 /** The SQLite schema version this code writes. */
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 
 /** Every schema version this code can open (older ones are migrated). */
-const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', SCHEMA_VERSION]);
+const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', SCHEMA_VERSION]);
 
 /** SQLite lock wait before reporting SQLITE_BUSY, in milliseconds. */
 const BUSY_TIMEOUT_MS = 5000;
@@ -352,7 +365,10 @@ export class Store implements CoordinationHost {
     this.coordination = new Coordination(this);
     this.handlers = this.createHandlers();
     this.migrate(version);
-    log('info', 'storage', 'database_ready', { schemaVersion: Number(SCHEMA_VERSION), migrated: version === '1' });
+    log('info', 'storage', 'database_ready', {
+      schemaVersion: Number(SCHEMA_VERSION),
+      migrated: version !== SCHEMA_VERSION,
+    });
   }
 
   /**
@@ -440,67 +456,25 @@ export class Store implements CoordinationHost {
    * live bridges can never accidentally share one inbox owner. A different
    * session may only take over once the previous one is offline.
    *
+   * A session identity (`ephemeral`) registering with role `lead` claims the
+   * orchestrator role in the same transaction, so a refused claim leaves no
+   * trace of the registration.
+   *
    * @param rawInput - Registration details; validated here.
    * @returns The registered agent's public row.
    * @throws {MeshError} IDENTITY_CONFLICT for a wrong secret; AGENT_ACTIVE
-   *   while another live session holds the name; INVALID_INPUT.
+   *   while another live session holds the name; AGENT_LEFT for an ended
+   *   session; LEAD_ACTIVE for a refused lead claim; INVALID_INPUT.
    */
   public register(rawInput: OperationRawInput<'register'>): AgentRow {
     const input = parseInput('register', rawInput);
     return this.transaction(() => {
-      const prior = selectOne(this.db, agentCredentialRowSchema, 'SELECT * FROM agents WHERE name = ?', input.name);
-      const now = this.now();
-
-      if (prior !== undefined) {
-        if (prior.secret_hash !== hash(input.secret)) {
-          throw new MeshError('IDENTITY_CONFLICT', 'This name belongs to another identity.');
-        }
-        const isLeaseHeld =
-          prior.session_id !== input.sessionId &&
-          prior.last_seen > now - this.config.offlineMs &&
-          !isDisconnected(prior.status);
-        if (isLeaseHeld) {
-          throw new MeshError(
-            'AGENT_ACTIVE',
-            'Another live bridge uses this name. Choose a distinct name or wait for the offline timeout.',
-          );
-        }
-        // A returning agent comes back IDLE; coordination refreshes presence.
-        const status: AgentStatus = isDisconnected(prior.status) ? 'IDLE' : prior.status;
-        run(
-          this.db,
-          'UPDATE agents SET session_id = ?, provider = ?, runtime = ?, role = ?, status = ?, last_seen = ? WHERE id = ?',
-          input.sessionId,
-          input.provider,
-          input.runtime,
-          input.role,
-          status,
-          now,
-          prior.id,
-        );
-        if (prior.session_id !== input.sessionId || status !== prior.status) {
-          this.event('AGENT_RECONNECTED', prior.id);
-        }
-        this.coordination.registered(prior.id);
-        return this.agent(prior.id);
+      const id = this.upsertAgent(input);
+      // Claim before the registration hooks run, which would otherwise treat
+      // the new agent as a worker and request work on its behalf.
+      if (input.ephemeral && input.role === 'lead') {
+        this.coordination.claimLead(id);
       }
-
-      const id = `ag_${randomUUID()}`;
-      run(
-        this.db,
-        'INSERT INTO agents(id, name, secret_hash, session_id, provider, runtime, role, status, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        id,
-        input.name,
-        hash(input.secret),
-        input.sessionId,
-        input.provider,
-        input.runtime,
-        input.role,
-        'IDLE',
-        now,
-        now,
-      );
-      this.event('AGENT_REGISTERED', id, { name: input.name, provider: input.provider });
       this.coordination.registered(id);
       return this.agent(id);
     });
@@ -523,8 +497,13 @@ export class Store implements CoordinationHost {
       'SELECT * FROM agents WHERE id = ?',
       credentials?.agentId ?? '',
     );
-    // An unknown agent leaves `row` undefined, which fails the first check.
-    if (row?.secret_hash !== hash(credentials?.secret ?? '') || row.session_id !== credentials?.sessionId) {
+    // An unknown agent leaves `row` undefined, which fails the first check. An
+    // ended session can never act again, even with its old credentials.
+    if (
+      row?.secret_hash !== hash(credentials?.secret ?? '') ||
+      row.session_id !== credentials?.sessionId ||
+      row.lifetime === 'ended'
+    ) {
       throw new MeshError('UNAUTHORIZED_AGENT', 'Agent credentials or session are invalid.');
     }
     return row.id;
@@ -668,7 +647,13 @@ export class Store implements CoordinationHost {
     return {
       whoami: (_input, actor) => this.agent(requireActor(actor)),
       heartbeat: (_input, actor) => this.heartbeat(requireActor(actor)),
-      disconnect: (_input, actor) => this.setStatus(requireActor(actor), 'OFFLINE', 'Bridge disconnected'),
+      disconnect: (_input, actor) => {
+        const id = requireActor(actor);
+        // A session identity cannot reconnect, so disconnecting ends it.
+        return this.agent(id).lifetime === 'session'
+          ? this.depart(id)
+          : this.setStatus(id, 'OFFLINE', 'Bridge disconnected');
+      },
       set_status: (input, actor) => {
         const id = requireActor(actor);
         // A worker may not declare itself idle; only the orchestrator's
@@ -685,17 +670,22 @@ export class Store implements CoordinationHost {
         }
         return this.setStatus(id, input.status, input.text);
       },
-      set_lead: (input) => this.coordination.setLead(this.agent(input.agent).id),
+      set_lead: (input) => this.coordination.setLead(this.recipient(input.agent)),
       check_in: (input, actor) => this.coordination.checkIn(requireActor(actor), input.summary),
       work_status: (_input, actor) => this.coordination.snapshot(requireActor(actor)),
       list_check_ins: (_input, actor) => this.coordination.list(requireActor(actor)),
       answer_check_in: (input, actor) => this.coordination.answer(requireActor(actor), input),
       list_agents: (input) => this.listAgents(input.status),
       team_status: () => this.teamStatus(),
-      send_message: (input, actor) => this.send(requireActor(actor), this.agent(input.to).id, input),
+      send_message: (input, actor) => this.send(requireActor(actor), this.recipient(input.to), input),
       broadcast: (input, actor) => {
         const sender = requireActor(actor);
-        const recipients = selectAll(this.db, idRowSchema, 'SELECT id FROM agents WHERE id != ? ORDER BY name', sender);
+        const recipients = selectAll(
+          this.db,
+          idRowSchema,
+          "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' ORDER BY name",
+          sender,
+        );
         return { messages: recipients.map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })) };
       },
       get_messages: (input, actor) => this.inbox(requireActor(actor), input),
@@ -703,10 +693,109 @@ export class Store implements CoordinationHost {
       reply: (input, actor) => {
         const id = requireActor(actor);
         const original = this.inboxMessage(input.id, id);
-        return this.send(id, original.sender, { body: input.body, type: 'direct' }, input.id);
+        return this.send(id, this.recipient(original.sender), { body: input.body, type: 'direct' }, input.id);
       },
       events: (input) => this.events(input),
     };
+  }
+
+  /**
+   * Insert a new agent, or update a returning one, without coordination
+   * side effects. Runs inside the caller's transaction.
+   *
+   * @param input - Validated registration details.
+   * @returns The agent's ID.
+   * @throws {MeshError} IDENTITY_CONFLICT, AGENT_LEFT or AGENT_ACTIVE.
+   */
+  private upsertAgent(input: OperationInput<'register'>): string {
+    const prior = selectOne(this.db, agentCredentialRowSchema, 'SELECT * FROM agents WHERE name = ?', input.name);
+    const now = this.now();
+    const lifetime: AgentLifetime = input.ephemeral ? 'session' : 'durable';
+
+    if (prior !== undefined) {
+      if (prior.secret_hash !== hash(input.secret)) {
+        throw new MeshError('IDENTITY_CONFLICT', 'This name belongs to another identity.');
+      }
+      if (prior.lifetime === 'ended') {
+        throw new MeshError('AGENT_LEFT', 'This session has ended. Start a new session to join again.');
+      }
+      const isLeaseHeld =
+        prior.session_id !== input.sessionId &&
+        prior.last_seen > now - this.config.offlineMs &&
+        !isDisconnected(prior.status);
+      if (isLeaseHeld) {
+        throw new MeshError(
+          'AGENT_ACTIVE',
+          'Another live bridge uses this name. Choose a distinct name or wait for the offline timeout.',
+        );
+      }
+      // A returning agent comes back IDLE; coordination refreshes presence.
+      const status: AgentStatus = isDisconnected(prior.status) ? 'IDLE' : prior.status;
+      run(
+        this.db,
+        'UPDATE agents SET session_id = ?, provider = ?, runtime = ?, role = ?, status = ?, lifetime = ?, last_seen = ? WHERE id = ?',
+        input.sessionId,
+        input.provider,
+        input.runtime,
+        input.role,
+        status,
+        lifetime,
+        now,
+        prior.id,
+      );
+      if (prior.session_id !== input.sessionId || status !== prior.status) {
+        this.event('AGENT_RECONNECTED', prior.id);
+      }
+      return prior.id;
+    }
+
+    const id = `ag_${randomUUID()}`;
+    run(
+      this.db,
+      'INSERT INTO agents(id, name, secret_hash, session_id, provider, runtime, role, status, lifetime, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      id,
+      input.name,
+      hash(input.secret),
+      input.sessionId,
+      input.provider,
+      input.runtime,
+      input.role,
+      'IDLE',
+      lifetime,
+      now,
+      now,
+    );
+    this.event('AGENT_REGISTERED', id, { name: input.name, provider: input.provider, lifetime });
+    return id;
+  }
+
+  /**
+   * End a session identity whose bridge disconnected.
+   *
+   * @param id - The session agent's ID.
+   * @returns The agent's final row, now STOPPED.
+   */
+  private depart(id: string): AgentRow {
+    this.coordination.depart(id);
+    run(this.db, "UPDATE agents SET lifetime = 'ended' WHERE id = ?", id);
+    return this.setStatus(id, 'STOPPED', 'Session ended');
+  }
+
+  /**
+   * Resolve a message recipient (or lead candidate) that can still read its
+   * inbox.
+   *
+   * @param idOrName - The agent's ID or name.
+   * @returns The agent's ID.
+   * @throws {MeshError} NOT_FOUND for an unknown agent; AGENT_LEFT for an
+   *   ended session.
+   */
+  private recipient(idOrName: string): string {
+    const agent = this.agent(idOrName);
+    if (agent.lifetime === 'ended') {
+      throw new MeshError('AGENT_LEFT', `${agent.name} has left the team; its session ended.`);
+    }
+    return agent.id;
   }
 
   /**
@@ -733,12 +822,17 @@ export class Store implements CoordinationHost {
    * @returns The matching agents' public rows.
    */
   private listAgents(status: AgentStatus | undefined): AgentRow[] {
+    // Ended sessions can never return, so they are history, not team members.
     return status === undefined
-      ? selectAll(this.db, agentRowSchema, `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents ORDER BY name`)
+      ? selectAll(
+          this.db,
+          agentRowSchema,
+          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE lifetime != 'ended' ORDER BY name`,
+        )
       : selectAll(
           this.db,
           agentRowSchema,
-          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE status = ? ORDER BY name`,
+          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE status = ? AND lifetime != 'ended' ORDER BY name`,
           status,
         );
   }
@@ -755,14 +849,17 @@ export class Store implements CoordinationHost {
       counts: selectAll(
         this.db,
         countRowSchema.extend({ status: z.enum(AGENT_STATES) }),
-        'SELECT status, COUNT(*) AS count FROM agents GROUP BY status',
+        "SELECT status, COUNT(*) AS count FROM agents WHERE lifetime != 'ended' GROUP BY status",
       ),
       blocked: selectAll(
         this.db,
         z.object({ id: z.string(), name: z.string(), status_text: z.string() }),
         "SELECT id, name, status_text FROM agents WHERE status IN ('BLOCKED', 'NEEDS_INPUT') ORDER BY name",
       ),
-      unreadMessages: selectCount(this.db, 'SELECT COUNT(*) AS count FROM messages WHERE acknowledged_at IS NULL'),
+      unreadMessages: selectCount(
+        this.db,
+        "SELECT COUNT(*) AS count FROM messages m JOIN agents a ON a.id = m.recipient WHERE m.acknowledged_at IS NULL AND a.lifetime != 'ended'",
+      ),
       orchestrator: this.coordination.leadId(),
       pendingCheckIns: selectCount(
         this.db,
@@ -910,12 +1007,12 @@ export class Store implements CoordinationHost {
   }
 
   /**
-   * Create the coordination table and migrate schema 1 to 2 if needed.
+   * Create the coordination table and migrate older schemas if needed.
    *
-   * The migration is additive: existing agents, messages and events are kept.
-   * Every agent receives a coordination row, the first `lead`-role agent
-   * becomes orchestrator, idle workers lose their unapproved idle status, and
-   * workers with nothing to process are checked in on their behalf.
+   * Every migration is additive: existing agents, messages and events are
+   * kept. Schema 3 adds the agent lifetime column; every existing identity is
+   * durable. Schema 2 gives every agent a coordination row (see
+   * {@link Coordination.migrate}).
    *
    * @param version - The schema version found on disk.
    */
@@ -927,33 +1024,16 @@ export class Store implements CoordinationHost {
         summary TEXT NOT NULL, instructions TEXT, decision_note TEXT,
         revision INTEGER NOT NULL, updated_at INTEGER NOT NULL
       );`);
-      if (version !== '1') {
+      // Checked by column rather than version, so the step is idempotent.
+      const columns = selectAll(this.db, columnRowSchema, "SELECT name FROM pragma_table_info('agents')");
+      if (columns.every((column) => column.name !== 'lifetime')) {
+        this.db.exec("ALTER TABLE agents ADD COLUMN lifetime TEXT NOT NULL DEFAULT 'durable'");
+      }
+      if (version === SCHEMA_VERSION) {
         return;
       }
-      const agents = selectAll(
-        this.db,
-        agentRowSchema.pick({ id: true, role: true, status: true }),
-        'SELECT id, role, status FROM agents ORDER BY created_at',
-      );
-      for (const agent of agents) {
-        this.coordination.ensure(agent.id);
-      }
-      const lead = agents.find((agent) => agent.role === 'lead');
-      if (lead !== undefined) {
-        this.coordination.setLead(lead.id);
-      }
-      for (const agent of agents) {
-        const isWorker = this.coordination.isWorker(agent.id);
-        if (
-          isWorker &&
-          this.coordination.requireRow(agent.id).phase === 'CHECKIN_REQUIRED' &&
-          this.coordination.unread(agent.id) === 0
-        ) {
-          this.coordination.checkIn(agent.id, 'Available after coordination upgrade.');
-        }
-        if (isWorker && agent.status === 'IDLE') {
-          this.setStatus(agent.id, 'WAITING', 'Orchestrator approval required');
-        }
+      if (version === '1') {
+        this.coordination.migrate();
       }
       run(this.db, "UPDATE metadata SET value = ? WHERE key = 'schema_version'", SCHEMA_VERSION);
     });

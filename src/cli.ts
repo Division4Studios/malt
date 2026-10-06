@@ -12,6 +12,9 @@
  * 3. **An MCP bridge** (`mcp`) is owned by an MCP host; its stdout IS the MCP
  *    protocol stream, so nothing else may ever be printed there.
  *
+ * Human commands address the home project, or with `--workspace` the team of
+ * that workspace folder (see teams.ts).
+ *
  * Only the broker imports SQLite (through a dynamic import), so the CLI and
  * bridges start quickly and never touch the database file directly.
  *
@@ -22,9 +25,10 @@
  * @file
  */
 
+import path from 'node:path';
 import { parseArgs } from 'node:util';
 
-import { AgentClient, rpc } from './client.ts';
+import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { loadConfig } from './config.ts';
 import { MeshError } from './protocol.ts';
 
@@ -39,17 +43,22 @@ Usage: node src/cli.ts <command> [options]
   status                       Compact team overview
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
+  teams                        List the workspace teams of this broker
   lead --name NAME             Designate/replace the orchestrator (human control)
-  mcp --name NAME              Run a persistent stdio MCP bridge
+  mcp                          Run a stdio MCP bridge for one session; it joins
+                               its workspace's team when the model calls mesh_join
+  mcp --name NAME              Run a stdio MCP bridge for a fixed, durable identity
   message --name NAME --to PEER --body TEXT
   messages --name NAME         Read this identity's unread inbox
   ack --name NAME --id ID      Acknowledge an inbox message
 
 Options:
   --project PATH               Project directory (default: current directory)
+  --workspace PATH             Address the team of this workspace folder instead
+                               of the home project (mcp: overrides MCP roots)
   --provider TEXT              Provider label (default: unknown)
   --runtime TEXT               Runtime label (default: attached)
-  --role TEXT                  Role label (default: generalist)
+  --role TEXT                  Role label for --name identities (default: generalist)
   --host ADDRESS               Broker bind address (default: 127.0.0.1)
   --after NUMBER --limit NUMBER Paginate messages or events (default: 0 / 50)
   --all                        Include acknowledged inbox messages
@@ -61,10 +70,25 @@ Docker: docker compose up -d --build
 `;
 
 /** Every command the CLI accepts. */
-const COMMANDS = ['init', 'start', 'mcp', 'status', 'agents', 'events', 'lead', 'message', 'messages', 'ack'] as const;
+const COMMANDS = [
+  'init',
+  'start',
+  'mcp',
+  'status',
+  'agents',
+  'events',
+  'teams',
+  'lead',
+  'message',
+  'messages',
+  'ack',
+] as const;
 
 /** A CLI command. */
 type Command = (typeof COMMANDS)[number];
+
+/** A command that reads or controls one team. */
+type TeamCommand = Exclude<Command, 'init' | 'mcp' | 'start' | 'teams'>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
@@ -73,6 +97,8 @@ const DEFAULT_PAGE_LIMIT = 50;
 interface CliOptions {
   /** `--project`: the project directory. */
   readonly project?: string | undefined;
+  /** `--workspace`: the workspace folder whose team to address. */
+  readonly workspace?: string | undefined;
   /** `--name`: the agent identity to act as. */
   readonly name?: string | undefined;
   /** `--provider`: provider label for registration. */
@@ -114,6 +140,19 @@ function isCommand(value: string): value is Command {
  */
 function print(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * Make a `--workspace` value absolute. Windows paths and `file:` URIs pass
+ * through untouched, since the broker (possibly inside a Linux container)
+ * normalizes them; anything relative resolves against the current directory.
+ *
+ * @param workspace - The option value.
+ * @returns An absolute path or URI.
+ */
+function absoluteWorkspace(workspace: string): string {
+  const isAbsolute = path.isAbsolute(workspace) || path.win32.isAbsolute(workspace) || workspace.startsWith('file:');
+  return isAbsolute ? workspace : path.resolve(workspace);
 }
 
 /**
@@ -163,19 +202,23 @@ async function runBroker(config: MeshConfig, options: CliOptions): Promise<void>
 /**
  * Run an MCP bridge until its host disconnects or a signal arrives.
  *
- * @param config - The project configuration.
- * @param name - The agent identity to act as.
+ * @param config - The home project's configuration.
  * @param options - The parsed command-line options.
+ * @throws {Error} When `--role` is given without `--name`.
  */
-async function runBridge(config: MeshConfig, name: string, options: CliOptions): Promise<void> {
+async function runBridge(config: MeshConfig, options: CliOptions): Promise<void> {
+  if (options.name === undefined && options.role !== undefined) {
+    throw new Error('--role applies to --name identities; a session chooses its role with mesh_join.');
+  }
   // Never print anything to stdout here: it is the JSON-RPC channel. All
   // diagnostics, including verbose ones, go to stderr through log.ts.
   const { startMcp } = await import('./mcp.ts');
   const bridge = await startMcp(config, {
-    name,
+    name: options.name,
     provider: options.provider,
     runtime: options.runtime,
     role: options.role,
+    workspace: options.workspace === undefined ? undefined : absoluteWorkspace(options.workspace),
   });
 
   const stop = (): void => {
@@ -232,20 +275,52 @@ async function runMessaging(
  *
  * @param command - The command to run.
  * @param options - The parsed command-line options.
- * @throws {Error} When a required option is missing.
  */
 async function run(command: Command, options: CliOptions): Promise<void> {
   // Only `init` and `start` may create a project; see loadConfig.
-  const config = loadConfig(options.project, { create: command === 'init' || command === 'start' });
+  const home = loadConfig(options.project, { create: command === 'init' || command === 'start' });
   switch (command) {
     case 'init': {
-      print({ project: config.name, directory: config.directory, url: config.url });
+      print({ project: home.name, directory: home.directory, url: home.url });
       return;
     }
     case 'start': {
-      await runBroker(config, options);
+      await runBroker(home, options);
       return;
     }
+    case 'teams': {
+      print(await rpc(home, 'list_teams', {}));
+      return;
+    }
+    case 'mcp': {
+      await runBridge(home, options);
+      return;
+    }
+    case 'status':
+    case 'agents':
+    case 'events':
+    case 'lead':
+    case 'message':
+    case 'messages':
+    case 'ack': {
+      const config =
+        options.workspace === undefined ? home : await openTeamConfig(home, absoluteWorkspace(options.workspace));
+      await runTeamCommand(command, config, options);
+    }
+  }
+}
+
+/**
+ * Run a command that reads or controls one team: the home project, or the
+ * workspace team selected with `--workspace`.
+ *
+ * @param command - The command to run.
+ * @param config - The addressed team's configuration.
+ * @param options - The parsed command-line options.
+ * @throws {Error} When a required option is missing.
+ */
+async function runTeamCommand(command: TeamCommand, config: MeshConfig, options: CliOptions): Promise<void> {
+  switch (command) {
     case 'status': {
       print(await rpc(config, 'team_status', {}));
       return;
@@ -259,7 +334,6 @@ async function run(command: Command, options: CliOptions): Promise<void> {
       return;
     }
     case 'lead':
-    case 'mcp':
     case 'message':
     case 'messages':
     case 'ack': {
@@ -269,8 +343,6 @@ async function run(command: Command, options: CliOptions): Promise<void> {
       }
       if (command === 'lead') {
         print(await rpc(config, 'set_lead', { agent: name }));
-      } else if (command === 'mcp') {
-        await runBridge(config, name, options);
       } else {
         await runMessaging(config, command, name, options);
       }
@@ -288,6 +360,7 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: {
       project: { type: 'string' },
+      workspace: { type: 'string' },
       name: { type: 'string' },
       provider: { type: 'string' },
       runtime: { type: 'string' },

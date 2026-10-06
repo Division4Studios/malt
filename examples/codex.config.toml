@@ -1,3 +1,6 @@
+# A fixed identity on the home project. To join a repository's workspace team
+# instead (where Claude sessions started in that folder meet), append
+# "--workspace", "/absolute/path/to/your/repository" to args.
 [mcp_servers.agentmesh]
 command = "docker"
 args = ["compose", "-f", "/absolute/path/to/agent-mesh/compose.yaml", "exec", "-T", "broker", "node", "src/cli.ts", "mcp", "--project", "/data", "--name", "codex-1", "--provider", "openai", "--runtime", "codex-cli", "--role", "generalist"]

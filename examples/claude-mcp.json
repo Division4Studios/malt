@@ -16,14 +16,10 @@
         "mcp",
         "--project",
         "/data",
-        "--name",
-        "claude-lead",
         "--provider",
         "anthropic",
         "--runtime",
-        "claude-code",
-        "--role",
-        "lead"
+        "claude-code"
       ]
     }
   }

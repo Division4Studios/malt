@@ -20,13 +20,16 @@ Claude Code / Codex / other MCP host
 
 In Docker, `docker compose exec -T` carries the stdio stream into the container; each bridge remains an independent process. The broker alone opens SQLite. Docker Compose supervises the broker process, not the agent models.
 
+One broker serves its home project plus one team per workspace folder. Each workspace team is a complete nested project under the home project's `.agentmesh/teams/<slug>/`, with its own project ID, token and SQLite file. The broker opens a team's store lazily, on `open_team` or on the first authenticated request carrying the team's `X-AgentMesh-Team` header, and gives each team its own waiter registry. Presence sweeps and shutdown cover every open team.
+
 ## Source tour
 
 Read protocol.ts first to see the public operations, then coordination.ts for the worker rules, store.ts and database.ts for persistence, waiters.ts for suspension, and finally broker/client/mcp for transport. Every file opens with a header describing its role, and inline comments explain the important ordering and failure rules.
 
 | Module                | Responsibility                                                             |
 | --------------------- | -------------------------------------------------------------------------- |
-| `src/config.ts`       | Project bootstrap, credentials and persisted identity files                |
+| `src/config.ts`       | Project bootstrap, credentials, persisted and session identities           |
+| `src/teams.ts`        | Workspace normalization, team slugs, nested team projects                  |
 | `src/protocol.ts`     | Provider-neutral validation schemas, error codes and model-facing text     |
 | `src/database.ts`     | SQLite row schemas and validated, typed query helpers                      |
 | `src/store.ts`        | Transactional identity/presence, messaging, acknowledgements, events       |
@@ -38,7 +41,7 @@ Read protocol.ts first to see the public operations, then coordination.ts for th
 | `src/cli.ts`          | Bootstrap, foreground daemon and human CLI commands                        |
 | `src/log.ts`          | Structured stderr-only diagnostics with level filtering                    |
 
-Node.js 24 runs the TypeScript sources directly (type stripping), which keeps the toolchain free of build steps and native modules across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; startup performs this additive migration inside a transaction. Unknown schema versions are rejected.
+Node.js 24 runs the TypeScript sources directly (type stripping), which keeps the toolchain free of build steps and native modules across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; schema 3 adds the `agents.lifetime` column (existing identities become durable). Startup performs these additive migrations inside a transaction. Unknown schema versions are rejected.
 
 ## Transactions and wait delivery
 
@@ -56,7 +59,9 @@ Project initialization creates a random project ID and bearer secret. The databa
 
 Registration reuses an identity only with the correct secret. Another live session using that name is rejected. Once its lease expires or it disconnects, a replacement bridge can register the same identity and inbox. Old session credentials become invalid after replacement. Credentials do not appear in list/status/event responses or broker logs.
 
-Heartbeats run independently of model turns, every 15 seconds by default. An agent becomes OFFLINE after 60 seconds without a heartbeat. In this milestone there are no tasks to reassign. A clean bridge disconnect marks it offline immediately. A native bridge can keep using its existing credentials across a broker restart; recreating the container also terminates container-based bridges, which the MCP host must reconnect.
+A bridge launched without a name uses a **session identity** instead: a generated name and a secret that exists only in the bridge's memory, registered with `ephemeral: true` when the model calls `mesh_join`. It can never reconnect after its bridge exits. A clean disconnect therefore ends it in one transaction: its pending request is retired, unfinished assigned work is reported to the lead as a `worker_left` message, and its lifetime becomes `ended`, which removes it from the roster, broadcasts and messaging and rejects its credentials. A crashed session simply expires to OFFLINE. An ended lead's unread inbox passes to the next lead.
+
+Heartbeats run independently of model turns, every 15 seconds by default. An agent becomes OFFLINE after 60 seconds without a heartbeat. A clean bridge disconnect marks a named identity offline immediately. A native bridge can keep using its existing credentials across a broker restart; recreating the container also terminates container-based bridges, which the MCP host must reconnect.
 
 ## Message semantics
 
@@ -66,7 +71,7 @@ Acknowledged messages remain available for history; retention and pruning are de
 
 ## Local trust model
 
-All RPCs require the project bearer secret and project ID. Agent operations also require the agent secret and current session UUID. Project-authenticated CLI readers may view aggregate status, the roster, and events without registering. HTTP requests from browser origins are rejected. No CORS is enabled. The health endpoint reveals only service health/version.
+All RPCs require the addressed team's bearer secret and project ID; one team's token is rejected by every other team. Agent operations also require the agent secret and current session UUID. The home project's token can open any workspace team (`open_team` returns that team's token), so it is the broker's administrative secret. Project-authenticated CLI readers may view aggregate status, the roster, and events without registering. HTTP requests from browser origins are rejected. No CORS is enabled. The health endpoint reveals only service health/version.
 
 The local OS account and users with Docker access are trusted administrators: they can read project/identity files and inspect the database. This is not tenant isolation or a hostile-agent sandbox. Container credentials live only in the data volume. The broker cannot execute shell commands, change provider approvals, or kill provider processes. Bind to loopback outside Docker; container port publication is loopback-only. Remote hosting and TLS are outside this milestone.
 

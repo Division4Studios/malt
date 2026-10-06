@@ -4,23 +4,35 @@
 
 ## Conventions
 
-MCP tools are bound to the name supplied when the bridge launches. Models do not pass another agent's identity credentials. Names/IDs in `to` designate a recipient, not a sender.
+MCP tools are bound to one identity: the name supplied when the bridge launches, or the session identity that `mesh_join` creates for a bridge launched without a name. Models do not pass another agent's identity credentials. Names/IDs in `to` designate a recipient, not a sender. Every identity belongs to exactly one team: the home project, or the team of one workspace folder.
 
 Arguments are validated at the broker with shared Zod schemas. Unknown fields and invalid values are rejected. Tool results are JSON text in MCP `content`; failures set `isError: true` and include `error.code` and `error.message`.
 
 Internal timestamps are Unix epoch milliseconds. Message/event sequence numbers are monotonically increasing database cursors. IDs such as `ag_...`, `msg_...`, and `req_...` are opaque strings; do not parse their suffixes.
 
+## Joining a team
+
+| Tool        | Arguments                                                                                       | Result                                                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `mesh_join` | Optional `role`: `"worker"` (default, or any descriptive worker role), `"lead"` or `"observer"` | `joined`, `team` (`name`, `workspace`), `agent` (public record) and `state` (coordination view). |
+
+A bridge launched without `--name` registers nothing until `mesh_join`. The call finds the session's workspace folder (the `--workspace` option, else the host's first MCP root, else the `AGENTMESH_WORKSPACE` or `CLAUDE_PROJECT_DIR` environment variable), opens that folder's team, and registers a session identity named after the runtime label plus a random suffix, such as `claude-code-1a2b3c4d`. A worker then checks in automatically.
+
+Before joining, `mesh_list_agents` and `mesh_team_status` already show the folder's team; every other tool returns `NOT_JOINED`. Repeating `mesh_join` with a role of the same kind returns `joined: false` with the current state; a different kind fails with `ALREADY_JOINED`. A named bridge is a member from startup, so the call only confirms its membership. `role: "lead"` becomes orchestrator only while the role is vacant or its holder is disconnected; otherwise it fails with `LEAD_ACTIVE` and registers nothing.
+
 ## Identity, presence and discovery
 
 | Tool               | Arguments                                      | Result                                                                                     |
 | ------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| `mesh_register`    | `{}`                                           | Current automatically registered agent, not a new identity.                                |
-| `mesh_whoami`      | `{}`                                           | Agent ID, name, provider/runtime/role labels, presence, status text, timestamps.           |
-| `mesh_list_agents` | Optional `status`                              | Array of registered peers, including offline identities.                                   |
+| `mesh_register`    | `{}`                                           | Current registered agent (named, or created by `mesh_join`), not a new identity.           |
+| `mesh_whoami`      | `{}`                                           | Agent ID, name, provider/runtime/role labels, presence, status text, lifetime, timestamps. |
+| `mesh_list_agents` | Optional `status`                              | Array of team members, including offline identities; ended sessions are omitted.           |
 | `mesh_team_status` | `{}`                                           | Project, presence counts, blockers, unread count, orchestrator ID, pending-check-in count. |
 | `mesh_set_status`  | `status`, optional `text` up to 500 characters | Updated agent. Workers need an idle grant to set IDLE.                                     |
 
 Presence values: STARTING, IDLE, WORKING, WAITING, BLOCKED, REVIEWING, NEEDS_INPUT, OFFLINE, FAILED, STOPPED. Presence labels do not launch, pause, or kill processes. WORKING/REVIEWING are agent reports; heartbeats measure bridge connectivity.
+
+Lifetime values: `durable` (a named identity whose secret is saved; it can always reconnect), `session` (created by `mesh_join`; its secret exists only in the bridge) and `ended` (a session whose bridge disconnected). An ended session never returns: it is omitted from the roster, status counts and broadcasts, and messages to it fail with `AGENT_LEFT`.
 
 ## Messages
 
@@ -33,7 +45,7 @@ Presence values: STARTING, IDLE, WORKING, WAITING, BLOCKED, REVIEWING, NEEDS_INP
 | `mesh_ack_message`         | `id`                                               | Idempotent acknowledgement for the caller's own inbox.               |
 | `mesh_reply`               | `id`, `body`                                       | A direct message to the original sender, with `reply_to` linking it. |
 
-Bodies are 1–32,000 characters. Pages contain 1–100 messages. Supported public types: direct, task, handoff, question, blocker, review_request. Broadcast and work_request are broker-generated types. Broadcast recipients are captured at send time; future registrations do not receive historical broadcasts.
+Bodies are 1–32,000 characters. Pages contain 1–100 messages. Supported public types: direct, task, handoff, question, blocker, review_request. Broadcast, work_request and worker_left are broker-generated types. A `worker_left` message tells the lead that a session ended while it still held assigned work; its body is JSON with `worker`, `instructions` and `action`. Broadcast recipients are captured at send time; future registrations do not receive historical broadcasts.
 
 For a handoff, use this nested shape:
 
@@ -72,21 +84,21 @@ Instructions use the body limit; decision reasons use the 500-character limit. N
 
 A snapshot includes:
 
-| Field                | Meaning                                                            |
-| -------------------- | ------------------------------------------------------------------ |
-| `agent_id`           | Worker identity.                                                   |
-| `phase`              | CHECKIN_REQUIRED, AWAITING_LEAD, WORK_ASSIGNED or IDLE_APPROVED.   |
-| `request_id`         | Current or most recently decided request; null after invalidation. |
-| `request_message_id` | Notification to the lead, when one was sent.                       |
-| `summary`            | Worker's check-in/completion summary.                              |
-| `instructions`       | Assigned instructions, otherwise null.                             |
-| `decision_note`      | Lead's decision reason, otherwise null.                            |
-| `revision`           | Monotonically increasing per-worker coordination version.          |
-| `updated_at`         | Last coordination mutation.                                        |
-| `orchestrator`       | Current lead's public agent record, or null.                       |
-| `unreadMessages`     | Unacknowledged inbox count.                                        |
-| `participant`        | worker, orchestrator or observer.                                  |
-| `nextAction`         | Suggested next protocol action; unread messages take precedence.   |
+| Field                | Meaning                                                                |
+| -------------------- | ---------------------------------------------------------------------- |
+| `agent_id`           | Worker identity.                                                       |
+| `phase`              | CHECKIN_REQUIRED, AWAITING_LEAD, WORK_ASSIGNED or IDLE_APPROVED.       |
+| `request_id`         | Current or most recently decided request; null after invalidation.     |
+| `request_message_id` | Notification to the lead, when one was sent.                           |
+| `summary`            | Worker's check-in/completion summary.                                  |
+| `instructions`       | Assigned instructions, otherwise null.                                 |
+| `decision_note`      | Lead's decision reason, otherwise null.                                |
+| `revision`           | Monotonically increasing per-worker coordination version.              |
+| `updated_at`         | Last coordination mutation.                                            |
+| `orchestrator`       | Current lead's public agent record; null if none or its session ended. |
+| `unreadMessages`     | Unacknowledged inbox count.                                            |
+| `participant`        | worker, orchestrator or observer.                                      |
+| `nextAction`         | Suggested next protocol action; unread messages take precedence.       |
 
 Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fields and `timedOut`. A timeout is not a state transition. See [the workflow guide](workflow.md#what-a-wait-returns) for all wake reasons.
 
@@ -105,6 +117,12 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 | `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                  |
 | `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.  |
 | `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.   |
+| `NOT_JOINED`                    | The session has not called `mesh_join`; join when asked.    |
+| `ALREADY_JOINED`                | The session already takes part in another way; start anew.  |
+| `LEAD_ACTIVE`                   | The team has a live lead; join as a worker or use the CLI.  |
+| `NO_WORKSPACE`                  | No workspace folder; pass `--workspace` or set an env var.  |
+| `AGENT_LEFT`                    | The recipient's session ended; it can never read messages.  |
+| `UNKNOWN_TEAM`                  | The team header names no team on this broker.               |
 | `AGENT_ACTIVE`                  | Another bridge holds the same name's live lease.            |
 | `IDENTITY_CONFLICT`             | Name exists with a different identity secret.               |
 | `UNAUTHORIZED_AGENT`            | Secret/session mismatch, including a replaced session.      |
@@ -128,8 +146,8 @@ This is **not** an HTTP MCP endpoint. MCP runs over stdio. The bridge uses `POST
 }
 ```
 
-Headers carry `Authorization: Bearer <project token>` and `X-AgentMesh-Project: <project ID>`. The whole HTTP body is capped at 256 KiB. Browser-origin calls are rejected; CORS is not enabled.
+Headers carry `Authorization: Bearer <project token>` and `X-AgentMesh-Project: <project ID>`. A request to a workspace team adds `X-AgentMesh-Team: <slug>` and uses that team's own token and project ID; without the header a request addresses the home project. The whole HTTP body is capped at 256 KiB. Browser-origin calls are rejected; CORS is not enabled.
 
-Operations mostly match tool names without `mesh_`. Additional internal operations are register, heartbeat, disconnect, events and set_lead. Project-authenticated CLI readers can request aggregate status/roster/events without agent credentials. Project-authenticated `set_lead` is the human control path and rejects agent credentials. Local administrators can read the project secret; this is not a security boundary against a hostile OS user.
+Operations mostly match tool names without `mesh_`. Additional internal operations are register, heartbeat, disconnect, events and set_lead. `register` accepts `ephemeral: true` for a session identity, which `disconnect` then ends; a session registering with role `lead` claims the orchestrator role in the same transaction. Two operations exist only on the home project and need only its token: `open_team` (`workspace`: an absolute path or `file:` URI) returns `team`, `name`, `workspace`, `projectId` and `token`, creating the team on first use; `list_teams` returns each team's slug, name and folder. Project-authenticated CLI readers can request aggregate status/roster/events without agent credentials. Project-authenticated `set_lead` is the human control path and rejects agent credentials. Local administrators can read the project secret; this is not a security boundary against a hostile OS user.
 
 `GET /health` is unauthenticated and returns service health/version only. Errors contain a stable code and message, not a traceback or credential dump.
