@@ -207,10 +207,11 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
   const development = interleaveDevelopment(input, intents.splice(developmentStart));
-  // One development candidate, then planning, leaves room at the default cap of two.
-  intents.push(...development.slice(0, 1));
+  // At most one development job, running or offered, precedes planning, leaving room at the default cap of two.
+  const leading = live.some((job) => job.kind === 'develop') ? 0 : 1;
+  intents.push(...development.slice(0, leading));
   scheduleGroup4(input, live, intents, append);
-  intents.push(...development.slice(1));
+  intents.push(...development.slice(leading));
 
   scheduleGroup5(input, live, intents, append);
   const learning = input.jobs.findLast((job) => job.kind === 'learn');

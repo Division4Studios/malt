@@ -257,3 +257,30 @@ await test('dependency completion attempts cooldown and scope replacements still
   const replacedFeature = feature(2, { phase: 'queued', scopeReplacement: randomUUID() });
   assert.deepEqual(schedule([replacedFeature], []), []);
 });
+
+await test('running development counts toward the slot that queued planning competes for', () => {
+  const a = feature(1);
+  const b = feature(2, { phase: 'queued' });
+  const c = feature(3, {
+    phase: 'refining',
+    productPlan: { ...plan, outcome: 'success', skillActions: [], instructionReceipts: [] },
+  });
+  const a1 = task(a, { phase: 'development', developer: 'developer-1' });
+  const a2 = task(a);
+  const running = [job({ role: 'developer-1', taskId: a1.id, featureId: a.id })];
+  const result = schedule([a, b, c], [a1, a2], running);
+  assert.deepEqual(
+    result.map((intent) => [intent.kind, intent.role]),
+    [
+      ['plan', 'product-owner'],
+      ['refine', 'team-lead'],
+      ['develop', 'developer-2'],
+    ],
+  );
+  assert.deepEqual(schedule([a, b, c], [a1, a2], running), result);
+  const reviewing = schedule([a, b], [a1, a2, task(a, { phase: 'review' })], running);
+  assert.deepEqual(
+    reviewing.map((intent) => intent.kind),
+    ['review', 'review', 'plan', 'develop'],
+  );
+});
