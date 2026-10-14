@@ -268,7 +268,10 @@ await test('provider discovery preserves existing instructions and is idempotent
   assert.equal(readFileSync(agents, 'utf8'), first);
   assert.ok(first.startsWith('# Existing rules\n\nUse the project test suite.\n'));
   assert.ok(readFileSync(claude, 'utf8').startsWith('# Claude project instructions\n'));
-  assert.equal(first.split('<!-- mlt:project-context:start -->').length, 2);
+  assert.equal(first.split('<!-- malt:project-context:start -->').length, 2);
+  writeFileSync(agents, first.replaceAll('<!-- malt:', '<!-- mlt:'));
+  ensureProjectGuidance(config.root);
+  assert.equal(readFileSync(agents, 'utf8'), first, 'Legacy guidance upgrades without duplicating user instructions.');
   assert.match(first, /\.malt\/skills\/README\.md/v);
   writeFileSync(agents, '<!-- mlt:project-context:start -->\nmissing closing marker');
   assert.throws(() => {

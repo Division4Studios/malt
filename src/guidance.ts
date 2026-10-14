@@ -12,9 +12,9 @@ import { hasErrorCode } from './errors.ts';
 import { writeAtomic } from './summary.ts';
 
 /** Opening marker for provider discovery instructions. */
-const BEGIN = '<!-- mlt:project-context:start -->';
+const BEGIN = '<!-- malt:project-context:start -->';
 /** Closing marker; content outside the pair belongs to the project. */
-const END = '<!-- mlt:project-context:end -->';
+const END = '<!-- malt:project-context:end -->';
 /** Shared provider instructions; source snapshots never become instructions. */
 const BLOCK = [
   BEGIN,
@@ -72,8 +72,11 @@ export function ensureProjectGuidance(root: string): void {
         throw error;
       }
     }
-    const start = previous.indexOf(BEGIN);
-    const end = previous.indexOf(END);
+    const normalized = previous
+      .replaceAll('<!-- mlt:project-context:start -->', () => BEGIN)
+      .replaceAll('<!-- mlt:project-context:end -->', () => END);
+    const start = normalized.indexOf(BEGIN);
+    const end = normalized.indexOf(END);
     const hasStart = start !== -1;
     const hasEnd = end !== -1;
     if (hasStart !== hasEnd || (hasStart && end < start)) {
@@ -81,8 +84,8 @@ export function ensureProjectGuidance(root: string): void {
     }
     const separator = previous === '' ? '' : '\n\n';
     const updated = hasStart
-      ? `${previous.slice(0, start)}${BLOCK}${previous.slice(end + END.length)}`
-      : `${previous}${separator}${BLOCK}\n`;
+      ? `${normalized.slice(0, start)}${BLOCK}${normalized.slice(end + END.length)}`
+      : `${normalized}${separator}${BLOCK}\n`;
     if (updated !== previous) {
       writeAtomic(file, updated);
     }

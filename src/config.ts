@@ -239,7 +239,7 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
     raw = readJsonFile(file);
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) {
-      throw new Error(`No MALT project at ${root}. Run agentmesh init first.`, { cause: error });
+      throw new Error(`No MALT project at ${root}. Run malt init first.`, { cause: error });
     }
     throw error;
   }
