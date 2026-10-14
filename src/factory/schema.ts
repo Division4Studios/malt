@@ -8,6 +8,7 @@
 import { z } from 'zod';
 
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
+import { subscriptionWindowsSchema } from './quota-windows.ts';
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
 /** Extra reviewed project skills attached to one stage. */
@@ -324,6 +325,7 @@ export const capacitySchema = z.object({
   cooldownUntil: z.number(),
   subscriptionUsedPercent: z.number().min(0).max(PERCENT_MAX).nullable(),
   subscriptionResetAt: z.number().nullable(),
+  subscriptionWindows: subscriptionWindowsSchema.optional().catch([]),
   telemetrySource: z.string().nullable(),
   updatedAt: z.number(),
 });
