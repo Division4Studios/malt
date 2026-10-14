@@ -10,14 +10,14 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { githubRunner } from '../github.ts';
+import { githubRunner, readIssueCorpus } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
 import { reconcileDependencies } from './dependencies.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
 import type { MeshConfig } from '../config.ts';
-import type { GitHubRunner, ProjectGitHub } from '../github.ts';
+import type { GitHubRunner, IssueCorpusPage, ProjectGitHub, issueCorpusInput } from '../github.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
 /** Named request hash length bound. */
@@ -75,6 +75,8 @@ const prSchema = z.object({
 export type PullRequest = z.output<typeof prSchema>;
 /** Injectable external delivery boundary, including fixture GitHub merges. */
 export interface DeliveryRemote {
+  /** Optional additive read seam for bounded intake scans and freshness checks. */
+  readonly issueCorpus?: (input: z.input<typeof issueCorpusInput>, number?: number) => Promise<IssueCorpusPage>;
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
@@ -113,6 +115,18 @@ export class GitHubDelivery implements DeliveryRemote {
     this.mesh = mesh;
     this.github = github;
     this.runner = runner;
+  }
+
+  /**
+   * Read a bounded issue page, or re-read one exact issue, without mutations.
+   *
+   * @param input - Expected repository node ID and explicit paging policy.
+   * @param number - Optional repository-local issue number.
+   * @returns Current observed revisions and explicit completeness.
+   */
+  public async issueCorpus(input: z.input<typeof issueCorpusInput>, number?: number): Promise<IssueCorpusPage> {
+    const connection = await this.connection();
+    return readIssueCorpus(this.runner, connection.repository, input, number);
   }
 
   /**

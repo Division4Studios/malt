@@ -22,6 +22,9 @@ import { timestamp, writeAtomic } from './summary.ts';
 import type { MeshConfig } from './config.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
+export { readIssueCorpus, issueCorpusInput } from './github-issues.ts';
+export type { ObservedIssue, IssueCorpusPage } from './github-issues.ts';
+
 /** Factory workflow options in the dedicated MALT Status field. */
 export const DELIVERY_STATUSES = [
   'Backlog',

@@ -203,3 +203,32 @@ Head listings include a bounded `changes` page with the exact supplied base, sea
 `mesh_github_sync` accepts `limit` (1–1000) and optional `cached` (default `false`). Native reads use pages of at most 100; automatic imports may reuse a sufficient snapshot for two minutes. `mltStatus` contains the value from the selected field ID, independent of its display name.
 
 `mesh_factory_instruct` accepts optional UUID `requestId`. Reusing it with identical role, scope, body and replan intent returns the committed decision without duplicate instructions, notifications, scope replacements or cancellation. Changed content under that ID is rejected. The PWA keeps stable request IDs for objective and instruction editor retries; offline controls are never replayed automatically. Browser status and control responses omit internal job claim secrets.
+
+## Factory issue corpus seam
+
+`GitHubDelivery.issueCorpus(input, number?)` is an internal read-only adapter,
+not an HTTP or MCP mutation. `input` requires the expected verified GitHub
+repository node ID and an explicit ISO `closedSince` timestamp. Each call
+re-verifies that the connected repository resolves to that node ID, then queries
+that repository node. Repository renames remain valid; transfers do not.
+
+A call scans one native issue-only page (pull requests are excluded), with
+`first` 1�100 (default 50) and an optional `after` cursor. It returns all open
+issues on that page and closed issues whose `closedAt` is at least `closedSince`.
+An old closed issue can therefore produce an empty page with a continuation.
+Follow `nextCursor` within the caller's scan budget; `complete: false` explicitly
+signals remaining native pages or incomplete labels/child links. This is a live
+scan, not an atomic snapshot across pages.
+
+Items contain node ID, number, title, body, state, updatedAt, sorted labels,
+parent and sorted child identities. `revision` is a SHA-256 hash of these fields;
+label/child ordering and unrelated fields do not affect it. Labels and children
+are bounded to 100 each. A truncated nested connection has `revision: null`
+and must not be used for freshness decisions. Title/body ceilings are 1,024 /
+100,000 characters; oversized data fails rather than silently hashing prefixes.
+
+Supplying `number` re-reads one current issue regardless of its closure date,
+returning one complete revision or a fixed bounded `GITHUB_UNAVAILABLE` error
+for missing, transferred, incomplete, malformed or permission-denied responses.
+CLI requests retain the existing 30-second and 4-MiB limits. No issue text is
+executed or interpolated into query documents, and these reads mutate no state.
