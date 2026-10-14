@@ -151,10 +151,9 @@ Factory state is separate from cooperative check-in state. Project-authenticated
 | `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
 
 `factory_reorder_objective {featureId, beforeFeatureId?, afterFeatureId?, expectedRevision, requestId?}`
-(CLI: `factory-reorder-objective --file FILE`) requires exactly one anchor. Only the operator,
-designated project lead or authenticated web gateway can move objectives; ordinary agents cannot.
-It returns `{features, orderRevision}` with zero-based global `rank` values, also exposed by
-`factory_status`. Enumeration remains insertion ordered; consumers sort by rank explicitly.
+requires exactly one anchor. Only the operator, designated project lead or authenticated web
+gateway can move objectives; ordinary agents cannot. There is no CLI alias yet. It returns
+`{features, orderRevision}` with zero-based global `rank` values, also exposed by `factory_status`. Enumeration remains insertion ordered; consumers sort by rank explicitly.
 Legacy objectives receive ranks by `createdAt`, then insertion rowid. New objectives append and
 advance the revision. Moves atomically advance the revision and preserve all other objective and
 running-job state. Unknown/foreign IDs, done or superseded targets/anchors, self moves and stale

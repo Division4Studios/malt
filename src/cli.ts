@@ -54,7 +54,6 @@ Usage: node src/cli.ts <command> [options]
   factory-pause               Stop managed processes and pause new dispatch
   factory-status              Inspect factory ledger as JSON
   factory-request --body TEXT  Queue an objective for product owner and lead
-  factory-reorder-objective --file FILE  Move an unfinished objective
   factory-retry --file FILE    Resume a resolved blocked task or feature
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
@@ -97,7 +96,6 @@ const COMMANDS = [
   'factory-status',
   'factory-request',
   'factory-retry',
-  'factory-reorder-objective',
   'factory-instruct',
   'init',
   'start',
