@@ -41,20 +41,13 @@ Set `providers.codex.models` or `providers.claude.models` with account-available
 
 Without a saved policy, a project uses **legacy implicit routing**: tiers map to the provider `models` above, otherwise to the authenticated CLI default, and effort is the CLI default with unknown support. `factory_status` reports this as `modelPolicy.mode: "legacy"`.
 
-An explicit policy is a separate, revisioned project setting saved with `factory-model-policy --file policy.json` (RPC `factory_model_policy`):
+An explicit policy is a separate, revisioned project setting saved through the authenticated project control `factory_model_policy` (RPC or the web console's project control route):
 
 ```json
 {
   "expectedRevision": "<modelPolicy.revision from factory-status>",
   "policy": {
     "models": [
-      {
-        "id": "codex-fast",
-        "provider": "codex",
-        "model": "gpt-fast",
-        "capability": "small",
-        "efforts": ["low", "medium"]
-      },
       {
         "id": "claude-deep",
         "provider": "claude",
@@ -64,7 +57,6 @@ An explicit policy is a separate, revisioned project setting saved with `factory
       }
     ],
     "defaults": {
-      "small": { "model": "codex-fast", "effort": "low" },
       "advanced": { "model": "claude-deep", "effort": "high" }
     }
   }

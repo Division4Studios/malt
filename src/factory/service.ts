@@ -13,8 +13,6 @@ import { AdmissionPool } from './admission.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
-  applyPolicyControl,
-  isPolicyControl,
   recordCancellation,
   shouldParkForMemory,
   recoverUnownedClaims,
@@ -26,7 +24,7 @@ import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
-import { modelPolicyBlocker, modelPolicyState, modelPolicyView } from './model-policy.ts';
+import { applyPolicyControl, assertLegacyAdmission, isPolicyControl, modelPolicyView } from './model-policy.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { runAgent } from './providers.ts';
@@ -50,7 +48,7 @@ import type { ProjectGitHub } from '../github.ts';
 import type { ProjectLearning } from '../learning.ts';
 import type { Store } from '../store.ts';
 import type { FactoryContext, ExecutedJob } from './context.ts';
-import type { PolicyControl } from './controls.ts';
+import type { PolicyControl } from './model-policy.ts';
 import type { ProcessRunner } from './processes.ts';
 import type { AgentRunner } from './providers.ts';
 import type { DeliveryRemote } from './remote.ts';
@@ -194,7 +192,7 @@ export class FactoryService {
       error: this.error,
       resources: this.probe(),
       settings,
-      modelPolicy: modelPolicyView(modelPolicyState(this.repository.store)),
+      modelPolicy: modelPolicyView(this.repository.store),
       features: this.repository.features(),
       tasks: this.repository.tasks(),
       jobs: this.repository.jobs(),
@@ -286,7 +284,7 @@ export class FactoryService {
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
     if (isPolicyControl(operation)) {
-      return this.controlPolicy(operation, parsed);
+      return this.controlSetup(operation, parsed);
     }
     switch (operation) {
       case 'factory_read_source': {
@@ -321,8 +319,7 @@ export class FactoryService {
         return queueObjective(this.repository, parsed);
       }
       case 'factory_capacity': {
-        recordCapacity(this.configured(), parsed);
-        return this.status();
+        return this.controlCapacity(parsed);
       }
       case 'factory_cancel_job': {
         return this.controlCancelJob(parsed);
@@ -363,11 +360,7 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
-    const policyBlocker = modelPolicyBlocker(modelPolicyState(this.repository.store));
-    if (policyBlocker !== null) {
-      this.error = policyBlocker;
-      return;
-    }
+    assertLegacyAdmission(this.repository.store);
     if (shouldParkForMemory(context, this.running, this.probe())) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
@@ -711,17 +704,32 @@ export class FactoryService {
   }
 
   /**
-   * Save paused project policy and clear the previous scheduling diagnostic.
+   * Handle the validated paused-only settings or model policy control.
    *
    * @param operation - Selected policy control.
    * @param parsed - Validated control input.
-   * @returns Updated operator status.
+   * @returns Durable control result.
+   * @throws {MeshError} When work is active or unsettled, or a policy revision is stale.
    */
-  private controlPolicy(operation: PolicyControl, parsed: unknown): unknown {
-    const isSettling = this.running.size > 0 || this.driving !== null;
-    applyPolicyControl({ mesh: this.mesh, repository: this.repository, isSettling }, operation, parsed);
+  private controlSetup(operation: PolicyControl, parsed: unknown): unknown {
+    if (this.repository.active() || this.running.size > 0) {
+      throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
+    }
+    applyPolicyControl({ mesh: this.mesh, repository: this.repository }, operation, parsed);
     this.context = null;
     this.error = null;
+    return this.status();
+  }
+
+  /**
+   * Handle the validated factory_capacity operator control.
+   *
+   * @param parsed - Validated control input.
+   * @returns Durable control result.
+   * @throws {MeshError} When setup, role or task gates reject the request.
+   */
+  private controlCapacity(parsed: unknown): unknown {
+    recordCapacity(this.configured(), parsed);
     return this.status();
   }
 

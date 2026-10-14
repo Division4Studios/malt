@@ -68,6 +68,19 @@ function open(mesh: MeshConfig, options: Partial<FactoryOptions> = {}): { store:
 }
 
 /**
+ * Build a persisted job record.
+ *
+ * @param fields - Fields differing from a running learning claim.
+ * @returns Validated job.
+ */
+function job(fields: Record<string, unknown>): z.output<typeof jobSchema> {
+  const identity = { id: randomUUID(), role: 'learning-steward', provider: 'codex', kind: 'learn' };
+  const lease = { state: 'running', startedAt: Date.now(), finishedAt: null, expiresAt: Date.now() + 60_000 };
+  const evidence = { token: randomUUID(), taskId: null, featureId: null, reservation: 0, usageTokens: null, pid: null };
+  return jobSchema.parse({ ...identity, ...lease, ...evidence, head: null, base: null, summary: null, ...fields });
+}
+
+/**
  * Read the operator policy view from status.
  *
  * @param factory - Selected project's supervisor.
@@ -131,30 +144,24 @@ await test('explicit policy validates atomically, rejects stale revisions and pr
   assert.equal(legacy.admission.state, 'legacy');
   assert.match(legacy.legacyRouting ?? '', /CLI default.*unknown/v);
 
+  const [head, ...rest] = policy.models;
+  const first = (fields: object): unknown => ({ ...policy, models: [{ ...head, ...fields }, ...rest] });
+  const defaults = (value: object): unknown => ({ ...policy, defaults: value });
   const invalid: [string, unknown][] = [
     ['duplicate id', { ...policy, models: [...policy.models, { ...policy.models[2], model: 'other' }] }],
     ['duplicate native model', { ...policy, models: [...policy.models, { ...policy.models[2], id: 'again' }] }],
-    [
-      'duplicate effort',
-      { ...policy, models: [{ ...policy.models[0], efforts: ['low', 'low'] }, ...policy.models.slice(1)] },
-    ],
-    ['unknown reference', { ...policy, defaults: { small: { model: 'missing', effort: null } } }],
-    ['disabled default', { ...policy, models: [{ ...policy.models[0], enabled: false }, ...policy.models.slice(1)] }],
-    ['capability below tier', { ...policy, defaults: { advanced: { model: 'codex-fast', effort: 'low' } } }],
-    ['effort not allowed', { ...policy, defaults: { small: { model: 'codex-fast', effort: 'max' } } }],
-    [
-      'provider default with explicit efforts',
-      { ...policy, defaults: { small: { model: 'codex-fast', effort: null } } },
-    ],
-    ['explicit effort without choices', { ...policy, defaults: { standard: { model: 'codex-plain', effort: 'low' } } }],
-    ['no defaults', { ...policy, defaults: {} }],
-    ['unknown effort', { ...policy, models: [{ ...policy.models[0], efforts: ['turbo'] }, ...policy.models.slice(1)] }],
-    [
-      'self-declared verification',
-      { ...policy, models: [{ ...policy.models[0], effortSupport: 'verified' }, ...policy.models.slice(1)] },
-    ],
-    ['option-like model', { ...policy, models: [{ ...policy.models[0], model: '--yolo' }, ...policy.models.slice(1)] }],
-    ['whitespace model', { ...policy, models: [{ ...policy.models[0], model: 'a b' }, ...policy.models.slice(1)] }],
+    ['duplicate effort', first({ efforts: ['low', 'low'] })],
+    ['unknown reference', defaults({ small: { model: 'missing', effort: null } })],
+    ['disabled default', first({ enabled: false })],
+    ['capability below tier', defaults({ advanced: { model: 'codex-fast', effort: 'low' } })],
+    ['effort not allowed', defaults({ small: { model: 'codex-fast', effort: 'max' } })],
+    ['provider default with explicit efforts', defaults({ small: { model: 'codex-fast', effort: null } })],
+    ['explicit effort without choices', defaults({ standard: { model: 'codex-plain', effort: 'low' } })],
+    ['no defaults', defaults({})],
+    ['unknown effort', first({ efforts: ['turbo'] })],
+    ['self-declared verification', first({ effortSupport: 'verified' })],
+    ['option-like model', first({ model: '--yolo' })],
+    ['whitespace model', first({ model: 'a b' })],
     ['empty models', { models: [], defaults: {} }],
   ];
   for (const [name, candidate] of invalid) {
@@ -194,26 +201,7 @@ await test('explicit policy validates atomically, rejects stale revisions and pr
     code: 'FACTORY_GATED',
   });
   factory.repository.setActive(false);
-  const claim = jobSchema.parse({
-    id: randomUUID(),
-    role: 'learning-steward',
-    provider: 'codex',
-    kind: 'learn',
-    taskId: null,
-    featureId: null,
-    token: randomUUID(),
-    state: 'running',
-    startedAt: Date.now(),
-    finishedAt: null,
-    expiresAt: Date.now() + 60_000,
-    reservation: 0,
-    usageTokens: null,
-    pid: null,
-    head: null,
-    base: null,
-    summary: null,
-    artifact: mesh.root,
-  });
+  const claim = job({ artifact: mesh.root });
   assert.ok(settings !== null);
   assert.ok(factory.repository.claim(claim, settings));
   await assert.rejects(
@@ -243,27 +231,10 @@ await test('policy survives restart, existing projects load as legacy and revisi
 
   const previous = open(first);
   await previous.factory.execute('factory_setup', setup);
-  const history = jobSchema.parse({
-    id: randomUUID(),
-    role: 'developer-1',
-    provider: 'claude',
-    routing: { tier: 'standard', model: null, reason: 'Historical CLI default.', skillNames: ['factory-session'] },
-    kind: 'develop',
-    taskId: null,
-    featureId: null,
-    token: randomUUID(),
-    state: 'succeeded',
-    startedAt: 1,
-    finishedAt: 2,
-    expiresAt: 2,
-    reservation: 0,
-    usageTokens: null,
-    pid: null,
-    head: null,
-    base: null,
-    summary: 'Historical work.',
-    artifact: first.root,
-  });
+  const routing = { tier: 'standard', model: null, reason: 'Historical CLI default.', skillNames: ['factory-session'] };
+  const settled = { state: 'succeeded', startedAt: 1, finishedAt: 2, expiresAt: 2, summary: 'Historical work.' };
+  const historical = { role: 'developer-1', provider: 'claude', kind: 'develop', artifact: first.root };
+  const history = job({ ...historical, ...settled, routing });
   run(
     previous.store.db,
     'INSERT INTO factory_jobs VALUES(?,?,?,?)',
@@ -283,7 +254,7 @@ await test('policy survives restart, existing projects load as legacy and revisi
   assert.equal(legacy.mode, 'legacy');
   assert.deepEqual(upgraded.factory.repository.config(), settings);
   assert.deepEqual(
-    upgraded.factory.repository.jobs().find((job) => job.id === history.id),
+    upgraded.factory.repository.jobs().find((entry) => entry.id === history.id),
     history,
   );
   await upgraded.factory.execute('factory_model_policy', { expectedRevision: legacy.revision, policy });
@@ -328,24 +299,11 @@ await test('explicit policy parks admission with an actionable reason and never 
     await Promise.resolve();
     throw new Error('Parked admission must not reach this boundary.');
   };
+  const stages = { verify: unused, readyIssues: unused, provision: unused, pullRequest: unused, inspect: unused };
   const { store, factory } = open(mesh, {
     agent: unused,
     resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
-    remote: {
-      verify: unused,
-      readyIssues: async () => {
-        await Promise.resolve();
-        return [];
-      },
-      provision: unused,
-      pullRequest: unused,
-      inspect: unused,
-      merge: unused,
-      parentComplete: unused,
-      effect: async () => {
-        await Promise.resolve();
-      },
-    },
+    remote: { ...stages, merge: unused, parentComplete: unused, effect: unused },
   });
   defer(async () => {
     await factory.close();

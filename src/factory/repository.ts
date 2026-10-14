@@ -15,7 +15,6 @@ import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
 import { InstructionLedger } from './instructions.ts';
-import { prepareModelPolicy } from './model-policy.ts';
 import {
   LEASE_MS,
   capacitySchema,
@@ -96,7 +95,6 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_instructions (id TEXT PRIMARY KEY, role TEXT NOT NULL, task_id TEXT, body TEXT NOT NULL, created_at INTEGER NOT NULL);
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
-    prepareModelPolicy(store);
     this.instructionLedger = new InstructionLedger(store);
   }
 

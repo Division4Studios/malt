@@ -26,7 +26,6 @@ export const FACTORY_COMMANDS = [
   'factory-instruct',
   'factory-cancel-job',
   'factory-capacity',
-  'factory-model-policy',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -44,7 +43,6 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-instruct': 'factory_instruct',
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
-  'factory-model-policy': 'factory_model_policy',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([
@@ -56,7 +54,6 @@ const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-instruct',
   'factory-cancel-job',
   'factory-capacity',
-  'factory-model-policy',
 ]);
 
 /**
