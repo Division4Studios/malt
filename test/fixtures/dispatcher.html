@@ -26,7 +26,7 @@
     const state = {
       project: { id: 'fixture' },
       factory: { active: false, tasks: [task], jobs: [], triage: [] },
-      github: { repository: 'fixture/app' },
+      github: { connection: { repository: 'fixture/app' } },
     };
     let selected;
     const actions = {
@@ -39,6 +39,10 @@
     const card = content.querySelector('.triage-card');
     card.open = true;
     check(content.querySelectorAll('.triage-action').length === 6, 'six explicit actions');
+    check(
+      content.querySelector('a').getAttribute('href') === 'https://github.com/fixture/app/issues/13',
+      'connected issue reference',
+    );
     const buttons = [...content.querySelectorAll('button')];
     buttons.find((button) => button.textContent === 'Ask the lead').click();
     check(selected.action === 'investigate' && selected.item.id === task.id, 'exact task and action forwarded');

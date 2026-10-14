@@ -40,8 +40,6 @@ export type TriageAction = keyof typeof TRIAGE_ACTIONS;
 const CARD_LIMIT = 40;
 /** Short human-readable card titles. */
 const TITLE_LIMIT = 160;
-/** Public disclosure state survives live snapshots, isolated by selected project. */
-const expansion = { project: '', cards: new Set<string>(), reports: new Set<string>() };
 
 /**
  * Latest durable disposition is distinct from actual task progress.
@@ -78,7 +76,7 @@ export function triageLabel(task: Data, decisions: Data[]): string {
  */
 function references(task: Data, state: Snapshot): HTMLElement {
   const row = element('div', 'triage-refs');
-  const repository = text(state.github, 'repository');
+  const repository = text(child(state.github, 'connection'), 'repository');
   if (/^[\w\-.]+\/[\w\-.]+$/v.test(repository)) {
     const issue = element('a', '', `ISSUE ${String(number(task, 'issue'))}`);
     issue.href = `https://github.com/${repository}/issues/${String(number(task, 'issue'))}`;
@@ -110,15 +108,9 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   const { state, actions, decisions } = context;
   const card = element('details', 'triage-card');
   const id = text(task, 'id');
-  card.open = expansion.cards.has(id);
-  card.addEventListener('toggle', () => {
-    if (card.open) {
-      expansion.cards.add(id);
-    } else {
-      expansion.cards.delete(id);
-    }
-  });
+  card.dataset['queueKey'] = `triage:${id}`;
   const summary = element('summary');
+  summary.dataset['queueFocus'] = `triage:${id}`;
   const issue = String(number(task, 'issue'));
   summary.append(
     element('span', 'triage-signal', '◇'),
@@ -167,14 +159,7 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
     );
   }
   const details = element('details', 'triage-evidence');
-  details.open = expansion.reports.has(id);
-  details.addEventListener('toggle', () => {
-    if (details.open) {
-      expansion.reports.add(id);
-    } else {
-      expansion.reports.delete(id);
-    }
-  });
+  details.dataset['queueKey'] = `report:${id}`;
   details.append(element('summary', '', 'Read complete blocker report'), renderReport(error));
   body.append(controls, details);
   card.append(summary, body);
@@ -189,12 +174,6 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
  * @returns Accessible triage workspace.
  */
 export function triagePanel(state: Snapshot, actions: Actions): HTMLElement {
-  const project = text(state.project, 'id');
-  if (expansion.project !== project) {
-    expansion.project = project;
-    expansion.cards.clear();
-    expansion.reports.clear();
-  }
   const panel = element('section', 'triage-hub');
   panel.setAttribute('aria-label', 'Dispatcher triage');
   const tasks = records(state.factory['tasks']).filter((task) => {
