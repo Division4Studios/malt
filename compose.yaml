@@ -3,11 +3,13 @@ services:
     build: .
     image: agentmesh:local
     init: true
+    user: '${MALT_DOCKER_UID:-1000}:${MALT_DOCKER_GID:-1000}'
     pids_limit: 256
     mem_limit: ${MALT_DOCKER_MEMORY:-4g}
     cpus: ${MALT_DOCKER_CPUS:-2.0}
     restart: unless-stopped
     environment:
+      HOME: ${MALT_PROVIDER_HOME:-/home/node}
       AGENTMESH_PROJECT_NAME: ${AGENTMESH_PROJECT_NAME:-agentmesh}
       AGENTMESH_LOG_LEVEL: ${AGENTMESH_LOG_LEVEL:-debug}
       AGENTMESH_HOST_ROOT: ${AGENTMESH_WORKSPACE_ROOT:-}

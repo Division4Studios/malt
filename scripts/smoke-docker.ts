@@ -37,6 +37,8 @@ const exec = promisify(execFile);
 
 /** A unique Compose project name, so the test never touches a real team. */
 const project = `agentmesh-smoke-${randomUUID().slice(0, 8)}`;
+/** The official Node image's default nonroot UID and GID. */
+const NODE_ID = 1000;
 
 /** The Compose arguments selecting this repository's file and the test project. */
 const compose = ['compose', '-f', path.resolve('compose.yaml'), '-p', project];
@@ -64,6 +66,8 @@ async function consolePort(): Promise<number> {
 /** Bind only disposable test directories, never the real checkout. */
 const environment = {
   ...process.env,
+  MALT_DOCKER_UID: String(process.getuid?.() ?? NODE_ID),
+  MALT_DOCKER_GID: String(process.getgid?.() ?? NODE_ID),
   AGENTMESH_PORT: '0',
   AGENTMESH_UI_PORT: String(await consolePort()),
   AGENTMESH_PROJECT_NAME: project,
