@@ -143,3 +143,42 @@ await test('oversized output retains a continuous suffix after the gap', () => {
     { type: 'data', sequence: 3, text: 'bb' },
   ]);
 });
+
+await test('overlapping credentials cannot be reconstructed across committed replay chunks', () => {
+  for (const secret of ['aa', 'aba', 'abab', 'abcab']) {
+    const input = secret.repeat(4);
+    for (let split = 1; split < input.length; split += 1) {
+      const buffer = new TerminalBuffer(2048, {}, [secret]);
+      const chunks = [input.slice(0, split), input.slice(split)];
+      for (const chunk of chunks) {
+        buffer.write(Buffer.from(chunk));
+        const liveText = buffer
+          .readAfter(0)
+          .filter((entry) => entry.type === 'data')
+          .map((entry) => entry.text)
+          .join('');
+        assert.ok(!liveText.includes(secret), `${secret}: split ${String(split)} before finish`);
+      }
+      buffer.finish();
+      const emitted = buffer
+        .readAfter(0)
+        .filter((entry) => entry.type === 'data')
+        .map((entry) => entry.text)
+        .join('');
+      assert.ok(!emitted.includes(secret), `${secret}: split ${String(split)} after finish`);
+    }
+  }
+  const exactBuffer = new TerminalBuffer(128, {}, ['aa']);
+  for (const chunk of ['aaa', 'a']) {
+    exactBuffer.write(Buffer.from(chunk));
+  }
+  exactBuffer.finish();
+  assert.equal(
+    exactBuffer
+      .readAfter(0)
+      .filter((entry) => entry.type === 'data')
+      .map((entry) => entry.text)
+      .join(''),
+    '[REDACTED][REDACTED]',
+  );
+});
