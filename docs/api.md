@@ -143,12 +143,21 @@ Factory state is separate from cooperative check-in state. Project-authenticated
 | `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}` | Requires paused/drained work; validates resource/provider/standards policy.                                            |
 | `factory_request`                | `{objective,requestId?}`                                                                        | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.      |
 | `factory_start`, `factory_pause` | `{}`                                                                                            | Resume unpaid scheduling or drain owned processes and preserve edits.                                                  |
-| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions and skills.                           |
+| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions, skills and read-only `admission`.    |
 | `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                        | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.              |
 | `factory_cancel_job`             | `{jobId}`                                                                                       | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                    |
 | `factory_retry`                  | `{taskId? ,featureId?}`                                                                         | Retry a selected blocked delivery or planning request.                                                                 |
 | `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.               |
 | `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
+
+`factory_status.admission` explains local admission without sampling, claiming or acknowledging anything:
+
+- `sample`: `{cpuPercent,freeMemoryMb,totalMemoryMb,observedAt}`. This is the cached measurement from the supervisor's latest scheduling cycle (or its construction). `cpuPercent` is `null` until a valid CPU delta exists; it is never reported as `0` in its place. The top-level `resources` field returns the same cached sample.
+- `limits`: effective ceilings after the broker-wide admission pool applies the strictest live project's policy: `maxActiveJobs`, `maxCpuPercent`, `minFreeMemoryMb`, `minFreeMemoryPercent` and `providers.<name>.{enabled,concurrency}`. These are configured thresholds, not measurements. `null` before setup.
+- `running`: this supervisor's owned pipelines, including those still tearing down: `{id,role,kind,provider,state,featureId,taskId,startedAt}`.
+- `brokerReservations`: anonymous count of all pipelines holding local admission in this broker, including other projects and teardown. No other project's paths, IDs, objectives or logs are exposed.
+- `providers`: per-provider dispatch condition, `null` when admissible, otherwise `disabled`, `cooldown`, `subscription`, `concurrency` or `budget`.
+- `blocker`: the first gate dispatch would stop at for the next eligible job: `job_cap`, `memory`, `cpu`, `provider_cap`, `provider_cooldown`, `provider_unavailable` or `none`. It does not consider role, dependency or review readiness; `none` does not guarantee a launch.
 
 See [Mission control](operator-console.md) for exact startup and JSON-file CLI examples. All text/schema limits are enforced server-side. An authenticated project token authorizes these operator controls; browser clients never receive that token.
 
