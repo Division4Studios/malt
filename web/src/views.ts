@@ -4,7 +4,7 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics, dispatchPanel, objectiveQueue } from './brand-ui.js';
+import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { appendQuotaWindows, appendProcessUsage } from './capacity-details.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
@@ -374,8 +374,6 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
 export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const node = element('div');
   const metrics = overviewMetrics(state.factory);
-  const dispatch = dispatchPanel(state.factory);
-  node.append(dispatch);
   const grid = element('div', 'grid');
   const left = element('div');
   const team = element('div', 'panel-body');
