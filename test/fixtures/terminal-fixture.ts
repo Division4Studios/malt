@@ -78,8 +78,11 @@ async function interactive(): Promise<void> {
     }
     reportSize();
   };
-  process.on('SIGWINCH', actualSize);
-  process.stdout.on('resize', actualSize);
+  if (process.stdout.isTTY) {
+    process.stdout.on('resize', actualSize);
+  } else {
+    process.on('SIGWINCH', actualSize);
+  }
   process.on('SIGTERM', () => {
     if (isIgnoreTerm) {
       process.stdout.write('IGNORED SIGTERM\n');

@@ -8,6 +8,39 @@ import { fileURLToPath } from 'node:url';
 
 const fixture = new URL('fixtures/terminal-fixture.ts', import.meta.url);
 
+void test('paired native resize notifications leave no extra SIZE response queued', { timeout: 10_000 }, async () => {
+  const setup =
+    'Object.defineProperties(process.stdout,{isTTY:{value:true},columns:{value:80,writable:true},rows:{value:24,writable:true}}); process.stdin.once("data",()=>{process.stdout.columns=100;process.stdout.rows=30;process.emit("SIGWINCH");process.stdout.emit("resize");});';
+  const preload = `data:text/javascript,${encodeURIComponent(setup)}`;
+  const child = spawn(process.execPath, ['--import', preload, fileURLToPath(fixture)], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const exited = once(child, 'exit');
+  const output: string[] = [];
+  try {
+    child.stdin.end('native-resize\nsize\nquit\n');
+    const lines = createInterface({ input: child.stdout });
+    for await (const line of lines) {
+      output.push(line);
+    }
+    assert.deepEqual(await exited, [0, null]);
+    assert.deepEqual(output, [
+      'SIZE 80 24',
+      'SIZE 100 30',
+      'ECHO "native-resize"',
+      'UNKNOWN',
+      'ECHO "size"',
+      'SIZE 100 30',
+      'ECHO "quit"',
+      'BYE',
+    ]);
+  } finally {
+    child.stdin.end();
+    child.kill('SIGKILL');
+    await exited;
+  }
+});
+
 void test('terminal fixture pipe protocol is deterministic and owns its descendants', { timeout: 10_000 }, async () => {
   const child = spawn(process.execPath, [fileURLToPath(fixture)], {
     stdio: ['pipe', 'pipe', 'pipe'],
