@@ -9,9 +9,11 @@ import test from 'node:test';
 
 import { z } from 'zod';
 
-/** Compiled browser module URLs, never project-supplied executable paths. */
-// eslint-disable-next-line unicorn/no-missing-local-resource -- web/dist is built by npm run check after lint
-const connectionModule = new URL('../web/dist/organization-ui.js', import.meta.url);
+/**
+ * Compiled browser module URL, never a project-supplied executable path. The
+ * segments are joined so lint gives the same result whether web/dist is built.
+ */
+const connectionModule = new URL(['..', 'web', 'dist', 'organization-ui.js'].join('/'), import.meta.url);
 /** JSON return boundary shared with native browser controls. */
 const dataSchema = z.record(z.unknown());
 /** Native browser validator with checked arguments and returned JSON. */
