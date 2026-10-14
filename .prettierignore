@@ -3,3 +3,9 @@ node_modules/
 package-lock.json
 coverage/
 .agentmesh/
+.malt/
+# Preserve upstream skill snapshots byte-for-byte with pinned provenance.
+resources/factory-skills/upstream/
+web/dist/
+
+.mlt/

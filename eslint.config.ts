@@ -1,5 +1,5 @@
 /**
- * ESLint flat configuration for Agent Mesh.
+ * ESLint flat configuration for MALT.
  *
  * The goal is the strictest practical lint profile for a pure TypeScript Node.js
  * service. Every preset below is the most demanding one its plugin offers,
@@ -53,7 +53,7 @@ export default defineConfig(
   {
     name: 'agentmesh/ignores',
     // Generated, vendored or runtime-data directories are never linted.
-    ignores: ['node_modules/**', 'coverage/**', '.agentmesh/**'],
+    ignores: ['node_modules/**', 'coverage/**', '.agentmesh/**', '.malt/**', '.mlt/**', 'web/dist/**'],
   },
   {
     name: 'agentmesh/linter-options',
@@ -329,7 +329,24 @@ export default defineConfig(
       // A process may only end by setting process.exitCode and letting the
       // event loop drain, so pending writes (stdout, SQLite) complete.
       'n/no-process-exit': 'error',
-      'n/no-sync': ['error', { allowAtRootLevel: false, ignores: ['readFileSync', 'writeFileSync', 'mkdirSync'] }],
+      // Project initialization, stopped-store migration and atomic summaries
+      // must finish synchronously with the SQLite commit and lease boundaries.
+      'n/no-sync': [
+        'error',
+        {
+          allowAtRootLevel: false,
+          ignores: [
+            'readFileSync',
+            'writeFileSync',
+            'mkdirSync',
+            'existsSync',
+            'readdirSync',
+            'renameSync',
+            'statSync',
+            'rmSync',
+          ],
+        },
+      ],
       'n/prefer-global/buffer': ['error', 'never'],
       'n/prefer-global/process': ['error', 'always'],
       'n/prefer-node-protocol': 'error',
@@ -538,6 +555,15 @@ export default defineConfig(
     },
   },
   {
+    name: 'agentmesh/project-storage-fixtures',
+    files: ['test/project-state.test.ts', 'test/github-learning.test.ts'],
+    rules: {
+      // These suites deliberately exercise dynamic project paths. Every root
+      // is created by createProject and removed by its scoped cleanup stack.
+      'security/detect-non-literal-fs-filename': 'off',
+    },
+  },
+  {
     name: 'agentmesh/config-files',
     files: ['eslint.config.ts'],
     rules: {
@@ -556,6 +582,21 @@ export default defineConfig(
   // ---------------------------------------------------------------------------
   // 6. Prettier compatibility (must be last)
   // ---------------------------------------------------------------------------
+  {
+    name: 'agentmesh/browser-globals',
+    files: ['web/src/**/*.ts'],
+    languageOptions: { globals: { ...globals.browser } },
+    rules: {
+      // Error.isError is newer than the browser baseline; local app errors use
+      // instanceof guards until this method is universally available.
+      'unicorn/prefer-error-is-error': 'off',
+    },
+  },
+  {
+    name: 'agentmesh/worker-globals',
+    files: ['web/sw/**/*.ts'],
+    languageOptions: { globals: { ...globals.serviceworker } },
+  },
   { name: 'agentmesh/prettier', ...prettier },
   {
     // eslint-config-prettier switches `curly` off because some of its modes

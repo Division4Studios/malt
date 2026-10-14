@@ -1,5 +1,7 @@
 # Logging and troubleshooting
 
+For local PWA startup, pairing and human skill decisions, see [Operator console](operator-console.md). A temporary directory in the project switcher identifies an isolated validation workspace; normal operation selects the actual target repository and its `.malt`. Restarting the UI invalidates its browser sessions and prints a new pairing code. Provider credentials remain outside project operational memory.
+
 [Back to README](../README.md) · [Workflow](workflow.md) · [API errors](api.md#common-error-codes)
 
 ## Two records of activity
@@ -75,7 +77,7 @@ After host cancellation, durable state remains. Ask the model to inspect `mesh_w
 
 **`LEAD_ACTIVE`.** The folder's team already has a connected lead, named in the message. Join as a worker, or replace the lead with `lead --workspace PATH --name NAME`.
 
-**`NO_WORKSPACE`.** The host reported no MCP roots and no folder was configured. Start the bridge with `--workspace PATH`, or set `AGENTMESH_WORKSPACE` in its environment (inside the container for Docker: `docker compose exec -e AGENTMESH_WORKSPACE=...`).
+**`NO_WORKSPACE`.** The host reported no MCP roots (Codex does not) and no folder was configured. Launch the bridge through `src/docker-mcp.ts`, which passes the session's folder into the container (see the README's Codex section), start it with `--workspace PATH`, or set `AGENTMESH_WORKSPACE` in its environment (inside the container for Docker: `docker compose exec -e AGENTMESH_WORKSPACE=...`).
 
 **Sessions in the same repository do not see each other.** Teams follow the folder each session started in. A session started in a subfolder, or a named bridge without `--workspace` (home project), is on a different team. `teams` lists every team with its folder.
 

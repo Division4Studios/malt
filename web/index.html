@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#08080c" />
+    <meta name="description" content="Local MALT console for your autonomous software team." />
+    <title>MALT — Team operations</title>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#workspace">Skip to workspace</a>
+    <div class="shell">
+      <aside class="rail" aria-label="Mission navigation">
+        <a class="brand" href="/" aria-label="MALT MALT console"
+          ><img src="/icon.svg" alt="" /><span>MALT<span class="brand-caption">MULTI-AGENT LOCAL TEAM</span></span></a
+        >
+        <div class="rail-section">WORKSPACE</div>
+        <nav id="navigation" aria-label="Console sections">
+          <button data-group="mission" data-view="overview" class="nav active"><span>◈</span> Mission</button>
+          <button data-group="workflow" data-view="workflow" class="nav"><span>◎</span> Workflow</button>
+          <button data-group="workers" data-view="workers" class="nav"><span>▣</span> Workers</button>
+          <button data-group="project" data-view="setup" class="nav"><span>⚙</span> Project</button>
+        </nav>
+        <div class="rail-note">
+          <span class="signal-dot"></span> LOCAL FIRST
+          <p>Your project. Your agents.<br />Your subscription sessions.</p>
+        </div>
+        <button id="install" class="button ghost" hidden>Install MALT console ↗</button>
+        <button id="update-shell" class="button secondary" hidden>Update MALT console</button>
+        <button id="signout" class="button ghost">Disconnect browser</button>
+        <div class="version">MALT / FACTORY CONTROL · 01</div>
+      </aside>
+      <main id="workspace" tabindex="-1">
+        <header class="topbar">
+          <div class="project-control">
+            <span class="project-symbol">◇</span><label class="sr-only" for="project">Selected project</label
+            ><select id="project">
+              <option value="home">Broker home</option></select
+            ><button id="open-project" class="icon-button" aria-label="Open a project folder">＋</button>
+          </div>
+          <div class="connection">
+            <span id="connection-dot" class="signal-dot idle"></span
+            ><span id="connection-text">Awaiting connection</span><span class="divider">/</span><span id="clock"></span>
+          </div>
+        </header>
+        <section class="page-heading">
+          <div>
+            <div class="eyebrow">MALT / SOFTWARE FACTORY</div>
+            <h1 id="view-title">Team operations<span class="heading-dot">.</span></h1>
+            <p id="view-description">From intent to verified delivery. Every agent, every handoff, one local team.</p>
+          </div>
+          <div class="heading-actions">
+            <button id="run" class="button secondary" disabled>Start factory</button
+            ><button id="new-objective" class="button primary" disabled>＋ New objective</button>
+          </div>
+        </section>
+        <nav class="context-navigation" aria-label="Section views">
+          <div data-navigation="mission">
+            <button data-view="overview" class="nav">Overview</button
+            ><button data-view="activity" class="nav">Activity</button>
+          </div>
+          <div data-navigation="workflow" hidden>
+            <button data-view="workflow" class="nav">Live map</button
+            ><button data-view="team" class="nav">Team & organization</button
+            ><button data-view="deliveries" class="nav">Deliveries</button>
+          </div>
+          <div data-navigation="project" hidden>
+            <button data-view="setup" class="nav">Setup & capacity</button
+            ><button data-view="learning" class="nav">Learning & skills</button>
+          </div>
+        </nav>
+        <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+        <div id="content" class="content">
+          <div class="empty">
+            <span class="empty-mark">◈</span>
+            <h2>Connect your local team</h2>
+            <p>Pair this browser with your running MALT console to see real project state.</p>
+          </div>
+        </div>
+        <footer class="footer">
+          <span id="project-path">Project-local coordination · .malt</span
+          ><span>CODEX + CLAUDE / HUMAN IN CONTROL</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="pairing" aria-labelledby="pair-title">
+      <form id="pair-form">
+        <div class="eyebrow">LOCAL OPERATOR ACCESS</div>
+        <h2 id="pair-title">Connect MALT console<span class="heading-dot">.</span></h2>
+        <p>Enter the pairing code printed by <code>malt ui</code>. Credentials stay with the local backend.</p>
+        <label for="pair-code">Console pairing code</label
+        ><input id="pair-code" name="code" required autocomplete="off" spellcheck="false" maxlength="64" />
+        <p id="pair-error" class="error" role="alert"></p>
+        <button class="button primary" type="submit">Connect local console →</button>
+      </form>
+    </dialog>
+    <dialog id="editor" aria-labelledby="editor-title">
+      <form id="editor-form">
+        <div class="eyebrow">OPERATOR CONTROL</div>
+        <h2 id="editor-title">New objective</h2>
+        <p id="editor-description"></p>
+        <pre id="editor-evidence" class="skill-comparison" hidden></pre>
+        <label id="editor-label" for="editor-body">Instruction</label
+        ><textarea id="editor-body" required rows="8" maxlength="32000"></textarea>
+        <div class="dialog-actions">
+          <button class="button ghost" id="editor-cancel" type="button">Cancel</button
+          ><button class="button primary" type="submit">Save and coordinate →</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

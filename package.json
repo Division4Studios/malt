@@ -1,5 +1,5 @@
 {
-  "name": "agentmesh",
+  "name": "malt",
   "version": "0.1.0",
   "description": "Local, durable coordination for independent coding agents (pure TypeScript on Node.js 24)",
   "type": "module",
@@ -8,18 +8,20 @@
     "node": ">=24.15.0"
   },
   "bin": {
+    "malt": "./src/cli.ts",
     "agentmesh": "./src/cli.ts"
   },
   "scripts": {
     "start": "node src/cli.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p web/tsconfig.json && tsc --noEmit -p web/sw/tsconfig.json",
+    "build:web": "tsc -p web/tsconfig.json && tsc -p web/sw/tsconfig.json && node scripts/build-shell.ts",
     "lint": "eslint --flag unstable_native_nodejs_ts_config --max-warnings 0 .",
     "lint:fix": "eslint --flag unstable_native_nodejs_ts_config --max-warnings 0 --fix .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "node --test \"test/**/*.test.ts\"",
     "test:docker": "node scripts/smoke-docker.ts",
-    "check": "npm run typecheck && npm run lint && npm run format:check && npm test"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run build:web && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",

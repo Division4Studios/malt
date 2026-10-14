@@ -1,6 +1,10 @@
 # MCP and internal RPC reference
 
+See [Operator controls](operator-console.md) for the authenticated PWA boundary, model/skill routing and human-only `factory_skill_decide` operation.
+
 [Back to README](../README.md) · [Workflow examples](workflow.md)
+
+The project-scoped `mesh_github_*` and `mesh_learning_*` tools, their setup and recovery rules, and the `learning-steward` prompt are documented in [Project coordination and learning](software-factory.md). Their schemas are in `src/protocol.ts`. Every call routes to the agent's current workspace, not this MCP server's source repository.
 
 ## Conventions
 
@@ -130,6 +134,28 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 | `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP. |
 | `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                      |
 
+## Managed factory controls
+
+Factory state is separate from cooperative check-in state. Project-authenticated CLI/PWA controls use the broker's durable supervisor; a designated cooperative lead may coordinate permitted controls. Human skill decisions reject all agent credentials. Managed role bridges expose only read/communication tools, plus research/proposal tools for the learning steward; they do not offer check-in/wait, scheduler mutations, ticket creation or skill activation.
+
+| RPC operation                    | Input                                                                                           | Behavior                                                                                                               |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}` | Requires paused/drained work; validates resource/provider/standards policy.                                            |
+| `factory_request`                | `{objective,requestId?}`                                                                        | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.      |
+| `factory_start`, `factory_pause` | `{}`                                                                                            | Resume unpaid scheduling or drain owned processes and preserve edits.                                                  |
+| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions and skills.                           |
+| `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                        | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.              |
+| `factory_cancel_job`             | `{jobId}`                                                                                       | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                    |
+| `factory_retry`                  | `{taskId? ,featureId?}`                                                                         | Retry a selected blocked delivery or planning request.                                                                 |
+| `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.               |
+| `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
+
+See [Mission control](operator-console.md) for exact startup and JSON-file CLI examples. All text/schema limits are enforced server-side. An authenticated project token authorizes these operator controls; browser clients never receive that token.
+
+Structured provider outcomes contain `outcome`, `summary`, `findings`, `deliveries`, `skillActions` and `instructionReceipts`. Each planned delivery carries a key, description, acceptance, dependency keys, nullable `capabilityTier` and up to four approved project skill names. Each receipt carries the supplied instruction UUID, `acknowledged`, `applied` and evidence. An applied receipt requires acknowledgement and a current assignment/source; it is an agent report, not independent acceptance proof. Missing receipts never imply acknowledgement.
+
+`factory_export_maintenance` is human-only and accepts `{requestId,workspace}`. The request must identify an independently reviewed, human-approved project skill revision. The absolute workspace must be the MALT source Git root with package identity `agentmesh`. A durable handoff journal fences the destination/revision and queues an idempotent source objective using the proposal UUID. Source setup, scheduling, validation and review remain independent; this operation never creates a GitHub Project or enables dispatch. See [source maintenance](operator-console.md#model-and-skill-routing).
+
 ## Internal HTTP boundary
 
 This is **not** an HTTP MCP endpoint. MCP runs over stdio. The bridge uses `POST /rpc` with an application/json body:
@@ -151,3 +177,15 @@ Headers carry `Authorization: Bearer <project token>` and `X-AgentMesh-Project: 
 Operations mostly match tool names without `mesh_`. Additional internal operations are register, heartbeat, disconnect, events and set_lead. `register` accepts `ephemeral: true` for a session identity, which `disconnect` then ends; a session registering with role `lead` claims the orchestrator role in the same transaction. Two operations exist only on the home project and need only its token: `open_team` (`workspace`: an absolute path or `file:` URI) returns `team`, `name`, `workspace`, `projectId` and `token`, creating the team on first use; `list_teams` returns each team's slug, name and folder. Project-authenticated CLI readers can request aggregate status/roster/events without agent credentials. Project-authenticated `set_lead` is the human control path and rejects agent credentials. Local administrators can read the project secret; this is not a security boundary against a hostile OS user.
 
 `GET /health` is unauthenticated and returns service health/version only. Errors contain a stable code and message, not a traceback or credential dump.
+
+# Managed immutable source inspection
+
+`mesh_factory_read_source` accepts `{ "path": "relative/file.ts", "revision": "head", "cursor": 0 }`. Omit `path` to list tracked files in pages of 100 and follow `nextCursor`. `revision` may be `head` or `base`; revisions come from the assignment, never arbitrary caller hashes. File reads are limited to 32,000 bytes and report oversized files explicitly. Private runtime and common credential paths are excluded. Only an authenticated managed role owning an unexpired running claim with a sealed source snapshot can call this tool; attached roles and browser operators cannot use it to inspect arbitrary files.
+
+Head listings include a bounded `changes` page with the exact supplied base, sealed head, changed public paths and a count of excluded private changes. A base read fails clearly when no base commit was supplied. Developer source views describe the committed baseline at assignment start, rather than subsequent uncommitted edits.
+
+`mesh_github_connect` also accepts optional `statusFieldName`, the exact name of an existing Project workflow field. The selected field must contain all eight factory states. Missing selections fail without creating another field; saved views and unrelated fields are preserved.
+
+`mesh_github_sync` accepts `limit` (1–1000) and optional `cached` (default `false`). Native reads use pages of at most 100; automatic imports may reuse a sufficient snapshot for two minutes. `mltStatus` contains the value from the selected field ID, independent of its display name.
+
+`mesh_factory_instruct` accepts optional UUID `requestId`. Reusing it with identical role, scope, body and replan intent returns the committed decision without duplicate instructions, notifications, scope replacements or cancellation. Changed content under that ID is rejected. The PWA keeps stable request IDs for objective and instruction editor retries; offline controls are never replayed automatically. Browser status and control responses omit internal job claim secrets.

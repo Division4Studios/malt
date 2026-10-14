@@ -1,5 +1,5 @@
 /**
- * The Agent Mesh broker: a loopback HTTP JSON-RPC service.
+ * The MALT broker: a loopback HTTP JSON-RPC service.
  *
  * The broker is the single long-running process. It serves its home project
  * plus any number of workspace teams (see teams.ts), each with its own
@@ -35,14 +35,28 @@ import http from 'node:http';
 
 import { z } from 'zod';
 
+import { FactoryService } from './factory/service.ts';
+import { ProjectGitHub } from './github.ts';
+import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
-import { MeshError, errorStatus, isOperation, parseInput } from './protocol.ts';
+import {
+  MeshError,
+  PROJECT_OPERATION_TIMEOUT_MS,
+  errorStatus,
+  isGitHubOperation,
+  isFactoryOperation,
+  isLearningOperation,
+  isOperation,
+  parseInput,
+} from './protocol.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
-import type { Operation } from './protocol.ts';
+import type { FactoryOperation } from './factory/schema.ts';
+import type { GitHubRunner } from './github.ts';
+import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
 import type { TeamAccess, TeamConfig } from './teams.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -67,6 +81,21 @@ const MAX_SWEEP_INTERVAL_MS = 5000;
 
 /** HTTP status for a successful response. */
 const HTTP_OK = 200;
+
+/** Mutations requiring the current workspace's designated lead. */
+const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
+  'github_connect',
+  'github_create_issue',
+  'github_set_status',
+  'learning_set_skill_state',
+]);
+
+/** Pure local inspection does not append new events or wake workers. */
+const READ_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
+  'github_status',
+  'learning_status',
+  'learning_read_skill',
+]);
 
 /** Port implied by an `http:` URL that names no port. */
 const DEFAULT_HTTP_PORT = 80;
@@ -102,6 +131,8 @@ const envelopeSchema = z.object({
 
 /** Options for {@link startBroker}. */
 export interface BrokerOptions {
+  /** Optional GitHub adapter factory for isolated integration tests. */
+  readonly githubRunner?: ((config: MeshConfig) => GitHubRunner) | undefined;
   /** Interface to bind; defaults to loopback. Docker binds `0.0.0.0`. */
   readonly host?: string | undefined;
   /** Port to bind; defaults to the configured URL's port. Tests pass 0. */
@@ -112,6 +143,12 @@ export interface BrokerOptions {
 
 /** One team the broker serves: its configuration, store and parked waits. */
 export interface Team {
+  /** Bounded project factory supervisor. */
+  readonly factory: FactoryService;
+  /** This project's durable lessons, research and shared skill library. */
+  readonly learning: ProjectLearning;
+  /** This workspace's GitHub Project integration and operation queue. */
+  readonly github: ProjectGitHub;
   /** The team's configuration (token, project ID, ...). */
   readonly config: MeshConfig;
   /** The team's store. */
@@ -138,6 +175,8 @@ export interface Broker {
 
 /** Everything a request handler needs, created once per broker. */
 interface BrokerContext {
+  /** Optional injected per-workspace GitHub adapter. */
+  readonly githubRunner: ((config: MeshConfig) => GitHubRunner) | undefined;
   /** The home project, addressed by requests without a team header. */
   readonly home: Team;
   /** Workspace teams opened so far, keyed by slug; opened lazily. */
@@ -154,11 +193,51 @@ interface BrokerContext {
  * @returns The opened team.
  */
 function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
+  if (config.projectId === context.home.config.projectId) {
+    return context.home;
+  }
   const store = new Store(config, { now: context.now });
-  const team: Team = { config, store, waiters: new Waiters(store) };
+  const github = new ProjectGitHub(config, context.githubRunner?.(config));
+  const learning = new ProjectLearning(config, context.githubRunner?.(config));
+  const team: Team = {
+    config,
+    store,
+    waiters: new Waiters(store),
+    github,
+    learning,
+    factory: new FactoryService(config, store, { github, learning }, { home: context.home.config.root }),
+  };
   context.teams.set(config.team, team);
+  team.factory.resume();
   log('info', 'broker', 'team_opened', { team: config.team });
   return team;
+}
+
+/**
+ * Restore active registered target factories even without a browser or model session.
+ * Inactive stores are closed immediately rather than kept as idle memory consumers.
+ *
+ * @param context - Sole broker and its durable workspace registry.
+ */
+async function restoreFactories(context: BrokerContext): Promise<void> {
+  const registered = await listTeams(context.home.config);
+  for (const reference of registered) {
+    try {
+      const config = loadTeam(context.home.config, reference.team);
+      if (config.projectId === context.home.config.projectId) {
+        continue;
+      }
+      const team = openTeamStore(context, config);
+      if (!team.factory.repository.active()) {
+        // eslint-disable-next-line no-await-in-loop -- Restore projects one at a time and close inactive stores before allocating the next.
+        await team.factory.close();
+        team.store.close();
+        context.teams.delete(reference.team);
+      }
+    } catch {
+      log('error', 'broker', 'factory_restore_failed', { team: reference.team });
+    }
+  }
 }
 
 /**
@@ -171,11 +250,15 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
 function openWorkspaceTeam(context: BrokerContext, input: unknown): TeamAccess {
   const workspace = normalizeWorkspace(parseInput('open_team', input).workspace);
   const config = createTeam(context.home.config, workspace);
-  const team = context.teams.get(config.team) ?? openTeamStore(context, config);
+  const team =
+    config.projectId === context.home.config.projectId
+      ? context.home
+      : (context.teams.get(config.team) ?? openTeamStore(context, config));
   return {
-    team: config.team,
+    team: team === context.home ? '' : config.team,
     name: team.config.name,
     workspace: team.config.workspace ?? workspace.display,
+    storageRoot: team.config.root,
     projectId: team.config.projectId,
     token: team.config.token,
   };
@@ -290,7 +373,10 @@ async function handleWait(
  */
 function executeOperation(
   context: Team,
-  operation: Exclude<Operation, 'list_teams' | 'open_team' | 'wait_for_work'>,
+  operation: Exclude<
+    Operation,
+    FactoryOperation | GitHubOperation | LearningOperation | 'list_teams' | 'open_team' | 'wait_for_work'
+  >,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): unknown {
@@ -352,6 +438,20 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  if (isFactoryOperation(operation)) {
+    parseInput(operation, input);
+    assertFactoryAuthority(team, operation, credentials);
+    response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
+    return team.factory.execute(
+      operation,
+      input,
+      credentials === undefined ? null : team.store.authenticate(credentials),
+    );
+  }
+  if (isLearningOperation(operation) || isGitHubOperation(operation)) {
+    response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
+    return handleProjectOperation(team, operation, input, credentials);
+  }
   if (operation === 'wait_for_work') {
     return handleWait(team, input, credentials, response);
   }
@@ -359,6 +459,78 @@ async function handleRpc(
   // Every store mutation is a synchronous, already COMMITTED transaction, so
   // waiters woken here can never observe partial state.
   team.waiters.notify();
+  return result;
+}
+
+/**
+ * Authenticate role controls independently of their dispatch transport.
+ *
+ * @param team - Selected project.
+ * @param operation - Validated factory operation.
+ * @param credentials - Optional attached agent identity.
+ * @throws {MeshError} When an agent attempts an operator-only operation.
+ */
+function assertFactoryAuthority(team: Team, operation: Operation, credentials: PresentedCredentials | undefined): void {
+  if (credentials === undefined) {
+    return;
+  }
+  if (operation === 'factory_skill_decide' || operation === 'factory_export_maintenance') {
+    team.store.authenticate(credentials);
+    throw new MeshError(
+      'NOT_ORCHESTRATOR',
+      'Only the human operator may approve skill changes or cross-project maintenance.',
+    );
+  }
+  const actor = team.store.authenticate(credentials);
+  if (
+    operation !== 'factory_status' &&
+    operation !== 'factory_read_source' &&
+    actor !== team.store.coordination.leadId()
+  ) {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
+  }
+}
+
+/**
+ * Execute external or file-backed project coordination without holding SQLite.
+ *
+ * @param team - Current workspace's services.
+ * @param operation - GitHub or learning operation.
+ * @param input - Untrusted RPC input.
+ * @param credentials - Authenticated bridge identity.
+ * @returns Project-scoped operation result.
+ * @throws {MeshError} For invalid inputs, failed authentication or missing authority.
+ */
+async function handleProjectOperation(
+  team: Team,
+  operation: GitHubOperation | LearningOperation,
+  input: unknown,
+  credentials: PresentedCredentials | undefined,
+): Promise<unknown> {
+  parseInput(operation, input);
+  if (credentials !== undefined && operation === 'learning_set_skill_state') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Project skill activation and retirement require the human operator.');
+  }
+  const actor = credentials === undefined ? null : team.store.authenticate(credentials);
+  if (
+    credentials !== undefined &&
+    LEAD_PROJECT_OPERATIONS.has(operation) &&
+    team.store.coordination.leadId() !== actor
+  ) {
+    throw new MeshError(
+      'NOT_ORCHESTRATOR',
+      "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
+    );
+  }
+  const result = isLearningOperation(operation)
+    ? await team.learning.execute(operation, input, actor ?? '')
+    : await team.github.execute(operation, input);
+  if (!READ_PROJECT_OPERATIONS.has(operation)) {
+    team.store.transaction(() => {
+      team.store.event('PROJECT_OPERATION_COMPLETED', actor, { operation });
+    });
+    team.waiters.notify();
+  }
   return result;
 }
 
@@ -425,16 +597,17 @@ async function respond(
   response: ServerResponse,
   setOperation: (name: Operation) => void,
 ): Promise<void> {
+  const record = request;
   // No browser-origin requests and no CORS: a web page must never be able to
   // drive the broker, even though it listens on loopback.
-  if (request.headers.origin !== undefined) {
+  if (record.headers.origin !== undefined) {
     throw new MeshError('FORBIDDEN_ORIGIN', 'Browser requests are not supported.');
   }
-  if (request.method === 'GET' && request.url === '/health') {
+  if (record.method === 'GET' && record.url === '/health') {
     sendJson(response, HTTP_OK, { ok: true, version: VERSION });
     return;
   }
-  const result = await handleRpc(context, request, response, setOperation);
+  const result = await handleRpc(context, record, response, setOperation);
   sendJson(response, HTTP_OK, { result });
 }
 
@@ -489,7 +662,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const context: BrokerContext = { home: { config, store, waiters }, teams: new Map(), now: options.now };
+  const github = new ProjectGitHub(config, options.githubRunner?.(config));
+  const learning = new ProjectLearning(config, options.githubRunner?.(config));
+  const context: BrokerContext = {
+    home: {
+      config,
+      store,
+      waiters,
+      github,
+      learning,
+      factory: new FactoryService(config, store, { github, learning }, { home: config.root }),
+    },
+    teams: new Map(),
+    now: options.now,
+    githubRunner: options.githubRunner,
+  };
   const allTeams = (): Team[] => [context.home, ...context.teams.values()];
 
   const server = http.createServer((request, response) => {
@@ -528,6 +715,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   sweep.unref();
 
   const boundPort = boundPortOf(server);
+  await restoreFactories(context);
+  context.home.factory.resume();
   log('info', 'broker', 'listening', { host, port: boundPort });
 
   return {
@@ -547,6 +736,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       for (const team of teams) {
         team.waiters.close();
       }
+      await Promise.allSettled(teams.map(async (team) => team.factory.close()));
       await closeServer(server);
       for (const team of teams) {
         team.store.close();
@@ -577,7 +767,6 @@ async function listen(server: http.Server, port: number, host: string): Promise<
  * Stop accepting connections and wait for in-flight requests to finish.
  *
  * @param server - The HTTP server.
- * @returns A promise settled when the server has closed.
  */
 async function closeServer(server: http.Server): Promise<void> {
   // Subscribe before closing so the 'close' event cannot be missed.

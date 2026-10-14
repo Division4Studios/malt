@@ -1,0 +1,43 @@
+﻿[
+    {
+        "paths":  [
+                      "skills/engineering/to-tickets/SKILL.md",
+                      "skills/engineering/implement/SKILL.md",
+                      "skills/engineering/tdd/SKILL.md",
+                      "skills/engineering/code-review/SKILL.md",
+                      "skills/engineering/retro/SKILL.md"
+                  ],
+        "reviewedAt":  "2026-10-13",
+        "commit":  "49dd158d1076134a641b33efb035946536778336",
+        "license":  "LICENSE",
+        "repository":  "mattpocock/skills"
+    },
+    {
+        "paths":  [
+                      "skills/planning-and-task-breakdown/SKILL.md",
+                      "skills/code-review-and-quality/SKILL.md",
+                      "skills/context-engineering/SKILL.md",
+                      "skills/debugging-and-error-recovery/SKILL.md",
+                      "skills/shipping-and-launch/SKILL.md"
+                  ],
+        "reviewedAt":  "2026-10-13",
+        "commit":  "1be8e34187e34647bb83adc3a1323b26ae6f6abe",
+        "license":  "LICENSE",
+        "repository":  "addyosmani/agent-skills"
+    },
+    {
+        "paths":  [
+                      "skills/principle-sequence-verifiable-units/SKILL.md",
+                      "skills/principle-prove-it-works/SKILL.md",
+                      "skills/principle-guard-the-context-window/SKILL.md",
+                      "skills/principle-encode-lessons-in-structure/SKILL.md",
+                      "skills/principle-make-operations-idempotent/SKILL.md",
+                      "skills/principle-never-block-on-the-human/SKILL.md",
+                      "skills/reflect/SKILL.md"
+                  ],
+        "reviewedAt":  "2026-10-13",
+        "commit":  "fce11a3442cfd59a21136de0b7010474c6a10ef5",
+        "license":  "LICENSE",
+        "repository":  "backnotprop/pstack"
+    }
+]

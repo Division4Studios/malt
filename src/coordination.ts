@@ -248,7 +248,12 @@ export class Coordination {
    */
   public isWorker(id: string): boolean {
     const agent = this.host.agent(id);
-    return id !== this.leadId() && agent.role !== 'observer' && agent.lifetime !== 'ended';
+    return (
+      id !== this.leadId() &&
+      agent.role !== 'observer' &&
+      agent.runtime !== 'factory-managed' &&
+      agent.lifetime !== 'ended'
+    );
   }
 
   /**

@@ -19,17 +19,19 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 
 import { z } from 'zod';
 
-import { loadIdentity, sessionIdentity } from './config.ts';
+import { STATE_DIRECTORY_NAME, loadIdentity, sessionIdentity } from './config.ts';
 import { log } from './log.ts';
-import { MeshError, WAIT_TIMEOUT_DEFAULT_MS, isMeshErrorCode } from './protocol.ts';
+import { MeshError, PROJECT_OPERATION_TIMEOUT_MS, WAIT_TIMEOUT_DEFAULT_MS, isMeshErrorCode } from './protocol.ts';
 import { teamAccessSchema } from './teams.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { AgentRow } from './database.ts';
-import type { Operation, OperationRawInput } from './protocol.ts';
+import type { FactoryOperation } from './factory/schema.ts';
+import type { GitHubOperation, LearningOperation, Operation, OperationRawInput } from './protocol.ts';
 import type { Credentials, StoreOperation, StoreResults } from './store.ts';
 import type { WaitResult } from './waiters.ts';
 
@@ -43,10 +45,20 @@ const REQUEST_TIMEOUT_MS = 5000;
 const WAIT_NETWORK_GRACE_MS = 5000;
 
 /** Operations an agent session can call (registration happens on connect). */
-export type ClientOperation = StoreOperation | 'wait_for_work';
+export type ClientOperation = StoreOperation | GitHubOperation | LearningOperation | FactoryOperation | 'wait_for_work';
 
 /** The result type of every operation an agent session can call. */
-export interface ClientResults extends StoreResults {
+export interface ClientResults extends StoreResults, Record<LearningOperation | FactoryOperation, unknown> {
+  /** This project's non-secret GitHub connection and pending operations. */
+  readonly github_status: unknown;
+  /** Verified GitHub Project connection. */
+  readonly github_connect: unknown;
+  /** Bounded GitHub board snapshot. */
+  readonly github_sync: unknown;
+  /** Created issue and board item. */
+  readonly github_create_issue: unknown;
+  /** Confirmed issue board status. */
+  readonly github_set_status: unknown;
   /** The wake result of a wait. */
   readonly wait_for_work: WaitResult;
 }
@@ -82,6 +94,9 @@ const waitTimeoutSchema = z.object({ timeoutMs: z.number() }).partial();
  * @returns The deadline in milliseconds.
  */
 function deadlineFor(operation: Operation, input: unknown): number {
+  if (operation.startsWith('github_') || operation.startsWith('learning_') || operation.startsWith('factory_')) {
+    return PROJECT_OPERATION_TIMEOUT_MS;
+  }
   if (operation !== 'wait_for_work') {
     return REQUEST_TIMEOUT_MS;
   }
@@ -134,11 +149,12 @@ async function decodeResponse(response: Response): Promise<unknown> {
 /**
  * Perform one authenticated RPC request against the broker.
  *
+ *   Optional cancellation signal.
+ *
  * @param config - The project configuration (URL, token, project ID).
  * @param operation - The operation to perform.
  * @param input - The operation input; validated by the broker.
- * @param options - Agent credentials (omitted for public calls) and an
- *   optional cancellation signal.
+ * @param options - Agent credentials (omitted for public calls) and an.
  * @returns The operation's result.
  * @throws {MeshError} WAIT_CANCELLED when cancelled, BROKER_UNAVAILABLE when
  *   the broker cannot be reached, or the broker's own error.
@@ -177,7 +193,7 @@ export async function rpc(
     }
     throw new MeshError(
       'BROKER_UNAVAILABLE',
-      'Cannot reach Agent Mesh. Start the broker and check the project configuration.',
+      'Cannot reach MALT. Start the broker and check the project configuration.',
       { cause: error },
     );
   }
@@ -198,11 +214,14 @@ export async function openTeamConfig(home: MeshConfig, workspace: string, signal
   const access = teamAccessSchema.parse(await rpc(home, 'open_team', { workspace }, { signal }));
   return {
     ...home,
+    root: access.storageRoot,
+    directory: path.join(access.storageRoot, STATE_DIRECTORY_NAME),
+    database: path.join(access.storageRoot, STATE_DIRECTORY_NAME, 'state', 'mesh.db'),
     name: access.name,
     projectId: access.projectId,
     token: access.token,
     workspace: access.workspace,
-    team: access.team,
+    team: access.team === '' ? undefined : access.team,
   };
 }
 
@@ -413,7 +432,6 @@ export class AgentClient {
   /**
    * Send one heartbeat, logging (not throwing) failures.
    *
-   * @returns A promise settled when the heartbeat completes or fails.
    */
   private async beat(): Promise<void> {
     try {

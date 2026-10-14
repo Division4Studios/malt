@@ -3,3 +3,9 @@ node_modules/
 coverage/
 *.log
 .env
+web/dist/
+.malt/
+
+.mlt/
+.mlt/
+.malt/

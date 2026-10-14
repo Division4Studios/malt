@@ -1,0 +1,199 @@
+# Project coordination and learning
+
+MALT is an MCP server used by independent Claude and Codex sessions. Its own source repository is not the project those sessions are delivering. The session's workspace selects the team, its local `.malt` directory, its GitHub Project connection and its skill library.
+
+## What is implemented
+
+- Durable workspace-local conversations, identities, assignments and event history, with a generated `.malt/README.md`.
+- Workspace-scoped MCP tools for connecting GitHub Projects, creating native parent/sub-issues, setting delivery statuses and caching board snapshots.
+- Durable lessons, GitHub discovery and commit-pinned source snapshots.
+- Reviewed skill proposals, independent lead review and human-approved activation, replacement and retirement with preserved history.
+- Managed references in project `AGENTS.md` and `CLAUDE.md`, so both providers discover the same `.malt/skills` library.
+- A `learning-steward` participation prompt for an independent side session.
+
+Managed provider launching, transactional claims, worktree automation, independent QA/PR gates, merge serialization and merged-main verification have connected integration coverage using real local Git/checks with fixture inference and GitHub. Both native subscription interfaces have passed bounded structured-response smokes; a complete live protected-board run remains unvalidated. Setting a board value manually still does not establish a verified delivery. See [Operator console](operator-console.md) for startup, model routing, resource limits and human-approved project-local skill overrides.
+
+The operator explicitly selected this source repository and [Project 10](https://github.com/users/Division4Studios/projects/10) for a self-improvement pilot. [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11) added only private-memory Git exclusions. Real subscription sessions completed product planning, lead review, development, two independent QA assignments, final approval and verification of actual merged main. Native child #10 and parent #9 were closed and their board states reconciled to Done. The source checkout's existing uncommitted implementation was preserved. This private repository uses the operator-approved `requireBranchProtection: false` exception; other projects retain the protected default. This proves a narrow live delivery, not completion or publication of the whole factory implementation.
+
+## Project-local layout
+
+```text
+project/
+  AGENTS.md                         existing instructions + managed MALT reference
+  CLAUDE.md                         existing instructions + managed MALT reference
+  .malt/
+    README.md                       generated public state overview
+    .gitignore                      excludes private runtime artifacts
+    config.json                     local broker credentials
+    identities/                     durable bridge credentials
+    state/mesh.db                   conversations, events, presence, work decisions
+    teams/<slug>.json               routing references only, in the broker home
+    github/
+      connection.json               repository, owner, project and workflow field
+      project-creation.json          explicit Project-creation checkpoint
+      board.json                    bounded remote snapshot and completeness
+      operations/<requestId>.json   checkpointed issue creation and attachment
+    knowledge/
+      lessons/                      observed outcomes, causes and prevention
+      research/                     search results and retrieval timestamps
+      sources/                      commit-pinned content and license metadata
+      candidates/                   immutable tailored skill proposals and reviews
+      adoptions/                    adoption/retirement audit records
+    skills/
+      README.md                     active/retired skill discovery index
+      manifest.json                 authoritative active revision per skill
+      <name>/<revision>/SKILL.md     retained skill versions
+```
+
+The broker keeps a small routing index to reopen teams; conversations and workspace secrets are not stored centrally. A workspace must already exist and be accessible. MALT creates `.malt`, not phantom project folders. Opening the broker's own home workspace reuses its existing store.
+
+The generated README updates after committed state changes and includes public agent presence, unread messages, pending requests, GitHub connection, learning counts and active skills. A failed README refresh cannot roll back a committed message or make its sender resend it. Runtime data is ignored by Git; selectively publish only reviewed non-secret project artifacts. Back up the whole `.malt` directory after clean broker shutdown.
+
+## Connect the target project's GitHub Project
+
+On a native broker, install an up-to-date [GitHub CLI](https://cli.github.com/) and authenticate it with access to the target repository and write access to Projects. Authentication stays with `gh`; `.malt` stores no GitHub token.
+
+Once joined as this workspace's lead, inspect `mesh_github_status`, then call:
+
+```json
+{
+  "repository": "your-owner/your-app",
+  "owner": "your-project-owner",
+  "projectNumber": 12
+}
+```
+
+Use this input with `mesh_github_connect`. Repository and Project owners can differ. To explicitly create a Project, omit `projectNumber` and supply `createProject: true` and optionally `title`. Creation is never inferred from a missing connection. Setup verifies access, links the repository and creates an **MALT Status** single-select field with these options:
+
+`Backlog → Ready → Development → QA / Review → Merge Ready → Final Verification → Done`, plus `Blocked`.
+
+Existing Project fields are preserved. To reuse an existing workflow field, add `statusFieldName: "Status"` (or its exact name) to the connection input. It must already contain all eight required options; a missing field or missing options fails clearly instead of creating a duplicate or overwriting it. Without an explicit selection, setup reuses MALT Status or legacy MLT Status, or creates MALT Status. Group a GitHub board view by the selected field to display these columns; MCP field setup does not currently change the project's saved view layout. The integration uses GitHub's [Projects API](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects).
+
+Board reads use native cursor pagination, at most 100 items per request, with only the content and single-select values needed for coordination. The selected field's ID determines the workflow value even when names overlap. Automatic Ready imports reuse sufficient, connection-matched snapshots for at most two minutes; explicit `github_sync` reads are fresh by default. Snapshot completeness and fetch time are retained. PR, head/base, check and merge gates always inspect current evidence rather than using this board cache.
+
+Create a parent with `mesh_github_create_issue`:
+
+```json
+{
+  "requestId": "feature-checkout",
+  "kind": "feature",
+  "title": "Checkout supports saved addresses",
+  "description": "Define the observable outcome and boundaries with the product owner.",
+  "acceptanceCriteria": ["A returning customer can select a saved address."]
+}
+```
+
+Create each atomic delivery with its own stable `requestId`, `kind: "delivery"`, the parent issue number in `parent`, a focused scope and explicit acceptance criteria. Native sub-issue linkage and board attachment are checkpointed. The lead moves work through `mesh_github_set_status` and refreshes remote data through `mesh_github_sync`.
+
+The managed supervisor additionally reconciles the reviewed plan's blocking dependencies through GitHub's native [issue dependency API](https://docs.github.com/en/rest/issues/issue-dependencies). It uses native database IDs, preserves existing user edges and reads actual relationships before retrying an ambiguous mutation. Unsupported APIs or missing write permissions leave provisioning blocked; they do not silently drop the dependency. Local dependency gates still control dispatch.
+
+`github_sync` returns `totalCount` and `complete`; a truncated snapshot never claims to represent the entire board. It is an explicit pull, not a webhook subscription or automatic bidirectional scheduler.
+
+### Interrupted operations
+
+Reuse the same request ID for the same issue intent. An ID cannot be reused for changed input or another connection. A successful retry returns the existing issue. When issue creation may have succeeded but its response was lost, MALT refuses a second creation. `mesh_github_sync` scans the repository's actual issue pages for the project's unique marker and repairs known progress. Then retry the original request. If no single matching issue is visible, the journal remains unresolved; absence is not proof that creation failed.
+
+Interrupted attachment or native parent linking resumes from saved issue details, checking prior remote linkage before retrying. An ambiguous Project creation also refuses blind retry; identify the created Project and reconnect with its existing number. Pending issue operations must be reconciled before switching a connection. This is durable coordination, not a claim of an atomic transaction spanning GitHub and SQLite.
+
+## The learning steward
+
+Open an independent model session in the target project and invoke `/mcp__agentmesh__learning-steward`, or explicitly join with role `learning-steward` and follow that participation routine. It participates beside delivery workers. It neither fixes QA defects nor merges code.
+
+Its loop is:
+
+1. Read project context, event history, recorded lessons and current skills.
+2. Identify recurring defects, stale reviews, returned tickets, failed checks and successful fixes. Record evidence, root cause and a concrete prevention rule through `mesh_learning_record`.
+3. Search for resources relevant to the project's actual stack, tests, failure modes and delivery standards through `mesh_learning_search`.
+4. Inspect individual files through `mesh_learning_read_source`. MALT pins content to the latest commit touching that file, records provenance and repository-level license metadata, and stores the source as untrusted reference material. Check file-specific licenses separately.
+5. Review relevance, compatibility, maintenance, dependencies, license, security and concrete validation. Rewrite concise project-specific instructions instead of copying a whole collection.
+6. Propose a skill using `mesh_learning_propose_skill`, referencing stored sources or observed lessons and providing all four review findings: relevance, license, security and validation.
+7. Send the proposal to the lead for independent review. A successful review moves the exact revision to `awaiting_operator`. The human compares current and proposed instructions in the PWA Learning view and approves or rejects through `factory_skill_decide`. Managed agents cannot activate or retire skills themselves. Approved overrides are stored as `.malt/skills/<name>/<revision>/SKILL.md`, supersede bundled defaults in new assignments, and are broadcast to the team. Rejection preserves the existing version.
+8. Revisit standards when the stack, architecture or recurring mistakes change. Retain historical evidence and versions instead of deleting the learning trail.
+
+Research starting points include the requested [GitHub cheat sheet](https://github.com/tiimgreen/github-cheat-sheet), the [Agent Skills specification](https://agentskills.io/specification), [Anthropic's skills](https://github.com/anthropics/skills) and [awesome skill collections](https://github.com/VoltAgent/awesome-agent-skills). The cheat sheet is a Git/GitHub reference; catalogs are discovery sources. Neither stars nor a recent update proves that a skill is appropriate or safe for this project. Sources are not endorsements, and downloaded scripts are never executed by these tools.
+
+MALT retains operational memory and changes the guidance agents retrieve. It does not train model weights. Its skill-review fields record the agents' findings; they are not an automatic security scanner or proof that tests actually ran. The independent lead checks the evidence before a separate human decision approves adoption.
+
+### Claude and Codex discovery
+
+On `init`, `start`, or first workspace creation, MALT adds or refreshes one marked block in `AGENTS.md` and `CLAUDE.md`, preserving all other instructions. It points both providers to `.malt/README.md`, `.malt/skills/README.md`, `mesh_learning_status` and `mesh_learning_read_skill`. The manifest selects the active revision; archived or proposed versions are not loaded implicitly. These files remain project-local; no global provider configuration changes.
+
+Sessions already running may need to read the updated discovery files explicitly. MCP tools provide the current library without depending on whether a host automatically scans hidden skill directories. The library does not itself install dependencies, MCP servers or executable tooling. Changes to project dependencies or tools still belong in a small delivery ticket with tests and review.
+
+## Intended factory team and gates
+
+| Role                                  | Responsibility                                                                    | Human contact                           |
+| ------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------- |
+| Product owner                         | Refine outcomes and acceptance criteria with the user and lead                    | Product questions                       |
+| Team lead                             | Split parents, coordinate dependencies, assign work and maintain states           | Exceptional scope blockers              |
+| Developer 1 / 2                       | Implement focused deliveries in separate worktrees; fix returned defects          | Through lead                            |
+| QA / reviewer 1 / 2                   | Independently test and review the current PR head; send evidence to its developer | Through lead                            |
+| Final tester / merger / scrum manager | Verify end to end, serialize merge, broadcast updated main and reconcile tickets  | Final outcomes and exceptional blockers |
+| Learning steward                      | Study evolution, research resources, tailor and prune reviewed guidance           | Through lead                            |
+
+The managed supervisor verifies the repository/GitHub connection before dispatch, claims dependency-ready atomic deliveries transactionally, launches bounded native provider jobs, and preserves compact project-local assignments. Two independent reviews cover the exact PR head and base; rejection returns work to its original developer. Final integration checks and GitHub's actual protected-branch requirements gate an expected-head merge. Confirmed merges are broadcast; actual merged-main verification precedes child and parent closure. Worktree cleanup preserves dirty or newer work and source history.
+
+Cooperative attached MCP sessions use check-in/wait; managed factory jobs instead finish one bounded assignment and exit. The unpaid supervisor waits and starts the next eligible role. Provider scheduling budgets are configurable policy, actual subscription quota stays unknown without supported telemetry, and verified cooldowns prevent dispatch. Broker-wide concurrency admission and critical memory stops are documented in [Mission control](operator-console.md#resource-admission-and-cancellation).
+
+Regression evidence covers the connected loop with real local Git/worktrees and validation commands, fixture inference/GitHub, ambiguous publication/creation recovery, independent QA rejection, native protected-review gates and retried parent closure. Windows tests execute actual owned-descendant cancellation and hard process-count ceilings. Durable instructions, restart recovery, advancing-main invalidation and post-merge repair with dirty-work preservation are covered. Docker smoke verifies the PWA control path and MCP persistence across recreation; native provider executables are included. Approved reusable learning can be exported idempotently to a separate source factory with human authorization and its own setup; no hot patch or implicit board creation occurs. A complete browser installation/offline/update/accessibility audit and complete live protected-board delivery remain unverified.
+
+## Docker and legacy storage
+
+Docker now uses host bind mounts. Set `AGENTMESH_HOME_ROOT` to a writable broker-home folder and `AGENTMESH_WORKSPACE_ROOT` to an absolute host folder containing the projects. Compose maps that host workspace root to `/workspaces`; the broker rejects paths outside it. Windows paths reported by Claude or the Codex launcher are translated through this mapping. Add another mount and mapping strategy before serving unrelated host roots, or use a native broker for arbitrary accessible folders.
+
+The image includes Git, the official GitHub CLI and pinned native Codex/Claude executables. Supply `AGENTMESH_GITHUB_TOKEN` through the environment for Docker GitHub operations, or authenticate `gh` inside the private provider-home volume. Environment tokens are passed as `GH_TOKEN`, not saved in `.malt`. Native mode uses the host's existing authentication. Both setups require repository access and Project write permission. See [container setup](operator-console.md#docker-startup-and-provider-authentication); installing the PWA alone does not install the daemon or authenticate providers.
+
+Old `.agentmesh` directories are moved as whole stopped stores into `.malt`, preserving credentials and SQLite history. Old centrally stored workspace teams relocate on the next workspace open. Migration refuses leftover WAL/SHM files or an existing destination instead of combining or dropping stores. Stop the old broker cleanly first; an unclean database may need recovery and checkpointing with the old broker before migration.
+
+An old Docker named volume is not mounted by the new Compose file. Preserve it, stop the old container, and explicitly copy its stopped `.agentmesh` directory into the new broker-home bind mount before starting this version. Keep that volume until migration and history are verified. Do not run old and new brokers against the same store. Docker `down --volumes` does not erase new host bind-mounted project data.
+
+## Managed agent permissions on Windows
+
+Windows elevation and model tool approvals are separate. Ordinary project work does not require an administrator terminal. MALT starts owned subprocesses under the broker's existing OS identity; it never invokes UAC or automatically elevates. OS-denied operations remain blockers. Unattended approval does not grant administrator privileges or override provider-managed policies.
+
+Each provider accepts `developerAccess: "workspace"` (default) or `developerAccess: "full-access"` in `factory_setup` settings. Workspace Codex developers use `workspace-write`, network access and `approval_policy="never"`. Workspace Claude developers use `dontAsk` with explicit Read/Write/Edit/Glob/Grep/Bash allow rules. Unallowed actions fail instead of waiting for interactive approval. Full-access developers use Codex `danger-full-access` with approvals disabled, or Claude `bypassPermissions`. Full access permits operations outside the worktree under the broker's OS identity; configure it deliberately for trusted projects.
+
+Review and planning roles retain Codex read-only or Claude read-only tool lists with `dontAsk`, regardless of developer settings. Permission settings do not remove ownership, resource or protected-merge gates. Launch regression tests use fixtures without paid model turns.
+
+Managed Codex launches explicitly trust the owned assignment directory and approve the scoped MALT MCP tools while retaining `approval_policy="never"`. Windows defaults to `windowsSandbox: "unelevated"` and `preferMxc: true`; supported MXC isolation is preferred, with the configured legacy mode as fallback. These modes have different OS guarantees. A local probe found that legacy isolation did not reliably deny writes, so do not treat that fallback as a hard filesystem boundary. Review snapshots are also checked for unexpected edits before their results are accepted.
+
+Planning and review jobs receive `mesh_factory_read_source` for bounded, authenticated inspection of their sealed Git commit, including a supplied base revision. It excludes private runtime paths and does not provide a shell or accept arbitrary revisions. This allows inspection when native read commands are denied without granting reviewers developer access.
+
+Developers also receive a sealed view of the committed source at assignment start. It does not reflect their later uncommitted edits; native tools and supervisor checks still inspect those edits. An unavailable base revision is reported explicitly. Managed Claude environments disable provider auto-memory, background tasks, cron, agent view and bundled lifecycle skills, so MALT restores focused context from `.malt` instead of an unrelated provider memory directory. Subscription credentials remain in their supported store. See [Claude environment controls](https://code.claude.com/docs/en/env-vars).
+
+`requireBranchProtection` defaults to `true`. An operator may explicitly set it to `false` for a private-repository pilot whose GitHub plan cannot enable protections. This exception retains both independent QA approvals, final verification, current head/base checks, expected-head merging and any actual GitHub rules. It never uses administrator bypass. Such a pilot demonstrates local merge gates, not GitHub protected-branch enforcement.
+
+```json
+{
+  "providers": {
+    "codex": { "executable": "codex", "developerAccess": "full-access" },
+    "claude": { "executable": "claude", "developerAccess": "full-access" }
+  }
+}
+```
+
+This is a settings fragment: also supply the selected target project's validation commands and verified GitHub connection. See the [Codex CLI reference](https://learn.chatgpt.com/docs/cli/reference) and [Claude permissions documentation](https://code.claude.com/docs/en/permissions).
+
+## Local console workspace selection
+
+The operator console displays the actual selected project's `.malt` path. Disposable validation workspaces may live under the OS temporary directory, but normal use should initialize and start the broker in the selected repository:
+
+```powershell
+node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team" --port 4319
+# In another terminal:
+node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
+```
+
+For another delivery repository, select/open that repository in the console. Its operational state is stored in its own `.malt`, not in the broker-home repository. The MALT source repository is not automatically connected to a GitHub delivery board. Subscription credentials remain in provider-supported credential stores.
+
+## Bundled baseline upgrades
+
+Configured projects reconcile bundled lifecycle guidance before the first execution context of each broker lifetime. `.malt/skills/builtin-index.json` records exact ownership hashes. An unchanged managed skill can receive the distribution's new revision; its previous text is retained under `skills/builtin-history/<hash>/`. Already-frozen assignments keep their original prompt and hash evidence.
+
+A manually edited file or an older index without a matching ownership receipt is preserved and listed in `conflicts`. The Learning view surfaces this condition. Adopt intentional edits through the independently reviewed, human-approved project skill library, or explicitly reconcile the baseline after inspection. MALT does not silently claim ownership of unknown local changes. Active project overrides continue to take precedence over the upgraded baseline.
+
+## Scope changes and obsolete work
+
+A coordinated scope change is committed with its durable instruction and replacement objective in one SQLite transaction. Project-wide changes park old planning requests and every unfinished, unmerged delivery; selected changes also park dependent deliveries transitively. `scopeReplacement` links the parked record to the new product-owner/lead objective. Old approvals are invalidated, while completed proof and verification of already-merged code are retained. Ordinary retry cannot re-enable a superseded scope. Worktrees and source history are preserved for the replacement plan to inspect.
+
+Superseded child deliveries reconcile through stable outbox identities: explanatory comments, same-head open-PR closure, issue closure with `not_planned`, then owned-source retirement. Remote receipts precede cleanup; dirty or newer worktrees and source history are retained. Parked work is not represented as delivered. Superseded parent closure and recovery when a PR merges during cancellation remain incomplete; an unexpected merged or changed PR blocks retirement rather than deleting its source.

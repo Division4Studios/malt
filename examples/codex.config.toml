@@ -1,9 +1,10 @@
-# A fixed identity on the home project. To join a repository's workspace team
-# instead (where Claude sessions started in that folder meet), append
-# "--workspace", "/absolute/path/to/your/repository" to args.
+# Every Codex session gets its own identity and joins the team of the folder it
+# runs in when you invoke $agentmesh-worker or $agentmesh-lead. Codex does not
+# report MCP roots, so the host-side launcher passes that folder into the
+# broker container. Requires Node.js 24 on the host.
 [mcp_servers.agentmesh]
-command = "docker"
-args = ["compose", "-f", "/absolute/path/to/agent-mesh/compose.yaml", "exec", "-T", "broker", "node", "src/cli.ts", "mcp", "--project", "/data", "--name", "codex-1", "--provider", "openai", "--runtime", "codex-cli", "--role", "generalist"]
+command = "node"
+args = ["/absolute/path/to/agent-mesh/src/docker-mcp.ts", "--provider", "openai", "--runtime", "codex-cli"]
 startup_timeout_sec = 30
 # Waiting stays inside one tool call; allow up to an hour before the host cancels it.
 tool_timeout_sec = 3600

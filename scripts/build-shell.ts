@@ -1,0 +1,59 @@
+/**
+ * Fingerprint compiled public assets so installed shell updates are reproducible.
+ *
+ * @file
+ */
+import { createHash } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+/** Only public shell assets contribute to the offline cache revision. */
+const FILES = [
+  'index.html',
+  'style.css',
+  'manifest.webmanifest',
+  'icon.svg',
+  'icon-192.png',
+  'icon-512.png',
+  'dist/app.js',
+  'dist/api.js',
+  'dist/views.js',
+  'dist/worker-ui.js',
+  'dist/learning-ui.js',
+  'dist/pwa.js',
+  'dist/brand-ui.js',
+  'dist/workflow-ui.js',
+  'dist/organization-ui.js',
+  'dist/navigation.js',
+] as const;
+/** Fixed build output root independent of the invocation directory. */
+const ROOT = path.resolve(import.meta.dirname, '..', 'web');
+/** Exact compiled service-worker output. */
+const WORKER = path.join(ROOT, 'dist', 'sw.js');
+/** A fresh compilation leaves this sentinel for deterministic replacement. */
+const SENTINEL = 'malt-public-shell-v1';
+/** Read bounded fixed build inputs concurrently, never project operational state. */
+const contents = await Promise.all(
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Build inputs come only from the fixed public-shell allowlist above.
+  FILES.map(async (file) => readFile(path.join(ROOT, file))),
+);
+/** Ordered filename and content inputs distinguish both renamed and changed assets. */
+const hash = createHash('sha256');
+for (const [index, file] of FILES.entries()) {
+  hash.update(file);
+  const content = contents[index];
+  if (content === undefined) {
+    throw new Error('A public app-shell build input is missing.');
+  }
+  hash.update(content);
+}
+/** Content-specific revision; no current time or runtime data affects the build. */
+const revision = hash.digest('hex');
+const source = await readFile(WORKER, 'utf8');
+if (!source.includes(SENTINEL)) {
+  throw new Error('Compile the service worker before fingerprinting its shell.');
+}
+await writeFile(
+  WORKER,
+  source.replace(SENTINEL, () => `malt-public-shell-${revision}`),
+);

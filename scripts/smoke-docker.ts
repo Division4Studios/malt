@@ -9,6 +9,8 @@
  * - Messaging and replies between two bridge processes.
  * - Stable identity and durable state across `docker compose down` / `up`
  *   (the named volume is retained).
+ * - Nameless sessions started through the host-side launcher join the team
+ *   of their working directory, and different folders stay separate.
  *
  * Finally it removes only its own containers and volume (`down --volumes`).
  * Run with `npm run test:docker`; Docker with Compose v2 must be running.
@@ -20,6 +22,10 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import net from 'node:net';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
@@ -36,7 +42,34 @@ const project = `agentmesh-smoke-${randomUUID().slice(0, 8)}`;
 const compose = ['compose', '-f', path.resolve('compose.yaml'), '-p', project];
 
 /** Environment for Compose: an ephemeral host port and a recognisable name. */
-const environment = { ...process.env, AGENTMESH_PORT: '0', AGENTMESH_PROJECT_NAME: project };
+const dataRoot = await mkdtemp(path.join(tmpdir(), 'agentmesh-docker-'));
+
+/**
+ * Reserve an unused loopback port long enough to select the disposable console mapping.
+ *
+ * @returns Candidate host port; Compose still fails safely if another process races the bind.
+ */
+async function consolePort(): Promise<number> {
+  const listener = net.createServer();
+  listener.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const address = listener.address();
+  assert.ok(address !== null && typeof address !== 'string');
+  const closed = once(listener, 'close');
+  listener.close();
+  await closed;
+  return address.port;
+}
+
+/** Bind only disposable test directories, never the real checkout. */
+const environment = {
+  ...process.env,
+  AGENTMESH_PORT: '0',
+  AGENTMESH_UI_PORT: String(await consolePort()),
+  AGENTMESH_PROJECT_NAME: project,
+  AGENTMESH_HOME_ROOT: dataRoot,
+  AGENTMESH_WORKSPACE_ROOT: dataRoot,
+};
 
 /** Deadline for any single Compose command (image builds can be slow). */
 const COMMAND_TIMEOUT_MS = 180_000;
@@ -150,6 +183,49 @@ async function connect(name: string, provider: string): Promise<CallTool> {
   };
 }
 
+/** An agent record, reduced to its name. */
+const namedSchema = z.object({ name: z.string() });
+
+/** The fields of a `mesh_join` result that this test reads. */
+const joinSchema = z.object({
+  agent: namedSchema,
+  state: z.object({ participant: z.string(), phase: z.string(), orchestrator: namedSchema.nullable() }),
+});
+
+/** The roster returned by `mesh_list_agents`. */
+const rosterSchema = z.array(namedSchema);
+
+/**
+ * Launch a nameless session through the host-side launcher, as a host
+ * without MCP roots (Codex) would, from a given working directory.
+ *
+ * @param cwd - The session's folder, which selects its team.
+ * @returns A function that calls a tool and returns its decoded JSON payload.
+ */
+async function connectSession(
+  cwd: string,
+): Promise<(tool: string, args?: Record<string, unknown>) => Promise<unknown>> {
+  const client = new Client({ name: 'docker-smoke-session', version: '1.0' });
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [path.resolve('src/docker-mcp.ts'), '--provider', 'openai', '--runtime', 'codex-cli'],
+    // The launcher targets this test's Compose project, not a real team.
+    env: { ...environment, COMPOSE_PROJECT_NAME: project },
+    cwd,
+    stderr: 'pipe',
+  });
+  clients.add(client);
+  await client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
+  return async (tool, args = {}) => {
+    const response = toolResponseSchema.parse(await client.callTool({ name: tool, arguments: args }));
+    assert.ok(response.isError !== true, JSON.stringify(response));
+    const [first] = response.content;
+    assert.ok(first !== undefined);
+    const payload: unknown = JSON.parse(first.text);
+    return payload;
+  };
+}
+
 /** Close every open SDK client (and therefore every bridge process). */
 async function closeClients(): Promise<void> {
   for (const client of clients) {
@@ -158,10 +234,61 @@ async function closeClients(): Promise<void> {
   clients.clear();
 }
 
+/**
+ * Exercise the container PWA against its actual broker without starting inference.
+ *
+ * @param shouldQueue - Queue once, then verify persistence after recreation.
+ */
+async function verifyConsole(shouldQueue: boolean): Promise<void> {
+  const logs = await exec('docker', [...compose, 'logs', '--no-log-prefix', 'broker'], {
+    env: environment,
+    timeout: COMMAND_TIMEOUT_MS,
+    windowsHide: true,
+  });
+  const record = logs.stdout.split('\n').find((line) => line.includes('"category":"console"'));
+  assert.ok(record !== undefined, 'Container printed its owning console pairing information.');
+  const console = z.object({ url: z.string().url(), pairingCode: z.string() }).parse(JSON.parse(record));
+  const shell = await fetch(console.url);
+  assert.equal(shell.status, 200);
+  assert.match(shell.headers.get('content-security-policy') ?? '', /default-src 'self'/v);
+  assert.equal((await fetch(`${console.url}/api/snapshot`)).status, 401);
+  const pair = await fetch(`${console.url}/api/pair`, {
+    method: 'POST',
+    headers: { Origin: console.url, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: console.pairingCode }),
+  });
+  assert.equal(pair.status, 200);
+  const cookie = (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '';
+  const headers = { Origin: console.url, Cookie: cookie, 'Content-Type': 'application/json' };
+  if (shouldQueue) {
+    const control = await fetch(`${console.url}/api/control?project=home`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        operation: 'factory_request',
+        input: { objective: 'Docker console persistence proof; dispatch stays disabled.' },
+      }),
+    });
+    assert.equal(control.status, 200);
+  }
+  const snapshot = await fetch(`${console.url}/api/snapshot?project=home`, { headers });
+  assert.equal(snapshot.headers.get('cache-control'), 'no-store');
+  const featureShape = z.object({ objective: z.string() });
+  const factory = z.object({ active: z.literal(false), features: z.array(featureShape) });
+  const state = z.object({ factory }).parse(await snapshot.json());
+  assert.ok(
+    state.factory.features.some(
+      (feature) => feature.objective === 'Docker console persistence proof; dispatch stays disabled.',
+    ),
+  );
+  process.stdout.write('PASS: Container PWA pairing, CSP, authenticated durable control and disabled inference\n');
+}
+
 /** Run the smoke scenario. */
 async function main(): Promise<void> {
   process.stdout.write(`Starting disposable Compose project ${project}\n`);
   await command('up', '-d', '--build', '--wait');
+  await verifyConsole(true);
   const lead = await connect('claude-lead', 'anthropic');
   const worker = await connect('codex-1', 'openai');
   const identity = await worker('mesh_whoami');
@@ -189,10 +316,35 @@ async function main(): Promise<void> {
   assert.equal((await lead('mesh_get_messages')).messages?.[0]?.body, 'Reply from another MCP process');
   await closeClients();
 
+  // Nameless sessions join the team of the folder they were launched from.
+  const folders = path.join(dataRoot, 'workspaces');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Create only a workspace under this smoke test's disposable bind mount.
+  await mkdir(folders);
+  try {
+    const alpha = path.join(folders, 'alpha');
+    const beta = path.join(folders, 'beta');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inside this test's own temporary directory.
+    await mkdir(alpha);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inside this test's own temporary directory.
+    await mkdir(beta);
+    const alphaLead = joinSchema.parse(await (await connectSession(alpha))('mesh_join', { role: 'lead' }));
+    assert.equal(alphaLead.state.participant, 'orchestrator');
+    const alphaWorker = joinSchema.parse(await (await connectSession(alpha))('mesh_join', {}));
+    assert.equal(alphaWorker.state.phase, 'AWAITING_LEAD');
+    assert.equal(alphaWorker.state.orchestrator?.name, alphaLead.agent.name);
+    const betaSession = await connectSession(beta);
+    assert.equal(rosterSchema.parse(await betaSession('mesh_list_agents')).length, 0);
+    await closeClients();
+  } finally {
+    // The broker still owns open SQLite files; remove bind-mounted test data
+    // only after container shutdown in the outer cleanup.
+  }
+
   // State survives container recreation because the named volume is kept.
   process.stdout.write('Stopping and recreating containers while retaining the named volume\n');
   await command('down');
   await command('up', '-d', '--wait');
+  await verifyConsole(false);
   const resumed = await connect('codex-1', 'openai');
   assert.equal((await resumed('mesh_whoami')).id, identity.id);
   assert.equal((await resumed('mesh_work_status')).phase, 'CHECKIN_REQUIRED');
@@ -202,7 +354,7 @@ async function main(): Promise<void> {
   await resumed('mesh_ack_message', { id: sent.id });
   assert.equal((await resumed('mesh_get_messages')).messages?.length, 0);
   process.stdout.write(
-    'PASS: Docker MCP wait/resume, explicit idle approval, messaging, stable identity and persistence\n',
+    'PASS: Docker MCP wait/resume, explicit idle approval, messaging, workspace sessions, stable identity and persistence\n',
   );
 }
 
@@ -214,5 +366,8 @@ try {
   } finally {
     // Remove ONLY this test's containers and volume.
     await command('down', '--volumes');
+    assert.equal(path.dirname(dataRoot), path.resolve(tmpdir()));
+    assert.ok(path.basename(dataRoot).startsWith('agentmesh-docker-'));
+    await rm(dataRoot, { recursive: true, force: true });
   }
 }

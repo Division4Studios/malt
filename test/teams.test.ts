@@ -12,8 +12,11 @@
 
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
+import { pathToFileURL } from 'node:url';
 
 import { z } from 'zod';
 
@@ -49,6 +52,20 @@ const ALPHA_URI = 'file:///E:/01%20-%20Personal%20Projects/Alpha';
 
 /** Just enough of an agent list to count its entries. */
 const agentListSchema = z.array(z.unknown());
+
+/**
+ * Make a real workspace accessible to the test's native broker.
+ *
+ * @param config - Test home project.
+ * @param name - Workspace directory name.
+ * @returns Absolute workspace path.
+ */
+function createWorkspace(config: MeshConfig, name: string): string {
+  const root = path.join(config.root, name);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Create only a workspace under this test's disposable home project.
+  mkdirSync(root);
+  return root;
+}
 
 /**
  * Count the agents listed by a team.
@@ -217,12 +234,14 @@ await test('each workspace has its own team; tokens never cross teams; teams sur
   let { broker } = fixture;
   defer(async () => broker.close());
 
-  const alpha = await openTeamConfig(config, ALPHA_URI);
-  const alphaAgain = await openTeamConfig(config, String.raw`E:\01 - Personal Projects\alpha`);
+  const alphaRoot = createWorkspace(config, 'Alpha');
+  const betaRoot = createWorkspace(config, 'beta');
+  const alpha = await openTeamConfig(config, pathToFileURL(alphaRoot).href);
+  const alphaAgain = await openTeamConfig(config, `${alphaRoot}/`);
   assert.equal(alphaAgain.team, alpha.team);
   assert.equal(alphaAgain.projectId, alpha.projectId);
   assert.equal(alpha.name, 'Alpha');
-  const beta = await openTeamConfig(config, '/srv/beta');
+  const beta = await openTeamConfig(config, betaRoot);
   assert.notEqual(beta.team, alpha.team);
 
   const lead = new AgentClient(alpha, { runtime: 'claude-code' });
@@ -238,8 +257,8 @@ await test('each workspace has its own team; tokens never cross teams; teams sur
   await assert.rejects(rpc(alpha, 'list_teams'), { code: 'UNKNOWN_OPERATION' });
   await assert.rejects(rpc(config, 'open_team', { workspace: 'relative' }), { code: 'NO_WORKSPACE' });
   assert.deepEqual(await rpc(config, 'list_teams'), [
-    { team: alpha.team, name: 'Alpha', workspace: 'E:/01 - Personal Projects/Alpha' },
-    { team: beta.team, name: 'beta', workspace: '/srv/beta' },
+    { team: alpha.team, name: 'Alpha', workspace: normalizeWorkspace(alphaRoot).display },
+    { team: beta.team, name: 'beta', workspace: normalizeWorkspace(betaRoot).display },
   ]);
 
   // A restarted broker reopens a team's state lazily on its next request.
@@ -257,13 +276,16 @@ await test('nameless MCP sessions join their workspace team only when asked', { 
   const defer = createCleanup(t);
   const { broker, config } = await brokerFixture(t);
   defer(async () => broker.close());
+  const alphaRoot = createWorkspace(config, 'Alpha');
+  const betaRoot = createWorkspace(config, 'beta');
+  const alphaUri = pathToFileURL(alphaRoot).href;
   const open = async (options: BridgeOptions): Promise<BridgeHandle> => {
     const handle = await startBridge(config, options);
     defer(async () => handle.client.close());
     return handle;
   };
 
-  const lead = await open({ roots: [ALPHA_URI], runtime: 'claude-code' });
+  const lead = await open({ roots: [alphaUri], runtime: 'claude-code' });
   assert.equal(toolErrorCode((await lead.callRaw('mesh_whoami')).payload), 'NOT_JOINED');
   // Seeing the team does not join it.
   assert.equal((await lead.call('mesh_list_agents')).length, 0);
@@ -271,14 +293,14 @@ await test('nameless MCP sessions join their workspace team only when asked', { 
   assert.equal(joined.joined, true);
   assert.equal(joined.state.participant, 'orchestrator');
   assert.match(joined.agent.name, /^claude-code-[\da-f]{8}$/v);
-  assert.deepEqual(joined.team, { name: 'Alpha', workspace: 'E:/01 - Personal Projects/Alpha' });
+  assert.deepEqual(joined.team, { name: 'Alpha', workspace: normalizeWorkspace(alphaRoot).display });
   assert.equal((await lead.call('mesh_join', { role: 'lead' })).joined, false);
   assert.equal(toolErrorCode((await lead.callRaw('mesh_join', { role: 'worker' })).payload), 'ALREADY_JOINED');
 
   // A second lead in the same folder is refused, and can join as a worker.
-  const worker = await open({ roots: [ALPHA_URI] });
+  const worker = await open({ roots: [alphaUri] });
   assert.equal(toolErrorCode((await worker.callRaw('mesh_join', { role: 'lead' })).payload), 'LEAD_ACTIVE');
-  const team = broker.teams.get(teamSlug(normalizeWorkspace(ALPHA_URI)));
+  const team = broker.teams.get(teamSlug(normalizeWorkspace(alphaUri)));
   assert.ok(team !== undefined);
   const leadWake = lead.call('mesh_wait_for_work', { afterRevision: joined.state.revision });
   await until(() => team.waiters.pending.size === 1);
@@ -295,7 +317,7 @@ await test('nameless MCP sessions join their workspace team only when asked', { 
   });
 
   // Another folder is a separate team with its own vacant lead role.
-  const other = await open({ workspace: '/srv/beta' });
+  const other = await open({ workspace: betaRoot });
   assert.equal((await other.call('mesh_list_agents')).length, 0);
   assert.equal((await other.call('mesh_join', { role: 'lead' })).state.participant, 'orchestrator');
   // Without any workspace, a session cannot join.

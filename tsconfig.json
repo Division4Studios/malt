@@ -1,10 +1,10 @@
 {
   // ---------------------------------------------------------------------------
-  // Agent Mesh TypeScript configuration.
+  // MALT TypeScript configuration.
   //
-  // The project is pure TypeScript executed DIRECTLY by Node.js 24+ through its
-  // built-in type stripping. There is no build step and no emitted JavaScript:
-  // `tsc` is used purely as a type checker (`npm run typecheck`).
+  // Backend TypeScript executes directly through Node.js 24+ type stripping.
+  // This configuration only checks it; separate web configurations compile
+  // browser and service-worker JavaScript through `npm run build:web`.
   //
   // Every strictness option TypeScript offers is enabled. Options are grouped
   // and commented so a reader can see why each one exists.

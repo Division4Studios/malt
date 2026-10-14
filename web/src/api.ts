@@ -1,0 +1,225 @@
+/**
+ * Dependency-free browser contract validation and authenticated local requests.
+ *
+ * @file
+ */
+
+/** Validated plain JSON object. */
+export type Data = Record<string, unknown>;
+
+/**
+ * Reject malformed server boundaries rather than casting untrusted JSON.
+ *
+ * @param value - Untrusted decoded response.
+ * @returns Validated plain object.
+ * @throws {Error} For malformed input.
+ */
+export function data(value: unknown): Data {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Invalid local service response.');
+  }
+  return Object.fromEntries(Object.entries(value));
+}
+
+/**
+ * Read a required string field safely.
+ *
+ * @param value - Validated object.
+ * @param key - Expected field.
+ * @returns Actual string, or a clear empty display fallback.
+ */
+export function text(value: Data, key: string): string {
+  const field = value[key];
+  return typeof field === 'string' ? field : '';
+}
+
+/**
+ * Display an explicit fallback for an unavailable string value.
+ *
+ * @param value - Actual display text.
+ * @param fallback - Clear empty-state wording.
+ * @returns Actual text or the supplied fallback.
+ */
+export function displayText(value: string, fallback: string): string {
+  return value === '' ? fallback : value;
+}
+
+/**
+ * Choose the first available plain-text display field.
+ *
+ * @param values - Ordered fallbacks.
+ * @returns First nonempty value, or an empty display.
+ */
+export function firstText(...values: readonly string[]): string {
+  return values.find((value) => value !== '') ?? '';
+}
+
+/**
+ * Format a finite validated count without nested rendering expressions.
+ *
+ * @param value - Validated record.
+ * @param key - Count field.
+ * @returns Plain decimal text.
+ */
+export function numericText(value: Data, key: string): string {
+  return String(number(value, key));
+}
+
+/**
+ * Read a finite numeric field safely.
+ *
+ * @param value - Validated object.
+ * @param key - Expected field.
+ * @returns Finite value, or zero for an unavailable count.
+ */
+export function number(value: Data, key: string): number {
+  const field = value[key];
+  return typeof field === 'number' && Number.isFinite(field) ? field : 0;
+}
+
+/**
+ * Read a boolean state without treating arbitrary values as true.
+ *
+ * @param value - Validated object.
+ * @param key - Expected field.
+ * @returns Actual affirmative state.
+ */
+export function hasFlag(value: Data, key: string): boolean {
+  return value[key] === true;
+}
+
+/**
+ * Decode an object collection; reject malformed members at the boundary.
+ *
+ * @param value - Untrusted collection.
+ * @returns Validated records.
+ */
+export function records(value: unknown): Data[] {
+  return Array.isArray(value) ? value.map((item) => data(item)) : [];
+}
+
+/**
+ * Read one typed object field with an explicit empty-state fallback.
+ *
+ * @param value - Validated parent.
+ * @param key - Field name.
+ * @returns Validated child record.
+ */
+export function child(value: Data, key: string): Data {
+  const field = value[key];
+  return field === null || field === undefined ? {} : data(field);
+}
+
+/**
+ * Format actual readings with an explicit unknown CPU state.
+ *
+ * @param factory - Validated factory snapshot.
+ * @returns Plain resource telemetry without changing UI controls.
+ */
+export function resourceSummary(factory: Data): string {
+  const resources = child(factory, 'resources');
+  const free = Math.round(number(resources, 'freeMemoryMb'));
+  const measured = Math.round(number(resources, 'cpuPercent'));
+  const cpu = resources['cpuPercent'] === null ? 'sampling' : `${String(measured)}%`;
+  return `${String(free)} MiB free memory · CPU ${cpu}`;
+}
+/** State delivered by the authenticated local broker gateway. */
+export interface Snapshot {
+  /** Current target metadata. */
+  readonly project: Data;
+  /** Actual factory lifecycle. */
+  readonly factory: Data;
+  /** Real recent event history. */
+  readonly events: Data[];
+  /** Saved project GitHub connection. */
+  readonly github: Data;
+  /** Reviewed project learning state. */
+  readonly learning: Data;
+  /** Observation timestamp. */
+  readonly observedAt: number;
+}
+
+/**
+ * Validate a live snapshot before updating the UI.
+ *
+ * @param value - Decoded server response.
+ * @returns Bounded project state.
+ * @throws {Error} For inconsistent boundary types.
+ */
+export function snapshot(value: unknown): Snapshot {
+  const root = data(value);
+  const factory = child(root, 'factory');
+  if (typeof factory['active'] !== 'boolean' || typeof factory['configured'] !== 'boolean') {
+    throw new TypeError('Invalid factory state.');
+  }
+  for (const key of ['jobs', 'tasks', 'features', 'capacities']) {
+    if (!Array.isArray(factory[key])) {
+      throw new TypeError('Incomplete factory snapshot.');
+    }
+    records(factory[key]);
+  }
+  return {
+    project: child(root, 'project'),
+    factory,
+    events: records(child(root, 'events')['events']),
+    github: child(root, 'github'),
+    learning: child(root, 'learning'),
+    observedAt: number(root, 'observedAt'),
+  };
+}
+/** Authenticated API failures carry a status so the app can return to pairing. */
+export class LocalRequestError extends Error {
+  /** Actual HTTP status. */
+  public readonly status: number;
+
+  /**
+   * Construct a user-readable local service failure.
+   *
+   * @param message - Validated error text.
+   * @param options - HTTP status metadata.
+   */
+  public constructor(message: string, options: ErrorOptions & { status: number }) {
+    super(message, options);
+    this.name = 'LocalRequestError';
+    this.status = options.status;
+  }
+}
+
+/**
+ * Request local state or apply one explicit control; no automatic mutation replay.
+ *
+ * @param route - Fixed app API route.
+ * @param input - Optional mutation input.
+ * @returns Decoded JSON for the caller's boundary validator.
+ * @throws {LocalRequestError} When authorization, validation or broker access fails.
+ */
+export async function request(route: string, input?: unknown): Promise<unknown> {
+  const response = await fetch(
+    route,
+    input === undefined
+      ? { cache: 'no-store' }
+      : {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(input),
+          cache: 'no-store',
+        },
+  );
+  const result: unknown = await response.json();
+  if (!response.ok) {
+    const message = displayText(text(data(result), 'error'), 'Local service request failed.');
+    throw new LocalRequestError(message, { status: response.status });
+  }
+  return result;
+}
+
+/**
+ * Select a project through a public scope identifier, never a bearer token.
+ *
+ * @param project - Public selected project ID.
+ * @param route - Fixed API route.
+ * @returns Same-origin API path.
+ */
+export function scoped(project: string, route: string): string {
+  return `${route}?project=${encodeURIComponent(project)}`;
+}

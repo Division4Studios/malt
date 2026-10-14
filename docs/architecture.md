@@ -1,8 +1,14 @@
 # Architecture and implementation boundary
 
+The managed supervisor and PWA extend the cooperative messaging core. [Operator console architecture](operator-console.md) describes the browser boundary, routing and human-gated local overrides. Managed roles exit after bounded assignments; attached roles retain their existing check-in/wait contract.
+
 ## Current milestone
 
 The current service combines durable communication with orchestrator-controlled check-in and cooperative wait/resume. The core contains no Claude/Codex execution semantics and makes no inference API calls. See the [README](../README.md), [workflow](workflow.md), and [API reference](api.md).
+
+The factory layer separately launches bounded subscription-authenticated native CLI assignments, persists stage-specific claims and handoffs, and reconciles Git/worktree/GitHub effects without replaying successful model turns. PWA controls use this same authority. An operator-approved private-repository pilot has completed a real delivery; its local review gates are distinct from GitHub branch protection. Superseded-parent retirement waits for actual native child closure and journals `not_planned` receipts rather than reporting obsolete scope as delivered.
+
+When the operator explicitly selects the broker's home repository as a delivery target, its workspace routing reference resolves to the existing home store and supervisor. Restart restoration never allocates a second supervisor for that project ID. Old team-header aliases remain authenticated and resolve the same authority; they do not create a second lease contender.
 
 ```text
 Claude Code / Codex / other MCP host
@@ -20,7 +26,7 @@ Claude Code / Codex / other MCP host
 
 In Docker, `docker compose exec -T` carries the stdio stream into the container; each bridge remains an independent process. The broker alone opens SQLite. Docker Compose supervises the broker process, not the agent models.
 
-One broker serves its home project plus one team per workspace folder. Each workspace team is a complete nested project under the home project's `.agentmesh/teams/<slug>/`, with its own project ID, token and SQLite file. The broker opens a team's store lazily, on `open_team` or on the first authenticated request carrying the team's `X-AgentMesh-Team` header, and gives each team its own waiter registry. Presence sweeps and shutdown cover every open team.
+One broker serves its home project plus one team per workspace folder. Each workspace team stores its ID, token, SQLite file, GitHub connection and learning evidence under its own `<workspace>/.malt/`. The broker home keeps only `.malt/teams/<slug>.json` routing references. The broker opens a team's store lazily, on `open_team` or on the first authenticated request carrying the team's `X-AgentMesh-Team` header, and gives each team its own waiter registry. Presence sweeps and shutdown cover every open team.
 
 ## Source tour
 
@@ -29,7 +35,7 @@ Read protocol.ts first to see the public operations, then coordination.ts for th
 | Module                | Responsibility                                                             |
 | --------------------- | -------------------------------------------------------------------------- |
 | `src/config.ts`       | Project bootstrap, credentials, persisted and session identities           |
-| `src/teams.ts`        | Workspace normalization, team slugs, nested team projects                  |
+| `src/teams.ts`        | Workspace normalization, mount translation and project-local routing       |
 | `src/protocol.ts`     | Provider-neutral validation schemas, error codes and model-facing text     |
 | `src/database.ts`     | SQLite row schemas and validated, typed query helpers                      |
 | `src/store.ts`        | Transactional identity/presence, messaging, acknowledgements, events       |
@@ -39,6 +45,7 @@ Read protocol.ts first to see the public operations, then coordination.ts for th
 | `src/client.ts`       | Broker RPC and bridge heartbeat lifecycle                                  |
 | `src/mcp.ts`          | Official MCP SDK stdio tool facade, held waits and participation prompts   |
 | `src/cli.ts`          | Bootstrap, foreground daemon and human CLI commands                        |
+| `src/docker-mcp.ts`   | Host launcher: passes the session folder into the Docker bridge            |
 | `src/log.ts`          | Structured stderr-only diagnostics with level filtering                    |
 
 Node.js 24 runs the TypeScript sources directly (type stripping), which keeps the toolchain free of build steps and native modules across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; schema 3 adds the `agents.lifetime` column (existing identities become durable). Startup performs these additive migrations inside a transaction. Unknown schema versions are rejected.
@@ -73,13 +80,12 @@ Acknowledged messages remain available for history; retention and pruning are de
 
 All RPCs require the addressed team's bearer secret and project ID; one team's token is rejected by every other team. Agent operations also require the agent secret and current session UUID. The home project's token can open any workspace team (`open_team` returns that team's token), so it is the broker's administrative secret. Project-authenticated CLI readers may view aggregate status, the roster, and events without registering. HTTP requests from browser origins are rejected. No CORS is enabled. The health endpoint reveals only service health/version.
 
-The local OS account and users with Docker access are trusted administrators: they can read project/identity files and inspect the database. This is not tenant isolation or a hostile-agent sandbox. Container credentials live only in the data volume. The broker cannot execute shell commands, change provider approvals, or kill provider processes. Bind to loopback outside Docker; container port publication is loopback-only. Remote hosting and TLS are outside this milestone.
+The local OS account and users with Docker access are trusted administrators: they can read project/identity files and inspect the database. This is not tenant isolation or a hostile-agent sandbox. Local broker credentials live in the project .malt folders; GitHub authentication stays with gh or the container environment. The broker invokes gh using argument arrays and structured stdin without a shell. It never executes downloaded research scripts or blanket-kills provider processes. Managed assignments use explicit provider permissions and terminate only their owned process trees; cooperative attached sessions retain their host permissions. Bind to loopback outside Docker; container port publication is loopback-only. Remote hosting and TLS are outside this milestone.
 
-## Next milestones
+## Factory execution and verification boundaries
 
-1. **Tasks:** extend the migration framework with transactional task claims, dependency DAG validation, task state transitions, structured completion records and dependency notifications. Current per-worker instructions are not a full task board.
-2. **Managed workers:** introduce a provider interface with persistent session/thread IDs, lifecycle event subscriptions, resume, steering and interruption. Implement Codex app-server and Claude adapters outside the coordination store. Keep execution permissions under each provider's control.
-3. **Parallel development:** advisory scope ownership, worktree metadata, review state, automatic dependency wake-up and a read-only TUI. Destructive worktree operations require an explicit policy.
-4. **Scheduling:** capabilities, budgets, retries and replacement policies once the preceding layers have meaningful reliability data.
+Transactional task claims, dependency validation, original-owner rework, independent head/base reviews, owned worktrees, native provider launch policies and an unpaid supervisor now implement the managed lifecycle. The native terminal dashboard and installable PWA inspect and control the same durable backend; neither is a separate scheduler. Frontend production dependencies are absent; MCP SDK and Zod remain backend dependencies.
 
-The full PRD acceptance scenario (a lead plus four live model workers implementing, reviewing and integrating code without human message routing) remains a future integration milestone. Current tests establish the communication substrate rather than that complete workflow.
+The connected regression scenario uses real local Git and validation processes with fixture inference and GitHub. Windows tests verify native literal arguments, standard input, credential redaction, cancellation, hard descendant-count ceilings and cleanup. Instruction receipts distinguish dispatch from explicit model reports. Restart recovery acquires the durable supervisor lease before fencing old jobs. Browser inspection verifies paired backend controls and human skill decisions; Docker smoke exercises the colocated PWA/broker and persistence across recreation. Both subscription CLIs have passed bounded native structured-response smokes. Approved reusable lessons reach a separate source factory through human-authorized, journaled, idempotent objectives; no running daemon is hot-patched. Live delivery through a protected target GitHub Project and complete browser installation/update/offline verification remain unverified. See [Mission control](operator-console.md) for current startup, policy and evidence.
+
+GitHub and learning operations run outside SQLite transactions, use each workspace's own services and append completion events. GitHub mutation queues serialize setup and issue operations within a project; journals persist checkpoints across restarts. Immutable research and skill candidates retain provenance. Only the designated lead can mutate GitHub tickets. Skill changes require independent lead review followed by human approval; managed agents cannot activate or retire them. See [Project coordination and learning](software-factory.md) for the detailed lifecycle and limits.

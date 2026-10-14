@@ -1,5 +1,5 @@
 /**
- * Structured diagnostic logging shared by every Agent Mesh process.
+ * Structured diagnostic logging shared by every MALT process.
  *
  * This module is the ONLY place that writes diagnostics. Its single rule is
  * that diagnostics go to **stderr**, never stdout, because stdout belongs to a

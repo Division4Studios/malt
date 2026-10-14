@@ -1,5 +1,5 @@
 /**
- * Shared fixtures for the Agent Mesh test suites.
+ * Shared fixtures for the MALT test suites.
  *
  * Every test runs against its own temporary project directory, so tests are
  * fully isolated from each other and from any real team. Helpers here create

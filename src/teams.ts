@@ -2,12 +2,13 @@
  * Workspace teams: one isolated team per project folder.
  *
  * A single broker serves its home project (the directory it was started with)
- * plus any number of workspace teams. Each workspace team is a complete,
- * nested Agent Mesh project with its own ID, token, SQLite database, roster,
- * orchestrator and messages, stored under the home project as shown below.
+ * plus any number of workspace teams. Each team's ID, token, database,
+ * roster, orchestrator and conversations live inside its actual workspace.
+ * The home project keeps only routing references for reopening those stores.
  *
  * ```text
- * <home>/.agentmesh/teams/<slug>/.agentmesh/{config.json, state/mesh.db}
+ * <workspace>/.malt/{config.json, state/mesh.db}
+ * <home>/.malt/teams/<slug>.json
  * ```
  *
  * A team is identified by its workspace folder, normally the folder an MCP
@@ -21,12 +22,21 @@
  */
 
 import { createHash } from 'node:crypto';
+import { mkdirSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod';
 
-import { hasErrorCode, loadConfig, toLabel } from './config.ts';
+import {
+  STATE_DIRECTORY_NAME,
+  hasErrorCode,
+  loadConfig,
+  migrateDirectory,
+  readJsonFile,
+  toLabel,
+  writeIfAbsent,
+} from './config.ts';
 import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
@@ -43,6 +53,9 @@ const SLUG_LABEL_MAX = 40;
 /** Label used when a workspace folder name has no usable characters. */
 const DEFAULT_SLUG_LABEL = 'team';
 
+/** Filename extension length of a persisted routing reference. */
+const REFERENCE_EXTENSION_LENGTH = '.json'.length;
+
 /**
  * A team slug: a lowercase label, a hyphen and a hash. It doubles as a
  * directory name, so it never contains path separators or dots.
@@ -54,6 +67,9 @@ const WINDOWS_DRIVE_PATTERN = /^[A-Za-z]:(?:\/|$)/v;
 
 /** A drive path as it appears in a file URI's pathname, such as `/C:/work`. */
 const URI_DRIVE_PATTERN = /^\/[A-Za-z]:(?:\/|$)/v;
+
+/** Persistent routing reference; no messages or credentials live here. */
+const referenceSchema = z.object({ version: z.literal(1), workspace: z.string() }).strict();
 
 /** A normalized workspace folder. */
 export interface Workspace {
@@ -70,6 +86,7 @@ export const teamAccessSchema = z.object({
   team: z.string(),
   name: z.string(),
   workspace: z.string(),
+  storageRoot: z.string(),
   projectId: z.string(),
   token: z.string(),
 });
@@ -118,13 +135,15 @@ export function normalizeWorkspace(raw: string): Workspace {
   if (URI_DRIVE_PATTERN.test(location)) {
     location = location.slice(1);
   }
-  let trimmed = location;
-  while (trimmed.endsWith('/')) {
-    trimmed = trimmed.slice(0, -1);
-  }
   const isWindows = WINDOWS_DRIVE_PATTERN.test(location) || location.startsWith('//');
   if (!isWindows && !location.startsWith('/')) {
     throw new MeshError('NO_WORKSPACE', 'The workspace must be an absolute path or a file URI.');
+  }
+  const uncPrefix = location.startsWith('//') ? '/' : '';
+  location = uncPrefix + path.posix.normalize(location);
+  let trimmed = location;
+  while (trimmed.endsWith('/')) {
+    trimmed = trimmed.slice(0, -1);
   }
   // Keep a lone root ("/" or "C:/") recognisable after trimming.
   const display = trimmed === '' || trimmed.endsWith(':') ? `${trimmed}/` : trimmed;
@@ -160,6 +179,50 @@ function teamRoot(home: MeshConfig, slug: string): string {
 }
 
 /**
+ * Resolve a host workspace to the broker's filesystem, including Docker mounts.
+ * A broker never invents an inaccessible host directory inside its own container.
+ *
+ * @param workspace - Normalized host workspace.
+ * @returns The accessible project directory on the broker.
+ * @throws {MeshError} WORKSPACE_UNAVAILABLE for inaccessible or unmapped folders.
+ */
+export function workspaceRoot(workspace: Workspace): string {
+  const hostRoot = process.env['AGENTMESH_HOST_ROOT'];
+  const mountRoot = process.env['AGENTMESH_MOUNT_ROOT'];
+  let root = workspace.display;
+  if (hostRoot !== undefined && hostRoot !== '' && mountRoot !== undefined && mountRoot !== '') {
+    const host = normalizeWorkspace(hostRoot);
+    const prefix = host.key.endsWith('/') ? host.key : `${host.key}/`;
+    if (workspace.key !== host.key && !workspace.key.startsWith(prefix)) {
+      throw new MeshError('WORKSPACE_UNAVAILABLE', 'The workspace is outside the configured Docker workspace mount.');
+    }
+    root = path.resolve(mountRoot, workspace.display.slice(host.display.length).replace(/^\//v, ''));
+    const relative = path.relative(path.resolve(mountRoot), root);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new MeshError('WORKSPACE_UNAVAILABLE', 'The workspace escapes the configured Docker workspace mount.');
+    }
+  } else if (process.platform !== 'win32' && (WINDOWS_DRIVE_PATTERN.test(root) || root.startsWith('//'))) {
+    throw new MeshError(
+      'WORKSPACE_UNAVAILABLE',
+      'Mount the host workspace and configure AGENTMESH_HOST_ROOT and AGENTMESH_MOUNT_ROOT, or run the broker natively.',
+    );
+  }
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- The broker verifies the user-selected workspace before storing anything there.
+    if (!statSync(root).isDirectory()) {
+      throw new Error('Not a directory.');
+    }
+  } catch (error) {
+    throw new MeshError(
+      'WORKSPACE_UNAVAILABLE',
+      'The project folder is not accessible to the broker. Mount it or run the broker natively.',
+      { cause: error },
+    );
+  }
+  return path.resolve(root);
+}
+
+/**
  * Open a workspace's team, creating it on first use.
  *
  * A new team inherits the home project's broker URL and presence timing, so
@@ -171,7 +234,14 @@ function teamRoot(home: MeshConfig, slug: string): string {
  */
 export function createTeam(home: MeshConfig, workspace: Workspace): TeamConfig {
   const team = teamSlug(workspace);
-  const config = loadConfig(teamRoot(home, team), {
+  const root = workspaceRoot(workspace);
+  const legacyRoot = teamRoot(home, team);
+  // Old brokers kept workspace data centrally. Relocate the whole stopped
+  // store before creating anything in the target project.
+  migrateDirectory(path.join(legacyRoot, '.agentmesh'), path.join(root, STATE_DIRECTORY_NAME));
+  migrateDirectory(path.join(legacyRoot, '.mlt'), path.join(root, STATE_DIRECTORY_NAME));
+  migrateDirectory(path.join(legacyRoot, STATE_DIRECTORY_NAME), path.join(root, STATE_DIRECTORY_NAME));
+  const config = loadConfig(root, {
     create: true,
     initial: {
       name: workspace.name,
@@ -181,6 +251,10 @@ export function createTeam(home: MeshConfig, workspace: Workspace): TeamConfig {
       workspace: workspace.display,
     },
   });
+  // A tiny routing index lets the broker reopen projects after a restart.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The index lives under the broker's project-local state directory.
+  mkdirSync(path.dirname(legacyRoot), { recursive: true });
+  writeIfAbsent(`${legacyRoot}.json`, `${JSON.stringify({ version: 1, workspace: workspace.display }, null, 2)}\n`);
   return { ...config, team };
 }
 
@@ -194,9 +268,18 @@ export function createTeam(home: MeshConfig, workspace: Workspace): TeamConfig {
  */
 export function loadTeam(home: MeshConfig, slug: string): TeamConfig {
   try {
-    return { ...loadConfig(teamRoot(home, slug)), team: slug };
+    const reference = referenceSchema.parse(readJsonFile(`${teamRoot(home, slug)}.json`));
+    const workspace = normalizeWorkspace(reference.workspace);
+    if (teamSlug(workspace) !== slug) {
+      throw new MeshError('UNKNOWN_TEAM', 'The workspace routing reference does not match its team.');
+    }
+    return { ...loadConfig(workspaceRoot(workspace)), team: slug };
   } catch (error) {
-    if (error instanceof MeshError || (Error.isError(error) && hasErrorCode(error.cause, 'ENOENT'))) {
+    if (
+      error instanceof MeshError ||
+      hasErrorCode(error, 'ENOENT') ||
+      (Error.isError(error) && hasErrorCode(error.cause, 'ENOENT'))
+    ) {
       throw new MeshError('UNKNOWN_TEAM', 'No such team.', { cause: error });
     }
     throw error;
@@ -221,7 +304,8 @@ export async function listTeams(home: MeshConfig): Promise<TeamSummary[]> {
     throw error;
   }
   const teams: TeamSummary[] = [];
-  for (const slug of entries) {
+  for (const entry of entries) {
+    const slug = entry.endsWith('.json') ? entry.slice(0, -REFERENCE_EXTENSION_LENGTH) : entry;
     if (!TEAM_SLUG_PATTERN.test(slug)) {
       continue;
     }

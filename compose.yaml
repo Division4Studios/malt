@@ -3,14 +3,28 @@ services:
     build: .
     image: agentmesh:local
     init: true
+    pids_limit: 256
+    mem_limit: ${MALT_DOCKER_MEMORY:-4g}
+    cpus: ${MALT_DOCKER_CPUS:-2.0}
     restart: unless-stopped
     environment:
       AGENTMESH_PROJECT_NAME: ${AGENTMESH_PROJECT_NAME:-agentmesh}
       AGENTMESH_LOG_LEVEL: ${AGENTMESH_LOG_LEVEL:-debug}
+      AGENTMESH_HOST_ROOT: ${AGENTMESH_WORKSPACE_ROOT:-}
+      AGENTMESH_MOUNT_ROOT: /workspaces
+      GH_TOKEN: ${AGENTMESH_GITHUB_TOKEN:-}
+      AGENTMESH_UI_PORT: ${AGENTMESH_UI_PORT:-4318}
     ports:
       - '127.0.0.1:${AGENTMESH_PORT:-4317}:4317'
+      - '127.0.0.1:${AGENTMESH_UI_PORT:-4318}:4318'
     volumes:
-      - mesh-data:/data
+      - type: bind
+        source: ${AGENTMESH_HOME_ROOT:-.}
+        target: /data
+      - type: bind
+        source: ${AGENTMESH_WORKSPACE_ROOT:-.}
+        target: /workspaces
+      - provider-home:/home/node
     read_only: true
     tmpfs:
       - /tmp
@@ -40,4 +54,4 @@ services:
     stop_grace_period: 15s
 
 volumes:
-  mesh-data:
+  provider-home:

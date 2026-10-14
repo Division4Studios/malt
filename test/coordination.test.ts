@@ -365,7 +365,7 @@ await test('the bridge offers lead and worker participation prompts', { timeout:
   const prompts = (await client.listPrompts()).prompts.map((prompt) => prompt.name);
   assert.deepEqual(
     prompts.toSorted((left, right) => left.localeCompare(right)),
-    ['lead', 'worker'],
+    ['lead', 'learning-steward', 'worker'],
   );
   const lead = await client.getPrompt({ name: 'lead', arguments: { objective: 'Ship the parser' } });
   const leadContent = lead.messages[0]?.content;
@@ -376,3 +376,42 @@ await test('the bridge offers lead and worker participation prompts', { timeout:
   assert.ok(workerContent?.type === 'text');
   assert.match(workerContent.text, /mesh_check_in/v);
 });
+
+await test(
+  'managed bridges expose scoped role tools without cooperative waits or delivery controls',
+  { timeout: 15_000 },
+  async (t) => {
+    const f = await fixture(t);
+    const qa = await startBridge(f.config, { name: 'factory-qa-1', role: 'qa-1', runtime: 'factory-managed' });
+    f.defer(async () => qa.client.close());
+    const names = new Set((await qa.client.listTools()).tools.map((tool) => tool.name));
+    assert.ok(names.has('mesh_get_messages'));
+    assert.ok(names.has('mesh_learning_read_skill'));
+    assert.ok(names.has('mesh_factory_read_source'));
+    const source = await qa.client.callTool({ name: 'mesh_factory_read_source', arguments: {} });
+    assert.equal(source.isError, true, 'An attached role without a live factory claim cannot inspect source.');
+    for (const name of [
+      'mesh_wait_for_work',
+      'mesh_join',
+      'mesh_factory_resume',
+      'mesh_learning_propose_skill',
+      'mesh_github_create_issue',
+      'mesh_factory_export_maintenance',
+    ]) {
+      assert.ok(!names.has(name), name);
+    }
+    assert.equal(qa.client.getServerCapabilities()?.prompts, undefined);
+    assert.match(qa.client.getInstructions() ?? '', /bounded managed factory assignment/v);
+    const learning = await startBridge(f.config, {
+      name: 'factory-learning-steward',
+      role: 'learning-steward',
+      runtime: 'factory-managed',
+    });
+    f.defer(async () => learning.client.close());
+    const researchNames = new Set((await learning.client.listTools()).tools.map((tool) => tool.name));
+    assert.ok(researchNames.has('mesh_learning_propose_skill'));
+    assert.ok(researchNames.has('mesh_learning_search'));
+    assert.ok(!researchNames.has('mesh_learning_set_skill_state'));
+    assert.ok(!researchNames.has('mesh_factory_skill_decide'));
+  },
+);

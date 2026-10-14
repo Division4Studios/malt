@@ -1,0 +1,147 @@
+/**
+ * Broker-wide provider concurrency and critical-pressure admission, without inference.
+ *
+ * @file
+ */
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { test } from 'node:test';
+
+import { AdmissionPool } from '../src/factory/admission.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
+import { resourceBlocker, hasCriticalMemoryPressure } from '../src/factory/resources.ts';
+import { chooseProvider } from '../src/factory/scheduler.ts';
+import { capacitySchema, factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { Store } from '../src/store.ts';
+
+import { createCleanup, createProject } from './helpers.ts';
+
+/** Conservative first-project policy. */
+const strict = factoryConfigSchema.parse({
+  testCommands: [{ file: process.execPath }],
+  endToEndCommands: [{ file: process.execPath }],
+  providers: { codex: { executable: 'fixture', concurrency: 1 }, claude: { executable: 'fixture', enabled: false } },
+  resources: { maxActiveJobs: 1, minFreeMemoryMb: 1000, minFreeMemoryPercent: 10 },
+});
+/** A second project's larger ceilings must not erase a live project's policy. */
+const permissive = factoryConfigSchema.parse({
+  ...strict,
+  providers: { ...strict.providers, codex: { ...strict.providers.codex, concurrency: 4 } },
+  resources: { ...strict.resources, maxActiveJobs: 4 },
+});
+/** Unknown quota stays unknown; configurable budgets are separate. */
+const unknownCapacity = capacitySchema.parse({
+  provider: 'codex',
+  usedTokens: 0,
+  reservedTokens: 0,
+  resetAt: 10_000,
+  cooldownUntil: 0,
+  subscriptionUsedPercent: null,
+  subscriptionResetAt: null,
+  telemetrySource: null,
+  updatedAt: 1,
+});
+
+await test('idle provider accounting keeps stable reset boundaries across repeated observations', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  let now = 100;
+  const store = new Store(config, { now: () => now });
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const settings = factoryConfigSchema.parse({
+    ...strict,
+    providers: { ...strict.providers, codex: { ...strict.providers.codex, windowMs: 1000 } },
+  });
+  const initial = repository.capacity('codex', settings);
+  now = 200;
+  assert.equal(repository.capacity('codex', settings).resetAt, initial.resetAt);
+  repository.saveCapacity({ ...initial, usedTokens: 50 });
+  now = 1200;
+  const reset = repository.capacity('codex', settings);
+  assert.equal(reset.usedTokens, 0);
+  assert.equal(reset.subscriptionUsedPercent, null);
+  now = 1300;
+  assert.equal(repository.capacity('codex', settings).resetAt, reset.resetAt);
+  now = 2800;
+  assert.equal(repository.capacity('codex', settings).resetAt, 3100);
+});
+
+await test('a second project cannot evade a live provider or machine concurrency ceiling', () => {
+  const pool = new AdmissionPool();
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    role: 'developer-1',
+    provider: 'codex',
+    kind: 'develop',
+    taskId: null,
+    featureId: null,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: 10_000,
+    reservation: 1,
+    usageTokens: null,
+    pid: null,
+    head: null,
+    base: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  pool.add(job, strict);
+  const policy = pool.policy(permissive);
+  assert.equal(policy.resources.maxActiveJobs, 1);
+  assert.equal(policy.providers.codex.concurrency, 1);
+  const resources = { freeMemoryMb: 2000, totalMemoryMb: 10_000, cpuPercent: null };
+  assert.match(resourceBlocker(policy, resources, pool.size) ?? '', /concurrency/v);
+  assert.equal(chooseProvider({ config: policy, capacities: [unknownCapacity], jobs: pool.jobs(), now: 1 }), null);
+  assert.throws(() => {
+    pool.add(job, permissive);
+  }, /already owns/v);
+  pool.delete(job.id);
+  assert.equal(pool.size, 0);
+  assert.equal(
+    chooseProvider({ config: pool.policy(permissive), capacities: [unknownCapacity], jobs: pool.jobs(), now: 1 }),
+    'codex',
+  );
+  assert.equal(permissive.resources.maxActiveJobs, 4, 'Admission must not rewrite project policy.');
+});
+
+await test('cooldowns and native quota observations apply to other projects and expire truthfully', () => {
+  const pool = new AdmissionPool();
+  pool.capacities(
+    [
+      {
+        ...unknownCapacity,
+        cooldownUntil: 500,
+        subscriptionUsedPercent: 100,
+        subscriptionResetAt: 1000,
+        telemetrySource: 'native CLI fixture',
+        updatedAt: 10,
+      },
+    ],
+    20,
+  );
+  const observed = pool.capacities([{ ...unknownCapacity, updatedAt: 20 }], 30);
+  assert.equal(observed[0]?.subscriptionUsedPercent, 100);
+  assert.equal(observed[0].cooldownUntil, 500);
+  assert.equal(chooseProvider({ config: strict, capacities: observed, jobs: [], now: 30 }), null);
+  const reset = pool.capacities([unknownCapacity], 1001);
+  assert.equal(
+    reset[0]?.subscriptionUsedPercent,
+    null,
+    'A reset needs fresh telemetry; do not invent available quota.',
+  );
+  assert.equal(chooseProvider({ config: strict, capacities: reset, jobs: [], now: 1001 }), 'codex');
+});
+
+await test('memory admission and critical stop thresholds are distinct from temporary CPU pressure', () => {
+  const base = { freeMemoryMb: 800, totalMemoryMb: 10_000, cpuPercent: null };
+  assert.match(resourceBlocker(strict, base, 0) ?? '', /memory/v);
+  assert.equal(hasCriticalMemoryPressure(strict, base), false);
+  assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 400 }), true);
+  assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 2000, cpuPercent: 100 }), false);
+});

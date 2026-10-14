@@ -1,21 +1,25 @@
 /**
  * Project configuration and persistent agent identities.
  *
- * A "project" (or team) is a directory containing a `.agentmesh/` directory with this layout.
+ * A "project" (or team) is a directory containing a `.malt/` directory with this layout.
  *
  * ```text
- * .agentmesh/
+ * .malt/
  *     config.json            project ID, display name, broker URL, bearer token
  *     identities/<name>.json one durable secret per agent name
  *     state/mesh.db          SQLite state (plus WAL files)
- *     teams/<slug>/          one nested project per workspace team (see teams.ts)
+ *     teams/<slug>.json      workspace routing references only (see teams.ts)
+ *     github/                project-specific GitHub connection and operation journals
+ *     knowledge/             lessons, pinned research, reviewed skill candidates
+ *     skills/                active skill manifest and retained versions
+ *     README.md              generated public state overview
  * ```
  *
  * The project ID separates teams: a broker rejects requests carrying another
  * project's ID, and a database refuses to open for the wrong project. The
  * bearer token authenticates local RPC; it is unrelated to any model-provider
  * credential, and neither value is ever logged. Configuration lives beside the
- * SQLite state so that one Docker volume preserves both together.
+ * SQLite state so that the workspace's .malt directory preserves both together.
  *
  * Every file read from disk is validated with a schema, so a hand-edited or
  * truncated file produces a clear error instead of undefined behaviour.
@@ -24,15 +28,25 @@
  */
 
 import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { z } from 'zod';
 
+import { hasErrorCode } from './errors.ts';
+import { ensureProjectGuidance } from './guidance.ts';
+import { ensurePrivateStateIgnored } from './private-state.ts';
 import { AGENT_NAME_PATTERN } from './protocol.ts';
+import { migrateBrandState } from './state-migration.ts';
+import { writeAtomic } from './summary.ts';
 
-/** Directory name, inside the project root, that holds all Agent Mesh state. */
-const STATE_DIRECTORY_NAME = '.agentmesh';
+export { hasErrorCode } from './errors.ts';
+
+/** Directory name, inside the project root, that holds all MALT state. */
+export const STATE_DIRECTORY_NAME = '.malt';
+
+/** Directory used by releases before project-local storage. */
+const LEGACY_DIRECTORY_NAME = '.agentmesh';
 
 /** Number of random bytes in project tokens and identity secrets. */
 const SECRET_BYTES = 32;
@@ -78,7 +92,7 @@ const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
 /** Error message shown for any structurally invalid configuration file. */
-const INVALID_CONFIGURATION = 'Invalid Agent Mesh configuration.';
+const INVALID_CONFIGURATION = 'Invalid MALT configuration.';
 
 /** Schema of `config.json` exactly as persisted on disk. */
 const persistedConfigSchema = z
@@ -107,16 +121,16 @@ type PersistedConfig = z.output<typeof persistedConfigSchema>;
 export interface MeshConfig extends Readonly<PersistedConfig> {
   /** Absolute path of the project root directory. */
   readonly root: string;
-  /** Absolute path of the `.agentmesh` state directory. */
+  /** Absolute path of the `.malt` state directory. */
   readonly directory: string;
   /** Absolute path of the SQLite database file. */
   readonly database: string;
 
   /**
    * The workspace team this configuration addresses, sent to the broker with
-   * every request; absent for the home project. A team configuration obtained
-   * from the broker keeps the home project's paths: its own files live on the
-   * broker's side.
+   * every request; absent for the home project. Returned paths address the
+   * actual workspace store on the broker's filesystem, including mapped
+   * Docker paths, so named identity files are also project-local.
    */
   readonly team?: string | undefined;
 }
@@ -141,18 +155,6 @@ const identitySchema = z.object({ name: z.string().regex(AGENT_NAME_PATTERN), se
 export type Identity = z.output<typeof identitySchema>;
 
 /**
- * Determine whether an unknown thrown value is a Node.js system error with the
- * given `code` (for example `ENOENT`).
- *
- * @param error - The caught value.
- * @param code - The expected system error code.
- * @returns Whether `error` is an `Error` carrying that code.
- */
-export function hasErrorCode(error: unknown, code: string): boolean {
-  return Error.isError(error) && 'code' in error && error.code === code;
-}
-
-/**
  * Write a file only if it does not already exist.
  *
  * Exclusive creation (`wx`) makes concurrent first runs safe: exactly one
@@ -161,16 +163,19 @@ export function hasErrorCode(error: unknown, code: string): boolean {
  *
  * @param file - Absolute path of the file.
  * @param contents - Contents to write if the file is created.
+ * @returns Whether the file was created or already existed.
  * @throws {Error} Any filesystem error other than "already exists".
  */
-function writeIfAbsent(file: string, contents: string): void {
+export function writeIfAbsent(file: string, contents: string): 'created' | 'exists' {
   try {
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- The path is derived from the user's chosen project root, which is this tool's purpose.
     writeFileSync(file, contents, { flag: 'wx', mode: PRIVATE_FILE_MODE });
+    return 'created';
   } catch (error) {
     if (!hasErrorCode(error, 'EEXIST')) {
       throw error;
     }
+    return 'exists';
   }
 }
 
@@ -180,7 +185,7 @@ function writeIfAbsent(file: string, contents: string): void {
  * @param file - Absolute path of the file.
  * @returns The parsed, still unvalidated JSON value.
  */
-function readJsonFile(file: string): unknown {
+export function readJsonFile(file: string): unknown {
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The path is derived from the user's chosen project root, which is this tool's purpose.
   return JSON.parse(readFileSync(file, 'utf8'));
 }
@@ -200,12 +205,15 @@ function readJsonFile(file: string): unknown {
 export function loadConfig(project: string = process.cwd(), options: LoadConfigOptions = {}): MeshConfig {
   const root = path.resolve(project);
   const directory = path.join(root, STATE_DIRECTORY_NAME);
+  migrateBrandState(root);
+  migrateDirectory(path.join(root, LEGACY_DIRECTORY_NAME), directory);
   const file = path.join(directory, 'config.json');
 
   if (options.create === true) {
     // The state directory is private: it holds the project token.
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- The path is derived from the user's chosen project root, which is this tool's purpose.
     mkdirSync(path.join(directory, 'state'), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+    ensurePrivateStateIgnored(root, directory);
     // A non-empty explicit display name wins; otherwise use the directory's
     // name. An empty variable (for example `AGENTMESH_PROJECT_NAME=`) counts as unset.
     const configuredName = process.env['AGENTMESH_PROJECT_NAME'];
@@ -220,6 +228,10 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
       ...options.initial,
     };
     writeIfAbsent(file, `${JSON.stringify(initial, null, 2)}\n`);
+    writeIfAbsent(
+      path.join(directory, 'README.md'),
+      "# MALT project state\n\nThis directory holds this project's durable configuration, identities, messages, decisions and event history.\n\nThe broker refreshes this file from committed state when it starts and after changes.\n\n- `config.json`: local broker access configuration (contains a secret).\n- `identities/`: durable agent credentials (private).\n- `state/mesh.db`: messages, agents, work decisions and event history.\n- `github/`: this project's GitHub connection, cached board and operation journal.\n- `teams/`: workspace routing references only; each workspace stores its own state in its `.malt`.\n\nRuntime files are ignored by Git. Do not publish credentials or database files.\n",
+    );
   }
 
   let raw: unknown;
@@ -227,7 +239,7 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
     raw = readJsonFile(file);
   } catch (error) {
     if (hasErrorCode(error, 'ENOENT')) {
-      throw new Error(`No Agent Mesh project at ${root}. Run agentmesh init first.`, { cause: error });
+      throw new Error(`No MALT project at ${root}. Run agentmesh init first.`, { cause: error });
     }
     throw error;
   }
@@ -243,7 +255,59 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
     throw new Error('The broker URL must use local HTTP.');
   }
 
+  ensurePrivateStateIgnored(root, directory);
+  if (options.create === true) {
+    // Project discovery never changes user-wide provider configuration.
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Shared skills remain inside the selected project's state directory.
+    mkdirSync(path.join(directory, 'skills'), { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+    writeIfAbsent(
+      path.join(directory, 'skills', 'README.md'),
+      '# Project skill library\n\nNo skills adopted yet. Use mesh_learning_status to inspect lessons and candidates. Independent lead review precedes human approval through factory_skill_decide. Approved local revisions override bundled defaults for new assignments.\n',
+    );
+    ensureProjectGuidance(root);
+  }
   return { ...parsed.data, root, directory, database: path.join(directory, 'state', 'mesh.db') };
+}
+
+/**
+ * Persist the CLI-selected loopback discovery URL without derived paths.
+ *
+ * @param config - Selected project configuration.
+ * @throws {Error} When the discovery URL is invalid or cannot be persisted.
+ */
+export function saveBrokerDiscovery(config: MeshConfig): void {
+  const parsed = persistedConfigSchema.parse(config);
+  const url = new URL(parsed.url);
+  if (url.protocol !== 'http:' || !LOCAL_HOSTNAMES.has(url.hostname)) {
+    throw new Error('The broker URL must use local HTTP.');
+  }
+  writeAtomic(path.join(config.directory, 'config.json'), `${JSON.stringify(parsed, null, 2)}\n`);
+}
+
+/**
+ * Move stopped legacy state as one directory, preserving every durable file.
+ * Refuse a live or unclean SQLite journal and refuse to combine two stores.
+ *
+ * @param source - Legacy state directory.
+ * @param destination - Project-local state directory.
+ * @throws {Error} When migration needs shutdown or the destination already exists.
+ */
+export function migrateDirectory(source: string, destination: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Both paths are derived from validated project roots.
+  if (!existsSync(source)) {
+    return;
+  }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The destination is the requested project's state directory.
+  if (existsSync(destination)) {
+    throw new Error(`Both ${source} and ${destination} exist. Reconcile the stores before migration.`);
+  }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only the legacy state directory before moving it.
+  const entries = readdirSync(source, { recursive: true, encoding: 'utf8' });
+  if (entries.some((entry) => entry.endsWith('.db-wal') || entry.endsWith('.db-shm'))) {
+    throw new Error(`Stop the legacy broker cleanly before migrating ${source}; SQLite journal files remain.`);
+  }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Move the entire verified stopped store, never individual SQLite files.
+  renameSync(source, destination);
 }
 
 /**

@@ -29,18 +29,34 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
-import { loadConfig } from './config.ts';
+import { loadConfig, saveBrokerDiscovery } from './config.ts';
+import { isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
 import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
+/** Default loopback operator port. */
+const CONSOLE_PORT = 4318;
+/** Largest valid TCP port. */
+const MAX_PORT = 65_535;
 
 /** Usage text for `--help`. */
-const HELP = `Agent Mesh 0.1 — durable local agent communication
+const HELP = `MALT 0.1 — durable local agent communication
 
 Usage: node src/cli.ts <command> [options]
-  init                         Initialize .agentmesh in the project
+  init                         Initialize .malt and project agent discovery files
   start                        Start the broker (foreground; Ctrl+C to stop)
+  ui --port 4318              Serve the installable local PWA; prints a pairing code
   status                       Compact team overview
+  dashboard                    Full-screen live team, deliveries, activity and capacity
+  github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  factory-setup --file FILE    Configure target factory validation and resource policies
+  factory-start               Start autonomous work on the connected target project
+  factory-pause               Stop managed processes and pause new dispatch
+  factory-status              Inspect factory ledger as JSON
+  factory-request --body TEXT  Queue an objective for product owner and lead
+  factory-retry --file FILE    Resume a resolved blocked task or feature
+  factory-instruct --file FILE Send durable role instructions / coordinated scope changes
+  factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
@@ -71,6 +87,16 @@ Docker: docker compose up -d --build
 
 /** Every command the CLI accepts. */
 const COMMANDS = [
+  'ui',
+  'dashboard',
+  'github-connect',
+  'factory-setup',
+  'factory-start',
+  'factory-pause',
+  'factory-status',
+  'factory-request',
+  'factory-retry',
+  'factory-instruct',
   'init',
   'start',
   'mcp',
@@ -88,13 +114,17 @@ const COMMANDS = [
 type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
-type TeamCommand = Exclude<Command, 'init' | 'mcp' | 'start' | 'teams'>;
+type TeamCommand = Exclude<Command, 'init' | 'mcp' | 'start' | 'teams' | 'ui'>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
 
 /** The parsed command-line options. */
 interface CliOptions {
+  /** Broker listen port or local PWA port, depending on the command. */
+  readonly port?: string | undefined;
+  /** JSON settings/control input file. */
+  readonly file?: string | undefined;
   /** `--project`: the project directory. */
   readonly project?: string | undefined;
   /** `--workspace`: the workspace folder whose team to address. */
@@ -162,9 +192,10 @@ function absoluteWorkspace(workspace: string): string {
  * @returns The cursor and page size; the broker validates their bounds.
  */
 function pagination(options: CliOptions): { readonly after: number; readonly limit: number } {
+  const record = options;
   return {
-    after: options.after === undefined ? 0 : Number(options.after),
-    limit: options.limit === undefined ? DEFAULT_PAGE_LIMIT : Number(options.limit),
+    after: record.after === undefined ? 0 : Number(record.after),
+    limit: record.limit === undefined ? DEFAULT_PAGE_LIMIT : Number(record.limit),
   };
 }
 
@@ -176,7 +207,23 @@ function pagination(options: CliOptions): { readonly after: number; readonly lim
  */
 async function runBroker(config: MeshConfig, options: CliOptions): Promise<void> {
   const { startBroker } = await import('./broker.ts');
-  const broker = await startBroker(config, { host: options.host });
+  const selected = { ...config };
+  if (options.port !== undefined) {
+    const port = Number(options.port);
+    if (!Number.isSafeInteger(port) || port < 1 || port > MAX_PORT) {
+      throw new Error('Use a broker port between 1 and 65535.');
+    }
+    const url = new URL(config.url);
+    url.port = String(port);
+    selected.url = url.origin;
+  }
+  const broker = await startBroker(selected, { host: options.host });
+  try {
+    saveBrokerDiscovery(selected);
+  } catch (error) {
+    await broker.close();
+    throw error;
+  }
   print({
     category: 'broker',
     state: 'listening',
@@ -207,18 +254,19 @@ async function runBroker(config: MeshConfig, options: CliOptions): Promise<void>
  * @throws {Error} When `--role` is given without `--name`.
  */
 async function runBridge(config: MeshConfig, options: CliOptions): Promise<void> {
-  if (options.name === undefined && options.role !== undefined) {
+  const record = options;
+  if (record.name === undefined && record.role !== undefined) {
     throw new Error('--role applies to --name identities; a session chooses its role with mesh_join.');
   }
   // Never print anything to stdout here: it is the JSON-RPC channel. All
   // diagnostics, including verbose ones, go to stderr through log.ts.
   const { startMcp } = await import('./mcp.ts');
   const bridge = await startMcp(config, {
-    name: options.name,
-    provider: options.provider,
-    runtime: options.runtime,
-    role: options.role,
-    workspace: options.workspace === undefined ? undefined : absoluteWorkspace(options.workspace),
+    name: record.name,
+    provider: record.provider,
+    runtime: record.runtime,
+    role: record.role,
+    workspace: record.workspace === undefined ? undefined : absoluteWorkspace(record.workspace),
   });
 
   const stop = (): void => {
@@ -277,35 +325,50 @@ async function runMessaging(
  * @param options - The parsed command-line options.
  */
 async function run(command: Command, options: CliOptions): Promise<void> {
+  const record = options;
   // Only `init` and `start` may create a project; see loadConfig.
-  const home = loadConfig(options.project, { create: command === 'init' || command === 'start' });
-  switch (command) {
-    case 'init': {
-      print({ project: home.name, directory: home.directory, url: home.url });
-      return;
-    }
-    case 'start': {
-      await runBroker(home, options);
-      return;
-    }
-    case 'teams': {
-      print(await rpc(home, 'list_teams', {}));
-      return;
-    }
-    case 'mcp': {
-      await runBridge(home, options);
-      return;
-    }
-    case 'status':
-    case 'agents':
-    case 'events':
-    case 'lead':
-    case 'message':
-    case 'messages':
-    case 'ack': {
-      const config =
-        options.workspace === undefined ? home : await openTeamConfig(home, absoluteWorkspace(options.workspace));
-      await runTeamCommand(command, config, options);
+  const home = loadConfig(record.project, { create: command === 'init' || command === 'start' });
+  if (isTeamCommand(command)) {
+    const config =
+      record.workspace === undefined ? home : await openTeamConfig(home, absoluteWorkspace(record.workspace));
+    await runTeamCommand(command, config, record);
+  } else {
+    switch (command) {
+      case 'init': {
+        print({ project: home.name, directory: home.directory, url: home.url });
+        return;
+      }
+      case 'start': {
+        await runBroker(home, record);
+        return;
+      }
+      case 'teams': {
+        print(await rpc(home, 'list_teams', {}));
+        return;
+      }
+      case 'mcp': {
+        await runBridge(home, record);
+        return;
+      }
+      case 'ui': {
+        const { startWebConsole } = await import('./web/server.ts');
+        const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
+        if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
+          throw new Error('Use a valid local UI port.');
+        }
+        const console = await startWebConsole(home, port);
+        print({
+          url: console.url,
+          pairingCode: console.pairingCode,
+          note: 'Pair locally; browser installation does not install the native daemon.',
+        });
+        process.once('SIGINT', () => {
+          void console.close();
+        });
+        process.once('SIGTERM', () => {
+          void console.close();
+        });
+      }
     }
   }
 }
@@ -320,6 +383,14 @@ async function run(command: Command, options: CliOptions): Promise<void> {
  * @throws {Error} When a required option is missing.
  */
 async function runTeamCommand(command: TeamCommand, config: MeshConfig, options: CliOptions): Promise<void> {
+  const record = options;
+  if (isFactoryCommand(command)) {
+    const result = await runFactoryCommand(command, config, options);
+    if (result !== undefined) {
+      print(result);
+    }
+    return;
+  }
   switch (command) {
     case 'status': {
       print(await rpc(config, 'team_status', {}));
@@ -330,21 +401,21 @@ async function runTeamCommand(command: TeamCommand, config: MeshConfig, options:
       return;
     }
     case 'events': {
-      print(await rpc(config, 'events', pagination(options)));
+      print(await rpc(config, 'events', pagination(record)));
       return;
     }
     case 'lead':
     case 'message':
     case 'messages':
     case 'ack': {
-      const { name } = options;
+      const { name } = record;
       if (name === undefined) {
         throw new Error('--name is required. Use a distinct name for each independent session.');
       }
       if (command === 'lead') {
         print(await rpc(config, 'set_lead', { agent: name }));
       } else {
-        await runMessaging(config, command, name, options);
+        await runMessaging(config, command, name, record);
       }
     }
   }
@@ -360,6 +431,8 @@ async function main(): Promise<void> {
     allowPositionals: true,
     options: {
       project: { type: 'string' },
+      port: { type: 'string' },
+      file: { type: 'string' },
       workspace: { type: 'string' },
       name: { type: 'string' },
       provider: { type: 'string' },
@@ -401,4 +474,14 @@ try {
   const message = Error.isError(error) ? error.message : String(error);
   process.stderr.write(`${code}: ${message}\n`);
   process.exitCode = 1;
+}
+
+/**
+ * Recognize commands scoped to a target workspace.
+ *
+ * @param value - Validated CLI command.
+ * @returns Whether it addresses one workspace team.
+ */
+function isTeamCommand(value: Command): value is TeamCommand {
+  return !['init', 'start', 'mcp', 'teams', 'ui'].includes(value);
 }

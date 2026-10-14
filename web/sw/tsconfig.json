@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2025", "webworker"],
+    "types": [],
+    "noEmit": false,
+    "outDir": "../dist",
+    "rootDir": ".",
+    "allowImportingTsExtensions": false
+  },
+  "include": ["sw.ts"]
+}

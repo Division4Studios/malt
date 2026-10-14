@@ -3,7 +3,7 @@
  *
  * `node:sqlite` returns rows as loosely typed records of SQL values. Rather
  * than assert those records into domain types (an unchecked cast), every query
- * in Agent Mesh names a Zod schema describing the row it expects, and the row
+ * in MALT names a Zod schema describing the row it expects, and the row
  * is validated on the way out. A schema drift between SQL and TypeScript then
  * fails loudly at the query that caused it instead of propagating malformed
  * data through the system.

@@ -1,5 +1,5 @@
 /**
- * Durable SQLite state for one Agent Mesh project.
+ * Durable SQLite state for one MALT project.
  *
  * The store owns the project's single database connection and is the only
  * component that reads or writes it. Its responsibilities:
@@ -27,7 +27,7 @@
  * @file
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 
 import { z } from 'zod';
@@ -49,7 +49,18 @@ import {
   valueRowSchema,
 } from './database.ts';
 import { log } from './log.ts';
-import { AGENT_STATES, MeshError, handoffSchema, parseInput } from './protocol.ts';
+import {
+  AGENT_STATES,
+  FACTORY_OPERATIONS,
+  GITHUB_OPERATIONS,
+  LEARNING_OPERATIONS,
+  MeshError,
+  handoffSchema,
+  parseInput,
+} from './protocol.ts';
+import { hashSecret } from './secrets.ts';
+import { refreshReadme, summarize } from './summary.ts';
+import { transact } from './transactions.ts';
 
 import type { MeshConfig } from './config.ts';
 import type {
@@ -73,6 +84,9 @@ import type { AgentLifetime, AgentStatus, Handoff, Operation, OperationInput, Op
  * operations span projects, so the broker handles them above any one store.
  */
 const NON_STORE_OPERATIONS = [
+  ...FACTORY_OPERATIONS,
+  ...GITHUB_OPERATIONS,
+  ...LEARNING_OPERATIONS,
   'list_teams',
   'open_team',
   'register',
@@ -269,18 +283,6 @@ const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', SCHEMA
 const BUSY_TIMEOUT_MS = 5000;
 
 /**
- * Hash an identity secret for storage. Secrets are high-entropy random
- * values, so a fast unsalted hash is sufficient: it only prevents the raw
- * secret from being readable in the database.
- *
- * @param value - The secret.
- * @returns Its SHA-256 hex digest.
- */
-function hash(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
-/**
  * Parse a JSON column that this store itself wrote.
  *
  * @param text - The column value.
@@ -385,7 +387,7 @@ export class Store implements CoordinationHost {
   }
 
   /**
-   * Run `fn` inside one `BEGIN IMMEDIATE` transaction.
+   * Run work inside `BEGIN IMMEDIATE`, or a savepoint inside an existing transaction.
    *
    * No async callback is accepted: an open SQLite transaction must never span
    * an HTTP wait, a model turn or another network request.
@@ -395,15 +397,22 @@ export class Store implements CoordinationHost {
    * @throws {unknown} Whatever `work` throws, after rolling back.
    */
   public transaction<T>(work: () => T): T {
-    this.db.exec('BEGIN IMMEDIATE');
+    const isNested = this.db.isTransaction;
+    const result = transact(this.db, work);
+    // The README is derived: its failure must never turn a successful commit
+    // into a failed request that callers might repeat.
+    if (!isNested) {
+      this.refreshSummary();
+    }
+    return result;
+  }
+
+  /** Refresh the secret-free project overview after a committed change. */
+  public refreshSummary(): void {
     try {
-      const result = work();
-      this.db.exec('COMMIT');
-      return result;
-    } catch (error) {
-      this.db.exec('ROLLBACK');
-      log('debug', 'storage', 'transaction_rolled_back', { code: error instanceof MeshError ? error.code : 'ERROR' });
-      throw error;
+      refreshReadme(this.config, summarize(this.db, this.coordination.leadId()));
+    } catch {
+      log('warn', 'storage', 'readme_refresh_failed');
     }
   }
 
@@ -500,7 +509,7 @@ export class Store implements CoordinationHost {
     // An unknown agent leaves `row` undefined, which fails the first check. An
     // ended session can never act again, even with its old credentials.
     if (
-      row?.secret_hash !== hash(credentials?.secret ?? '') ||
+      row?.secret_hash !== hashSecret(credentials?.secret ?? '') ||
       row.session_id !== credentials?.sessionId ||
       row.lifetime === 'ended'
     ) {
@@ -713,7 +722,7 @@ export class Store implements CoordinationHost {
     const lifetime: AgentLifetime = input.ephemeral ? 'session' : 'durable';
 
     if (prior !== undefined) {
-      if (prior.secret_hash !== hash(input.secret)) {
+      if (prior.secret_hash !== hashSecret(input.secret)) {
         throw new MeshError('IDENTITY_CONFLICT', 'This name belongs to another identity.');
       }
       if (prior.lifetime === 'ended') {
@@ -755,7 +764,7 @@ export class Store implements CoordinationHost {
       'INSERT INTO agents(id, name, secret_hash, session_id, provider, runtime, role, status, lifetime, created_at, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       id,
       input.name,
-      hash(input.secret),
+      hashSecret(input.secret),
       input.sessionId,
       input.provider,
       input.runtime,
@@ -942,11 +951,14 @@ export class Store implements CoordinationHost {
     const events = selectAll(
       this.db,
       eventRowSchema,
-      'SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?',
+      input.recent
+        ? 'SELECT * FROM events WHERE seq > ? ORDER BY seq DESC LIMIT ?'
+        : 'SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?',
       input.after,
       input.limit,
     ).map((row): MeshEvent => ({ ...row, data: parseJson(row.data) }));
-    return { events, nextCursor: events.at(-1)?.seq ?? input.after };
+    const ordered = input.recent ? events.toReversed() : events;
+    return { events: ordered, nextCursor: ordered.at(-1)?.seq ?? input.after };
   }
 
   /** Configure the connection and create the schema-1 tables if missing. */
