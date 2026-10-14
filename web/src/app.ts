@@ -17,7 +17,13 @@ import {
 } from './api.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { updateNavigation, bindNavigation } from './navigation.js';
-import { organizationDialog } from './organization-ui.js';
+import {
+  organizationDialog,
+  mountConnectionFields,
+  resetConnectionFields,
+  factoryPolicyDialog,
+  githubConnectionDescription,
+} from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import {
   ROLES,
@@ -202,6 +208,7 @@ function editor(
     return;
   }
   state.edit = action;
+  resetConnectionFields(node('editor-body', HTMLTextAreaElement));
   node('editor-title', HTMLHeadingElement).textContent = description.title;
   node('editor-description', HTMLParagraphElement).textContent = description.explanation;
   const evidence = node('editor-evidence', HTMLPreElement);
@@ -293,30 +300,21 @@ const actions: Actions = {
     void control('factory_retry', isFeature ? { featureId: id } : { taskId: id });
   },
   setup: (isConnection) => {
-    const initial = isConnection
-      ? { repository: 'owner/target-repository', owner: 'owner', projectNumber: 1 }
-      : child(state.current?.factory ?? {}, 'settings');
-    const defaults = {
-      testCommands: [{ file: 'npm', args: ['test'] }],
-      endToEndCommands: [{ file: 'npm', args: ['run', 'test:e2e'] }],
-      prepareCommands: [{ file: 'npm', args: ['ci', '--ignore-scripts'] }],
-    };
-    editor(
-      {
-        title: isConnection ? 'Connect target GitHub Project' : 'Configure factory policy',
-        explanation: isConnection
-          ? 'Use the selected target repository and intended Project. No board is created unless createProject is explicitly true.'
-          : 'Use this project’s actual commands and executable paths. Pause before updating an active factory. Authentication stays with the native CLI.',
-        initial: JSON.stringify(Object.keys(initial).length === 0 ? defaults : initial, null, 2),
-      },
-      {
-        operation: isConnection ? 'github_connect' : 'factory_setup',
-        input: (body) => {
-          const value: unknown = JSON.parse(body);
-          return data(value);
-        },
-      },
-    );
+    if (isConnection) {
+      editor(githubConnectionDescription(), { operation: 'github_connect', input: () => ({}) });
+      if (node('editor', HTMLDialogElement).open) {
+        state.edit = {
+          operation: 'github_connect',
+          input: mountConnectionFields(
+            node('editor-body', HTMLTextAreaElement),
+            child(state.current?.github ?? {}, 'connection'),
+          ),
+        };
+      }
+      return;
+    }
+    const dialog = factoryPolicyDialog(child(state.current?.factory ?? {}, 'settings'));
+    editor(dialog.description, dialog.action);
   },
 };
 

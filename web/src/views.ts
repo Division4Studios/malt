@@ -684,6 +684,7 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
   const grid = element('div', 'setup-steps');
   const connection = child(state.github, 'connection');
   const project = child(connection, 'project');
+  const workflowField = firstText(text(child(connection, 'statusField'), 'name'), 'not selected');
   const github = element('section', 'setup-card');
   const repositoryLabel = firstText(
     text(connection, 'repository'),
@@ -694,6 +695,11 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
     element('h2', '', 'GitHub Project'),
     pill(hasFlag(state.github, 'connected') ? 'connected' : 'not connected'),
     element('p', 'subtle', repositoryLabel),
+    element(
+      'p',
+      'subtle',
+      `Workflow field: ${workflowField}. Tickets appear in this Project; board grouping must use this field.`,
+    ),
     link(text(project, 'url'), 'Open connected Project ↗'),
     button(
       'Configure connection',
