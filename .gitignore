@@ -5,7 +5,4 @@ coverage/
 .env
 web/dist/
 .malt/
-
 .mlt/
-.mlt/
-.malt/
