@@ -15,6 +15,8 @@ Evidence labels used below:
 
 Inspected on Windows 10 (10.0.19045) with Node.js v24.21.0:
 
+Help evidence was rechecked on 2026-10-14 with `codex --version`, `codex --help`, `codex exec --help`, `codex resume --help`, `claude --version` and `claude --help`. These commands exit without starting a model session. The installed help is the version-specific source for the flags below; the official [Codex CLI reference](https://learn.chatgpt.com/docs/developer-commands?surface=cli) and [Claude Code CLI reference](https://code.claude.com/docs/en/cli-reference) also document interactive launch and resume. Help inspection does not verify subscription login or interactive operation under MALT's containment wrapper.
+
 | CLI         | Version (executed `--version`) | Pinned in `Dockerfile`   |
 | ----------- | ------------------------------ | ------------------------ |
 | Codex       | `codex-cli 0.162.1`            | `CODEX_VERSION=0.162.1`  |
@@ -78,6 +80,8 @@ Attaching to, resuming, forking or queueing messages into **assignment** session
 ## 2. PTY dependency decision
 
 **Decision: `node-pty@1.2.0-beta.15`** (microsoft/node-pty), as an exact pinned backend `dependencies` entry, loaded only by the terminal host (section 3).
+
+Upstream references: [node-pty source, build requirements and license](https://github.com/microsoft/node-pty) and the [exact published package metadata](https://registry.npmjs.org/node-pty/1.2.0-beta.15). The package-specific observations below concern that pinned tarball, not whatever upstream later publishes as latest. The original assignment's retained execution evidence records the fixture probes; they are dependency feasibility checks, not MALT terminal support checks.
 
 | Property            | Evidence                                                                                                                                                                                                                          |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
