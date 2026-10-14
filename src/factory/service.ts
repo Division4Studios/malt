@@ -26,6 +26,7 @@ import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { objectiveOrder, reorderObjective } from './objective-order.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
@@ -196,7 +197,7 @@ export class FactoryService {
       resources: this.sampler.latest,
       admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
       settings,
-      features: this.repository.features(),
+      ...objectiveOrder(this.repository.store),
       tasks: this.repository.tasks(),
       jobs: this.repository.jobs(),
       pendingEffects: this.repository.effects(),
@@ -312,6 +313,7 @@ export class FactoryService {
       factory_request: () => queueObjective(this.repository, parsed),
       factory_capacity: () => this.controlCapacity(parsed),
       factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
       factory_retry: () => this.controlRetry(parsed),
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
     };
