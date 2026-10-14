@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import os from 'node:os';
@@ -408,4 +408,263 @@ await test('paired browser controls persist objectives, isolate projects and rej
   const logout = await fetch(`${url}/api/logout`, { method: 'POST', headers, body: '{}' });
   assert.equal(logout.status, 200);
   assert.equal((await fetch(`${url}/api/snapshot?project=home`, { headers })).status, 401);
+});
+
+/** One served event with its decoded payload. */
+const historyEventSchema = z.object({ seq: z.number(), type: z.string(), data: z.record(z.unknown()) });
+/** One backward history page as served to the browser. */
+const historySchema = z
+  .object({
+    project: z.string(),
+    events: z.array(historyEventSchema),
+    hasMore: z.boolean(),
+    oldestCursor: z.number(),
+  })
+  .strict();
+/** A validated backward history page. */
+type History = z.output<typeof historySchema>;
+
+/**
+ * Pair a fresh browser session with an isolated console.
+ *
+ * @param url - Owned loopback console.
+ * @param code - Its pairing code.
+ * @returns Same-origin session headers.
+ */
+async function pairBrowser(url: string, code: string): Promise<Record<string, string>> {
+  const pair = await fetch(`${url}/api/pair`, {
+    method: 'POST',
+    headers: { Origin: url, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  assert.equal(pair.status, 200);
+  return { Origin: url, Cookie: (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '' };
+}
+
+/**
+ * Read one validated backward page through the authenticated route.
+ *
+ * @param url - Owned loopback console.
+ * @param headers - Paired session.
+ * @param query - Exact history query string.
+ * @returns The validated page.
+ */
+async function historyPage(url: string, headers: Record<string, string>, query: string): Promise<History> {
+  const response = await fetch(`${url}/api/history?${query}`, { headers });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.match(response.headers.get('content-type') ?? '', /^application\/json/v);
+  return historySchema.parse(await response.json());
+}
+
+/**
+ * Walk every older page from an exclusive cursor to the beginning.
+ *
+ * @param read - Reads one page for a cursor.
+ * @param before - Initial exclusive cursor.
+ * @returns Pages in traversal order, ending with one extra empty request.
+ */
+async function walkHistory(read: (before: number) => Promise<History>, before: number): Promise<History[]> {
+  const pages = [await read(before)];
+  while (pages.at(-1)?.hasMore === true) {
+    pages.push(await read(pages.at(-1)?.oldestCursor ?? 0));
+  }
+  pages.push(await read(pages.at(-1)?.oldestCursor ?? 0));
+  return pages;
+}
+
+/**
+ * Summarize page boundaries for exact comparison.
+ *
+ * @param pages - Traversed pages.
+ * @returns Size, lookahead and cursor of each page.
+ */
+function boundaries(pages: History[]): [number, boolean, number][] {
+  return pages.map((page) => [page.events.length, page.hasMore, page.oldestCursor]);
+}
+
+await test('backward history pages reach the beginning without shifting or moving the stream cursor', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const broker = await startBroker(config, { port: 0 });
+  defer(async () => broker.close());
+  const console = await startWebConsole({ ...config, url: brokerUrl(broker.port) }, 0);
+  defer(async () => console.close());
+  const headers = await pairBrowser(console.url, console.pairingCode);
+  const read = async (before: number, limit = 30): Promise<History> =>
+    historyPage(console.url, headers, `project=home&before=${String(before)}&limit=${String(limit)}`);
+  const top = Number.MAX_SAFE_INTEGER;
+  assert.deepEqual(await read(top), { project: 'home', events: [], hasMore: false, oldestCursor: top });
+  assert.deepEqual(await read(0), { project: 'home', events: [], hasMore: false, oldestCursor: 0 });
+  const hostile = '</script><script>alert(1)</script>\0"\\<img src=x onerror=1>';
+  for (let index = 0; index < 125; index += 1) {
+    broker.store.transaction(() => {
+      broker.store.event('HISTORY_FIXTURE', null, { index, text: hostile });
+    });
+  }
+  const recent = await firstStreamPage(`${console.url}/api/stream?project=home`, headers);
+  const oldestShown = recent.events.events[0]?.seq ?? 0;
+  assert.equal(oldestShown, 76);
+  const first = await read(oldestShown);
+  assert.deepEqual(
+    first.events.map((event) => event.seq),
+    Array.from({ length: 30 }, (_, index) => index + 46),
+  );
+  assert.equal(first.events[0]?.data['text'], hostile, 'Hostile event text must remain verbatim JSON data.');
+  for (let index = 0; index < 5; index += 1) {
+    broker.store.transaction(() => {
+      broker.store.event('HISTORY_LIVE', null, { index });
+    });
+  }
+  assert.deepEqual(await read(oldestShown), first, 'Appended events must not shift an older page.');
+  const partial = await walkHistory(read, oldestShown);
+  assert.deepEqual(boundaries(partial), [
+    [30, true, 46],
+    [30, true, 16],
+    [15, false, 1],
+    [0, false, 1],
+  ]);
+  const seqs = partial.flatMap((page) => page.events.map((event) => event.seq));
+  assert.deepEqual(
+    seqs.toSorted((left, right) => left - right),
+    Array.from({ length: 75 }, (_, index) => index + 1),
+    'Backward pages must neither skip nor duplicate events.',
+  );
+  for (const page of partial) {
+    const order = page.events.map((event) => event.seq);
+    assert.deepEqual(
+      order,
+      order.toSorted((left, right) => left - right),
+    );
+  }
+  assert.deepEqual(boundaries(await walkHistory(async (before) => read(before, 25), oldestShown)), [
+    [25, true, 51],
+    [25, true, 26],
+    [25, false, 1],
+    [0, false, 1],
+  ]);
+  const resumed = await firstStreamPage(`${console.url}/api/stream?project=home`, {
+    ...headers,
+    'Last-Event-ID': String(recent.events.nextCursor),
+  });
+  assert.deepEqual(
+    resumed.events.events.map((event) => event.seq),
+    [126, 127, 128, 129, 130],
+    'Backward reads must not move the live stream cursor.',
+  );
+  const legacy = broker.store.execute('events', { after: 0, limit: 50, recent: true }, null);
+  assert.ok('nextCursor' in legacy && legacy.nextCursor === 130);
+});
+
+await test('history rejects malformed, ambiguous, unauthorized and mutating requests', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const broker = await startBroker(config, { port: 0 });
+  defer(async () => broker.close());
+  const console = await startWebConsole({ ...config, url: brokerUrl(broker.port) }, 0);
+  defer(async () => console.close());
+  broker.store.transaction(() => {
+    broker.store.event('HISTORY_FIXTURE', null, {});
+  });
+  const headers = await pairBrowser(console.url, console.pairingCode);
+  const status = async (query: string, init: RequestInit = {}): Promise<number> =>
+    (await fetch(`${console.url}/api/history?${query}`, { headers, ...init })).status;
+  for (const query of [
+    'before=5',
+    'project=home',
+    'project=&before=5',
+    'project=home&before=-1',
+    'project=home&before=1.5',
+    'project=home&before=1e2',
+    'project=home&before=',
+    'project=home&before=%205',
+    'project=home&before=abc',
+    'project=home&before=9007199254740993',
+    'project=home&before=5&limit=0',
+    'project=home&before=5&limit=101',
+    'project=home&before=5&limit=x',
+    'project=home&before=5&before=6',
+    'project=home&project=home&before=5',
+    'project=home&before=5&after=0',
+    'project=home&before=5&recent=true',
+  ]) {
+    assert.equal(await status(query), 400, query);
+  }
+  const unknown = await fetch(`${console.url}/api/history?project=missing&before=5`, { headers });
+  assert.equal(unknown.status, 403);
+  assert.match(z.object({ error: z.string() }).parse(await unknown.json()).error, /Select an available project/v);
+  assert.equal(await status('project=home&before=5', { headers: { Origin: console.url } }), 401);
+  for (const hostile of [{ Origin: 'https://hostile.invalid' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+    assert.equal(await status('project=home&before=5', { headers: { ...headers, ...hostile } }), 403);
+  }
+  const before = broker.store.execute('events', { after: 0, limit: 100 }, null);
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    const init = { method, headers: { ...headers, 'Content-Type': 'application/json' }, body: '{}' };
+    assert.notEqual(await status('project=home&before=5', init), 200, method);
+  }
+  assert.deepEqual(broker.store.execute('events', { after: 0, limit: 100 }, null), before);
+  for (const input of [
+    { before: 5, after: 0, limit: 10 },
+    { before: 5, recent: false, limit: 10 },
+    { before: 5, limit: 101 },
+    { before: 2 ** 53, limit: 10 },
+    { before: -1, limit: 10 },
+  ]) {
+    assert.throws(() => broker.store.execute('events', input, null), { code: 'INVALID_INPUT' });
+  }
+});
+
+await test('two projects with overlapping sequence numbers keep separate backward histories', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const target = mkdtempSync(path.join(os.tmpdir(), 'mlt-history-target-'));
+  defer(() => {
+    rmSync(target, { recursive: true, force: true });
+  });
+  const broker = await startBroker(config, { port: 0 });
+  defer(async () => broker.close());
+  const console = await startWebConsole({ ...config, url: brokerUrl(broker.port) }, 0);
+  defer(async () => console.close());
+  const headers = await pairBrowser(console.url, console.pairingCode);
+  const opened = await fetch(`${console.url}/api/projects`, {
+    method: 'POST',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace: target }),
+  });
+  const other = z.object({ id: z.string() }).parse(await opened.json()).id;
+  const team = broker.teams.get(other);
+  assert.ok(team !== undefined);
+  for (let index = 0; index < 40; index += 1) {
+    for (const [store, owner] of [
+      [broker.store, 'home'],
+      [team.store, other],
+    ] as const) {
+      store.transaction(() => {
+        store.event('HISTORY_OWNER', null, { owner });
+      });
+    }
+  }
+  const sequences = new Map<string, Set<number>>();
+  for (const project of ['home', other]) {
+    const query = (before: number): string =>
+      `project=${encodeURIComponent(project)}&before=${String(before)}&limit=15`;
+    const pages = await walkHistory(
+      async (before) => historyPage(console.url, headers, query(before)),
+      Number.MAX_SAFE_INTEGER,
+    );
+    assert.ok(pages.length >= 4 && pages.at(-1)?.events.length === 0);
+    assert.ok(pages.every((page) => page.project === project));
+    const events = pages.flatMap((page) => page.events);
+    const owners = events.filter((event) => event.type === 'HISTORY_OWNER').map((event) => event.data['owner']);
+    assert.deepEqual(
+      owners,
+      Array.from({ length: 40 }, () => (project === 'home' ? 'home' : other)),
+    );
+    sequences.set(project, new Set(events.map((event) => event.seq)));
+  }
+  const home = sequences.get('home') ?? new Set();
+  assert.ok(
+    [...(sequences.get(other) ?? [])].some((seq) => home.has(seq)),
+    'The fixture must exercise overlapping project sequence numbers.',
+  );
 });
