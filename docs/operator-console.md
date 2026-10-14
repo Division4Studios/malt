@@ -11,6 +11,8 @@ node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team
 node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
 ```
 
+The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, listed ahead of recent completions) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
+
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
 ## Private state and Git
@@ -100,7 +102,7 @@ Explicit cancellation requires a currently live job owned by that supervisor. It
 
 The broker still rejects browser-origin RPC. The UI server binds to loopback and checks Host, Origin and Fetch Metadata. Pairing is rate-limited and produces an expiring HttpOnly/SameSite=Strict cookie. Cross-site API traffic is rejected; ordinary navigation to the public app shell is allowed. Private responses are `no-store`, and the service worker caches only fixed public assets.
 
-Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/stream`, `/api/artifact`, `/api/control` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Offline controls are not replayed.
+Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
 
 ## Verification limits
 
