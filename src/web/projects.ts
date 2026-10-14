@@ -28,6 +28,10 @@ const factoryViewSchema = dashboardSchema.extend({
   conversations: z.array(conversationSchema).default([]),
   workflow: z.record(z.unknown()).default({}),
 });
+/** A backward event page; it never carries the forward stream cursor. */
+const historyPageSchema = z
+  .object({ events: z.array(z.unknown()), hasMore: z.boolean(), oldestCursor: z.number().int().min(0) })
+  .strict();
 /** Narrow operator mutation allowlist. */
 export const controlSchema = z
   .object({
@@ -159,6 +163,20 @@ export class ProjectGateway {
       learning,
       observedAt: Date.now(),
     };
+  }
+
+  /**
+   * Read one older event page without touching any live stream cursor.
+   *
+   * @param id - Explicit project selection.
+   * @param before - Exclusive sequence cursor.
+   * @param limit - Requested page size; the broker enforces its bound.
+   * @returns The project identity and its backward page.
+   */
+  public async history(id: string, before: number, limit: number): Promise<unknown> {
+    const config = this.config(id);
+    const page = historyPageSchema.parse(await rpc(config, 'events', { before, limit }));
+    return { project: id, ...page };
   }
 
   /**
