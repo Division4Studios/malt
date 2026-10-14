@@ -251,6 +251,47 @@ interface SchedulingState {
 type AppendIntent = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask) => void;
 
 /**
+ * Leave fixed-owner roles for later repairs while retaining flexible alternatives.
+ *
+ * @param tasks - Eligible task groups in round-robin order.
+ * @returns Primary assignments followed by transactional fallback choices.
+ */
+function assignDevelopmentRoles(tasks: JobIntent[][]): JobIntent[] {
+  const reservations = new Map<FactoryRole, number>();
+  for (const roles of tasks) {
+    const only = roles.length === 1 ? roles[0] : undefined;
+    if (only !== undefined) {
+      reservations.set(only.role, (reservations.get(only.role) ?? 0) + 1);
+    }
+  }
+  const primary: JobIntent[] = [];
+  const alternatives: JobIntent[] = [];
+  const assigned = new Set<FactoryRole>();
+  let previousRole: FactoryRole | undefined;
+  for (const roles of tasks) {
+    const only = roles.length === 1 ? roles[0] : undefined;
+    if (only !== undefined) {
+      reservations.set(only.role, (reservations.get(only.role) ?? 1) - 1);
+    }
+    const unreserved = roles.filter((intent) => (reservations.get(intent.role) ?? 0) === 0);
+    const choices = unreserved.length === 0 ? roles : unreserved;
+    const lastRole = previousRole;
+    const preferred =
+      choices.find((intent) => !assigned.has(intent.role)) ??
+      choices.find((intent) => intent.role !== lastRole) ??
+      choices[0];
+    if (preferred === undefined) {
+      continue;
+    }
+    primary.push(preferred);
+    assigned.add(preferred.role);
+    previousRole = preferred.role;
+    alternatives.push(...roles.filter((intent) => intent !== preferred));
+  }
+  return [...primary, ...alternatives];
+}
+
+/**
  * Round-robin eligible tasks across objectives before offering alternative roles.
  * Task insertion order is the repository's creation order; updatedAt is mutable.
  *
@@ -275,9 +316,7 @@ function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]):
     .toArray()
     .toSorted(([left], [right]) => (ranks.get(left) ?? ranks.size) - (ranks.get(right) ?? ranks.size))
     .map(([, tasks]) => tasks.values().toArray());
-  const primary: JobIntent[] = [];
-  const alternatives: JobIntent[] = [];
-  let previousRole: FactoryRole | undefined;
+  const ordered: JobIntent[][] = [];
   const rounds = Math.max(0, ...queues.map((queue) => queue.length));
   for (let round = 0; round < rounds; round += 1) {
     for (const queue of queues) {
@@ -285,17 +324,10 @@ function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]):
       if (roles === undefined) {
         continue;
       }
-      const lastRole = previousRole;
-      const preferred = roles.find((intent) => intent.role !== lastRole) ?? roles[0];
-      if (preferred === undefined) {
-        continue;
-      }
-      primary.push(preferred);
-      previousRole = preferred.role;
-      alternatives.push(...roles.filter((intent) => intent !== preferred));
+      ordered.push(roles);
     }
   }
-  return [...primary, ...alternatives];
+  return assignDevelopmentRoles(ordered);
 }
 
 /**

@@ -163,6 +163,8 @@ The managed factory offers verification, final integration and independent revie
 
 The first development candidate is followed by queued product-owner planning and team-lead refinement, before the remaining development candidates. A running development job already occupies that first position, so while one developer works, planning is offered before any further development; a staggered refill of the free slot cannot starve planning. Each planning role is offered at most once per pass, so planning can compete for the second slot at the default cap of two. Development candidates prefer alternating available developer roles; alternative roles remain later in the list for transactional admission. Occupied roles and active feature planning claims stay excluded.
 
+Flexible development tasks leave roles reserved for later fixed-owner repairs available. This prevents an older unowned task from occupying the only developer allowed to repair another delivery while the other developer sits idle. Alternative roles remain available if transactional admission rejects a preferred candidate.
+
 This orders candidates only: transactional claims, resource/provider ceilings, original-developer rework ownership, completed-dependency gates, attempt limits, failure cooldowns and scope-replacement exclusions still apply. It adds no slots or preemption and does not estimate which tasks are cheap. Running work can occupy both slots until it finishes.
 
 ## What still requires a provider adapter

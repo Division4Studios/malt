@@ -159,6 +159,55 @@ await test('both planning roles precede the second developer and each is emitted
   assert.equal(result.filter((intent) => intent.role === 'team-lead').length, 1);
 });
 
+await test('flexible tasks leave the later repair owner available at dispatch', () => {
+  for (const owner of ['developer-1', 'developer-2'] as const) {
+    const a = feature(1);
+    const b = feature(2);
+    const flexible = task(a);
+    const repair = task(b, { phase: 'development', developer: owner, feedback: ['Repair'] });
+    const intents = schedule([a, b], [flexible, repair]);
+    const claimedRoles = new Set<string>();
+    const claimedTasks = new Set<string | null>();
+    const admitted = intents
+      .filter((intent) => intent.kind === 'develop')
+      .filter((intent) => {
+        if (claimedRoles.has(intent.role) || claimedTasks.has(intent.taskId)) {
+          return false;
+        }
+        claimedRoles.add(intent.role);
+        claimedTasks.add(intent.taskId);
+        return true;
+      });
+    assert.deepEqual(
+      admitted.map((intent) => [intent.taskId, intent.role]),
+      [
+        [flexible.id, owner === 'developer-1' ? 'developer-2' : 'developer-1'],
+        [repair.id, owner],
+      ],
+    );
+    assert.deepEqual(schedule([a, b], [flexible, repair]), intents);
+  }
+});
+
+await test('multiple flexible candidates cannot consume the reserved repair role', () => {
+  const a = feature(1);
+  const b = feature(2);
+  const c = feature(3);
+  const first = task(a);
+  const second = task(b);
+  const repair = task(c, { phase: 'development', developer: 'developer-1', feedback: ['Repair'] });
+  assert.deepEqual(
+    schedule([a, b, c], [first, second, repair])
+      .slice(0, 3)
+      .map((intent) => [intent.taskId, intent.role]),
+    [
+      [first.id, 'developer-2'],
+      [second.id, 'developer-2'],
+      [repair.id, 'developer-1'],
+    ],
+  );
+});
+
 await test('equal feature timestamps and standalone tasks preserve stable insertion order', () => {
   const a = feature(1);
   const b = feature(1);
