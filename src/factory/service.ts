@@ -23,6 +23,7 @@ import {
 import { conversationWindow } from './conversations.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
+import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { queueObjective } from './objectives.ts';
@@ -85,6 +86,8 @@ interface AttemptState {
   isInferred: boolean;
   /** Fenced job outcome. */
   state: 'succeeded' | 'failed' | 'interrupted';
+  /** Supervisor-observed failure or cancellation reason for the manager report. */
+  reason: string | null;
 }
 /** All factories in this broker share local process admission. */
 const LOCAL_JOBS = new AdmissionPool();
@@ -540,17 +543,19 @@ export class FactoryService {
    */
   private async perform(job: FactoryJob, controller: AbortController): Promise<void> {
     const context = this.configured();
-    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed' };
+    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null };
     const timer = setTimeout(() => {
-      controller.abort();
+      controller.abort(new Error(`Assignment exceeded its ${String(context.settings.jobTimeoutMs)} ms timeout.`));
     }, context.settings.jobTimeoutMs);
     try {
       await this.executeAttempt(job, controller, attempt);
     } catch (error) {
       if (controller.signal.aborted || this.stopped) {
         attempt.state = 'interrupted';
+        attempt.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
       } else {
-        await this.failure(job, Error.isError(error) ? error.message : 'Managed stage failed.');
+        attempt.reason = Error.isError(error) ? error.message : 'Managed stage failed.';
+        await this.failure(job, attempt.reason);
       }
     } finally {
       clearTimeout(timer);
@@ -617,19 +622,16 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
-    const record = job;
-    const outcome = attempt;
-    const { execution } = outcome;
     this.repository.finishJob(
-      record,
-      execution?.completion?.usageTokens ?? (outcome.isInferred ? null : 0),
-      outcome.state,
-      execution?.completion?.cooldownUntil ?? 0,
+      job,
+      attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
+      attempt.state,
+      settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    if (outcome.state === 'interrupted' && record.kind === 'develop' && record.taskId !== null) {
-      this.repository.editTask(record.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
+    if (attempt.state === 'interrupted' && job.kind === 'develop' && job.taskId !== null) {
+      this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
     }
-    await retireSnapshot(this.configured(), execution?.snapshot ?? null);
+    await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
   }
 
   /**

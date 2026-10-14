@@ -143,7 +143,9 @@ export function recoverUnownedClaims(repository: FactoryRepository, owned: Reado
   const stale = repository.jobs().filter((job) => job.state === 'running' && !owned.has(job.id));
   repository.prepareSender();
   for (const job of stale) {
-    repository.finishJob(job, null, 'interrupted');
+    repository.finishJob(job, null, 'interrupted', {
+      reason: 'Recovered after supervisor restart; the previous process outcome was not observed.',
+    });
   }
 }
 
