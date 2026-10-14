@@ -255,7 +255,7 @@ export class WorkspaceManager {
   public async developer(task: FactoryTask): Promise<{ directory: string; branch: string; base: string }> {
     const base = await this.base();
     const branch =
-      task.branch ?? `mlt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
+      task.branch ?? `malt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
     const directory = task.worktree ?? (await this.create(`${task.id}-dev-${String(task.version)}`, base, branch));
     this.assertOwnedPath(directory);
     const snapshot = await this.snapshot(directory);
@@ -415,7 +415,7 @@ export class WorkspaceManager {
         return 'Preserved developer worktree because it contains newer or uncommitted work.';
       }
     }
-    await this.git(['update-ref', `refs/mlt/archive/${record.id}-${record.head}`, record.head]);
+    await this.git(['update-ref', `refs/malt/archive/${record.id}-${record.head}`, record.head]);
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- A previously removed tree needs no second destructive operation.
     if (existsSync(record.worktree) && !(await this.remove(record.worktree))) {
       return 'Preserved dirty developer worktree.';

@@ -95,7 +95,7 @@ function notice(message: string, isSuccessful = false): void {
   target.setAttribute('class', isSuccessful ? 'notice success' : 'notice');
 }
 /** Only public layout choices may persist in browser storage. */
-const layoutKey = 'mlt-worker-layout-v1';
+const layoutKey = 'malt-worker-layout-v1';
 /** Bounded read-only stdout cache, never persisted in browser storage. */
 const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
@@ -171,7 +171,8 @@ const isView = (value: string): value is View => Object.hasOwn(HEADINGS, value);
 /** Restore only harmless role layout state, never private project data. */
 function restoreLayout(): void {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(layoutKey) ?? 'null');
+    const saved = localStorage.getItem(layoutKey) ?? localStorage.getItem('mlt-worker-layout-v1');
+    const value: unknown = JSON.parse(saved ?? 'null');
     restoreRoles(value);
   } catch {
     /* Storage may be unavailable; the default layout remains usable. */

@@ -582,6 +582,8 @@ function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
     tools.add('learning_record');
     tools.add('learning_search');
     tools.add('learning_propose_skill');
+  } else if (name === 'factory-developer-1' || name === 'factory-developer-2') {
+    tools.add('factory_progress');
   }
   return tools;
 }
