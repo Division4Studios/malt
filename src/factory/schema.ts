@@ -43,8 +43,6 @@ const TEXT_MAX = 32_000;
 const TITLE_MAX = 200;
 /** Largest atomic plan accepted at once. */
 const PLAN_MAX = 20;
-/** Default scheduling budget, distinct from a subscription quota. */
-const TOKEN_BUDGET = 1_000_000;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -95,11 +93,22 @@ export const providerSchema = z
       .strict()
       .default({}),
     concurrency: z.number().int().min(1).max(FACTORY_ROLES.length).default(2),
-    budgetTokens: z.number().int().positive().default(TOKEN_BUDGET),
+    budgetTokens: z.number().int().positive().nullable().default(null),
     reservationTokens: z.number().int().positive().default(TOKEN_RESERVATION),
     windowMs: z.number().int().positive().default(WINDOW_MS),
   })
   .strict();
+
+/**
+ * Apply a token cap only when an operator explicitly configured one.
+ *
+ * @param budget - Optional diagnostic-token ceiling; null means subscription-only.
+ * @param usage - Observed, reserved and requested accounting total.
+ * @returns Whether that explicit cap would be exceeded.
+ */
+export function isTokenCapExceeded(budget: number | null, usage: number): boolean {
+  return budget !== null && usage > budget;
+}
 /** Project-specific factory setup; meaningful validation commands are mandatory. */
 export const factoryConfigSchema = z
   .object({

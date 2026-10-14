@@ -5,10 +5,12 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { writeFile, access, readFile } from 'node:fs/promises';
+import { writeFile, access, readFile, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+
+import { z } from 'zod';
 
 import { rejectDelivery } from '../src/factory/completion.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
@@ -212,6 +214,69 @@ await test('managed source reads preserve exact committed bytes, exclude private
   }
   assert.equal(context.repository.finishJob(job, 0, 'succeeded'), true);
   await assert.rejects(readSource(context, { path: '.gitignore' }, actor.id), { code: 'FACTORY_GATED' });
+});
+
+await test('large immutable source pages preserve Unicode and redaction without losing bytes', async (t) => {
+  const { context } = await fixture(t);
+  const content = `${'a'.repeat(31_999)}🌾\n${context.mesh.token}\n${'  source line\n'.repeat(3000)}`;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only a synthetic tracked file inside this disposable Git fixture.
+  await writeFile(path.join(context.mesh.root, 'large.ts'), content);
+  await context.workspaces.git(['add', 'large.ts']);
+  await context.workspaces.git(['commit', '-m', 'Large read-only fixture']);
+  const snapshot = await context.workspaces.snapshot(context.mesh.root);
+  const actor = context.repository.store.register({
+    ...registration('factory-learning-steward'),
+    runtime: 'factory-managed',
+  });
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    role: 'learning-steward',
+    provider: 'codex',
+    kind: 'learn',
+    taskId: null,
+    featureId: null,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    head: null,
+    base: snapshot.head,
+    summary: null,
+    artifact: context.mesh.directory,
+  });
+  assert.equal(context.repository.claim(job, context.settings), true);
+  sealSource(context.repository, job, snapshot);
+  const pageSchema = z.object({ content: z.string(), nextCursor: z.number().nullable(), head: z.string() });
+  let cursor: number | null = 0;
+  let restored = '';
+  while (cursor !== null) {
+    const page = pageSchema.parse(await readSource(context, { path: 'large.ts', cursor }, actor.id));
+    assert.equal(page.head, snapshot.head);
+    restored += page.content;
+    cursor = page.nextCursor;
+  }
+  assert.equal(restored, content.replace(context.mesh.token, '[REDACTED]'));
+  await assert.rejects(readSource(context, { path: 'large.ts', cursor: 32_000 }, actor.id), { code: 'INVALID_INPUT' });
+  const basePage = pageSchema.parse(await readSource(context, { path: 'large.ts', revision: 'base' }, actor.id));
+  assert.equal(basePage.head, snapshot.head);
+});
+
+await test('canonical project aliases preserve repository and owned memory-link identity', async (t) => {
+  const { context } = await fixture(t);
+  const alias = path.join(context.mesh.directory, 'project-alias');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- This disposable alias points only to the fixture root, never a real project.
+  await symlink(context.mesh.root, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const manager = new WorkspaceManager(
+    { ...context.mesh, root: alias, directory: path.join(alias, '.malt') },
+    context.settings,
+  );
+  assert.equal(await manager.origin(), await context.workspaces.origin());
+  const created = await manager.create(randomUUID(), await manager.base(), null);
+  await access(path.join(created, '.malt'));
 });
 
 await test('scope changes committed while inspecting a PR fence the late remote result', async (t) => {
