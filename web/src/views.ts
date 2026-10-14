@@ -4,7 +4,7 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics, objectivePreview } from './brand-ui.js';
+import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import {
@@ -28,10 +28,6 @@ const VISIBLE_EVENTS = 50;
 const EXCERPT_LENGTH = 500;
 /** Short commit identity for display, never for approval fencing. */
 const HEAD_LENGTH = 8;
-/** Bounded completed result preview. */
-const COMPLETED_PREVIEW = 4;
-/** Keep full objectives available without turning queue titles into transcript walls. */
-const OBJECTIVE_TITLE = 160;
 /** Durable logical roles, independently of live processes. */
 export const ROLES = [
   'product-owner',
@@ -376,38 +372,8 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const team = element('div', 'panel-body');
   team.append(teamView(state, actions, false));
   left.append(panel('Your autonomous team', '08 LOGICAL ROLES', team));
-  const objectives = records(state.factory['features']);
-  const queue = element('div', 'panel-body');
-  if (objectives.length === 0) {
-    queue.append(
-      empty(
-        'The next mission starts here',
-        'Add an objective. Your product owner and lead will prepare small, verifiable deliveries.',
-      ),
-    );
-  } else {
-    const completed = objectivePreview(objectives, COMPLETED_PREVIEW);
-    for (const feature of completed) {
-      const row = element('article', 'lesson');
-      const objective = text(feature, 'objective');
-      row.append(pill(text(feature, 'phase')), element('h3', '', objective.slice(0, OBJECTIVE_TITLE)));
-      if (objective.length > OBJECTIVE_TITLE) {
-        const detail = element('details');
-        detail.append(element('summary', '', 'Read full objective'), element('p', 'subtle', objective));
-        row.append(detail);
-      }
-      if (text(feature, 'phase') === 'blocked') {
-        row.append(
-          element('p', 'subtle', text(feature, 'error')),
-          button('Retry resolved request', () => {
-            actions.retry(text(feature, 'id'), true);
-          }),
-        );
-      }
-      queue.append(row);
-    }
-  }
-  left.append(panel('Product queue', `${String(objectives.length)} OBJECTIVES`, queue));
+  const queue = objectiveQueue(records(state.factory['features']), actions);
+  left.append(panel('Product queue', `${String(queue.unfinished)} UNFINISHED OBJECTIVES`, queue.body));
   const right = element('div');
   right.append(
     panel('Provider & local capacity', 'SUBSCRIPTION SESSIONS', capacityView(state)),
