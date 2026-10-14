@@ -3,6 +3,9 @@ services:
     build: .
     image: agentmesh:local
     init: true
+    depends_on:
+      provider-home-init:
+        condition: service_completed_successfully
     user: '${MALT_DOCKER_UID:-1000}:${MALT_DOCKER_GID:-1000}'
     pids_limit: 256
     mem_limit: ${MALT_DOCKER_MEMORY:-4g}
@@ -54,6 +57,34 @@ services:
       retries: 3
       start_period: 10s
     stop_grace_period: 15s
+
+  # Initialize only the dedicated credential volume, never project bind mounts.
+  # The long-lived broker and all agents still run as the selected non-root UID.
+  provider-home-init:
+    build: .
+    image: agentmesh:local
+    user: '0:0'
+    network_mode: none
+    read_only: true
+    pids_limit: 16
+    mem_limit: 128m
+    cpus: 0.25
+    restart: 'no'
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE]
+    security_opt: ['no-new-privileges:true']
+    environment:
+      MALT_VOLUME_UID: ${MALT_DOCKER_UID:-1000}
+      MALT_VOLUME_GID: ${MALT_DOCKER_GID:-1000}
+    volumes:
+      - provider-home:/home/node
+    entrypoint: [node, --input-type=module, -e]
+    command:
+      - >-
+        import {execFileSync} from 'node:child_process';
+        const uid=process.env.MALT_VOLUME_UID, gid=process.env.MALT_VOLUME_GID;
+        if(!/^\d{1,10}$$/.test(uid)||!/^\d{1,10}$$/.test(gid))throw new Error('Invalid provider volume UID/GID');
+        execFileSync('chown',['-R','--no-dereference','--',uid+':'+gid,'/home/node'],{stdio:'inherit'});
 
 volumes:
   provider-home:
