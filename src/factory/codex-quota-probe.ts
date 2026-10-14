@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';
-import { accountQuota } from './quota-windows.ts';
+import { accountQuota, accountWindows } from './quota-windows.ts';
 
 /** Bound native metadata output independently of the managed wrapper. */
 const MAX_BYTES = 65_536;
@@ -86,7 +86,7 @@ function receive(line: string): void {
     const reading = accountQuota(parsed.data.result);
     if (reading !== null) {
       state.hasReading = true;
-      process.stdout.write(`${JSON.stringify(reading)}\n`);
+      process.stdout.write(`${JSON.stringify({ ...reading, windows: accountWindows(parsed.data.result) })}\n`);
     }
     stop();
   }

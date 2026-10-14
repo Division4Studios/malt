@@ -147,6 +147,7 @@ export class QuotaObserver {
       ...prior,
       subscriptionUsedPercent: reading?.usedPercent ?? null,
       subscriptionResetAt: reading?.resetAt ?? null,
+      subscriptionWindows: reading?.windows ?? [],
       telemetrySource: reading === null ? null : 'codex-app-server',
       cooldownUntil:
         reading?.usedPercent === FULL_PERCENT

@@ -15,9 +15,18 @@ import {
   hasFlag,
   resourceSummary,
 } from './api.js';
+import { Freshness } from './freshness.js';
+import { startConsoleClock } from './console-clock.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { updateNavigation, bindNavigation } from './navigation.js';
-import { organizationDialog } from './organization-ui.js';
+import {
+  organizationDialog,
+  mountConnectionFields,
+  mountFactoryPolicyFields,
+  resetConnectionFields,
+  factoryPolicyDialog,
+  githubConnectionDescription,
+} from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import {
   ROLES,
@@ -31,7 +40,7 @@ import {
   teamView,
   workerView,
 } from './views.js';
-import { isWorkerArtifact, isInstallEvent } from './worker-ui.js';
+import { isWorkerArtifact, isInstallEvent, restoredRoles } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
 import type { Snapshot, Data } from './api.js';
@@ -53,8 +62,6 @@ const MAX_PANES = 4;
 const MAX_LOGS = 8;
 /** HTTP status requiring a fresh local pairing. */
 const UNAUTHORIZED = 401;
-/** Clock refresh period. */
-const CLOCK_MS = 1000;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
 const MAX_RECONNECTS = 5;
 /** Bounded visible timeline memory; SQLite retains the complete history. */
@@ -89,7 +96,7 @@ function notice(message: string, isSuccessful = false): void {
   target.setAttribute('class', isSuccessful ? 'notice success' : 'notice');
 }
 /** Only public layout choices may persist in browser storage. */
-const layoutKey = 'mlt-worker-layout-v1';
+const layoutKey = 'malt-worker-layout-v1';
 /** Bounded read-only stdout cache, never persisted in browser storage. */
 const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
@@ -154,6 +161,8 @@ const pendingLogs = new Set<string>();
 const eventHistory = new Map<number, Data>();
 /** Scope associated with the bounded in-memory timeline. */
 const historyScope = { project: 'home' };
+/** Actual observation time and bounded fallback read admission. */
+const freshness = new Freshness();
 
 /**
  * Validate native navigation without casts or a nested conditional chain.
@@ -165,25 +174,12 @@ const isView = (value: string): value is View => Object.hasOwn(HEADINGS, value);
 /** Restore only harmless role layout state, never private project data. */
 function restoreLayout(): void {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(layoutKey) ?? 'null');
-    restoreRoles(value);
+    const saved = localStorage.getItem(layoutKey) ?? localStorage.getItem('mlt-worker-layout-v1');
+    const value: unknown = JSON.parse(saved ?? 'null');
+    state.panes = restoredRoles(value, ROLES, state.panes, MAX_PANES);
   } catch {
     /* Storage may be unavailable; the default layout remains usable. */
   }
-}
-
-/**
- * Validate harmless persisted role selections outside the storage error boundary.
- *
- * @param value - Untrusted browser storage.
- */
-function restoreRoles(value: unknown): void {
-  if (!Array.isArray(value)) {
-    return;
-  }
-  const names = new Set<string>(ROLES);
-  const roles = value.filter((role): role is string => typeof role === 'string' && names.has(role)).slice(0, MAX_PANES);
-  state.panes = roles.length > 0 ? roles : state.panes;
 }
 
 /**
@@ -201,6 +197,7 @@ function editor(
     return;
   }
   state.edit = action;
+  resetConnectionFields(node('editor-body', HTMLTextAreaElement));
   node('editor-title', HTMLHeadingElement).textContent = description.title;
   node('editor-description', HTMLParagraphElement).textContent = description.explanation;
   const evidence = node('editor-evidence', HTMLPreElement);
@@ -292,30 +289,22 @@ const actions: Actions = {
     void control('factory_retry', isFeature ? { featureId: id } : { taskId: id });
   },
   setup: (isConnection) => {
-    const initial = isConnection
-      ? { repository: 'owner/target-repository', owner: 'owner', projectNumber: 1 }
-      : child(state.current?.factory ?? {}, 'settings');
-    const defaults = {
-      testCommands: [{ file: 'npm', args: ['test'] }],
-      endToEndCommands: [{ file: 'npm', args: ['run', 'test:e2e'] }],
-      prepareCommands: [{ file: 'npm', args: ['ci', '--ignore-scripts'] }],
-    };
-    editor(
-      {
-        title: isConnection ? 'Connect target GitHub Project' : 'Configure factory policy',
-        explanation: isConnection
-          ? 'Use the selected target repository and intended Project. No board is created unless createProject is explicitly true.'
-          : 'Use this project’s actual commands and executable paths. Pause before updating an active factory. Authentication stays with the native CLI.',
-        initial: JSON.stringify(Object.keys(initial).length === 0 ? defaults : initial, null, 2),
-      },
-      {
-        operation: isConnection ? 'github_connect' : 'factory_setup',
-        input: (body) => {
-          const value: unknown = JSON.parse(body);
-          return data(value);
-        },
-      },
-    );
+    const body = node('editor-body', HTMLTextAreaElement);
+    if (isConnection) {
+      editor(githubConnectionDescription(), { operation: 'github_connect', input: () => ({}) });
+      if (state.edit?.operation === 'github_connect') {
+        state.edit = {
+          operation: 'github_connect',
+          input: mountConnectionFields(body, child(state.current?.github ?? {}, 'connection')),
+        };
+      }
+      return;
+    }
+    const dialog = factoryPolicyDialog(child(state.current?.factory ?? {}, 'settings'));
+    editor(dialog.description, dialog.action);
+    if (state.edit?.operation === 'factory_setup') {
+      state.edit = mountFactoryPolicyFields(body);
+    }
   },
 };
 
@@ -391,6 +380,9 @@ function render(): void {
  * @param isConnected - Whether actual state was received.
  */
 function connection(isConnected: boolean): void {
+  if (isConnected) {
+    freshness.observe();
+  }
   state.isConnected = isConnected;
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
   node('connection-text', HTMLSpanElement).textContent = isConnected
@@ -411,10 +403,16 @@ async function refresh(): Promise<void> {
   const projectId = state.project;
   try {
     const response = await request(scoped(projectId, '/api/snapshot'));
+    if (state.project !== projectId) {
+      return;
+    }
     applyObserved(snapshot(response), projectId);
     connection(true);
     render();
   } catch (error) {
+    if (state.project !== projectId) {
+      return;
+    }
     connection(false);
     if (error instanceof LocalRequestError && error.status === UNAUTHORIZED) {
       const dialog = node('pairing', HTMLDialogElement);
@@ -682,10 +680,9 @@ async function start(): Promise<void> {
   window.addEventListener('pagehide', () => {
     state.stream?.close();
   });
-  setInterval(() => {
-    const now = new Date();
-    node('clock', HTMLSpanElement).textContent = now.toLocaleTimeString();
-  }, CLOCK_MS);
+  startConsoleClock(freshness, refresh, () => {
+    connection(false);
+  });
   setInterval(() => {
     void readLogs();
   }, LOG_REFRESH_MS);

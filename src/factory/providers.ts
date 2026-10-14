@@ -17,9 +17,10 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
-import { claudeQuota } from './quota-windows.ts';
+import { claudeQuota, claudeWindows } from './quota-windows.ts';
 import { AGENT_OUTPUT_SCHEMA, COOLDOWN_MS, resultSchema } from './schema.ts';
 
+import type { SubscriptionWindow } from './quota-windows.ts';
 import type { MeshConfig } from '../config.ts';
 import type { ProcessResult, ProcessRunner, ProcessSpec } from './processes.ts';
 import type { AgentResult, FactoryConfig, FactoryJob } from './schema.ts';
@@ -75,6 +76,8 @@ export interface AgentCompletion {
   readonly subscriptionUsedPercent: number | null;
   /** Native reset deadline, when supplied. */
   readonly subscriptionResetAt: number | null;
+  /** Individual native subscription windows, absent for older adapters. */
+  readonly subscriptionWindows?: readonly SubscriptionWindow[];
   /** Process outcome and bounded diagnostics. */
   readonly process: ProcessResult;
 }
@@ -148,6 +151,7 @@ export function agentLaunch(
   ];
   const limits = settings.providers[record.provider];
   const model = record.routing?.model ?? limits.model;
+  const effort = assignmentEffort(record);
   const isDeveloper = record.role === 'developer-1' || record.role === 'developer-2';
   if (record.provider === 'codex') {
     const codexArguments = [
@@ -159,6 +163,8 @@ export function agentLaunch(
       codexSandbox(isDeveloper, limits.developerAccess),
       '-c',
       'approval_policy="never"',
+      '-c',
+      `model_reasoning_effort=${JSON.stringify(effort)}`,
       '-c',
       'forced_login_method="chatgpt"',
       '-c',
@@ -212,12 +218,14 @@ export function agentLaunch(
   const learningTools =
     'mcp__agentmesh__mesh_learning_status,mcp__agentmesh__mesh_learning_read_skill,mcp__agentmesh__mesh_learning_read_source,mcp__agentmesh__mesh_factory_read_source';
   const communicationTools =
-    'mcp__agentmesh__mesh_whoami,mcp__agentmesh__mesh_get_messages,mcp__agentmesh__mesh_get_unread_messages,mcp__agentmesh__mesh_ack_message,mcp__agentmesh__mesh_send_message,mcp__agentmesh__mesh_github_status,mcp__agentmesh__mesh_github_sync';
+    'mcp__agentmesh__mesh_whoami,mcp__agentmesh__mesh_get_messages,mcp__agentmesh__mesh_get_unread_messages,mcp__agentmesh__mesh_ack_message,mcp__agentmesh__mesh_send_message,mcp__agentmesh__mesh_github_status,mcp__agentmesh__mesh_github_sync,mcp__agentmesh__mesh_factory_progress';
   const allowed =
     record.kind === 'learn'
       ? `${tools},${learningTools},${communicationTools},mcp__agentmesh__mesh_learning_search,mcp__agentmesh__mesh_learning_record,mcp__agentmesh__mesh_learning_propose_skill`
       : `${tools},${learningTools},${communicationTools}`;
   const args = [
+    '--effort',
+    effort,
     '--setting-sources',
     '',
     '--print',
@@ -287,6 +295,7 @@ export function decodeCompletion(
     cooldownUntil: 0,
     subscriptionUsedPercent: null,
     subscriptionResetAt: null,
+    subscriptionWindows: [],
     candidate: undefined,
     isFailed: processResult.interrupted || processResult.exitCode !== 0,
   };
@@ -309,8 +318,19 @@ export function decodeCompletion(
     cooldownUntil: state.cooldownUntil,
     subscriptionUsedPercent: state.subscriptionUsedPercent,
     subscriptionResetAt: state.subscriptionResetAt,
+    subscriptionWindows: state.subscriptionWindows,
     process: processResult,
   };
+}
+
+/**
+ * Resolve effort once for both native provider launch paths.
+ *
+ * @param job - Frozen assignment routing.
+ * @returns Selected supported effort, with a backward-compatible default.
+ */
+function assignmentEffort(job: FactoryJob): 'low' | 'medium' | 'high' {
+  return job.routing?.effort ?? 'medium';
 }
 
 /**
@@ -376,6 +396,8 @@ interface StreamState {
   subscriptionUsedPercent: number | null;
   /** Reported reset deadline. */
   subscriptionResetAt: number | null;
+  /** Current individual windows, never inferred from token totals. */
+  subscriptionWindows: SubscriptionWindow[];
   /** Candidate structured result. */
   candidate: unknown;
   /** Reported error state. */
@@ -406,6 +428,7 @@ function rateEvent(state: StreamState, event: z.output<typeof eventSchema>, now:
   const reading = claudeQuota(event.rate_limit_info, now);
   telemetry.subscriptionResetAt = reading?.resetAt ?? null;
   telemetry.subscriptionUsedPercent = reading?.usedPercent ?? null;
+  telemetry.subscriptionWindows = claudeWindows(event.rate_limit_info, now);
   if (info.data.status === 'rejected') {
     telemetry.cooldownUntil =
       info.data.resetsAt === undefined ? now + COOLDOWN_MS : info.data.resetsAt * MILLISECONDS_PER_SECOND;

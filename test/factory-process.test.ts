@@ -79,6 +79,16 @@ await test('cancellation terminates the managed provider and its child process',
     }
   }
   assert.equal(pids.length, 2, 'fixture must launch the provider and descendant before cancellation');
+  if (process.platform === 'win32') {
+    await delay(2300);
+    const sampleFile = path.join(fixtureRoot, 'cancel', 'resources.json');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Read only the owned native helper's fixed diagnostic artifact.
+    const content: unknown = JSON.parse(readFileSync(sampleFile, 'utf8'));
+    const sample = z.object({sampledAt:z.number(),processes:z.array(z.object({pid:z.number(),memoryMb:z.number(),cpuPercent:z.number().nullable()}))}).parse(content);
+    assert.ok(sample.processes.length > 0);
+    assert.ok(sample.processes.every((entry) => pids.includes(entry.pid) && entry.memoryMb > 0));
+    assert.ok(sample.processes.some((entry) => entry.cpuPercent !== null));
+  }
   controller.abort();
   const result = await running;
   assert.equal(result.interrupted, true);

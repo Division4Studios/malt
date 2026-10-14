@@ -18,10 +18,14 @@ The following identifiers remain stable for existing integrations and durable re
 
 - `mesh_*` MCP tools, existing `agentmesh` MCP registrations and example skill invocation names.
 - `x-agentmesh-*` broker headers, `AGENTMESH_*` environment configuration and existing operator cookie names.
-- Existing issue/comment operation markers and owned Git branch/archive namespaces.
+- Existing issue/comment operation markers, so retries reconcile earlier work rather than duplicate it.
 - The existing Docker image tag and credential-volume name, so upgrading does not strand authentication.
 
 New GitHub connections use a `MALT Status` field. When an existing `MLT Status` field is present, MALT reuses it rather than creating a duplicate or destroying saved views. Previously saved connections retain their field IDs. Product names and `.malt` paths in maintained documentation, generated guidance and adapted skills are updated; licensed upstream snapshots remain byte-for-byte intact.
+
+New delivery branches use `malt/issue-…` and retired work is preserved under `refs/malt/archive/`. Previously recorded `mlt/…` branches and archive refs remain usable without renaming open PRs or changing active worktrees. Browser layout preferences write `malt-…` keys and read earlier `mlt-…` keys as a fallback. Managed provider guidance upgrades its markers to `malt:project-context` while preserving user-authored content.
+
+Provider-guidance delimiters must occupy standalone lines and form one matching pair. Literal inline examples remain unchanged. Duplicate, mixed-version, reversed or incomplete pairs stop setup without rewriting the affected file; reconcile those markers explicitly before retrying. Migration replaces only the identified managed block, preserving the surrounding instructions.
 
 Installing the PWA updates the operator interface. It does not install the native daemon or migrate a running database. Provider credentials remain in Codex/Claude supported stores, outside project memory.
 

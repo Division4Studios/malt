@@ -13,4 +13,10 @@ QA returns findings to the original developer. Read every blocking finding and p
 
 The supervisor commits, bounds the diff, pushes and creates/reuses the PR after validation. Do not publish, merge, close issues or start extra processes yourself. Return a concise tested handoff and exit. Cancellation leaves unfinished work available for the next bounded session.
 
+## Ticket progress
+
+Every implementation or defect-repair assignment updates its assigned ticket. The supervisor queues a start comment. Use `mesh_factory_progress` for meaningful checkpoints: confirmed reproduction, completed implementation, validation results, or a blocker that changes the next step. Each checkpoint uses a stable key such as `reproduced`, `implemented`, or `validation`; retry the same key and text after a transport failure. Do not reuse a key for changed content. The tool reports queued versus delivered truthfully; a queued comment does not require another paid implementation attempt.
+
+Explain what changed, what evidence exists and what remains. Link the actual issue/PR/commit when available; do not paste transcripts, credentials, private paths or raw logs. Avoid timer-based noise, token-by-token narration and claims of completion before checks. Put the final concise outcome, checks and remaining blockers in the structured handoff so the supervisor can publish its revision-specific completion comment. QA findings belong to the original developer; address actionable PR comments with a fix and evidence before resolving their conversations.
+
 Adapted from Matt Pocock implement / tdd, Addy Osmani debugging-and-error-recovery and Pstack prove-it-works / sequence-verifiable-units.

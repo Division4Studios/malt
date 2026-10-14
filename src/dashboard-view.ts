@@ -115,11 +115,34 @@ const CHROME_LINES = 7;
  * @returns Text stripped of control sequences and control characters.
  */
 export function safeText(value: string): string {
-  const plain = stripVTControlCharacters(value);
+  const plain = stripVTControlCharacters(stripOperatingSystemCommands(value));
   return Array.from(plain, (character) => {
     const code = character.codePointAt(0) ?? 0;
     return code < CONTROL_LIMIT || (code >= DELETE_CODE && code <= C1_LIMIT) ? ' ' : character;
   }).join('');
+}
+
+/**
+ * Remove complete OSC payloads before platform-specific VT stripping sees them.
+ *
+ * @param value - Untrusted terminal text, possibly containing title or hyperlink commands.
+ * @returns Text outside OSC sequences; an unterminated payload is discarded.
+ */
+function stripOperatingSystemCommands(value: string): string {
+  const parts = value.replaceAll('\u{9D}', '\u{1B}]').split('\u{1B}]');
+  let output = parts[0] ?? '';
+  for (const part of parts.slice(1)) {
+    const endings = [part.indexOf('\u{7}'), part.indexOf('\u{1B}\\'), part.indexOf('\u{9C}')].filter(
+      (index) => index >= 0,
+    );
+    const end = Math.min(...endings);
+    if (!Number.isFinite(end)) {
+      continue;
+    }
+    const length = part[end] === '\u{1B}' ? 2 : 1;
+    output += part.slice(end + length);
+  }
+  return output;
 }
 
 /**

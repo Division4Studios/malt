@@ -10,6 +10,7 @@ import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
+import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -25,6 +26,7 @@ const factoryViewSchema = dashboardSchema.extend({
   skillRequests: z.array(skillRequestSchema),
   conversations: z.array(conversationSchema).default([]),
   workflow: z.record(z.unknown()).default({}),
+  processUsage: z.array(ownedUsageSchema).default([]),
 });
 /** Narrow operator mutation allowlist. */
 export const controlSchema = z

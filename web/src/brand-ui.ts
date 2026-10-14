@@ -5,7 +5,7 @@
  * @file
  */
 
-import { records, text } from './api.js';
+import { records, text, child, number, hasFlag } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -19,6 +19,36 @@ const MOTIFS = [
 ] as const;
 /** Fixed namespace, with no markup/string injection or external asset loading. */
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Bound overview blocker text while retaining full evidence in artifacts. */
+const BLOCKER_EXCERPT = 500;
+/** Bound DOM work while showing every ordinary pending queue. */
+const OBJECTIVE_PREVIEW = 50;
+
+/**
+ * Keep pending objectives visible ahead of recent completed outcomes.
+ *
+ * @param objectives - Actual selected project's objectives.
+ * @param completedLimit - Number of recent completed outcomes to retain.
+ * @returns Bounded, chronological pending work followed by recent completions.
+ */
+export function objectivePreview(objectives: Data[], completedLimit: number): Data[] {
+  const pending = objectives.filter(
+    (feature) => text(feature, 'phase') !== 'done' && feature['scopeReplacement'] === undefined,
+  );
+  const completed = objectives.filter((feature) => text(feature, 'phase') === 'done').slice(-completedLimit);
+  return [...pending.slice(0, OBJECTIVE_PREVIEW), ...completed];
+}
+
+/**
+ * Format an observed reset time.
+ *
+ * @param milliseconds - Persisted accounting timestamp.
+ * @returns Local display time.
+ */
+function resetLabel(milliseconds: number): string {
+  const date = new Date(milliseconds);
+  return date.toLocaleString();
+}
 
 /**
  * Build a safe native SVG element from internal static attributes.
@@ -82,10 +112,17 @@ export function overviewMetrics(factory: Data): HTMLElement {
     ],
     ['Delivered', tasks.filter((task) => text(task, 'phase') === 'done').length, 'green', 'verified on merged main'],
     [
-      'Next in queue',
+      'Unstarted deliveries',
       tasks.filter((task) => text(task, 'phase') === 'ready').length,
       'violet',
-      'dependency & capacity gated',
+      'may await dependencies or capacity',
+    ],
+    [
+      'Pending objectives',
+      features.filter((feature) => text(feature, 'phase') !== 'done' && feature['scopeReplacement'] === undefined)
+        .length,
+      'violet',
+      'product outcomes, separate from delivery tickets',
     ],
     [
       'Blocked',
@@ -106,4 +143,93 @@ export function overviewMetrics(factory: Data): HTMLElement {
     metrics.append(item);
   }
   return metrics;
+}
+
+/**
+ * Explain quiet dispatch using actual settings and provider accounting.
+ *
+ * @param factory - Authenticated project factory snapshot.
+ * @returns Logical coordinator state and concrete current blockers.
+ */
+export function dispatchSummary(factory: Data): string[] {
+  const messages = [
+    hasFlag(factory, 'active')
+      ? 'Supervisor enabled. Product owner and lead are scheduled when work is eligible; they do not keep idle model processes running.'
+      : 'Factory paused. Start the factory to dispatch queued work.',
+  ];
+  const error = text(factory, 'error');
+  if (error !== '') {
+    messages.push(error);
+  }
+  const providers = child(child(factory, 'settings'), 'providers');
+  const capacities = records(factory['capacities']);
+  for (const capacity of capacities) {
+    const provider = text(capacity, 'provider');
+    const policy = child(providers, provider);
+    const budget = number(policy, 'budgetTokens');
+    const pending =
+      number(capacity, 'usedTokens') + number(capacity, 'reservedTokens') + number(policy, 'reservationTokens');
+    if (budget > 0 && pending > budget && number(capacity, 'resetAt') > Date.now()) {
+      messages.push(
+        `${provider}: configured scheduling budget exhausted; resets ${resetLabel(number(capacity, 'resetAt'))}. This is separate from subscription quota.`,
+      );
+    }
+    if (number(capacity, 'cooldownUntil') > Date.now()) {
+      messages.push(`${provider}: provider cooldown until ${resetLabel(number(capacity, 'cooldownUntil'))}.`);
+    }
+  }
+  const blocked = records(factory['tasks']).filter(
+    (task) => text(task, 'phase') === 'blocked' && task['scopeReplacement'] === undefined,
+  );
+  for (const task of blocked) {
+    messages.push(`Issue #${String(number(task, 'issue'))} blocked: ${readableBlocker(text(task, 'error'))}`);
+  }
+  return messages;
+}
+
+/**
+ * Describe a known harness failure without inventing a model diagnosis.
+ *
+ * @param error - Durable technical evidence, rendered separately in full.
+ * @returns Bounded operator explanation with an explicit continuation marker.
+ */
+function readableBlocker(error: string): string {
+  if (error.includes('No current managed source claim')) {
+    return 'QA cannot inspect the PR because its read-only assignment claim is missing or expired. This is a review-access blocker, not an approval or confirmed code defect. Restore the owned claim and rerun independent QA on the same commits.';
+  }
+  if (error.includes('truncated:true') || error.includes('essential source remains inaccessible')) {
+    return 'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.';
+  }
+  const first = error.split('\n', 1)[0] ?? '';
+  return first.length > BLOCKER_EXCERPT
+    ? `${first.slice(0, BLOCKER_EXCERPT)}… Read the technical details below.`
+    : first;
+}
+
+/**
+ * Present concise blocker meaning while preserving full exact evidence.
+ *
+ * @param factory - Authenticated project state.
+ * @returns Keyboard-accessible overview with expandable technical reports.
+ */
+export function dispatchPanel(factory: Data): HTMLElement {
+  const panel = element('section', 'notice');
+  panel.append(element('h2', '', 'Coordinator & dispatch'));
+  for (const message of dispatchSummary(factory)) {
+    panel.append(element('p', '', message));
+  }
+  const tasks = records(factory['tasks']);
+  for (const task of tasks) {
+    if (text(task, 'phase') !== 'blocked' || task['scopeReplacement'] !== undefined) {
+      continue;
+    }
+    const details = element('details', 'blocker-details');
+    const issue = String(number(task, 'issue'));
+    details.append(
+      element('summary', '', `Technical details for issue #${issue}`),
+      element('pre', '', text(task, 'error')),
+    );
+    panel.append(details);
+  }
+  return panel;
 }

@@ -8,6 +8,29 @@ import { records, text } from './api.js';
 
 import type { Data, Snapshot } from './api.js';
 
+/**
+ * Validate public persisted layout without accepting arbitrary worker names.
+ *
+ * @param value - Untrusted local layout value.
+ * @param allowed - Known logical roles.
+ * @param fallback - Existing harmless selection.
+ * @param maximum - Pane ceiling.
+ * @returns Bounded known role names or the retained selection.
+ */
+export function restoredRoles(
+  value: unknown,
+  allowed: readonly string[],
+  fallback: string[],
+  maximum: number,
+): string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  const names = new Set(allowed);
+  const roles = value.filter((role): role is string => typeof role === 'string' && names.has(role)).slice(0, maximum);
+  return roles.length > 0 ? roles : fallback;
+}
+
 /** Optional browser-native PWA install capability. */
 export interface InstallEvent extends Event {
   /** Launch the browser's supported installation prompt. */
@@ -63,7 +86,7 @@ const WORKER_FILES = [
 const allowedFiles = new Set<string>(WORKER_FILES);
 
 /** Layout preferences contain only logical role names and pixel heights. */
-const HEIGHT_KEY = 'mlt-worker-heights-v1';
+const HEIGHT_KEY = 'malt-worker-heights-v1';
 /** Keep height controls usable on compact displays. */
 const MIN_HEIGHT = 340;
 /** Bound accidental giant panes and browser storage. */
@@ -169,7 +192,7 @@ export function beginWorkerLayout(): void {
   }
   paneLayout.isRestored = true;
   try {
-    restoreHeights(localStorage.getItem(HEIGHT_KEY) ?? '{}');
+    restoreHeights(localStorage.getItem(HEIGHT_KEY) ?? localStorage.getItem('mlt-worker-heights-v1') ?? '{}');
   } catch {
     /* Invalid or unavailable storage retains the default layout. */
   }

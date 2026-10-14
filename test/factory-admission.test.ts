@@ -145,3 +145,57 @@ await test('memory admission and critical stop thresholds are distinct from temp
   assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 400 }), true);
   assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 2000, cpuPercent: 100 }), false);
 });
+
+await test('subscription-only defaults do not block large diagnostic token counts but still enforce actual quota and optional explicit caps', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const store = new Store(config, { now: () => 100 });
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  assert.equal(strict.providers.codex.budgetTokens, null);
+  repository.configure(strict);
+  const measured = {
+    ...unknownCapacity,
+    usedTokens: 10_000_000,
+    subscriptionUsedPercent: 20,
+    subscriptionResetAt: 1000,
+  };
+  repository.saveCapacity(measured);
+  assert.equal(chooseProvider({ config: strict, capacities: [measured], jobs: [], now: 100 }), 'codex');
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    role: 'product-owner',
+    provider: 'codex',
+    kind: 'plan',
+    taskId: null,
+    featureId: null,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 100,
+    finishedAt: null,
+    expiresAt: 1000,
+    reservation: 1,
+    usageTokens: null,
+    pid: null,
+    head: null,
+    base: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(repository.claim(job, strict), true);
+  assert.equal(repository.finishJob(job, 0, 'succeeded'), true);
+  repository.saveCapacity({ ...measured, subscriptionUsedPercent: 100 });
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, strict), false);
+  assert.equal(
+    chooseProvider({ config: strict, capacities: [{ ...measured, subscriptionUsedPercent: 100 }], jobs: [], now: 100 }),
+    null,
+  );
+  const explicit = factoryConfigSchema.parse({
+    ...strict,
+    providers: { ...strict.providers, codex: { ...strict.providers.codex, budgetTokens: 1000 } },
+  });
+  repository.saveCapacity(measured);
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, explicit), false);
+});

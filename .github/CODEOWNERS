@@ -1,0 +1,7 @@
+# Repository policy ownership; code-owner approval still needs a distinct reviewer.
+* @Division4Studios
+/.github/ @Division4Studios
+/SECURITY.md @Division4Studios
+/LICENSE @Division4Studios
+/src/web/ @Division4Studios
+/src/factory/ @Division4Studios

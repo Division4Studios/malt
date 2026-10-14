@@ -65,8 +65,24 @@ await test('simple work gets a small configured model and only selected relevant
   const route = routeAssignment({ intent, provider: 'codex', settings, task });
   assert.equal(route.tier, 'small');
   assert.equal(route.model, 'fixture-small');
+  assert.equal(route.effort, 'low');
   assert.deepEqual(route.skillNames, ['factory-session', 'factory-development', 'project-testing']);
   assert.ok(!route.skillNames.includes('project-security'));
+});
+
+await test('lead-reviewed per-role effort reaches QA routing while rework raises its floor', () => {
+  const delivery = taskSchema.parse({ ...task, assignmentProfiles: [
+    {role:'qa-1',tier:'small',effort:'low',reason:'A focused mechanical behavior check.'},
+    {role:'final-tester',tier:'standard',effort:'medium',reason:'A bounded documented integration scenario.'},
+  ] });
+  const qa = { ...intent, role: 'qa-1', kind: 'review' } as const;
+  const route = routeAssignment({intent:qa,provider:'codex',settings,task:delivery});
+  assert.equal(route.model, 'fixture-small');
+  assert.equal(route.effort, 'low');
+  assert.match(route.reason, /Lead-reviewed/v);
+  const repaired = routeAssignment({intent:qa,provider:'codex',settings,task:{...delivery,feedback:['A returned boundary defect.']}});
+  assert.equal(repaired.model, 'fixture-advanced');
+  assert.equal(repaired.effort, 'high');
 });
 
 await test('a reviewed small delivery stays small when its acceptance includes several mechanical gates', () => {

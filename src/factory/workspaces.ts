@@ -28,8 +28,10 @@ import type { FactoryConfig, FactoryTask } from './schema.ts';
  * @param value - Git or configured root path.
  * @returns Normalized root identity.
  */
-function normalize(value: string): string {
-  return process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+async function normalize(value: string): Promise<string> {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Callers compare only configured project roots and native Git/worktree paths.
+  const canonical = await realpath(value);
+  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
 }
 
 /**
@@ -44,7 +46,7 @@ async function verifyMemoryLink(link: string, target: string): Promise<void> {
   const info = await lstat(link);
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Resolve the same generated link to prove its target before retirement.
   const actual = await realpath(link);
-  if (!info.isSymbolicLink() || normalize(actual) !== normalize(target)) {
+  if (!info.isSymbolicLink() || (await normalize(actual)) !== (await normalize(target))) {
     throw new MeshError('INVALID_INPUT', 'The worktree memory link must point to this project .malt.');
   }
 }
@@ -107,7 +109,7 @@ export class WorkspaceManager {
    */
   public async origin(): Promise<string> {
     const root = await this.git(['rev-parse', '--show-toplevel']);
-    if (normalize(root) !== normalize(this.mesh.root)) {
+    if ((await normalize(root)) !== (await normalize(this.mesh.root))) {
       throw new MeshError('INVALID_INPUT', 'Configure the factory in the Git repository root.');
     }
     await this.assertPrivateStateUntracked();
@@ -182,7 +184,7 @@ export class WorkspaceManager {
     }
     const common = await this.git(['rev-parse', '--path-format=absolute', '--git-common-dir'], directory);
     const original = await this.git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-    if (path.resolve(common) !== path.resolve(original)) {
+    if ((await normalize(common)) !== (await normalize(original))) {
       throw new MeshError('INVALID_INPUT', 'The recorded worktree belongs to another repository.');
     }
     const link = path.join(directory, '.malt');
@@ -253,7 +255,7 @@ export class WorkspaceManager {
   public async developer(task: FactoryTask): Promise<{ directory: string; branch: string; base: string }> {
     const base = await this.base();
     const branch =
-      task.branch ?? `mlt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
+      task.branch ?? `malt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
     const directory = task.worktree ?? (await this.create(`${task.id}-dev-${String(task.version)}`, base, branch));
     this.assertOwnedPath(directory);
     const snapshot = await this.snapshot(directory);
@@ -413,7 +415,7 @@ export class WorkspaceManager {
         return 'Preserved developer worktree because it contains newer or uncommitted work.';
       }
     }
-    await this.git(['update-ref', `refs/mlt/archive/${record.id}-${record.head}`, record.head]);
+    await this.git(['update-ref', `refs/malt/archive/${record.id}-${record.head}`, record.head]);
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- A previously removed tree needs no second destructive operation.
     if (existsSync(record.worktree) && !(await this.remove(record.worktree))) {
       return 'Preserved dirty developer worktree.';
