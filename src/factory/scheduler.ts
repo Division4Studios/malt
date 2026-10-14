@@ -8,7 +8,7 @@
 
 import { MeshError } from '../protocol.ts';
 
-import { PROVIDERS } from './schema.ts';
+import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
   AgentResult,
@@ -141,12 +141,12 @@ export function chooseProvider(input: {
     const active = live.filter((job) => job.provider === provider).length;
     if (
       active >= limits.concurrency ||
-      capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens > limits.budgetTokens
+      isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)
     ) {
       return null;
     }
     const utilization = Math.max(
-      (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
+      limits.budgetTokens === null ? 0 : (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
       (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
     );
     return { provider, utilization, active };

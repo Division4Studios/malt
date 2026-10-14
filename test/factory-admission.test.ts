@@ -11,7 +11,13 @@ import { AdmissionPool } from '../src/factory/admission.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { resourceBlocker, hasCriticalMemoryPressure } from '../src/factory/resources.ts';
 import { chooseProvider } from '../src/factory/scheduler.ts';
-import { capacitySchema, factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import {
+  capacitySchema,
+  factoryConfigSchema,
+  isTokenCapExceeded,
+  jobSchema,
+  providerSchema,
+} from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -144,4 +150,100 @@ await test('memory admission and critical stop thresholds are distinct from temp
   assert.equal(hasCriticalMemoryPressure(strict, base), false);
   assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 400 }), true);
   assert.equal(hasCriticalMemoryPressure(strict, { ...base, freeMemoryMb: 2000, cpuPercent: 100 }), false);
+});
+
+await test('subscription-only defaults do not block large diagnostic token counts but still enforce actual quota and optional explicit caps', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const store = new Store(config, { now: () => 100 });
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  assert.equal(strict.providers.codex.budgetTokens, null);
+  repository.configure(strict);
+  const measured = {
+    ...unknownCapacity,
+    usedTokens: 10_000_000,
+    subscriptionUsedPercent: 20,
+    subscriptionResetAt: 1000,
+  };
+  repository.saveCapacity(measured);
+  assert.equal(chooseProvider({ config: strict, capacities: [measured], jobs: [], now: 100 }), 'codex');
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    role: 'product-owner',
+    provider: 'codex',
+    kind: 'plan',
+    taskId: null,
+    featureId: null,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 100,
+    finishedAt: null,
+    expiresAt: 1000,
+    reservation: 1,
+    usageTokens: null,
+    pid: null,
+    head: null,
+    base: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(repository.claim(job, strict), true);
+  assert.equal(repository.finishJob(job, 0, 'succeeded'), true);
+  const cooling = { ...measured, cooldownUntil: 500 };
+  repository.saveCapacity(cooling);
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, strict), false);
+  assert.equal(chooseProvider({ config: strict, capacities: [cooling], jobs: [], now: 100 }), null);
+  repository.saveCapacity({ ...measured, subscriptionUsedPercent: 100 });
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, strict), false);
+  assert.equal(
+    chooseProvider({ config: strict, capacities: [{ ...measured, subscriptionUsedPercent: 100 }], jobs: [], now: 100 }),
+    null,
+  );
+  const explicit = factoryConfigSchema.parse({
+    ...strict,
+    providers: { ...strict.providers, codex: { ...strict.providers.codex, budgetTokens: 1000, reservationTokens: 1 } },
+  });
+  const capped = { ...measured, usedTokens: 900, reservedTokens: 100 };
+  repository.saveCapacity(capped);
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, explicit), false);
+  assert.equal(chooseProvider({ config: explicit, capacities: [capped], jobs: [], now: 100 }), null);
+  repository.saveCapacity({ ...capped, reservedTokens: 99 });
+  assert.equal(repository.claim({ ...job, id: randomUUID() }, explicit), true);
+  repository.configure(explicit);
+  assert.equal(repository.config()?.providers.codex.budgetTokens, 1000);
+});
+
+await test('provider token caps are optional positive integers with an inclusive ceiling', () => {
+  assert.equal(providerSchema.parse({ executable: 'fixture' }).budgetTokens, null);
+  assert.equal(providerSchema.parse({ executable: 'fixture', budgetTokens: null }).budgetTokens, null);
+  assert.equal(providerSchema.parse({ executable: 'fixture', budgetTokens: 1000 }).budgetTokens, 1000);
+  for (const budgetTokens of [0, -1, 1.5]) {
+    assert.equal(providerSchema.safeParse({ executable: 'fixture', budgetTokens }).success, false);
+  }
+  for (const usage of [0, 1000, 10_000_000, Number.MAX_VALUE]) {
+    assert.equal(isTokenCapExceeded(null, usage), false);
+  }
+  assert.equal(isTokenCapExceeded(1000, 1001), true);
+  assert.equal(isTokenCapExceeded(1000, 1000), false);
+});
+
+await test('uncapped provider ordering follows subscription utilization despite diagnostic totals', () => {
+  const config = factoryConfigSchema.parse({
+    ...strict,
+    providers: { codex: { executable: 'fixture' }, claude: { executable: 'fixture' } },
+  });
+  for (const lower of ['codex', 'claude'] as const) {
+    const capacities = (['codex', 'claude'] as const).map((provider) => {
+      return {
+        ...unknownCapacity,
+        provider,
+        usedTokens: provider === lower ? 10_000_000 : 0,
+        subscriptionUsedPercent: provider === lower ? 20 : 80,
+      };
+    });
+    assert.equal(chooseProvider({ config, capacities, jobs: [], now: 100 }), lower);
+  }
 });
