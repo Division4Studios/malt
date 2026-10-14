@@ -18,6 +18,16 @@ import { createCleanup, createProject } from './helpers.ts';
 
 import type { FactoryTask } from '../src/factory/schema.ts';
 
+/** Side-table work key row. */
+const keySchema = z
+  .object({
+    task_id: z.string().optional(),
+    effect_id: z.string().optional(),
+    tracker_provider: z.string(),
+    external_key: z.string(),
+  })
+  .strict();
+
 /**
  * Build a valid legacy delivery.
  *
@@ -100,28 +110,37 @@ await test('legacy issues 12–15 and pending effects survive migration and rest
   assert.deepEqual(store.db.prepare('SELECT rowid, id, issue, kind, data FROM factory_effects').all(), oldEffects);
   assert.deepEqual(
     store.db
-      .prepare('SELECT tracker_provider, external_key FROM factory_tasks ORDER BY issue')
+      .prepare(
+        'SELECT k.tracker_provider, k.external_key FROM factory_tasks t JOIN factory_task_keys k ON k.task_id=t.id ORDER BY t.issue',
+      )
       .all()
       .map((row) => ({ ...row })),
     [12, 13, 14, 15].map((issue) => ({ tracker_provider: 'github', external_key: String(issue) })),
   );
   assert.deepEqual(
     store.db
-      .prepare('SELECT tracker_provider, external_key FROM factory_effects ORDER BY issue')
+      .prepare(
+        'SELECT k.tracker_provider, k.external_key FROM factory_effects e JOIN factory_effect_keys k ON k.effect_id=e.id ORDER BY e.issue',
+      )
       .all()
       .map((row) => ({ ...row })),
     [12, 13, 14, 15].map((issue) => ({ tracker_provider: 'github', external_key: String(issue) })),
   );
-  const expandedTasks = store.db.prepare('SELECT * FROM factory_tasks').all();
-  const expandedEffects = store.db.prepare('SELECT * FROM factory_effects').all();
+  const expandedTasks = store.db.prepare('SELECT * FROM factory_task_keys').all();
+  const expandedEffects = store.db.prepare('SELECT * FROM factory_effect_keys').all();
   store.close();
   const reopened = new Store(config);
   defer(() => {
     reopened.close();
   });
   const restarted = new FactoryRepository(reopened);
-  assert.deepEqual(reopened.db.prepare('SELECT * FROM factory_tasks').all(), expandedTasks);
-  assert.deepEqual(reopened.db.prepare('SELECT * FROM factory_effects').all(), expandedEffects);
+  assert.deepEqual(
+    reopened.db.prepare('SELECT rowid, id, issue, phase, version, data FROM factory_tasks').all(),
+    oldTasks,
+  );
+  assert.deepEqual(reopened.db.prepare('SELECT rowid, id, issue, kind, data FROM factory_effects').all(), oldEffects);
+  assert.deepEqual(reopened.db.prepare('SELECT * FROM factory_task_keys').all(), expandedTasks);
+  assert.deepEqual(reopened.db.prepare('SELECT * FROM factory_effect_keys').all(), expandedEffects);
   assert.deepEqual(restarted.tasks(), tasks);
   assert.deepEqual(restarted.effects(), effects);
 });
@@ -151,7 +170,9 @@ await test('new tasks, transitions, effects and retries dual-write without chang
   repository.settleEffect(effect, 'Retry');
   assert.deepEqual(
     store.db
-      .prepare('SELECT issue, tracker_provider, external_key FROM factory_tasks')
+      .prepare(
+        'SELECT t.issue, k.tracker_provider, k.external_key FROM factory_tasks t JOIN factory_task_keys k ON k.task_id=t.id',
+      )
       .all()
       .map((row) => ({ ...row })),
     [{ issue: 12, tracker_provider: 'github', external_key: '12' }],
@@ -159,8 +180,9 @@ await test('new tasks, transitions, effects and retries dual-write without chang
   const storedEffects = selectAll(
     store.db,
     z.object({ issue: z.number(), tracker_provider: z.string(), external_key: z.string() }),
-    'SELECT issue, tracker_provider, external_key FROM factory_effects',
+    'SELECT e.issue, k.tracker_provider, k.external_key FROM factory_effects e JOIN factory_effect_keys k ON k.effect_id=e.id',
   );
+  assert.equal(storedEffects.length, repository.effects().length);
   for (const row of storedEffects) {
     assert.equal(row.tracker_provider, 'github');
     assert.equal(row.external_key, String(row.issue));
@@ -173,4 +195,48 @@ await test('new tasks, transitions, effects and retries dual-write without chang
     false,
   );
   assert.equal(repository.effectCompleted(effect.id), true);
+  assert.equal(
+    selectAll(store.db, keySchema, 'SELECT * FROM factory_effect_keys WHERE effect_id=?', effect.id).length,
+    0,
+  );
+});
+
+await test('legacy positional writers keep working on an expanded database and receive typed keys', (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const repeated = new FactoryRepository(store);
+  assert.deepEqual(repeated.tasks(), []);
+  const legacy = task(14);
+  const effect = {
+    id: 'legacy-status',
+    issue: 14,
+    kind: 'status',
+    value: 'Done',
+    attempts: 0,
+    retryAt: 0,
+    error: null,
+  };
+  // Exact statements used by released writers before the expand step.
+  store.db
+    .prepare('INSERT OR IGNORE INTO factory_tasks VALUES(?,?,?,?,?)')
+    .run(legacy.id, legacy.issue, legacy.phase, legacy.version, JSON.stringify(legacy));
+  store.db
+    .prepare(
+      'INSERT OR IGNORE INTO factory_effects SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM factory_effect_receipts WHERE id=?)',
+    )
+    .run(effect.id, effect.issue, effect.kind, JSON.stringify(effect), effect.id);
+  assert.deepEqual(repository.tasks(), [legacy]);
+  assert.deepEqual(repository.effects(), [effect]);
+  assert.deepEqual(selectAll(store.db, keySchema, 'SELECT * FROM factory_task_keys'), [
+    { task_id: legacy.id, tracker_provider: 'github', external_key: '14' },
+  ]);
+  assert.deepEqual(selectAll(store.db, keySchema, 'SELECT * FROM factory_effect_keys'), [
+    { effect_id: effect.id, tracker_provider: 'github', external_key: '14' },
+  ]);
+  store.db.prepare('DELETE FROM factory_effects WHERE id=?').run(effect.id);
+  assert.deepEqual(selectAll(store.db, keySchema, 'SELECT * FROM factory_effect_keys'), []);
 });

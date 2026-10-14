@@ -10,7 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { columnRowSchema, run, selectAll, selectOne } from '../database.ts';
+import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
@@ -353,14 +353,12 @@ export class FactoryRepository {
     this.store.transaction(() => {
       run(
         this.store.db,
-        'INSERT OR IGNORE INTO factory_tasks (id,issue,phase,version,data,tracker_provider,external_key) VALUES(?,?,?,?,?,?,?)',
+        'INSERT OR IGNORE INTO factory_tasks VALUES(?,?,?,?,?)',
         value.id,
         value.issue,
         value.phase,
         value.version,
         JSON.stringify(value),
-        'github',
-        String(value.issue),
       );
       this.queueStatus(value);
     });
@@ -732,23 +730,32 @@ export class FactoryRepository {
     return selectAll(this.store.db, payloadSchema, sql).map((row) => schema.parse(JSON.parse(row.data)));
   }
 
-  /** Add typed keys without rewriting legacy payloads, identities or constraints. */
+  /**
+   * Record provider-typed work keys in side tables so legacy positional writers keep their column counts.
+   * Triggers key rows written by any code version; the backfill covers rows that predate them.
+   */
   private expandWorkKeys(): void {
     this.store.transaction(() => {
-      for (const table of ['factory_tasks', 'factory_effects'] as const) {
-        const columns = selectAll(this.store.db, columnRowSchema, `SELECT name FROM pragma_table_info('${table}')`);
-        if (columns.every((column) => column.name !== 'tracker_provider')) {
-          this.store.db.exec(`ALTER TABLE ${table} ADD COLUMN tracker_provider TEXT`);
-        }
-        if (columns.every((column) => column.name !== 'external_key')) {
-          this.store.db.exec(`ALTER TABLE ${table} ADD COLUMN external_key TEXT`);
-        }
-        this.store.db.exec(`
-          UPDATE ${table} SET tracker_provider=COALESCE(tracker_provider,'github'),
-            external_key=COALESCE(external_key,CAST(issue AS TEXT))
-          WHERE tracker_provider IS NULL OR external_key IS NULL
-        `);
-      }
+      this.store.db.exec(`
+        CREATE TABLE IF NOT EXISTS factory_task_keys (task_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS factory_effect_keys (effect_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
+        CREATE TRIGGER IF NOT EXISTS factory_task_key_insert AFTER INSERT ON factory_tasks BEGIN
+          INSERT OR IGNORE INTO factory_task_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_task_key_delete AFTER DELETE ON factory_tasks BEGIN
+          DELETE FROM factory_task_keys WHERE task_id=OLD.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_effect_key_insert AFTER INSERT ON factory_effects BEGIN
+          INSERT OR IGNORE INTO factory_effect_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_effect_key_delete AFTER DELETE ON factory_effects BEGIN
+          DELETE FROM factory_effect_keys WHERE effect_id=OLD.id;
+        END;
+        INSERT OR IGNORE INTO factory_task_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_tasks
+          WHERE id NOT IN (SELECT task_id FROM factory_task_keys);
+        INSERT OR IGNORE INTO factory_effect_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_effects
+          WHERE id NOT IN (SELECT effect_id FROM factory_effect_keys);
+      `);
     });
   }
 
@@ -811,13 +818,11 @@ export class FactoryRepository {
   private putEffect(effect: FactoryEffect): void {
     run(
       this.store.db,
-      'INSERT OR IGNORE INTO factory_effects (id,issue,kind,data,tracker_provider,external_key) SELECT ?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM factory_effect_receipts WHERE id=?)',
+      'INSERT OR IGNORE INTO factory_effects SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM factory_effect_receipts WHERE id=?)',
       effect.id,
       effect.issue,
       effect.kind,
       JSON.stringify(effect),
-      'github',
-      String(effect.issue),
       effect.id,
     );
   }
