@@ -25,6 +25,7 @@ import {
   githubConnectionDescription,
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
+import { QueueState } from './queue-state.js';
 import {
   ROLES,
   activityView,
@@ -145,6 +146,9 @@ const state: {
   isConnected: false,
   reconnects: 0,
 };
+
+/** Project-scoped queue interactions. */
+const queueState = new QueueState();
 
 /** Read-only log tails for selected panes. */
 const logs = new Map<string, string>();
@@ -376,7 +380,7 @@ function render(): void {
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
   };
-  target.replaceChildren(builders[state.view]());
+  queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');

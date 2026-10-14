@@ -10,9 +10,6 @@ import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 
-/** Bound DOM work while showing every ordinary pending queue. */
-const OBJECTIVE_PREVIEW = 50;
-
 /** Original line motifs for process, verified delivery, queue and blocker cards. */
 const MOTIFS = [
   'M58 66L90 84L122 66M90 84V110M58 66V88M122 66V88',
@@ -76,15 +73,31 @@ function pendingObjectives(objectives: Data[]): Data[] {
 }
 
 /**
- * Select objectives to list: pending ones first so older requests stay visible, then recent completions.
+ * Group the complete snapshot without letting completed work hide unfinished work.
  *
  * @param objectives - Product objectives in original order.
- * @param completedLimit - Number of most recent completed objectives to append.
- * @returns Bounded objective list.
+ * @returns Phase groups, with completed and scope-replaced records last.
  */
-export function objectivePreview(objectives: Data[], completedLimit: number): Data[] {
-  const completed = objectives.filter((feature) => text(feature, 'phase') === 'done').slice(-completedLimit);
-  return [...pendingObjectives(objectives).slice(0, OBJECTIVE_PREVIEW), ...completed];
+export function objectiveGroups(objectives: Data[]): { title: string; items: Data[] }[] {
+  const groups = [
+    { title: 'Queued', phases: ['queued'] },
+    { title: 'In progress', phases: ['refining', 'provisioning', 'active'] },
+    { title: 'Needs attention', phases: ['blocked'] },
+    { title: 'Completed', phases: ['done'] },
+  ];
+  const current = objectives.filter((feature) => feature['scopeReplacement'] === undefined);
+  return [
+    ...groups.map(({ title, phases }) => {
+      return {
+        title,
+        items: current.filter((feature) => phases.includes(text(feature, 'phase'))),
+      };
+    }),
+    {
+      title: 'Scope replaced (superseded)',
+      items: objectives.filter((feature) => feature['scopeReplacement'] !== undefined),
+    },
+  ];
 }
 
 /**

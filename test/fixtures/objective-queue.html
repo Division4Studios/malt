@@ -1,0 +1,77 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../web/style.css" />
+<div id="content"></div>
+<pre id="result">PENDING</pre>
+<script type="module">
+  import { overviewView } from '../../web/dist/views.js';
+  import { QueueState } from '../../web/dist/queue-state.js';
+  const result = document.querySelector('#result');
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  try {
+    const hostile = '<img src=x onerror="window.injected=true">';
+    const features = Array.from({ length: 80 }, (_, i) => ({
+      id: `f${i}`,
+      phase: i >= 60 ? 'done' : ['queued', 'refining', 'provisioning', 'active', 'blocked'][i % 5],
+      objective: hostile.repeat(8),
+      error: hostile,
+    }));
+    features.push({ id: 'old', phase: 'blocked', scopeReplacement: 'f0', objective: hostile });
+    const snapshot = { project: {}, factory: { features }, events: [], github: {}, learning: {} };
+    let retried = '';
+    const actions = {
+      retry: (id, isFeature) => {
+        retried = `${id}:${isFeature}`;
+      },
+    };
+    const target = document.querySelector('#content');
+    const state = new QueueState();
+    const render = (project = 'one') => state.replace(target, overviewView(snapshot, actions), project);
+    render();
+    check(target.querySelectorAll('[data-feature-id]').length === 81, 'every identity renders');
+    check(
+      new Set([...target.querySelectorAll('[data-feature-id]')].map((row) => row.dataset.featureId)).size === 81,
+      'identities render once',
+    );
+    check(target.textContent.includes('60 UNFINISHED OBJECTIVES'), 'unfinished total');
+    for (const [label, count] of [
+      ['Queued', 12],
+      ['In progress', 36],
+      ['Needs attention', 12],
+      ['Completed', 20],
+      ['Scope replaced (superseded)', 1],
+    ]) {
+      const group = target.querySelector(`section[aria-label="${label}"]`);
+      check(group.querySelectorAll('[data-feature-id]').length === count, label);
+    }
+    let completed = target.querySelector('.objective-completed');
+    check(!completed.open && completed === completed.parentElement.lastElementChild, 'completed collapsed last');
+    completed.open = true;
+    check(completed.querySelectorAll('[data-feature-id]').length === 21, 'completed and replaced reachable');
+    const detail = target.querySelector('[data-feature-id="f4"] details');
+    detail.open = true;
+    target.querySelector('[data-queue-focus="retry:f4"]').focus();
+    render();
+    check(target.querySelector('.objective-completed').open, 'completed remains open');
+    check(target.querySelector('[data-feature-id="f4"] details').open, 'full objective remains open');
+    check(document.activeElement.dataset.queueFocus === 'retry:f4', 'retry focus restored');
+    document.activeElement.click();
+    check(retried === 'f4:true', 'Retry forwards stable feature identity');
+    target.querySelector('.objective-completed').open = false;
+    render();
+    check(!target.querySelector('.objective-completed').open, 'closed state preserved');
+    render('two');
+    check(!target.querySelector('[data-feature-id="f4"] details').open, 'project switch clears details');
+    check(document.activeElement.dataset.queueFocus !== 'retry:f4', 'project switch clears focus');
+    check(target.querySelector('[data-feature-id="old"] button') === null, 'replaced has no retry');
+    check(!target.querySelector('img') && !window.injected, 'hostile text is inert');
+    check(target.querySelector('[data-feature-id="f4"] p').textContent === hostile.repeat(8), 'full text preserved');
+    check(getComputedStyle(target.querySelector('.objective-group')).overflowWrap === 'anywhere', 'narrow text wraps');
+    result.textContent =
+      'PASS: complete groups, counts, collapsed-last, details, focus, project isolation, Retry, hostile text, narrow wrapping';
+  } catch (error) {
+    result.textContent = `FAIL: ${error.message}`;
+  }
+</script>
