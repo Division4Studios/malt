@@ -85,7 +85,7 @@ function selectWorkflowField(
 const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
 
 /** A saved connection contains no bearer token. */
-const connectionSchema = z.object({
+export const connectionSchema = z.object({
   version: z.literal(1),
   repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
   owner: z.string().regex(/^[\w\-]+$/v),
