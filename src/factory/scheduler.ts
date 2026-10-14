@@ -154,7 +154,9 @@ function providerState(
   if (active >= limits.concurrency) {
     return { blocker: 'concurrency' };
   }
-  if (isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)) {
+  if (
+    isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)
+  ) {
     return { blocker: 'budget' };
   }
   const utilization = Math.max(
