@@ -485,6 +485,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (
     operation !== 'factory_status' &&
     operation !== 'factory_read_source' &&
+    operation !== 'factory_progress' &&
     actor !== team.store.coordination.leadId()
   ) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');

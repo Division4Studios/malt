@@ -12,6 +12,7 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
@@ -107,6 +108,12 @@ export async function executeJob(
   const waiting = await finalGate(context, record);
   if (waiting !== null) {
     return { completion: null, snapshot: null, checks: [], waiting };
+  }
+  if (task !== null && record.kind === 'develop') {
+    enqueueProgress(context, record, {
+      key: 'started',
+      body: `Started ${task.title}. I will implement this bounded scope in its owned worktree, report meaningful checkpoints and return check evidence before PR publication.`,
+    });
   }
   const { cwd, snapshot, checks } = await prepareSource(context, record, controls.signal);
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
