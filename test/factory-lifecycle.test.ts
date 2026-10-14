@@ -183,6 +183,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.ok(request.prompt.includes('factory-session'));
     assert.ok(request.prompt.includes('Adapted from'));
     if (request.job.kind === 'plan' || request.job.kind === 'refine') {
+      assert.match(request.prompt, /"deliveryLimits":\s*\{\s*"maxDiffLines": 123,\s*"maxFiles": 7\s*\}/v);
       return completion({
         ...success,
         deliveries: [
@@ -244,6 +245,8 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
+      maxDiffLines: 123,
+      maxFiles: 7,
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
       endToEndCommands: [{ file: process.execPath, args: ['check.mjs'] }],
     });
@@ -271,6 +274,8 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Confirm that the disposable remote actually rejected a publication push once.
     assert.ok(existsSync(path.join(root, 'origin.git', 'hooks', 'failed-once')));
     assert.ok(isReturned);
+    assert.ok(stages.includes('plan'));
+    assert.ok(stages.includes('refine'));
     assert.ok(stages.includes('final'));
     assert.ok(stages.includes('verify'));
     assert.ok(closed.has(1));
