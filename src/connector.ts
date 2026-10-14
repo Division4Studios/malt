@@ -10,6 +10,9 @@ import { z } from 'zod';
 
 import { MeshError } from './protocol.ts';
 
+/** Preserve bounded legacy names without silently dropping resumable journals. */
+const REPOSITORY_ALIAS_MAX = 100;
+
 /** Whether a provider capability is known to work, known not to, or not yet checked. */
 export const CAPABILITY_STATES = ['supported', 'unsupported', 'unverified'] as const;
 
@@ -66,6 +69,10 @@ export const sourceSchema = z.object({
   provider: z.literal('github'),
   repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
   repositoryId: z.string().min(1).nullable().default(null),
+  repositoryAliases: z
+    .array(z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v))
+    .max(REPOSITORY_ALIAS_MAX)
+    .default([]),
   capabilities: capabilitiesSchema,
   savedAt: z.string().datetime(),
   verifiedAt: z.string().datetime().nullable().default(null),
@@ -152,6 +159,7 @@ function upgradeConnection(legacy: LegacyConnection): ConnectionV2 {
       provider: 'github',
       repository: legacy.repository,
       repositoryId: null,
+      repositoryAliases: [],
       capabilities: unverifiedCapabilities(),
       savedAt: legacy.verifiedAt,
       verifiedAt: null,

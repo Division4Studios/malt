@@ -6,6 +6,7 @@
  */
 
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync as makeDirectory, readFileSync as readFile, writeFileSync as writeFile } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -14,6 +15,8 @@ import { z } from 'zod';
 
 import { CAPABILITY_NAMES, capabilityState } from '../src/connector.ts';
 import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
+import { MeshError, schemas } from '../src/protocol.ts';
+import { Store } from '../src/store.ts';
 import { refreshReadme } from '../src/summary.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -62,6 +65,15 @@ for (const version of [1, 2]) {
     assert.ok(readme.includes(`GitHub Project: ${project.url}`));
     assert.ok(!readme.includes('saved connection needs repair'));
     assert.equal(read(file), before, 'rendering must not rewrite the saved connection');
+    const store = new Store(config);
+    try {
+      store.transaction(() => {
+        store.db.exec("INSERT INTO metadata(key,value) VALUES ('readme_fixture','committed')");
+      });
+      assert.ok(read(path.join(config.directory, 'README.md')).includes('GitHub repository: Division4Studios/malt'));
+    } finally {
+      store.close();
+    }
   });
 }
 
@@ -310,4 +322,89 @@ await test('a repository renamed under the same node ID is not a connection swit
   await assert.rejects(other.execute('github_connect', { repository: 'Division4Studios/other', ...selection }), {
     code: 'GITHUB_OPERATION_PENDING',
   });
+  const recreated = new ProjectGitHub(config, connectRunner('Division4Studios/malt-renamed', 'R_other'));
+  await assert.rejects(
+    recreated.execute('github_connect', { repository: 'Division4Studios/malt-renamed', ...selection }),
+    {
+      code: 'GITHUB_OPERATION_PENDING',
+    },
+  );
 });
+
+for (const mode of ['legacy', 'stable']) {
+  await test(`${mode} ambiguous journals reconcile and resume across verified repository renames`, async (t) => {
+    const config = createProject(createCleanup(t));
+    const input = schemas.github_create_issue.parse({
+      requestId: 'rename-recovery',
+      title: 'Pending feature',
+      description: 'Body',
+      acceptanceCriteria: ['Done'],
+      kind: 'feature',
+    });
+    const fingerprint = createHash('sha256')
+      .update(
+        JSON.stringify({
+          repository: 'Division4Studios/malt',
+          project: project.id,
+          input,
+        }),
+      )
+      .digest('hex');
+    const operations = path.join(config.directory, 'github', 'operations');
+    const repository = 'Division4Studios/malt';
+    let creations = 0;
+    const issue = {
+      id: 1,
+      node_id: 'I_pending',
+      number: 1,
+      html_url: 'https://github.com/Division4Studios/malt/issues/1',
+      body: `<!-- mlt:${config.projectId}:${input.requestId} -->`,
+    };
+    const runner: GitHubRunner = async (args, payload) => {
+      const endpoint = args[1] ?? '';
+      if (args[0] === 'api' && endpoint.includes('/issues')) {
+        if (payload !== undefined) {
+          creations += 1;
+          throw new MeshError('GITHUB_UNAVAILABLE', 'Fixture lost creation response.');
+        }
+        return [[issue]];
+      }
+      if (endpoint === 'graphql') {
+        const { query } = z.object({ query: z.string() }).parse(payload);
+        if (query.includes('items(')) {
+          return {
+            data: { node: { items: { nodes: [], totalCount: 0, pageInfo: { hasNextPage: false, endCursor: null } } } },
+          };
+        }
+        if (query.includes('addProjectV2ItemById')) {
+          return { data: { addProjectV2ItemById: { item: { id: 'PVTI_pending' } } } };
+        }
+      }
+      return await connectRunner(args[0] === 'repo' ? (args[2] ?? repository) : repository, 'R_node')(args, payload);
+    };
+    const original = new ProjectGitHub(config, runner);
+    await original.execute('github_connect', { repository, ...selection });
+    if (mode === 'legacy') {
+      mkdir(operations);
+      write(
+        path.join(operations, `${input.requestId}.json`),
+        JSON.stringify({ fingerprint, input, phase: 'creating' }),
+      );
+    } else {
+      await assert.rejects(original.execute('github_create_issue', input), { code: 'GITHUB_UNAVAILABLE' });
+    }
+    const renamed = new ProjectGitHub(config, runner);
+    await renamed.execute('github_connect', { repository: 'Division4Studios/malt-renamed', ...selection });
+    await renamed.execute('github_connect', { repository: 'Division4Studios/malt-again', ...selection });
+    const restarted = new ProjectGitHub(config, runner);
+    await assert.rejects(restarted.execute('github_create_issue', input), { code: 'GITHUB_OPERATION_PENDING' });
+    await restarted.execute('github_sync', {});
+    const result = z.object({ phase: z.literal('complete'), issue: z.object({ number: z.number() }) });
+    assert.equal(result.parse(await restarted.execute('github_create_issue', input)).issue.number, 1);
+    assert.equal(result.parse(await restarted.execute('github_create_issue', input)).issue.number, 1);
+    await assert.rejects(restarted.execute('github_create_issue', { ...input, title: 'Changed' }), {
+      code: 'INVALID_INPUT',
+    });
+    assert.equal(creations, mode === 'legacy' ? 0 : 1);
+  });
+}

@@ -107,6 +107,24 @@ const journalSchema = z.object({
 /** Persisted issue-creation progress. */
 type IssueJournal = z.output<typeof journalSchema>;
 
+/**
+ * Bind an issue intent to its repository identity, Project and exact input.
+ *
+ * @param input - Validated immutable request.
+ * @param connection - Selected Project.
+ * @param repository - Stable node ID, or a legacy repository name.
+ * @returns Content fingerprint.
+ */
+function issueFingerprint(
+  input: OperationInput<'github_create_issue'>,
+  connection: LegacyConnection,
+  repository: string,
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ repository, project: connection.project.id, input }))
+    .digest('hex');
+}
+
 /** Explicit Project creation checkpoint, preventing blind duplicate setup. */
 const setupSchema = z.object({
   fingerprint: z.string(),
@@ -340,7 +358,7 @@ export class ProjectGitHub {
     const repository = identity.nameWithOwner;
     const repositoryId = identity.id ?? null;
     const owner = input.owner ?? repository.split('/', 1)[0] ?? '';
-    this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
+    const repositoryAliases = this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
     const project =
       input.projectNumber === undefined
         ? await this.createProject(owner, repository, input.title ?? `${repository} — MALT`)
@@ -415,6 +433,7 @@ export class ProjectGitHub {
         provider: 'github',
         repository,
         repositoryId,
+        repositoryAliases,
         capabilities: unverifiedCapabilities(),
         savedAt: now,
         verifiedAt: repositoryId === null ? null : now,
@@ -474,6 +493,7 @@ export class ProjectGitHub {
    * @param repositoryId - Stable repository node ID, when GitHub reported one.
    * @param owner - Requested board account.
    * @param projectNumber - Existing board number, absent when creating one.
+   * @returns Legacy repository names proven to share the stable node ID.
    * @throws {MeshError} When unresolved issue operations belong to another connection.
    */
   private assertConnectionChange(
@@ -481,20 +501,26 @@ export class ProjectGitHub {
     repositoryId: string | null,
     owner: string,
     projectNumber: number | undefined,
-  ): void {
-    if (this.journals().every((journal) => journal.phase === 'complete')) {
-      return;
+  ): string[] {
+    const journals = this.journals();
+    if (journals.length === 0) {
+      return [];
     }
     const { legacy: current, v2 } = this.savedConnection();
     // A rename keeps the node ID, so the same repository is not a switch.
+    const isSameNode = repositoryId !== null && v2.source.repositoryId === repositoryId;
     const isSameRepository =
-      current.repository === repository || (repositoryId !== null && v2.source.repositoryId === repositoryId);
-    if (!isSameRepository || current.owner !== owner || current.project.number !== projectNumber) {
+      repositoryId !== null && v2.source.repositoryId !== null ? isSameNode : current.repository === repository;
+    const isSameConnection = isSameRepository && current.owner === owner && current.project.number === projectNumber;
+    if (!isSameConnection && journals.some((journal) => journal.phase !== 'complete')) {
       throw new MeshError(
         'GITHUB_OPERATION_PENDING',
         "Finish or reconcile this project's pending ticket operations before switching its GitHub connection.",
       );
     }
+    return isSameNode
+      ? [...new Set([...v2.source.repositoryAliases, current.repository])].filter((name) => name !== repository)
+      : [];
   }
 
   /**
@@ -659,15 +685,17 @@ export class ProjectGitHub {
     input: OperationInput<'github_create_issue'>,
     connection: LegacyConnection,
   ): { journal: IssueJournal; isFresh: boolean } {
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ repository: connection.repository, project: connection.project.id, input }))
-      .digest('hex');
+    const { source } = this.savedConnection().v2;
+    const fingerprint = issueFingerprint(input, connection, source.repositoryId ?? connection.repository);
     const file = path.join(this.directory, 'operations', `${input.requestId}.json`);
     this.mkdir(path.dirname(file));
     const isFresh =
       writeIfAbsent(file, `${JSON.stringify({ fingerprint, input, phase: 'creating' }, null, 2)}\n`) === 'created';
     const journal = journalSchema.parse(readJsonFile(file));
-    if (journal.fingerprint !== fingerprint) {
+    const isLegacy = [connection.repository, ...source.repositoryAliases].some(
+      (name) => journal.fingerprint === issueFingerprint(input, connection, name),
+    );
+    if (!isLegacy && journal.fingerprint !== fingerprint) {
       throw new MeshError('INVALID_INPUT', 'This requestId already belongs to a different issue or GitHub connection.');
     }
     return { journal, isFresh };
