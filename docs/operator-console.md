@@ -11,7 +11,7 @@ node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team
 node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
 ```
 
-The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, listed ahead of recent completions) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
+The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
@@ -139,3 +139,7 @@ Spokes represent logical membership, directed arcs represent recent actual broke
 Navigation groups related views under **Mission**, **Workflow**, **Workers** and **Project**. The workflow map responds gently to fine-pointer movement and emphasizes a selected role's connected message routes. Keyboard focus provides the same role inspection, and reduced-motion settings disable depth and flight effects.
 
 Browser verification (2026-10-14): inspected the source console and an isolated `.malt/validation/` fixture with real broker clients and no inference/GitHub calls. Verified a QA-to-developer directed message route, hostile script text rendered as text, a Development ticket's conditional QA destinations, and its association with a spun-down developer. Keyboard Enter and the compact native roster selector open role details. Stopping the fixture daemon and reloading served the cached public shell with an explicit stale/disconnected notice and disabled objective/dispatch controls. Native installed-window behavior remains separately unverified.
+
+The Mission Product queue shows every unfinished objective under **Queued**, **In progress** (refining, provisioning and active), or **Needs attention** (blocked), with group counts and a total unfinished count. Blocked objectives retain **Retry resolved request**. **Completed** appears last in a native collapsed section; expand it to reach every completed objective and the separately labelled **Scope replaced (superseded)** records. Replaced records do not count as unfinished and offer no Retry control.
+
+Use Tab to reach summaries and Retry buttons, and Enter or Space to open details. Full-objective details and the completed section keep their open/closed state across live refresh; focused queue controls retain focus by objective identity. Switching projects clears these choices. Long text wraps on narrow screens.
