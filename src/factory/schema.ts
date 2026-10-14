@@ -42,7 +42,7 @@ const TEXT_MAX = 32_000;
 /** Longest public title. */
 const TITLE_MAX = 200;
 /** Largest atomic plan accepted at once. */
-const PLAN_MAX = 20;
+const PLAN_MAX = 100;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -58,7 +58,7 @@ const MAX_ATTEMPTS = 5;
 /** Maximum source files in one atomic delivery. */
 const MAX_FILES = 20;
 /** Maximum diff lines in one atomic delivery. */
-const MAX_LINES = 1200;
+const MAX_LINES = 500;
 /** Conservative local resource defaults for transient model/test processes. */
 const MEMORY_MB = 2048;
 /** Stop admitting work before the machine approaches memory exhaustion. */
@@ -73,6 +73,93 @@ export const LEASE_MS = 30_000;
 export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
 /** Bounded text which cannot be empty. */
 export const textSchema = z.string().min(1).max(TEXT_MAX);
+/** Bound each proposal's collections and identifiers independently of text. */
+const RECOMMENDATION_ITEMS = 100;
+/** Opaque project, issue revision and assignment identifiers. */
+const recommendationKey = z.string().min(1).max(TITLE_MAX);
+/** One observed issue identifier and freshness token. */
+const observedIssueSchema = z
+  .object({ issue: z.number().int().safe().positive(), revision: recommendationKey })
+  .strict();
+/** Exact, bounded proposal content; no ticket body snapshots are retained. */
+export const recommendationBodySchema = z
+  .object({
+    kind: z.enum(['duplicate', 'related', 'consolidate', 'scope_change', 'guidance_suggestion']),
+    tickets: z
+      .array(z.number().int().safe().positive())
+      .min(1)
+      .max(RECOMMENDATION_ITEMS)
+      .transform((tickets) => [...new Set(tickets)].toSorted((a, b) => a - b)),
+    action: textSchema,
+    evidence: z.array(textSchema).min(1).max(RECOMMENDATION_ITEMS),
+    observedIssues: z
+      .array(observedIssueSchema)
+      .min(1)
+      .max(RECOMMENDATION_ITEMS)
+      .transform((issues) => issues.toSorted((a, b) => a.issue - b.issue)),
+    survivor: z.number().int().safe().positive().nullable(),
+    transferredAcceptance: z.array(textSchema).max(RECOMMENDATION_ITEMS),
+    transferredDependencies: z.array(z.number().int().safe().positive()).max(RECOMMENDATION_ITEMS),
+    affectedAssignments: z.array(recommendationKey).max(RECOMMENDATION_ITEMS),
+    preview: z.object({ before: textSchema, after: textSchema }).strict(),
+  })
+  .strict()
+  .refine(
+    (body) => {
+      return (
+        (body.survivor === null || body.tickets.includes(body.survivor)) &&
+        body.observedIssues.length === body.tickets.length &&
+        body.observedIssues.every((issue, index) => issue.issue === body.tickets[index])
+      );
+    },
+    { message: 'Every ticket needs exactly one observed revision; survivor must be a referenced ticket.' },
+  );
+/** Documented durable recommendation lifecycle. */
+export const recommendationStateSchema = z.enum([
+  'proposed',
+  'awaiting_human',
+  'approved',
+  'rejected',
+  'stale',
+  'applying',
+  'reconciling',
+  'completed',
+  'failed',
+]);
+/** One lifecycle state. */
+export type RecommendationState = z.output<typeof recommendationStateSchema>;
+/** Bounded proposal accepted by the repository. */
+export type RecommendationBody = z.input<typeof recommendationBodySchema>;
+/** One durable lifecycle observation. */
+const recommendationAuditSchema = z.object({
+  at: z.number(),
+  from: recommendationStateSchema.nullable(),
+  to: recommendationStateSchema,
+  reason: textSchema,
+});
+/** A content-addressed revision with its lifecycle audit. */
+export const recommendationSchema = z.object({
+  id: z.string(),
+  // Project identity follows persisted configuration, not the bounded recommendation keys.
+  project: z.string().min(1),
+  revision: z.string(),
+  body: recommendationBodySchema,
+  state: recommendationStateSchema,
+  unread: z.boolean(),
+  audit: z.array(recommendationAuditSchema),
+});
+/** Persisted recommendation revision. */
+export type Recommendation = z.output<typeof recommendationSchema>;
+/** Compare-and-set mutation; the repository supplies the project scope. */
+export const recommendationTransitionSchema = z
+  .object({
+    id: recommendationKey,
+    revision: recommendationKey,
+    state: recommendationStateSchema,
+    next: recommendationStateSchema,
+    reason: textSchema,
+  })
+  .strict();
 /** Shell-free project validation command. */
 export const commandSchema = z.object({ file: z.string().min(1), args: z.array(z.string()).default([]) }).strict();
 /** Configurable provider capacity and executable; credentials remain external. */
@@ -466,6 +553,7 @@ export const AGENT_OUTPUT_SCHEMA = {
     },
     deliveries: {
       type: 'array',
+      maxItems: PLAN_MAX,
       items: {
         type: 'object',
         additionalProperties: false,
