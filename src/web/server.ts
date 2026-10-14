@@ -54,6 +54,10 @@ const HTTP = {
   methodNotAllowed: 405,
   tooManyRequests: 429,
 } as const;
+/** Broker event page bound. */
+const HISTORY_LIMIT_MAX = 100;
+/** Default backward page, matching the recent snapshot window. */
+const HISTORY_LIMIT_DEFAULT = 50;
 /** Maximum local folder input. */
 const PATH_MAX = 4096;
 /** Maximum presented local pairing code. */
@@ -380,6 +384,37 @@ async function asset(pathname: string, request: IncomingMessage, response: Serve
   response.end(content);
 }
 
+/** A decimal query cursor; coercion alone would accept blanks, signs and exponents. */
+const queryInteger = z
+  .string()
+  .regex(/^\d{1,16}$/v)
+  .transform(Number)
+  .pipe(z.number().int().min(0).safe());
+/** Exact backward history query; `limit` defaults to the snapshot window. */
+const historyQuerySchema = z
+  .object({
+    project: z.string().min(1).max(PATH_MAX),
+    before: queryInteger,
+    limit: queryInteger.pipe(z.number().min(1).max(HISTORY_LIMIT_MAX)).default(String(HISTORY_LIMIT_DEFAULT)),
+  })
+  .strict();
+
+/**
+ * Parse an explicit, unambiguous history query.
+ *
+ * @param url - Parsed local URL.
+ * @returns Explicit project scope, exclusive cursor and page size.
+ * @throws {MeshError} For repeated parameters.
+ */
+function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
+  const keys = url.searchParams.keys().toArray();
+  const unique = new Set(keys);
+  if (unique.size !== keys.length) {
+    throw new MeshError('INVALID_INPUT', 'History query parameters must not repeat.');
+  }
+  return historyQuerySchema.parse(Object.fromEntries(url.searchParams));
+}
+
 /**
  * Dispatch operator API routes through existing broker controls.
  *
@@ -408,6 +443,11 @@ async function api(
       }
       case '/api/skill': {
         json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
+        return;
+      }
+      case '/api/history': {
+        const query = historyQuery(url);
+        json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
         return;
       }
       case '/api/stream': {
