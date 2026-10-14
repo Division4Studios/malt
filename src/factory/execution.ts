@@ -259,6 +259,10 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
   let evidence: unknown = null;
   if (record.kind === 'plan' || record.kind === 'refine') {
     evidence = {
+      deliveryLimits: {
+        maxDiffLines: context.settings.maxDiffLines,
+        maxFiles: context.settings.maxFiles,
+      },
       activeSkills: context.learning
         .skillLibrary()
         .filter((entry) => entry.state === 'active')
