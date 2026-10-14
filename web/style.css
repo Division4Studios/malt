@@ -867,6 +867,7 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
   .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
   .metric {
@@ -1385,4 +1386,19 @@ summary {
   .blocker-details summary {
     min-height: 44px;
   }
+}
+
+.connection-fields {
+  display: grid;
+  gap: 10px;
+}
+.connection-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
 }

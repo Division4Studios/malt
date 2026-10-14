@@ -9,26 +9,53 @@ import { z } from 'zod';
 const SECOND_MS = 1000;
 /** Maximum normalized quota percentage. */
 const PERCENT_MAX = 100;
-/** Bound native per-model window counts. */
-const MAX_WINDOWS = 32;
-/** Bound native window labels. */
-const MAX_WINDOW_ID = 80;
-/** Minutes in the documented Claude session and weekly windows. */
-const FIVE_HOUR_MINUTES = 300;
-/** Minutes in a weekly subscription window. */
-const WEEK_MINUTES = 10_080;
-/** Credential-free per-window observation retained for operator inspection. */
+/** Observation cadence and display freshness ceiling; never an admission allowance. */
+export const QUOTA_REFRESH_MS = 300_000;
+/** Bound supported window collections independently of native payload size. */
+const MAX_WINDOWS = 16;
+/** Maximum safe native window identifier length. */
+const MAX_WINDOW_ID = 64;
+/** Persist only normalized subscription fields, never credit or account payloads. */
 export const subscriptionWindowSchema = z.object({
-  id: z.string().min(1).max(MAX_WINDOW_ID),
-  minutes: z.number().int().positive().nullable(),
-  usedPercent: z.number().min(0).max(PERCENT_MAX),
-  resetAt: z.number().nonnegative().nullable(),
+  id: z
+    .string()
+    .min(1)
+    .max(MAX_WINDOW_ID)
+    .regex(/^[\w\-]+$/v),
+  usedPercent: z.number().finite().min(0).max(PERCENT_MAX),
+  resetAt: z.number().int().nonnegative().safe().nullable(),
+  observedAt: z.number().int().nonnegative().safe(),
+  source: z.enum(['codex-app-server', 'claude-stream']),
+  freshness: z.enum(['current', 'stale']).optional(),
 });
+/** Shared bounded persisted observation collection. */
+export const subscriptionWindowsSchema = z.array(subscriptionWindowSchema).max(MAX_WINDOWS);
+/** One independently observed subscription window. */
+export type SubscriptionWindow = z.output<typeof subscriptionWindowSchema>;
+
+/**
+ * Age observations without resetting usage or deriving freshness from accounting.
+ *
+ * @param window - Verified observation.
+ * @param now - Snapshot wall time.
+ * @returns Display freshness only; stale is never available quota.
+ */
+export function windowFreshness(window: SubscriptionWindow, now = Date.now()): 'current' | 'stale' {
+  return now < window.observedAt ||
+    now - window.observedAt >= QUOTA_REFRESH_MS ||
+    (window.resetAt !== null && window.resetAt <= now)
+    ? 'stale'
+    : 'current';
+}
 /** One native Codex subscription window. */
 const windowSchema = z.object({
-  usedPercent: z.number().nonnegative(),
-  resetsAt: z.number().int().nonnegative().nullable(),
-  windowDurationMins: z.number().int().positive().nullable().optional(),
+  usedPercent: z.number().finite().nonnegative(),
+  resetsAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER / SECOND_MS)
+    .nullable(),
 });
 /** Default Codex account bucket; additional buckets are not guessed as models. */
 const bucketSchema = z.object({ primary: windowSchema.nullable(), secondary: windowSchema.nullable() });
@@ -55,56 +82,54 @@ export const quotaReadingSchema = z.object({
 });
 /** Verified default account quota. */
 export type QuotaReading = z.output<typeof quotaReadingSchema>;
-/** One actual observed window, with unknown duration preserved. */
-export type SubscriptionWindow = z.output<typeof subscriptionWindowSchema>;
+/** Metadata helper output includes only verified Codex windows and the legacy scalar. */
+export const quotaObservationSchema = quotaReadingSchema.extend({
+  usedPercent: quotaReadingSchema.shape.usedPercent.nullable(),
+  windows: subscriptionWindowsSchema.min(1).refine((windows) => {
+    return (
+      windows.length <= 2 &&
+      windows.every((window, index) => {
+        return (
+          window.source === 'codex-app-server' &&
+          (window.id === 'primary' || window.id === 'secondary') &&
+          windows.findIndex((other) => other.id === window.id) === index
+        );
+      })
+    );
+  }),
+});
+/** Metadata observation shared across projects with its original timestamps. */
+export type QuotaObservation = z.output<typeof quotaObservationSchema>;
 
 /**
- * Preserve actual account durations rather than assuming a plan has five hours.
+ * Retain both reported windows while preserving the existing scalar selection.
  *
- * @param input - Supported native account response.
- * @param now - Observation time.
- * @returns Current named windows, without credentials or account identifiers.
+ * @param input - Supported account response, not an API or credit balance.
+ * @param now - Actual observation time.
+ * @returns Allowlisted telemetry, or unknown on malformed/absent observations.
  */
-export function accountWindows(input: unknown, now = Date.now()): SubscriptionWindow[] {
+export function accountObservation(input: unknown, now = Date.now()): QuotaObservation | null {
   const parsed = accountSchema.safeParse(input);
-  const bucket = parsed.success ? parsed.data.rateLimits : null;
-  return Object.entries(bucket ?? {}).flatMap(([id, window]) => {
-    return window === null || (window.resetsAt !== null && window.resetsAt * SECOND_MS <= now)
-      ? []
-      : {
-          id,
-          minutes: window.windowDurationMins ?? null,
-          usedPercent: Math.min(PERCENT_MAX, window.usedPercent),
-          resetAt: window.resetsAt === null ? null : window.resetsAt * SECOND_MS,
-        };
-  });
-}
-
-/**
- * Retain each supported Claude window instead of just the restrictive one.
- *
- * @param input - Native rate-limit metadata.
- * @param now - Observation time.
- * @returns Current named subscription windows.
- */
-export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWindow[] {
-  const parsed = claudeInfoSchema.safeParse(input);
-  if (!parsed.success) {
-    return [];
+  if (!parsed.success || parsed.data.rateLimits === null || parsed.data.rateLimits === undefined) {
+    return null;
   }
-  return Object.entries(parsed.data.unifiedWindows ?? {})
-    .slice(0, MAX_WINDOWS)
-    .flatMap(([id, window]) => {
-      const minutes = id === 'five_hour' ? FIVE_HOUR_MINUTES : null;
-      return window.resetsAt * SECOND_MS <= now || id.length > MAX_WINDOW_ID
-        ? []
-        : {
-            id,
-            minutes: id === 'seven_day' ? WEEK_MINUTES : minutes,
-            usedPercent: Math.min(PERCENT_MAX, window.utilization * PERCENT_MAX),
-            resetAt: window.resetsAt * SECOND_MS,
-          };
-    });
+  const reading = accountQuota(input, now);
+  const windows: SubscriptionWindow[] = [];
+  for (const id of ['primary', 'secondary'] as const) {
+    const window = parsed.data.rateLimits[id];
+    if (window !== null) {
+      windows.push({
+        id,
+        usedPercent: Math.min(PERCENT_MAX, window.usedPercent),
+        resetAt: window.resetsAt === null ? null : window.resetsAt * SECOND_MS,
+        observedAt: now,
+        source: 'codex-app-server',
+      });
+    }
+  }
+  return windows.length === 0
+    ? null
+    : { usedPercent: reading?.usedPercent ?? null, resetAt: reading?.resetAt ?? null, windows };
 }
 
 /**

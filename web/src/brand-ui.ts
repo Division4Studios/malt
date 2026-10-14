@@ -10,6 +10,9 @@ import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 
+/** Bound DOM work while showing every ordinary pending queue. */
+const OBJECTIVE_PREVIEW = 50;
+
 /** Original line motifs for process, verified delivery, queue and blocker cards. */
 const MOTIFS = [
   'M58 66L90 84L122 66M90 84V110M58 66V88M122 66V88',
@@ -93,6 +96,28 @@ export function metricArtwork(index: number): SVGSVGElement {
 }
 
 /**
+ * Objectives still awaiting delivery, excluding finished and scope-replaced requests.
+ *
+ * @param objectives - Product objectives in original order.
+ * @returns Pending objectives in original order.
+ */
+function pendingObjectives(objectives: Data[]): Data[] {
+  return objectives.filter((feature) => text(feature, 'phase') !== 'done' && feature['scopeReplacement'] === undefined);
+}
+
+/**
+ * Select objectives to list: pending ones first so older requests stay visible, then recent completions.
+ *
+ * @param objectives - Product objectives in original order.
+ * @param completedLimit - Number of most recent completed objectives to append.
+ * @returns Bounded objective list.
+ */
+export function objectivePreview(objectives: Data[], completedLimit: number): Data[] {
+  const completed = objectives.filter((feature) => text(feature, 'phase') === 'done').slice(-completedLimit);
+  return [...pendingObjectives(objectives).slice(0, OBJECTIVE_PREVIEW), ...completed];
+}
+
+/**
  * Present factual backend counts with distinct original decorative artwork.
  *
  * @param factory - Authenticated factory state.
@@ -117,13 +142,7 @@ export function overviewMetrics(factory: Data): HTMLElement {
       'violet',
       'may await dependencies or capacity',
     ],
-    [
-      'Pending objectives',
-      features.filter((feature) => text(feature, 'phase') !== 'done' && feature['scopeReplacement'] === undefined)
-        .length,
-      'violet',
-      'product outcomes, separate from delivery tickets',
-    ],
+    ['Pending objectives', pendingObjectives(features).length, 'cyan', 'product requests not yet delivered'],
     [
       'Blocked',
       tasks.filter((task) => text(task, 'phase') === 'blocked' && task['scopeCleanup'] === undefined).length +

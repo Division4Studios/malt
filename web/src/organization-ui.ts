@@ -95,6 +95,10 @@ export function organizationDialog(settings: Data): {
   };
 }
 
+/** Operator guidance for a rejected Project link; never echoes the entered value. */
+const invalidProjectUrl =
+  'Paste an existing https://github.com/users/OWNER/projects/NUMBER or /orgs/OWNER/projects/NUMBER URL.';
+
 /**
  * Convert explicit GitHub fields into a repository-scoped connection request.
  *
@@ -106,13 +110,16 @@ export function organizationDialog(settings: Data): {
  */
 export function githubConnectionInput(repository: string, projectUrl: string, statusFieldName: string): Data {
   if (!/^https:\/\/github\.com\//iv.test(projectUrl.trim())) {
-    throw new Error(
-      'Paste an existing https://github.com/users/OWNER/projects/NUMBER or /orgs/OWNER/projects/NUMBER URL.',
-    );
+    throw new Error(invalidProjectUrl);
   }
   const repositoryName = repository.trim();
   const field = statusFieldName.trim();
-  const url = new URL(projectUrl.trim());
+  let url: URL;
+  try {
+    url = new URL(projectUrl.trim());
+  } catch {
+    throw new Error(invalidProjectUrl);
+  }
   const match = /^\/(?:orgs|users)\/(?<owner>[\w\-]+)\/projects\/(?<number>\d+)\/?$/v.exec(url.pathname);
   if (
     match === null ||
@@ -121,9 +128,7 @@ export function githubConnectionInput(repository: string, projectUrl: string, st
     url.port !== '' ||
     [url.username, url.password, url.search, url.hash].some((value) => value !== '')
   ) {
-    throw new Error(
-      'Paste an existing https://github.com/users/OWNER/projects/NUMBER or /orgs/OWNER/projects/NUMBER URL.',
-    );
+    throw new Error(invalidProjectUrl);
   }
   const owner = match.groups?.['owner'] ?? '';
   const number = Number(match.groups?.['number']);
