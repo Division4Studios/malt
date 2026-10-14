@@ -9,6 +9,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { CAPABILITIES, CapabilityPolicyStore } from '../src/capability-policy.ts';
+import { parseConnection } from '../src/connector.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -75,54 +76,57 @@ await test('fresh defaults, human-only edits, validation and immutable history s
   }, /immutable/v);
 });
 
-await test('existing connection migration is idempotent, isolated, and never reapplied after human revocation', (t) => {
-  const defer = createCleanup(t);
-  const config = createProject(defer);
-  const other = createProject(defer);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Isolated temporary test project.
-  mkdirSync(path.join(config.directory, 'github'), { recursive: true });
-  const now = new Date();
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Isolated temporary test fixture.
-  writeFileSync(
-    path.join(config.directory, 'github', 'connection.json'),
-    JSON.stringify({
+for (const version of [1, 2]) {
+  await test(`v${String(version)} connection migration is idempotent, isolated, and never reapplied after human revocation`, (t) => {
+    const defer = createCleanup(t);
+    const config = createProject(defer);
+    const other = createProject(defer);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Isolated temporary test project.
+    mkdirSync(path.join(config.directory, 'github'), { recursive: true });
+    const now = new Date();
+    const legacyConnection = {
       version: 1,
       repository: 'example/app',
       owner: 'example',
       project: { id: 'P_10', number: 10, url: 'https://github.com/users/example/projects/10' },
       statusField: { id: 'status', name: 'Status', options: [] },
       verifiedAt: now.toISOString(),
-    }),
-  );
-  const store = new Store(config);
-  const otherStore = new Store(other);
-  defer(() => {
-    store.close();
-    otherStore.close();
-  });
-  const policies = new CapabilityPolicyStore(store, config);
-  const isolated = new CapabilityPolicyStore(otherStore, other);
-  assert.throws(() => new CapabilityPolicyStore(store, other), /project/iv);
-  const migrated = new Set(['issue-create', 'relationships', 'membership', 'transition']);
-  for (const capability of CAPABILITIES) {
-    assert.deepEqual(
-      policies.get(capability),
-      migrated.has(capability)
-        ? { mode: 'approved-agent-roles', roles: ['team-lead'] }
-        : { mode: 'disabled', roles: [] },
+    };
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Isolated temporary test fixture.
+    writeFileSync(
+      path.join(config.directory, 'github', 'connection.json'),
+      JSON.stringify(version === 1 ? legacyConnection : parseConnection(legacyConnection).v2),
     );
-    assert.equal(isolated.get(capability).mode, 'disabled');
-  }
-  const history = policies.history();
-  assert.equal(history.length, 4);
-  assert.ok(history.every((entry) => entry.kind === 'migration' && entry.actor.kind === 'migration'));
-  policies.set(human, 'issue-create', { mode: 'disabled', roles: [] });
-  const reopened = new CapabilityPolicyStore(store, config);
-  assert.equal(reopened.get('issue-create').mode, 'disabled');
-  assert.deepEqual(reopened.history().slice(0, 4), history);
-  assert.equal(reopened.history().length, 5);
-  assert.deepEqual(isolated.history(), []);
-});
+    const store = new Store(config);
+    const otherStore = new Store(other);
+    defer(() => {
+      store.close();
+      otherStore.close();
+    });
+    const policies = new CapabilityPolicyStore(store, config);
+    const isolated = new CapabilityPolicyStore(otherStore, other);
+    assert.throws(() => new CapabilityPolicyStore(store, other), /project/iv);
+    const migrated = new Set(['issue-create', 'relationships', 'membership', 'transition']);
+    for (const capability of CAPABILITIES) {
+      assert.deepEqual(
+        policies.get(capability),
+        migrated.has(capability)
+          ? { mode: 'approved-agent-roles', roles: ['team-lead'] }
+          : { mode: 'disabled', roles: [] },
+      );
+      assert.equal(isolated.get(capability).mode, 'disabled');
+    }
+    const history = policies.history();
+    assert.equal(history.length, 4);
+    assert.ok(history.every((entry) => entry.kind === 'migration' && entry.actor.kind === 'migration'));
+    policies.set(human, 'issue-create', { mode: 'disabled', roles: [] });
+    const reopened = new CapabilityPolicyStore(store, config);
+    assert.equal(reopened.get('issue-create').mode, 'disabled');
+    assert.deepEqual(reopened.history().slice(0, 4), history);
+    assert.equal(reopened.history().length, 5);
+    assert.deepEqual(isolated.history(), []);
+  });
+}
 
 await test('malformed migration fails closed and aborted human edits leave no policy or audit change', (t) => {
   const defer = createCleanup(t);

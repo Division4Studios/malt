@@ -18,7 +18,7 @@ UTC time. `history()` returns detached entries in commit order. SQLite triggers
 reject updating or deleting history; this is application integrity, not protection
 against an administrator with direct filesystem/database access.
 
-On first access, a valid existing GitHub connection seeds `issue-create`,
+On first access, a valid existing GitHub connection (v1 or v2, read through the shared connection parser) seeds `issue-create`,
 `relationships`, `membership` and `transition` for `team-lead`, with four migration
 history entries. All other capabilities remain disabled. A durable initialization
 marker prevents reseeding, including after human revocation or a later connection

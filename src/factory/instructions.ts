@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { handoffSchema } from './handoffs.ts';
+
 import type { Store } from '../store.ts';
 import type { FactoryJob, AgentResult } from './schema.ts';
 
@@ -22,9 +24,28 @@ const stateSchema = guidanceSchema.extend({
   appliedAt: z.number().nullable(),
   evidence: z.string().nullable(),
   jobId: z.string().nullable(),
+  handoff: z.string().nullable(),
 });
 /** One instruction actually selected for an assignment. */
 export type Instruction = z.output<typeof guidanceSchema>;
+
+/**
+ * Decode stored reporting provenance without inferring any from instruction prose.
+ *
+ * @param data - Stored JSON, absent for legacy and operator instructions.
+ * @returns Validated provenance, or null when absent or unreadable.
+ */
+function parseHandoff(data: string | null): z.output<typeof handoffSchema> | null {
+  if (data === null) {
+    return null;
+  }
+  try {
+    const parsed = handoffSchema.safeParse(JSON.parse(data));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Project-local receipts survive provider replacement and broker restart. */
 export class InstructionLedger {
@@ -163,15 +184,15 @@ export class InstructionLedger {
   /**
    * Present bounded instruction history with factual dispatch/report states.
    *
-   * @returns The fifty newest instructions and their latest receipt evidence.
+   * @returns The fifty newest instructions, latest receipt evidence and any structured reporting provenance.
    */
   public recent(): unknown[] {
     return selectAll(
       this.store.db,
       stateSchema,
       `SELECT i.id,i.body,i.created_at AS createdAt,i.role,i.task_id AS taskId,
-      r.delivered_at AS deliveredAt,r.acknowledged_at AS acknowledgedAt,r.applied_at AS appliedAt,r.evidence,r.job_id AS jobId
-      FROM factory_instructions i LEFT JOIN factory_instruction_receipts r ON r.rowid=(SELECT rowid FROM factory_instruction_receipts
+      r.delivered_at AS deliveredAt,r.acknowledged_at AS acknowledgedAt,r.applied_at AS appliedAt,r.evidence,r.job_id AS jobId,
+      h.data AS handoff FROM factory_instructions i LEFT JOIN factory_handoffs h ON h.instruction_id=i.id LEFT JOIN factory_instruction_receipts r ON r.rowid=(SELECT rowid FROM factory_instruction_receipts
       WHERE instruction_id=i.id ORDER BY delivered_at DESC,rowid DESC LIMIT 1)
       ORDER BY i.created_at DESC,i.rowid DESC LIMIT 50`,
     ).map((instruction) => {
@@ -183,7 +204,12 @@ export class InstructionLedger {
       } else if (instruction.deliveredAt !== null) {
         state = 'delivered';
       }
-      return { ...instruction, state, reportSource: 'agent report; independent delivery gates remain required' };
+      return {
+        ...instruction,
+        handoff: parseHandoff(instruction.handoff),
+        state,
+        reportSource: 'agent report; independent delivery gates remain required',
+      };
     });
   }
 

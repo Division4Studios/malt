@@ -11,9 +11,9 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { hasErrorCode, readJsonFile } from './config.ts';
+import { parseConnection } from './connector.ts';
 import { run, selectAll, selectOne, valueRowSchema } from './database.ts';
 import { FACTORY_ROLES } from './factory/schema.ts';
-import { connectionSchema } from './github.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { Store } from './store.ts';
@@ -212,7 +212,7 @@ export class CapabilityPolicyStore {
     }
     let isConnected = false;
     try {
-      connectionSchema.parse(readJsonFile(this.connectionFile));
+      parseConnection(readJsonFile(this.connectionFile));
       isConnected = true;
     } catch (error) {
       if (!hasErrorCode(error, 'ENOENT')) {
