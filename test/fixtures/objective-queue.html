@@ -21,7 +21,12 @@
     features.push({ id: 'old', phase: 'blocked', scopeReplacement: 'f0', objective: hostile });
     const snapshot = { project: {}, factory: { features }, events: [], github: {}, learning: {} };
     let retried = '';
+    let queueInput;
+    snapshot.factory.objectiveQueue = { revision: 7, order: features.map((f) => f.id), focusedFeatureId: null };
     const actions = {
+      queue: (order, focusedFeatureId, expectedRevision) => {
+        queueInput = { order, focusedFeatureId, expectedRevision };
+      },
       retry: (id, isFeature) => {
         retried = `${id}:${isFeature}`;
       },
@@ -37,15 +42,22 @@
     );
     check(target.textContent.includes('60 UNFINISHED OBJECTIVES'), 'unfinished total');
     for (const [label, count] of [
-      ['Queued', 12],
-      ['In progress', 36],
-      ['Needs attention', 12],
+      ['Dispatch priority', 60],
       ['Completed', 20],
       ['Scope replaced (superseded)', 1],
     ]) {
       const group = target.querySelector(`section[aria-label="${label}"]`);
       check(group.querySelectorAll('[data-feature-id]').length === count, label);
     }
+    target.querySelector('[data-queue-focus="Move first:f4"]').click();
+    check(queueInput.order[0] === 'f4' && queueInput.expectedRevision === 7, 'move-first uses durable revision');
+    target.querySelector('[data-queue-focus="focus:f4"]').click();
+    check(queueInput.focusedFeatureId === 'f4', 'focus uses selected identity');
+    snapshot.factory.objectiveQueue.focusedFeatureId = 'f4';
+    render();
+    check(target.textContent.includes('Other objectives are held'), 'focus is explained');
+    [...target.querySelectorAll('button')].find((button) => button.textContent === 'Resume all objectives').click();
+    check(queueInput.focusedFeatureId === null, 'resume releases focus');
     let completed = target.querySelector('.objective-completed');
     check(!completed.open && completed === completed.parentElement.lastElementChild, 'completed collapsed last');
     completed.open = true;
@@ -67,7 +79,10 @@
     check(document.activeElement.dataset.queueFocus !== 'retry:f4', 'project switch clears focus');
     check(target.querySelector('[data-feature-id="old"] button') === null, 'replaced has no retry');
     check(!target.querySelector('img') && !window.injected, 'hostile text is inert');
-    check(target.querySelector('[data-feature-id="f4"] p').textContent === hostile.repeat(8), 'full text preserved');
+    check(
+      target.querySelector('[data-feature-id="f4"] details p').textContent === hostile.repeat(8),
+      'full text preserved',
+    );
     check(getComputedStyle(target.querySelector('.objective-group')).overflowWrap === 'anywhere', 'narrow text wraps');
     result.textContent =
       'PASS: complete groups, counts, collapsed-last, details, focus, project isolation, Retry, hostile text, narrow wrapping';

@@ -185,7 +185,7 @@ export class FactoryService {
    *
    * @returns Dashboard and MCP state.
    */
-  public status(): unknown {
+  public async status(): Promise<unknown> {
     return factoryStatus(this.repository, this.mesh, {
       connected: this.connected,
       error: this.error,
@@ -283,9 +283,9 @@ export class FactoryService {
       },
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
-      factory_status: () => this.status(),
+      factory_status: async () => this.status(),
       factory_setup: () => this.controlSetup(parsed),
-      factory_start: () => {
+      factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
         this.begin();
@@ -296,6 +296,7 @@ export class FactoryService {
         return this.status();
       },
       factory_request: () => queueObjective(this.repository, parsed),
+      factory_queue: () => this.repository.objectiveQueue.update(this.repository.features(), parsed),
       factory_capacity: () => this.controlCapacity(parsed),
       factory_cancel_job: () => this.controlCancelJob(parsed),
       factory_retry: () => this.controlRetry(parsed),
@@ -357,7 +358,7 @@ export class FactoryService {
       return;
     }
     this.cancelStale();
-    const intents = jobIntents({
+    const scheduling = {
       feedbackAt: Math.max(
         0,
         ...this.repository.instructions('learning-steward', null).map((instruction) => instruction.createdAt),
@@ -365,12 +366,18 @@ export class FactoryService {
       config: context.settings,
       tasks: this.repository.tasks(),
       features: this.repository.features(),
+      objectiveQueue: this.repository.objectiveQueue.read(this.repository.features()),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
       now,
-    });
+    };
+    const intents = jobIntents(scheduling);
     await this.refreshQuota(context, intents.length);
-    if (!this.canDispatch()) {
+    if (
+      !this.canDispatch() ||
+      JSON.stringify(scheduling.objectiveQueue) !==
+        JSON.stringify(this.repository.objectiveQueue.read(this.repository.features()))
+    ) {
       return;
     }
     for (const intent of intents) {

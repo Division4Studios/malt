@@ -139,7 +139,7 @@ await test('status reads the cached sample; only the scheduling cycle advances t
   await factory.execute('factory_setup', policy);
   const beforeReads = store.db.prepare('SELECT total_changes() AS count').get();
   for (let read = 0; read < 3; read += 1) {
-    const first = evidenceSchema.parse(factory.status()).admission;
+    const first = evidenceSchema.parse(await factory.status()).admission;
     assert.equal(first.sample.cpuPercent, null, 'CPU stays unknown before a valid delta, never 0.');
     assert.equal(first.sample.observedAt, 1000);
   }
@@ -150,7 +150,7 @@ await test('status reads the cached sample; only the scheduling cycle advances t
   await factory.tick();
   assert.equal(calls, 2, 'One scheduling cycle advances the sampler once.');
   for (let read = 0; read < 3; read += 1) {
-    const cycled = evidenceSchema.parse(factory.status());
+    const cycled = evidenceSchema.parse(await factory.status());
     assert.equal(cycled.admission.sample.cpuPercent, 42);
     assert.equal(cycled.admission.sample.observedAt, 6000);
     assert.equal(cycled.resources.cpuPercent, 42, 'The legacy resources field reads the same cached sample.');
@@ -161,7 +161,7 @@ await test('status reads the cached sample; only the scheduling cycle advances t
   clock.now = 7000;
   await factory.tick();
   assert.equal(calls, 3);
-  assert.equal(evidenceSchema.parse(factory.status()).admission.sample.cpuPercent, 55);
+  assert.equal(evidenceSchema.parse(await factory.status()).admission.sample.cpuPercent, 55);
 });
 
 await test('invalid CPU readings stay unknown and in-range values pass through', () => {

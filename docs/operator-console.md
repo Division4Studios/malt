@@ -175,3 +175,23 @@ Browser verification (2026-10-14): inspected the source console and an isolated 
 The Mission Product queue shows every unfinished objective under **Queued**, **In progress** (refining, provisioning and active), or **Needs attention** (blocked), with group counts and a total unfinished count. Blocked objectives retain **Retry resolved request**. **Completed** appears last in a native collapsed section; expand it to reach every completed objective and the separately labelled **Scope replaced (superseded)** records. Replaced records do not count as unfinished and offer no Retry control.
 
 Use Tab to reach summaries and Retry buttons, and Enter or Space to open details. Full-objective details and the completed section keep their open/closed state across live refresh; focused queue controls retain focus by objective identity. Switching projects clears these choices. Long text wraps on narrow screens.
+
+## Objective priority and repair focus
+
+On the mission overview, **Product queue ? Dispatch priority** lists every unfinished objective in dispatch order, with its actual lifecycle state. Use **Move first**, **Move up**, or **Move down** with mouse or keyboard. The saved order applies to planning and delivery assignments and survives broker restart in the selected project's `.malt` SQLite ledger. Completed and superseded objectives remain in the collapsed archive.
+
+Use **Focus only this objective** on a repair objective to hold new assignments for unrelated objectives. Existing jobs finish without losing edits; unpaid GitHub reconciliation continues. **Resume all objectives** releases focus. Completing or superseding the focused objective releases it automatically. Focus does not override dependencies, exclusive owners, resource limits, review gates, or blocked status. Inspect the blocker, resolve its cause, and explicitly retry the affected objective or delivery. A focused objective with unresolved dependencies may wait; move or release focus to work on its prerequisites.
+
+Changes are checked against the current queue revision and all project objective IDs. A stale tab receives an error and must refresh before trying again; controls are never queued offline. Other tabs receive the committed state through the existing authenticated stream. No model turn is required to reorder the queue.
+
+The equivalent operator command is `node src/cli.ts factory-queue --file queue.json` with:
+
+```json
+{
+  "expectedRevision": 0,
+  "order": ["00000000-0000-4000-8000-000000000001"],
+  "focusedFeatureId": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` must contain **every** current objective ID exactly once, including archived ones. Use `null` for `focusedFeatureId` to release focus. The same validated `factory_queue` operation serves MCP, CLI and paired browser controls. Reordering is limited to 5,000 objectives per request by the local request-size boundary.

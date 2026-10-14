@@ -273,6 +273,9 @@ const actions: Actions = {
   retry: (id, isFeature) => {
     void control('factory_retry', isFeature ? { featureId: id } : { taskId: id });
   },
+  queue: (order, focusedFeatureId, expectedRevision) => {
+    void control('factory_queue', { order, focusedFeatureId, expectedRevision });
+  },
   setup: (isConnection) => {
     const body = node('editor-body', HTMLTextAreaElement);
     if (isConnection) {

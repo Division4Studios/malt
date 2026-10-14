@@ -12,8 +12,9 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { parseConnection } from './connector.ts';
-import { selectAll, selectCount } from './database.ts';
+import { selectAll, selectCount, selectOne } from './database.ts';
 import { hasErrorCode } from './errors.ts';
+import { objectiveQueueSchema } from './factory/objective-queue-schema.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { DatabaseSync } from 'node:sqlite';
@@ -262,7 +263,36 @@ function factoryOverview(database: DatabaseSync): string[] {
   return [
     `Factory: ${String(live)} live bounded jobs, ${String(requests)} pending product objectives.`,
     `Deliveries: ${description}.`,
+    ...objectiveQueueOverview(database),
     'Factory policy, attempts, handoffs and check logs: `factory/`. Owned branches and snapshots: `worktrees/`. Bundled role skills and pinned provenance: `skills/builtin/`.',
     'Human-authorized reusable learning handoffs and source objective receipts: `factory/maintenance/`.',
+  ];
+}
+
+/**
+ * Describe saved dispatch controls only after the additive queue table exists.
+ *
+ * @param database - Selected project's committed ledger.
+ * @returns Public priority status, without operator message bodies.
+ */
+function objectiveQueueOverview(database: DatabaseSync): string[] {
+  const exists = selectCount(
+    database,
+    "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='factory_objective_queue'",
+  );
+  if (exists === 0) {
+    return [];
+  }
+  const row = selectOne(
+    database,
+    z.object({ data: z.string() }),
+    'SELECT data FROM factory_objective_queue WHERE id=1',
+  );
+  if (row === undefined) {
+    return [];
+  }
+  const queue = objectiveQueueSchema.parse(JSON.parse(row.data));
+  return [
+    `Objective priority: revision ${String(queue.revision)}, ${String(queue.order.length)} saved positions; requested focus ${queue.focusedFeatureId ?? 'all objectives'}. Completed or superseded focus releases automatically.`,
   ];
 }

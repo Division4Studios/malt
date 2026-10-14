@@ -4,7 +4,7 @@
  * @file
  */
 import { Buffer } from 'node:buffer';
-import { closeSync, openSync, readSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod';
@@ -53,18 +53,19 @@ export interface OwnedUsage {
  * @param now - Observation time used to reject stale samples.
  * @returns Usage without inventing per-process measurements on other OSes.
  */
-export function ownedProcessUsage(jobs: readonly FactoryJob[], now = Date.now()): OwnedUsage[] {
-  return jobs
+export async function ownedProcessUsage(jobs: readonly FactoryJob[], now = Date.now()): Promise<OwnedUsage[]> {
+  const running = jobs
     .filter((job) => job.state === 'running')
-    .map((job) => {
+    .map(async (job) => {
       let sample: OwnedUsage['sample'] = null;
       try {
-        sample = readSample(job, now);
+        sample = await readSample(job, now);
       } catch {
         // Exits, first samples, OS support and permission errors remain unknown.
       }
       return { jobId: job.id, role: job.role, sample };
     });
+  return Promise.all(running);
 }
 
 /**
@@ -74,16 +75,16 @@ export function ownedProcessUsage(jobs: readonly FactoryJob[], now = Date.now())
  * @param now - Current wall time.
  * @returns Current scalar sample or unknown.
  */
-function readSample(job: FactoryJob, now: number): OwnedUsage['sample'] {
+async function readSample(job: FactoryJob, now: number): Promise<OwnedUsage['sample']> {
   const file = path.join(job.artifact, 'resources.json');
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Open only the fixed diagnostic artifact in this backend-owned attempt directory.
-  const descriptor = openSync(file, 'r');
+  const descriptor = await open(file, 'r');
   const bytes = Buffer.alloc(MAX_BYTES + 1);
   let length: number;
   try {
-    length = readSync(descriptor, bytes, 0, bytes.length, 0);
+    ({ bytesRead: length } = await descriptor.read(bytes, 0, bytes.length, 0));
   } finally {
-    closeSync(descriptor);
+    await descriptor.close();
   }
   if (length > MAX_BYTES) {
     return null;

@@ -333,3 +333,33 @@ await test('running development counts toward the slot that queued planning comp
     ['review', 'review', 'plan', 'develop'],
   );
 });
+
+await test('operator order selects newer repair planning first and focus holds unrelated assignments', () => {
+  const old = feature(1, { phase: 'queued' });
+  const repair = feature(2, { phase: 'queued' });
+  const objectiveQueue = { order: [repair.id, old.id], focusedFeatureId: null };
+  const input = { config, features: [old, repair], tasks: [], jobs: [], skillRequests: [], now, objectiveQueue };
+  assert.equal(jobIntents(input).find((intent) => intent.kind === 'plan')?.featureId, repair.id);
+  const selected = { ...repair, phase: 'active' as const };
+  const delivery = task(selected);
+  const blocked = task(selected, { phase: 'blocked', error: 'Needs explicit retry' });
+  const result = jobIntents({
+    ...input,
+    features: [old, selected],
+    tasks: [delivery, blocked],
+    objectiveQueue: { ...objectiveQueue, focusedFeatureId: repair.id },
+  });
+  assert.ok(result.length > 0);
+  assert.ok(result.every((intent) => intent.featureId === repair.id));
+  assert.ok(result.every((intent) => intent.taskId !== blocked.id));
+  const busy = job({ role: 'developer-1', featureId: old.id });
+  const parked = jobIntents({
+    ...input,
+    features: [old, selected],
+    tasks: [delivery],
+    jobs: [busy],
+    objectiveQueue: { ...objectiveQueue, focusedFeatureId: repair.id },
+  });
+  assert.ok(parked.every((intent) => intent.role !== 'developer-1'));
+  assert.equal(busy.state, 'running');
+});
