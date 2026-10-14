@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">MALT — Multi-Agent Local Team</title>
+  <desc id="desc">Original amber barley mark and connected agent constellation on a dark graphite command-center card. Local agents. Shared intent. Verified delivery.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101018"/><stop offset="1" stop-color="#08080c"/></linearGradient>
+    <radialGradient id="halo"><stop stop-color="#e8a634" stop-opacity=".14"/><stop offset="1" stop-color="#e8a634" stop-opacity="0"/></radialGradient>
+    <linearGradient id="grain" x2="1" y2="1"><stop stop-color="#f4b73e"/><stop offset="1" stop-color="#ff7a4d"/></linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#29242b" stroke-width="1"/></pattern>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <rect x="640" width="640" height="640" fill="url(#grid)" opacity=".6"/>
+  <circle cx="1000" cy="320" r="330" fill="url(#halo)"/>
+  <path d="M48 32H1232V608H48Z" fill="none" stroke="#453521"/>
+  <path d="M48 88V32H104M1176 608H1232V552" fill="none" stroke="#e8a634" stroke-width="3"/>
+  <g font-family="ui-monospace,Consolas,monospace" font-size="13" letter-spacing="3" fill="#b9b1a4">
+    <text x="84" y="88">MULTI-AGENT LOCAL TEAM</text>
+    <text x="84" y="566">LOCAL-FIRST / SUBSCRIPTION SESSIONS / MCP</text>
+  </g>
+  <g transform="translate(70 130) scale(.38)">
+    <path d="M180 365V100" stroke="#e8a634" stroke-width="12" stroke-linecap="round"/>
+    <g fill="url(#grain)">
+      <path d="M180 158C132 158 104 128 112 102C155 102 177 124 180 158ZM180 158C228 158 256 128 248 102C205 102 183 124 180 158Z"/>
+      <path d="M180 218C132 218 104 188 112 162C155 162 177 184 180 218ZM180 218C228 218 256 188 248 162C205 162 183 184 180 218Z"/>
+      <path d="M180 278C132 278 104 248 112 222C155 222 177 244 180 278ZM180 278C228 278 256 248 248 222C205 222 183 244 180 278Z"/>
+      <path d="M180 338C132 338 104 308 112 282C155 282 177 304 180 338ZM180 338C228 338 256 308 248 282C205 282 183 304 180 338Z"/>
+      <path d="M180 119C145 93 152 60 180 42C208 60 215 93 180 119Z"/>
+    </g>
+  </g>
+  <text x="202" y="267" font-family="Segoe UI,system-ui,sans-serif" font-size="126" font-weight="700" letter-spacing="-6" fill="#f5f3f0">MALT</text>
+  <path d="M84 314H594" stroke="#453521"/>
+  <g font-family="Segoe UI,system-ui,sans-serif" font-size="30" fill="#f5f3f0">
+    <text x="84" y="374">Local agents.</text><text x="84" y="420">Shared intent.</text><text x="84" y="466" fill="#e8a634">Verified delivery.</text>
+  </g>
+  <g fill="none" stroke="#e8a634" stroke-opacity=".22">
+    <circle cx="970" cy="308" r="184"/><circle cx="970" cy="308" r="130" stroke-dasharray="3 12"/>
+    <path d="M970 124V492M786 308H1154M840 178L1100 438M840 438L1100 178"/>
+  </g>
+  <g stroke="#e8a634" stroke-width="2" fill="none"><path d="M970 308L970 124M970 308L1144 252M970 308L1078 457M970 308L862 457M970 308L795 252"/></g>
+  <g fill="#101018" stroke="#8d6329" stroke-width="2">
+    <rect x="918" y="99" width="104" height="50" rx="8"/><rect x="1092" y="227" width="104" height="50" rx="8"/>
+    <rect x="1026" y="432" width="104" height="50" rx="8"/><rect x="810" y="432" width="104" height="50" rx="8"/>
+    <rect x="743" y="227" width="104" height="50" rx="8"/><circle cx="970" cy="308" r="56" stroke="#e8a634"/>
+  </g>
+  <g font-family="ui-monospace,Consolas,monospace" text-anchor="middle" font-size="16" fill="#b9b1a4">
+    <text x="970" y="130">PLAN</text><text x="1144" y="258">BUILD</text><text x="1078" y="463">REVIEW</text><text x="862" y="463">VERIFY</text><text x="795" y="258">LEARN</text>
+    <text x="970" y="304" font-size="13" fill="#e8a634">MISSION</text><text x="970" y="326" font-size="13" fill="#e8a634">CONTROL</text>
+  </g>
+  <circle cx="970" cy="124" r="4" fill="#7ed99b" transform="translate(42 -17)"/>
+  <text x="1192" y="566" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" letter-spacing="2" fill="#7ed99b">CODEX + CLAUDE</text>
+</svg>
