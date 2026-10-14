@@ -24,7 +24,7 @@ await test('silent stream fallback is single-flight, bounded, and resets only on
   assert.equal(reads, 1);
   for (let attempt = 0; attempt < 10; attempt += 1) {
     t.mock.timers.tick(30_000);
-     
+
     await freshness.recover(read);
   }
   assert.equal(reads, 5, 'Unreachable services must not trigger endless retries.');

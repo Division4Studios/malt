@@ -534,9 +534,6 @@ export class FactoryRepository {
         };
       }),
       usedTokens: current.resetAt <= now ? 0 : current.usedTokens,
-      subscriptionWindows: (current.subscriptionWindows ?? []).filter(
-        (window) => window.resetAt === null || window.resetAt > now,
-      ),
       resetAt: current.resetAt <= now ? nextReset : current.resetAt,
       subscriptionUsedPercent:
         current.subscriptionResetAt !== null && current.subscriptionResetAt <= now

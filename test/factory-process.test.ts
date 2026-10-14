@@ -48,7 +48,7 @@ await test('managed native invocation preserves literal argv, stdin and exit sta
   assert.deepEqual(JSON.parse(result.stdout), { args, input: 'durable assignment' });
 });
 
-await test('cancellation terminates the managed provider and its child process', async () => {
+await test('cancellation terminates the managed provider and its child process', async (t) => {
   const marker = path.join(fixtureRoot, 'descendants.json');
   const script = path.join(fixtureRoot, 'parent.mjs');
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixed parent fixture launches only its own child for cancellation verification.
@@ -68,6 +68,10 @@ await test('cancellation terminates the managed provider and its child process',
     cpuPercent: 50,
     signal: controller.signal,
   });
+  t.after(async () => {
+    controller.abort();
+    await running;
+  });
   let pids: number[] = [];
   for (let attempt = 0; attempt < 50; attempt += 1) {
     try {
@@ -84,9 +88,21 @@ await test('cancellation terminates the managed provider and its child process',
     const sampleFile = path.join(fixtureRoot, 'cancel', 'resources.json');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Read only the owned native helper's fixed diagnostic artifact.
     const content: unknown = JSON.parse(readFileSync(sampleFile, 'utf8'));
-    const sample = z.object({sampledAt:z.number(),processes:z.array(z.object({pid:z.number(),memoryMb:z.number(),cpuPercent:z.number().nullable()}))}).parse(content);
+    const processSchema = z.object({ pid: z.number(), memoryMb: z.number(), cpuPercent: z.number().nullable() });
+    const sample = z
+      .object({
+        sampledAt: z.number(),
+        processes: z.array(processSchema),
+      })
+      .parse(content);
     assert.ok(sample.processes.length > 0);
-    assert.ok(sample.processes.every((entry) => pids.includes(entry.pid) && entry.memoryMb > 0));
+    // Windows may place its console host in the same owned Job Object.
+    assert.ok(pids.every((pid) => sample.processes.some((entry) => entry.pid === pid)));
+    assert.ok(sample.processes.every((entry) => entry.memoryMb > 0));
+    assert.ok(
+      sample.processes.every((entry) => entry.pid !== process.pid),
+      'The outside test runner is not owned.',
+    );
     assert.ok(sample.processes.some((entry) => entry.cpuPercent !== null));
   }
   controller.abort();

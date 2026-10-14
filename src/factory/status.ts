@@ -10,7 +10,7 @@ import { workflowState } from './workflow.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
-import type { ResourceSnapshot } from './resources.ts';
+import type { AdmissionEvidence, ResourceSnapshot } from './resources.ts';
 
 /**
  * Project the current ledger without invoking a model or remote operation.
@@ -23,7 +23,7 @@ import type { ResourceSnapshot } from './resources.ts';
 export function factoryStatus(
   repository: FactoryRepository,
   mesh: MeshConfig,
-  telemetry: { connected: boolean; error: string | null; resources: ResourceSnapshot },
+  telemetry: { connected: boolean; error: string | null; resources: ResourceSnapshot; admission: AdmissionEvidence },
 ): unknown {
   const settings = repository.config();
   return {
@@ -32,6 +32,7 @@ export function factoryStatus(
     connected: telemetry.connected,
     error: telemetry.error,
     resources: telemetry.resources,
+    admission: telemetry.admission,
     processUsage: ownedProcessUsage(repository.jobs()),
     settings,
     features: repository.features(),
@@ -42,6 +43,6 @@ export function factoryStatus(
     instructions: repository.instructionLedger.recent(),
     conversations: conversationWindow(repository.store, mesh),
     workflow: workflowState(repository),
-    capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings)),
+    capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
 }

@@ -3,9 +3,10 @@
  *
  * @file
  */
-import type {Freshness} from "./freshness.js";
+import type { Freshness } from './freshness.js';
 /** Local clock cadence, independent of model work. */
-const CLOCK_MS=1000;
+const CLOCK_MS = 1000;
+
 /**
  * Keep freshness visible and recover only a visible, paired, online console.
  *

@@ -30,7 +30,11 @@ const sampleSchema = z.object({
   processes: z.array(processSchema).max(MAX_PROCESSES),
 });
 /** Explicit browser projection; no arbitrary process fields cross the boundary. */
-export const ownedUsageSchema = z.object({ jobId: z.string().uuid(), role: z.string(), sample: sampleSchema.nullable() });
+export const ownedUsageSchema = z.object({
+  jobId: z.string().uuid(),
+  role: z.string(),
+  sample: sampleSchema.nullable(),
+});
 /** Public measurement for one currently running assignment. */
 export interface OwnedUsage {
   /** Durable assignment identity; no browser-selected PID. */

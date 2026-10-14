@@ -44,7 +44,13 @@ function verifyLaunch(mesh: MeshConfig, selection: PolicyCase): void {
     id: randomUUID(),
     role,
     provider,
-    routing: {tier:'standard',model:'fixture-model',effort:'low',reason:'A bounded fixture assignment.',skillNames:[]},
+    routing: {
+      tier: 'standard',
+      model: 'fixture-model',
+      effort: 'low',
+      reason: 'A bounded fixture assignment.',
+      skillNames: [],
+    },
     kind: role === 'qa-1' ? 'review' : 'develop',
     taskId: null,
     featureId: null,
@@ -72,7 +78,7 @@ function verifyLaunch(mesh: MeshConfig, selection: PolicyCase): void {
     assert.equal(args[args.indexOf('--sandbox') + 1], expected);
     assert.ok(args.includes('approval_policy="never"'));
     assert.ok(args.includes('model_reasoning_effort="low"'));
-    assert.equal(args[args.indexOf('--model')+1], 'fixture-model');
+    assert.equal(args[args.indexOf('--model') + 1], 'fixture-model');
     assert.ok(args.includes('forced_login_method="chatgpt"'));
     assert.ok(args.includes('features.multi_agent=false'));
     assert.ok(args.includes(`features.shell_tool=${String(role === 'developer-1')}`));
@@ -90,8 +96,8 @@ function verifyLaunch(mesh: MeshConfig, selection: PolicyCase): void {
     return;
   }
   const claudeExpected = role === 'developer-1' && developerAccess === 'full-access' ? 'bypassPermissions' : 'dontAsk';
-  assert.equal(args[args.indexOf('--effort')+1], 'low');
-  assert.equal(args[args.indexOf('--model')+1], 'fixture-model');
+  assert.equal(args[args.indexOf('--effort') + 1], 'low');
+  assert.equal(args[args.indexOf('--model') + 1], 'fixture-model');
   assert.equal(
     args[args.indexOf('--setting-sources') + 1],
     '',

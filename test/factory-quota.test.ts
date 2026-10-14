@@ -9,7 +9,14 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { decodeCompletion } from '../src/factory/providers.ts';
-import { accountQuota, accountObservation, accountWindows, claudeQuota, claudeWindows, windowFreshness } from '../src/factory/quota-windows.ts';
+import {
+  accountQuota,
+  accountObservation,
+  accountWindows,
+  claudeQuota,
+  claudeWindows,
+  windowFreshness,
+} from '../src/factory/quota-windows.ts';
 import { codexQuota, QuotaObserver } from '../src/factory/quota.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { capacitySchema, factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';

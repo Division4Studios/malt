@@ -86,7 +86,7 @@ function receive(line: string): void {
     const reading = accountObservation(parsed.data.result);
     if (reading !== null) {
       state.hasReading = true;
-      process.stdout.write(`${JSON.stringify({ ...reading, windows: accountWindows(parsed.data.result) })}\n`);
+      process.stdout.write(`${JSON.stringify(reading)}\n`);
     }
     stop();
   }

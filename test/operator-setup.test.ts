@@ -24,7 +24,7 @@ const connection = z
   })
   .parse(await import(connectionModule.href));
 /** Compiled factual dispatch-message renderer, independent of a DOM. */
-const dispatchModule = new URL('../web/dist/brand-ui.js', import.meta.url);
+const dispatchModule = new URL(['..', 'web', 'dist', 'brand-ui.js'].join('/'), import.meta.url);
 /** Checked plain text messages from the compiled browser module. */
 const messagesSchema = z.array(z.string());
 /** Bounded objective rows returned by the public overview selector. */

@@ -24,23 +24,6 @@ const MOTIFS = [
 const SVG_NS = 'http://www.w3.org/2000/svg';
 /** Bound overview blocker text while retaining full evidence in artifacts. */
 const BLOCKER_EXCERPT = 500;
-/** Bound DOM work while showing every ordinary pending queue. */
-const OBJECTIVE_PREVIEW = 50;
-
-/**
- * Keep pending objectives visible ahead of recent completed outcomes.
- *
- * @param objectives - Actual selected project's objectives.
- * @param completedLimit - Number of recent completed outcomes to retain.
- * @returns Bounded, chronological pending work followed by recent completions.
- */
-export function objectivePreview(objectives: Data[], completedLimit: number): Data[] {
-  const pending = objectives.filter(
-    (feature) => text(feature, 'phase') !== 'done' && feature['scopeReplacement'] === undefined,
-  );
-  const completed = objectives.filter((feature) => text(feature, 'phase') === 'done').slice(-completedLimit);
-  return [...pending.slice(0, OBJECTIVE_PREVIEW), ...completed];
-}
 
 /**
  * Format an observed reset time.
