@@ -37,6 +37,24 @@ function queueComment(context: FactoryContext, task: FactoryTask, value: string)
 }
 
 /**
+ * Publish validated developer completion without claiming merged acceptance.
+ *
+ * @param context - Current delivery ledger.
+ * @param taskId - Owned task.
+ * @param role - Responsible developer.
+ * @param summary - Bounded structured handoff.
+ */
+function queueDevelopmentComment(context: FactoryContext, taskId: string, role: string, summary: string): void {
+  const updated = context.repository.task(taskId);
+  const head = updated.head ?? 'unknown';
+  queueComment(
+    context,
+    updated,
+    `${role} implementation prepared.\n\n${summary}\n\nConfigured validation passed on commit ${head}. Next: focused PR publication and independent QA. This is not merged-main acceptance.`,
+  );
+}
+
+/**
  * Record outcome-based learning without copying raw logs or credentials.
  *
  * @param context - Project learning service.
@@ -213,6 +231,7 @@ async function applyDelivery(
   switch (record.kind) {
     case 'develop': {
       await completeDevelopment(context, record, task, signal);
+      queueDevelopmentComment(context, task.id, record.role, result.summary);
       break;
     }
     case 'review': {

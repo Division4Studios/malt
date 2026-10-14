@@ -633,6 +633,8 @@ export type ToolOperation = (typeof TOOL_OPERATIONS)[number];
 
 /** The description shown to models for each MCP tool. */
 export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
+  factory_progress:
+    'Managed developer only: durably post a meaningful checkpoint to the issue owned by this assignment. Use a stable key per checkpoint; retries deduplicate. Explain progress, check evidence, blockers and next steps without secrets or raw logs. The supervisor delivers comments without repeating implementation.',
   factory_export_maintenance:
     'Human operator exports an approved project skill lesson into a separately selected MALT source repository as an idempotent maintenance objective. Source setup and normal delivery gates still apply; never hot-patch the running broker.',
   factory_skill_decide:

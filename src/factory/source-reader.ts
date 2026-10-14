@@ -62,17 +62,8 @@ export function sealSource(repository: FactoryRepository, job: FactoryJob, snaps
  * @throws {MeshError} For missing claims, private paths or unavailable snapshots.
  */
 export async function readSource(context: FactoryContext, input: unknown, actorId: string | null): Promise<unknown> {
-  if (actorId === null) {
-    throw new MeshError('FACTORY_GATED', 'Immutable inspection requires a live managed assignment.');
-  }
+  const job = managedSourceJob(context, actorId);
   const request = factorySchemas.factory_read_source.parse(input);
-  const actor = context.repository.store.execute('whoami', {}, actorId);
-  const job = context.repository
-    .jobs()
-    .find((candidate) => candidate.state === 'running' && `factory-${candidate.role}` === actor.name);
-  if (job === undefined || actor.runtime !== 'factory-managed' || job.expiresAt <= context.repository.store.now()) {
-    throw new MeshError('FACTORY_GATED', 'No current managed source claim is owned by this session.');
-  }
   const source = selectOne(
     context.repository.store.db,
     headSchema,
@@ -88,6 +79,47 @@ export async function readSource(context: FactoryContext, input: unknown, actorI
     }
     source.head = headSchema.parse({ head: job.base }).head;
   }
+  return readPinnedSource(context, request, job, source.head);
+}
+
+/**
+ * Authenticate the current managed role against its live durable claim.
+ *
+ * @param context - Authoritative project ledger.
+ * @param actorId - Broker-authenticated session identity.
+ * @returns Current owned job, never a model-selected job.
+ * @throws {MeshError} For absent, expired or unmanaged claims.
+ */
+export function managedSourceJob(context: FactoryContext, actorId: string | null): FactoryJob {
+  if (actorId === null) {
+    throw new MeshError('FACTORY_GATED', 'Immutable inspection requires a live managed assignment.');
+  }
+  const actor = context.repository.store.execute('whoami', {}, actorId);
+  const job = context.repository
+    .jobs()
+    .find((candidate) => candidate.state === 'running' && `factory-${candidate.role}` === actor.name);
+  if (job === undefined || actor.runtime !== 'factory-managed' || job.expiresAt <= context.repository.store.now()) {
+    throw new MeshError('FACTORY_GATED', 'No current managed source claim is owned by this session.');
+  }
+  return job;
+}
+
+/**
+ * Read only a validated immutable source identity after claim authentication.
+ *
+ * @param context - Native Git boundary.
+ * @param request - Validated relative file or listing cursor.
+ * @param job - Authenticated live job.
+ * @param head - Sealed Git commit.
+ * @returns Bounded immutable source.
+ */
+async function readPinnedSource(
+  context: FactoryContext,
+  request: z.output<typeof factorySchemas.factory_read_source>,
+  job: FactoryJob,
+  head: string,
+): Promise<unknown> {
+  const source = { head };
   if (request.path === undefined) {
     const listing = await context.workspaces.git([
       '-c',

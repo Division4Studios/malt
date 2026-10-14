@@ -27,6 +27,7 @@ import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
+import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
@@ -281,54 +282,37 @@ export class FactoryService {
    */
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
-    switch (operation) {
-      case 'factory_read_source': {
-        return readSource(this.configured(), parsed, actorId);
-      }
-      case 'factory_export_maintenance': {
+    const handlers: Record<FactoryOperation, () => unknown> = {
+      factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_read_source: async () => readSource(this.configured(), parsed, actorId),
+      factory_export_maintenance: async () => {
         return exportMaintenance(
           { mesh: this.mesh, home: this.options.home, repository: this.repository, learning: this.learning },
           parsed,
         );
-      }
-      case 'factory_skill_decide': {
-        return decideSkill(this.configured(), parsed);
-      }
-      case 'factory_instruct': {
-        return this.controlInstruct(parsed);
-      }
-      case 'factory_status': {
-        return this.status();
-      }
-      case 'factory_setup': {
-        return this.controlSetup(parsed);
-      }
-      case 'factory_start': {
+      },
+      factory_skill_decide: async () => decideSkill(this.configured(), parsed),
+      factory_instruct: () => this.controlInstruct(parsed),
+      factory_status: () => this.status(),
+      factory_setup: () => this.controlSetup(parsed),
+      factory_start: () => {
         this.configured();
         this.repository.setActive(true);
         this.begin();
         return this.status();
-      }
-      case 'factory_pause': {
+      },
+      factory_pause: async () => {
         await this.close(true);
         return this.status();
-      }
-      case 'factory_request': {
-        return queueObjective(this.repository, parsed);
-      }
-      case 'factory_capacity': {
-        return this.controlCapacity(parsed);
-      }
-      case 'factory_cancel_job': {
-        return this.controlCancelJob(parsed);
-      }
-      case 'factory_retry': {
-        return this.controlRetry(parsed);
-      }
-      case 'factory_enqueue': {
-        return enqueueDelivery(this.configured(), parsed);
-      }
-    }
+      },
+      factory_request: () => queueObjective(this.repository, parsed),
+      factory_capacity: () => this.controlCapacity(parsed),
+      factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_retry: () => this.controlRetry(parsed),
+      factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
+    };
+    const result = await Promise.resolve(handlers[operation]());
+    return result;
   }
 
   /** Isolate unpaid infrastructure failures from the heartbeat loop. */
