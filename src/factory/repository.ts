@@ -14,8 +14,10 @@ import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
+import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
 import { windowFreshness } from './quota-windows.ts';
+import { RecommendationLedger } from './recommendations.ts';
 import {
   LEASE_MS,
   isTokenCapExceeded,
@@ -29,6 +31,7 @@ import {
 } from './schema.ts';
 
 import type { Store } from '../store.ts';
+import type { HandoffEvidence } from './handoffs.ts';
 import type {
   Capacity,
   FactoryConfig,
@@ -68,6 +71,8 @@ const BOARD_STATES = {
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
   public readonly instructionLedger: InstructionLedger;
+  /** Project-scoped immutable recommendation content and fenced lifecycle. */
+  public readonly recommendations: RecommendationLedger;
   /** Shared store owns SQLite and transaction boundaries. */
   public readonly store: Store;
   /** System sender, prepared only when an actual factory is configured. */
@@ -82,6 +87,7 @@ export class FactoryRepository {
     this.store = store;
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_source_views (job_id TEXT PRIMARY KEY REFERENCES factory_jobs(id), head TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_operator_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_features (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -95,9 +101,13 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_skill_requests (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_lease (id INTEGER PRIMARY KEY CHECK(id = 1), owner TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_instructions (id TEXT PRIMARY KEY, role TEXT NOT NULL, task_id TEXT, body TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS factory_recommendations (project TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, PRIMARY KEY(project,id));
+      CREATE TABLE IF NOT EXISTS factory_recommendation_revisions (project TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(project,id,revision));
+      CREATE TABLE IF NOT EXISTS factory_handoffs (instruction_id TEXT PRIMARY KEY REFERENCES factory_instructions(id), job_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
     this.instructionLedger = new InstructionLedger(store);
+    this.recommendations = new RecommendationLedger(store);
   }
 
   /**
@@ -485,9 +495,10 @@ export class FactoryRepository {
    *
    * @param provider - Provider family.
    * @param config - Current project settings.
+   * @param shouldInitialize - Persist missing accounting; false for read-only status.
    * @returns Normalized, reset-aware accounting.
    */
-  public capacity(provider: Provider, config: FactoryConfig): Capacity {
+  public capacity(provider: Provider, config: FactoryConfig, shouldInitialize = true): Capacity {
     const now = this.store.now();
     const row = selectOne(this.store.db, payloadSchema, 'SELECT data FROM factory_capacity WHERE provider=?', provider);
     const current =
@@ -505,7 +516,7 @@ export class FactoryRepository {
             updatedAt: now,
           }
         : capacitySchema.parse(JSON.parse(row.data));
-    if (row === undefined) {
+    if (row === undefined && shouldInitialize) {
       this.store.transaction(() => {
         run(this.store.db, 'INSERT OR IGNORE INTO factory_capacity VALUES(?,?)', provider, JSON.stringify(current));
       });
@@ -638,14 +649,14 @@ export class FactoryRepository {
    * @param job - Original claim with matching fencing token.
    * @param usage - Actual usage, unknown when the CLI supplies none.
    * @param state - Attempt outcome.
-   * @param cooldown - Verified provider cooldown deadline.
+   * @param settlement - Verified cooldown deadline and bounded manager-report evidence; never artifact paths.
    * @returns Whether this was the current live attempt.
    */
   public finishJob(
     job: FactoryJob,
     usage: number | null,
     state: 'succeeded' | 'failed' | 'interrupted',
-    cooldown = 0,
+    settlement: HandoffEvidence = {},
   ): boolean {
     return this.store.transaction(() => {
       const current = this.jobs().find((candidate) => candidate.id === job.id);
@@ -658,7 +669,7 @@ export class FactoryRepository {
         ...capacity,
         reservedTokens: Math.max(0, capacity.reservedTokens - current.reservation),
         usedTokens: capacity.usedTokens + (usage ?? current.reservation),
-        cooldownUntil: Math.max(capacity.cooldownUntil, cooldown),
+        cooldownUntil: Math.max(capacity.cooldownUntil, settlement.cooldown ?? 0),
         updatedAt: this.store.now(),
       });
       run(
@@ -671,12 +682,31 @@ export class FactoryRepository {
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
-        this.instruct(
+        const handoff = buildHandoff({
+          job: current,
           manager,
-          null,
-          `Reporting handoff from ${current.role}: assignment ${current.id} ${state}. Task ${current.taskId ?? 'planning/research'}. Read its retained assignment and completion artifacts before changing scope. Profile revision ${current.routing?.organization?.revision ?? 'unknown'}.`,
+          state,
+          task: current.taskId === null ? null : (this.tasks().find((task) => task.id === current.taskId) ?? null),
+          feature: this.features().find((feature) => feature.id === current.featureId) ?? null,
+          evidence: settlement,
+          now: this.store.now(),
+        });
+        const instructionId = this.instruct(manager, null, handoffBody(handoff));
+        run(
+          this.store.db,
+          'INSERT INTO factory_handoffs VALUES(?,?,?)',
+          instructionId,
+          current.id,
+          JSON.stringify(handoff),
         );
-        this.store.event('FACTORY_MANAGER_HANDOFF', null, { jobId: current.id, from: current.role, to: manager });
+        this.store.event('FACTORY_MANAGER_HANDOFF', null, {
+          jobId: current.id,
+          from: current.role,
+          to: manager,
+          instructionId,
+          processState: state,
+          resultOutcome: handoff.resultOutcome,
+        });
       }
       return true;
     });

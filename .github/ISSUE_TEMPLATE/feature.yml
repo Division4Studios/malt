@@ -1,0 +1,33 @@
+name: Feature or atomic delivery
+description: Propose a measurable outcome with clear boundaries.
+title: 'feat: '
+body:
+  - type: input
+    id: related
+    attributes:
+      label: Related issues and parent feature
+      description: Search existing work first. Link duplicates, parent/children and genuine prerequisites.
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User outcome and current limitation
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope, exclusions and independently mergeable slices
+      description: Prefer PRs of 1–500 changed lines including tests/docs. Do not remove essential tests or invent dependencies to meet that target.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria and failure cases
+      description: State what can be independently observed and tested.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives, compatibility and risk

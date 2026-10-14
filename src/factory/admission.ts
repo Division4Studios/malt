@@ -99,14 +99,40 @@ export class AdmissionPool {
    */
   public capacities(capacities: readonly Capacity[], now: number): Capacity[] {
     return capacities.map((capacity) => {
-      const previous = this.telemetry.get(capacity.provider);
-      const reported =
-        previous === undefined || (capacity.telemetrySource !== null && capacity.updatedAt > previous.updatedAt)
-          ? capacity
-          : previous;
-      const cooldownUntil = Math.max(capacity.cooldownUntil, previous?.cooldownUntil ?? 0);
-      this.telemetry.set(capacity.provider, { ...reported, cooldownUntil });
-      return {
+      const merged = this.merge(capacity, now);
+      this.telemetry.set(capacity.provider, merged.telemetry);
+      return merged.capacity;
+    });
+  }
+
+  /**
+   * Apply the same broker-wide merge without recording any observation.
+   *
+   * @param capacities - Durable selected-project accounting snapshots.
+   * @param now - Current supervisor clock.
+   * @returns Capacities dispatch would see, for read-only evidence.
+   */
+  public preview(capacities: readonly Capacity[], now: number): Capacity[] {
+    return capacities.map((capacity) => this.merge(capacity, now).capacity);
+  }
+
+  /**
+   * Merge one project snapshot with shared broker telemetry.
+   *
+   * @param capacity - Selected-project accounting snapshot.
+   * @param now - Current supervisor clock.
+   * @returns Effective capacity and the telemetry dispatch retains.
+   */
+  private merge(capacity: Capacity, now: number): { capacity: Capacity; telemetry: Capacity } {
+    const previous = this.telemetry.get(capacity.provider);
+    const reported =
+      previous === undefined || (capacity.telemetrySource !== null && capacity.updatedAt > previous.updatedAt)
+        ? capacity
+        : previous;
+    const cooldownUntil = Math.max(capacity.cooldownUntil, previous?.cooldownUntil ?? 0);
+    return {
+      telemetry: { ...reported, cooldownUntil },
+      capacity: {
         ...capacity,
         cooldownUntil,
         subscriptionUsedPercent:
@@ -115,7 +141,7 @@ export class AdmissionPool {
             : reported.subscriptionUsedPercent,
         subscriptionResetAt: reported.subscriptionResetAt,
         telemetrySource: reported.telemetrySource,
-      };
-    });
+      },
+    };
   }
 }

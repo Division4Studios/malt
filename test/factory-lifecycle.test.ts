@@ -109,6 +109,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   let owner: string | null = null;
   const closed = new Set<number>();
   const stages: string[] = [];
+  const completionUpdates: string[] = [];
   const remote: DeliveryRemote = {
     verify: async () => {
       /* Fixture remote verified by isolated ownership. */
@@ -154,6 +155,9 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       return task.head;
     },
     effect: async (effect) => {
+      if (effect.kind === 'comment' && effect.value.includes('implementation prepared.')) {
+        completionUpdates.push(effect.value);
+      }
       if (effect.kind !== 'close') {
         return delay(0);
       }
@@ -256,6 +260,13 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.equal(task.phase, 'done', JSON.stringify(factory.status()));
     assert.equal(task.attempts, 2);
     assert.equal(writes, 2, 'Push and ambiguous PR failures must not repeat successful paid implementation.');
+    assert.equal(
+      completionUpdates.length,
+      writes,
+      'Every validated implementation needs its durable completion update after push recovery.',
+    );
+    const uniqueUpdates = new Set(completionUpdates);
+    assert.equal(uniqueUpdates.size, writes, 'Publication retries must not duplicate completion updates.');
     assert.equal(creations, 1, 'Ambiguous PR creation must reconcile the existing PR.');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Confirm that the disposable remote actually rejected a publication push once.
     assert.ok(existsSync(path.join(root, 'origin.git', 'hooks', 'failed-once')));

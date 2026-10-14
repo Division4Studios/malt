@@ -23,16 +23,18 @@ import {
 import { conversationWindow } from './conversations.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
+import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
+import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
-import { resourceBlocker, resourceProbe } from './resources.ts';
+import { ResourceSampler, admissionEvidence, resourceBlocker, resourceProbe } from './resources.ts';
 import { routeAssignment } from './routing.ts';
 import { chooseProvider, retryFeaturePhase, jobIntents } from './scheduler.ts';
 import { LEASE_MS, PROVIDERS, factoryConfigSchema, factorySchemas } from './schema.ts';
@@ -85,6 +87,8 @@ interface AttemptState {
   isInferred: boolean;
   /** Fenced job outcome. */
   state: 'succeeded' | 'failed' | 'interrupted';
+  /** Supervisor-observed failure or cancellation reason for the manager report. */
+  reason: string | null;
 }
 /** All factories in this broker share local process admission. */
 const LOCAL_JOBS = new AdmissionPool();
@@ -106,8 +110,8 @@ export class FactoryService {
   private readonly quota = new QuotaObserver();
   /** Managed pipelines only; never unrelated processes. */
   private readonly running = new Map<string, Running>();
-  /** Resource sampler retains CPU deltas. */
-  private readonly probe: ResourceProbe;
+  /** Sole stateful sampler; only the scheduling cycle advances it. */
+  private readonly sampler: ResourceSampler;
   /** Validated execution context, absent before setup. */
   private context: FactoryContext | null = null;
   /** Unpaid timer. */
@@ -144,7 +148,7 @@ export class FactoryService {
     this.learning = integrations.learning;
     this.options = options;
     this.repository = new FactoryRepository(store);
-    this.probe = options.resources ?? resourceProbe();
+    this.sampler = new ResourceSampler(options.resources ?? resourceProbe(), store.now());
   }
 
   /**
@@ -189,7 +193,8 @@ export class FactoryService {
       active: this.repository.active(),
       connected: this.connected,
       error: this.error,
-      resources: this.probe(),
+      resources: this.sampler.latest,
+      admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
       settings,
       features: this.repository.features(),
       tasks: this.repository.tasks(),
@@ -199,7 +204,7 @@ export class FactoryService {
       instructions: this.repository.instructionLedger.recent(),
       conversations: conversationWindow(this.repository.store, this.mesh),
       workflow: workflowState(this.repository),
-      capacities: settings === null ? [] : PROVIDERS.map((provider) => this.repository.capacity(provider, settings)),
+      capacities: settings === null ? [] : PROVIDERS.map((name) => this.repository.capacity(name, settings, false)),
     };
   }
 
@@ -219,7 +224,7 @@ export class FactoryService {
       this.hasLease = false;
       this.error = 'Supervisor lease lost.';
       for (const run of this.running.values()) {
-        run.controller.abort();
+        run.controller.abort(new Error('Supervisor lease lost.'));
       }
       return;
     }
@@ -259,7 +264,7 @@ export class FactoryService {
       this.timer = null;
     }
     for (const run of this.running.values()) {
-      run.controller.abort();
+      run.controller.abort(new Error('Supervisor stopped; owned assignment interrupted.'));
     }
     this.quota.cancel();
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
@@ -281,54 +286,37 @@ export class FactoryService {
    */
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
-    switch (operation) {
-      case 'factory_read_source': {
-        return readSource(this.configured(), parsed, actorId);
-      }
-      case 'factory_export_maintenance': {
+    const handlers: Record<FactoryOperation, () => unknown> = {
+      factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_read_source: async () => readSource(this.configured(), parsed, actorId),
+      factory_export_maintenance: async () => {
         return exportMaintenance(
           { mesh: this.mesh, home: this.options.home, repository: this.repository, learning: this.learning },
           parsed,
         );
-      }
-      case 'factory_skill_decide': {
-        return decideSkill(this.configured(), parsed);
-      }
-      case 'factory_instruct': {
-        return this.controlInstruct(parsed);
-      }
-      case 'factory_status': {
-        return this.status();
-      }
-      case 'factory_setup': {
-        return this.controlSetup(parsed);
-      }
-      case 'factory_start': {
+      },
+      factory_skill_decide: async () => decideSkill(this.configured(), parsed),
+      factory_instruct: () => this.controlInstruct(parsed),
+      factory_status: () => this.status(),
+      factory_setup: () => this.controlSetup(parsed),
+      factory_start: () => {
         this.configured();
         this.repository.setActive(true);
         this.begin();
         return this.status();
-      }
-      case 'factory_pause': {
+      },
+      factory_pause: async () => {
         await this.close(true);
         return this.status();
-      }
-      case 'factory_request': {
-        return queueObjective(this.repository, parsed);
-      }
-      case 'factory_capacity': {
-        return this.controlCapacity(parsed);
-      }
-      case 'factory_cancel_job': {
-        return this.controlCancelJob(parsed);
-      }
-      case 'factory_retry': {
-        return this.controlRetry(parsed);
-      }
-      case 'factory_enqueue': {
-        return enqueueDelivery(this.configured(), parsed);
-      }
-    }
+      },
+      factory_request: () => queueObjective(this.repository, parsed),
+      factory_capacity: () => this.controlCapacity(parsed),
+      factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_retry: () => this.controlRetry(parsed),
+      factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
+    };
+    const result = await Promise.resolve(handlers[operation]());
+    return result;
   }
 
   /** Isolate unpaid infrastructure failures from the heartbeat loop. */
@@ -358,7 +346,7 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
-    if (shouldParkForMemory(context, this.running, this.probe())) {
+    if (shouldParkForMemory(context, this.running, this.sampler.sample(this.repository.store.now()))) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
     }
@@ -401,7 +389,7 @@ export class FactoryService {
     }
     for (const intent of intents) {
       const policy = LOCAL_JOBS.policy(context.settings);
-      if (resourceBlocker(policy, this.probe(), LOCAL_JOBS.size) !== null) {
+      if (resourceBlocker(policy, this.sampler.latest, LOCAL_JOBS.size) !== null) {
         break;
       }
       const provider = chooseProvider({
@@ -430,7 +418,7 @@ export class FactoryService {
     if (
       count === 0 ||
       this.options.agent !== undefined ||
-      resourceBlocker(LOCAL_JOBS.policy(context.settings), this.probe(), LOCAL_JOBS.size) !== null
+      resourceBlocker(LOCAL_JOBS.policy(context.settings), this.sampler.latest, LOCAL_JOBS.size) !== null
     ) {
       return;
     }
@@ -466,9 +454,8 @@ export class FactoryService {
         learn: '',
         skill: '',
       } as const;
-      const phase = phases[job.kind];
-      if (task.phase !== phase || task.head !== job.head || task.base !== job.base) {
-        this.running.get(job.id)?.controller.abort();
+      if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
+        this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
       }
     }
   }
@@ -540,17 +527,19 @@ export class FactoryService {
    */
   private async perform(job: FactoryJob, controller: AbortController): Promise<void> {
     const context = this.configured();
-    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed' };
+    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null };
     const timer = setTimeout(() => {
-      controller.abort();
+      controller.abort(new Error(`Assignment exceeded its ${String(context.settings.jobTimeoutMs)} ms timeout.`));
     }, context.settings.jobTimeoutMs);
     try {
       await this.executeAttempt(job, controller, attempt);
     } catch (error) {
       if (controller.signal.aborted || this.stopped) {
         attempt.state = 'interrupted';
+        attempt.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
       } else {
-        await this.failure(job, Error.isError(error) ? error.message : 'Managed stage failed.');
+        attempt.reason = Error.isError(error) ? error.message : 'Managed stage failed.';
+        await this.failure(job, attempt.reason);
       }
     } finally {
       clearTimeout(timer);
@@ -581,6 +570,7 @@ export class FactoryService {
     });
     if (controller.signal.aborted || this.stopped) {
       outcome.state = 'interrupted';
+      outcome.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
       return;
     }
     const current = this.repository.jobs().find((candidate) => candidate.id === job.id);
@@ -617,19 +607,16 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
-    const record = job;
-    const outcome = attempt;
-    const { execution } = outcome;
     this.repository.finishJob(
-      record,
-      execution?.completion?.usageTokens ?? (outcome.isInferred ? null : 0),
-      outcome.state,
-      execution?.completion?.cooldownUntil ?? 0,
+      job,
+      attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
+      attempt.state,
+      settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    if (outcome.state === 'interrupted' && record.kind === 'develop' && record.taskId !== null) {
-      this.repository.editTask(record.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
+    if (attempt.state === 'interrupted' && job.kind === 'develop' && job.taskId !== null) {
+      this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
     }
-    await retireSnapshot(this.configured(), execution?.snapshot ?? null);
+    await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
   }
 
   /**
@@ -694,7 +681,7 @@ export class FactoryService {
         ? value.taskId === undefined || decision.replacement?.taskIds.includes(job.taskId ?? '') === true
         : job.role === value.role && (value.taskId === undefined || job.taskId === value.taskId);
       if (isRelevant && job.state === 'running') {
-        this.running.get(job.id)?.controller.abort();
+        this.running.get(job.id)?.controller.abort(new Error('Operator instruction changed the active assignment.'));
       }
     }
     return decision;
@@ -747,7 +734,7 @@ export class FactoryService {
       throw new MeshError('FACTORY_GATED', 'Only a live job owned by this supervisor can be cancelled.');
     }
     recordCancellation(this.repository, job);
-    this.running.get(jobId)?.controller.abort();
+    this.running.get(jobId)?.controller.abort(new Error('Operator cancelled this attempt; explicit retry required.'));
     return this.status();
   }
 
