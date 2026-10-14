@@ -178,6 +178,20 @@ Operations mostly match tool names without `mesh_`. Additional internal operatio
 
 `GET /health` is unauthenticated and returns service health/version only. Errors contain a stable code and message, not a traceback or credential dump.
 
+## Event history pages
+
+The `events` operation reads the project's durable SQLite event log in one of three exclusive modes. `limit` is an integer from 1 to 100 (default 50) in every mode.
+
+| Mode     | Input                     | Result                                                                                                    |
+| -------- | ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Forward  | `{after?, limit}`         | Events with `seq > after` (default 0), oldest first. `nextCursor` is the last returned `seq`, or `after`. |
+| Recent   | `{after?, recent, limit}` | With `recent: true`, the newest `limit` events above `after`, oldest first, with the same `nextCursor`.   |
+| Backward | `{before, limit}`         | Events with `seq < before`, oldest first, plus `hasMore` and `oldestCursor`. There is no `nextCursor`.    |
+
+`before` is an exclusive nonnegative safe integer. Combining it with an explicit `after` or `recent` (even `recent: false`) fails with `INVALID_INPUT` before any read. A backward page holds the up to `limit` events immediately below `before`. `hasMore` comes from a one-row lookahead and is true only when older events remain. `oldestCursor` is the first returned `seq`, which is the `before` for the next older page. For an empty page it echoes the requested `before`, and `hasMore` is false. Repeat a request after `hasMore: false` and you get that same empty page. Sequence numbers only grow, so events appended between requests never shift or duplicate an older page. Backward reads are side-effect free and never advance a forward or live-stream cursor.
+
+The operator console exposes backward pages as `GET /api/history?project=<id>&before=<seq>&limit=<n>`. It uses the same pairing session and origin checks as other `/api/*` routes and returns `Cache-Control: no-store`. The response is `{project, events, hasMore, oldestCursor}`. Event `data` is returned verbatim as JSON values; clients must render it as text. `project` and `before` are required; `limit` defaults to 50. Each value must be an unsigned decimal integer within the bounds above. Missing, repeated, unknown or malformed parameters return 400. An unknown project returns 403 with the usual `WRONG_PROJECT` message. A missing session returns 401, and a foreign origin returns 403. The route is read-only: other methods never reach the event log. Start the first page at the oldest event already displayed so the recent window and history pages meet without a gap. The live `/api/stream` cursor stays independent of history paging.
+
 # Managed immutable source inspection
 
 `mesh_factory_read_source` accepts `{ "path": "relative/file.ts", "revision": "head", "cursor": 0 }`. Omit `path` to list tracked files in pages of 100 and follow `nextCursor`. `revision` may be `head` or `base`; revisions come from the assignment, never arbitrary caller hashes. File reads are limited to 32,000 bytes and report oversized files explicitly. Private runtime and common credential paths are excluded. Only an authenticated managed role owning an unexpired running claim with a sealed source snapshot can call this tool; attached roles and browser operators cannot use it to inspect arbitrary files.
