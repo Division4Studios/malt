@@ -244,6 +244,15 @@ async function closeClients(): Promise<void> {
  * @param shouldQueue - Queue once, then verify persistence after recreation.
  */
 async function verifyConsole(shouldQueue: boolean): Promise<void> {
+  await command(
+    'exec',
+    '-T',
+    'broker',
+    'node',
+    '--input-type=module',
+    '-e',
+    "import {writeFileSync,unlinkSync} from 'node:fs'; import {join} from 'node:path'; const file=join(process.env.HOME,'.malt-smoke-write'); writeFileSync(file,'fixture',{flag:'wx',mode:0o600}); unlinkSync(file);",
+  );
   const logs = await exec('docker', [...compose, 'logs', '--no-log-prefix', 'broker'], {
     env: environment,
     timeout: COMMAND_TIMEOUT_MS,
