@@ -1,0 +1,16 @@
+title: 'Question: '
+body:
+  - type: markdown
+    attributes:
+      value: Ask a focused question. Search existing answers, read SUPPORT.md, and never share credentials or .malt archives.
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: tried
+    attributes:
+      label: What have you tried?
+      description: Include commit, platform, runtime mode and sanitized relevant evidence.
