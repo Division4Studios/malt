@@ -1,7 +1,5 @@
 /**
- * Pure factory scheduling rules: dependency-ready deliveries, original-owner
- * rework, two independent exact-head reviews and normalized provider fairness.
- * Empty role slots stay parked without invoking a model.
+ * Pure factory scheduling rules: dependency-ready deliveries, original-owner rework, two independent exact-head reviews and normalized provider fairness. Empty role slots stay parked without invoking a model.
  *
  * @file
  */
@@ -21,6 +19,7 @@ import type {
   Provider,
   SkillRequest,
 } from './schema.ts';
+import type { TriageDecision } from './triage.ts';
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
@@ -243,9 +242,22 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   };
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
+  appendTriage(input, live, intents);
   const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
-  const development = interleaveDevelopment(input, intents.splice(developmentStart));
+  const candidates = intents.splice(developmentStart);
+  const published = new Set(
+    input.tasks.filter((task) => task.pr !== null && task.merge === null).map((task) => task.id),
+  );
+  const repairs = interleaveDevelopment(
+    input,
+    candidates.filter((intent) => published.has(intent.taskId ?? '')),
+  );
+  const development = interleaveDevelopment(
+    input,
+    candidates.filter((intent) => !published.has(intent.taskId ?? '')),
+  );
+  intents.push(...repairs);
   // At most one development job, running or offered, precedes planning, leaving room at the default cap of two.
   const leading = live.some((job) => job.kind === 'develop') ? 0 : 1;
   intents.push(...development.slice(0, leading));
@@ -281,6 +293,8 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
 
 /** Current durable scheduling state. */
 interface SchedulingState {
+  /** Bounded, durable lead investigation requests. */
+  triage?: readonly TriageDecision[];
   /** Config state. */
   config: FactoryConfig;
   /** Tasks state. */
@@ -300,6 +314,44 @@ interface SchedulingState {
 }
 /** Append one dependency and role-gated delivery candidate. */
 type AppendIntent = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask) => void;
+
+/**
+ * Offer one finite lead investigation before new implementation.
+ *
+ * @param input - Project state.
+ * @param live - Owned jobs.
+ * @param intents - Ordered candidates.
+ */
+function appendTriage(input: SchedulingState, live: readonly FactoryJob[], intents: JobIntent[]): void {
+  if (live.some((job) => job.role === 'team-lead')) {
+    return;
+  }
+  if (input.triage !== undefined) {
+    for (const decision of input.triage) {
+      const task = input.tasks.find((candidate) => candidate.id === decision.taskId);
+      if (
+        decision.state !== 'queued' ||
+        ((input.objectiveQueue?.focusedFeatureId ?? null) !== null &&
+          task?.featureId !== input.objectiveQueue?.focusedFeatureId) ||
+        task?.version !== decision.version ||
+        task.scopeReplacement !== undefined ||
+        live.some((job) => job.taskId === task.id)
+      ) {
+        continue;
+      }
+      intents.push({
+        role: 'team-lead',
+        kind: 'triage',
+        taskId: task.id,
+        featureId: task.featureId,
+        target: decision.id,
+        head: task.head,
+        base: task.base,
+      });
+      return;
+    }
+  }
+}
 
 /**
  * Leave fixed-owner roles for later repairs while retaining flexible alternatives.
@@ -343,8 +395,7 @@ function assignDevelopmentRoles(tasks: JobIntent[][]): JobIntent[] {
 }
 
 /**
- * Round-robin eligible tasks across objectives before offering alternative roles.
- * Task insertion order is the repository's creation order; updatedAt is mutable.
+ * Round-robin eligible tasks across objectives before offering alternative roles. Task insertion order is the repository's creation order; updatedAt is mutable.
  *
  * @param input - Durable feature creation order.
  * @param candidates - Already gated development candidates.

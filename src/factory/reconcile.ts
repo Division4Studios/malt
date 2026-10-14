@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { mergeBlocker } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
@@ -565,6 +566,9 @@ function isCurrent(context: FactoryContext, task: FactoryTask): boolean {
 async function reconcileTask(context: FactoryContext, task: FactoryTask): Promise<void> {
   if (task.scopeReplacement !== undefined) {
     await recoverSupersededMerge(context, task);
+    return;
+  }
+  if (await hasParkedPRUpdate(context, task)) {
     return;
   }
   switch (task.phase) {

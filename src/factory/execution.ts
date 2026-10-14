@@ -19,9 +19,10 @@ import { publicJobSchema } from './schema.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
+import { pendingTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
-import type { FactoryJob } from './schema.ts';
+import type { FactoryJob, FactoryTask } from './schema.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
 
@@ -216,6 +217,25 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
 }
 
 /**
+ * Keep reviewers and lead investigations on their actual PR revision.
+ *
+ * @param context - Project source services.
+ * @param job - Bounded assignment.
+ * @param task - Associated delivery, if any.
+ * @returns Pinned source or current main for unpublished investigations.
+ */
+async function sourceReference(
+  context: FactoryContext,
+  job: FactoryJob,
+  task: FactoryTask | null,
+): Promise<string | null> {
+  if (job.kind === 'review' || job.kind === 'final') {
+    return task?.head ?? null;
+  }
+  return job.kind === 'triage' ? (task?.head ?? (await context.workspaces.base())) : await context.workspaces.base();
+}
+
+/**
  * Pin source and run checks without allowing review implementation changes.
  *
  * @param context - Project services.
@@ -228,8 +248,8 @@ async function prepareSnapshot(context: FactoryContext, job: FactoryJob, signal:
   const record = job;
   const task = record.taskId === null ? null : context.repository.task(record.taskId);
   const controls = { signal };
-  const reference = record.kind === 'review' || record.kind === 'final' ? task?.head : await context.workspaces.base();
-  if (reference === null || reference === undefined) {
+  const reference = await sourceReference(context, record, task);
+  if (reference === null) {
     throw new MeshError('FACTORY_GATED', 'The reviewer has no pinned source commit.');
   }
   if (record.kind === 'verify') {
@@ -266,6 +286,9 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
   const record = job;
   const { repository } = context;
   const skill = repository.skillRequests().find((candidate) => candidate.id === record.target) ?? null;
+  if (record.kind === 'triage') {
+    return pendingTriage(repository, record.featureId).find((item) => item.id === record.target) ?? null;
+  }
   let evidence: unknown = null;
   if (record.kind === 'plan' || record.kind === 'refine') {
     evidence = {

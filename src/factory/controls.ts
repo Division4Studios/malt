@@ -8,6 +8,7 @@ import { MeshError } from '../protocol.ts';
 
 import { hasCriticalMemoryPressure } from './resources.ts';
 import { factorySchemas } from './schema.ts';
+import { isCurrentTriage } from './triage.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -159,6 +160,9 @@ export function recoverUnownedClaims(repository: FactoryRepository, owned: Reado
  * @returns Whether the original stage/source is still eligible for completion.
  */
 export function canApplyInstructionStage(context: FactoryContext, job: FactoryJob): boolean {
+  if (job.kind === 'triage') {
+    return isCurrentTriage(context.repository, job);
+  }
   if (job.taskId === null) {
     return true;
   }
@@ -172,6 +176,7 @@ export function canApplyInstructionStage(context: FactoryContext, job: FactoryJo
     refine: '',
     learn: '',
     skill: '',
+    triage: '',
   } as const;
   return (
     task.phase === stages[job.kind] && (job.kind === 'develop' || (task.head === job.head && task.base === job.base))

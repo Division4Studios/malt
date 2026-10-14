@@ -20,6 +20,8 @@ import type { Operation } from '../protocol.ts';
 
 /** Public team routing metadata. */
 const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), workspace: z.string().nullable() }));
+/** Server-generated triage records; never browser authority. */
+const triageRecordSchema = z.record(z.unknown());
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   settings: factoryConfigSchema.nullable(),
@@ -29,6 +31,7 @@ const factoryViewSchema = dashboardSchema.extend({
   workflow: z.record(z.unknown()).default({}),
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
+  triage: z.array(triageRecordSchema).default([]),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -47,6 +50,7 @@ export const controlSchema = z
       'factory_instruct',
       'factory_retry',
       'factory_queue',
+      'factory_triage',
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',

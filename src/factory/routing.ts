@@ -27,6 +27,7 @@ const STAGE_SKILLS = {
   verify: 'factory-release',
   learn: 'factory-learning',
   skill: 'factory-learning',
+  triage: 'factory-product',
 } as const;
 
 /**

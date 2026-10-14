@@ -6,6 +6,7 @@
 import { conversationWindow } from './conversations.ts';
 import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
+import { triageStatus } from './triage.ts';
 import { workflowState } from './workflow.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -38,6 +39,7 @@ export async function factoryStatus(
     features: repository.features(),
     objectiveQueue: repository.objectiveQueue.read(repository.features()),
     tasks: repository.tasks(),
+    triage: triageStatus(repository),
     jobs: repository.jobs(),
     pendingEffects: repository.effects(),
     skillRequests: repository.skillRequests(),
