@@ -1,0 +1,7 @@
+# Versioned project connections
+
+The private `.malt/github/connection.json` separates the work tracker from GitHub source control in version 2. Each section has its own verification timestamp and capability descriptor: supported, unsupported or unverified. Missing repository node IDs remain unverified. Version 1 records are normalized in memory without rewriting them; a successful connection saves version 2. Status retains its legacy connection fields and adds the version 2 view. The generated project README reads both versions.
+
+New issue journals bind their fingerprints to the stable repository node ID when available, plus the Project ID and exact validated input. Legacy journals retain their original fingerprints and receipts. Verified same-node-ID reconnects retain prior repository names in `source.repositoryAliases`, allowing those legacy fingerprints to resume across renames without rewriting journals or repeating issue creation. Alias history is bounded; exceeding its limit fails setup instead of discarding recovery information. A changed node ID cannot redirect pending operations, even if the repository name is reused. Ambiguous issue creation still requires synchronization and a unique operation marker before retrying.
+
+These contracts prepare provider-specific connectors; a Jira provider value does not establish implemented Jira discovery, authentication or remote operations. Provider credentials remain outside project state.
