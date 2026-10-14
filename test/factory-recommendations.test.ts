@@ -6,7 +6,7 @@ import { FactoryRepository } from '../src/factory/repository.ts';
 import { recommendationStateSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
 
-import { createCleanup, createProject } from './helpers.ts';
+import { createCleanup, createProject, updateConfig } from './helpers.ts';
 
 import type { RecommendationState } from '../src/factory/schema.ts';
 
@@ -25,6 +25,35 @@ const proposal = {
   affectedAssignments: ['task-1'],
   preview: { before: 'Two tickets', after: 'One ticket' },
 };
+
+await test('long valid project IDs survive recommendation persistence and transitions after reopen', (t) => {
+  const defer = createCleanup(t);
+  const project = createProject(defer);
+  const mesh = updateConfig({ ...project, projectId: 'project-'.repeat(100) }, {});
+  let store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  let repository = new FactoryRepository(store);
+  const first = repository.recommendations.propose(proposal);
+  assert.equal(first.project, mesh.projectId);
+  store.close();
+  store = new Store(mesh);
+  repository = new FactoryRepository(store);
+  const ledger = repository.recommendations;
+  assert.deepEqual(ledger.get(first.id), first);
+  assert.deepEqual(ledger.propose(proposal), first);
+  const changed = ledger.transition({
+    id: first.id,
+    revision: first.revision,
+    state: 'proposed',
+    next: 'awaiting_human',
+    reason: 'Review the persisted proposal',
+  });
+  assert.equal(changed.project, mesh.projectId);
+  assert.equal(changed.state, 'awaiting_human');
+  assert.deepEqual(ledger.get(first.id), changed);
+});
 
 await test('recommendations survive reopen, replay and supersession without losing history', (t) => {
   const defer = createCleanup(t);

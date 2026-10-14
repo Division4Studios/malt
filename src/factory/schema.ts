@@ -140,7 +140,8 @@ const recommendationAuditSchema = z.object({
 /** A content-addressed revision with its lifecycle audit. */
 export const recommendationSchema = z.object({
   id: z.string(),
-  project: recommendationKey,
+  // Project identity follows persisted configuration, not the bounded recommendation keys.
+  project: z.string().min(1),
   revision: z.string(),
   body: recommendationBodySchema,
   state: recommendationStateSchema,
@@ -444,6 +445,7 @@ export const skillRequestSchema = skillActionSchema.extend({
 export type SkillRequest = z.output<typeof skillRequestSchema>;
 /** MCP/CLI operations exposed by the factory. */
 export const factorySchemas = {
+  factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
       path: z.string().min(1).max(WORKSPACE_MAX).optional(),
@@ -496,6 +498,7 @@ export const factorySchemas = {
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_progress',
   'factory_read_source',
   'factory_export_maintenance',
   'factory_skill_decide',
