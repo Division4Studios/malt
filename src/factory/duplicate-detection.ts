@@ -158,7 +158,7 @@ function compare(a: Set<string>, b: Set<string>): { overlap: number; shared: str
   if (a.size === 0 || b.size === 0) {
     return null;
   }
-  const shared = [...a].filter((token) => b.has(token)).toSorted((x, y) => x.localeCompare(y));
+  const shared = [...a].filter((token) => b.has(token)).toSorted(ordinal);
   const union = a.size + b.size - shared.length;
   return { overlap: Math.round((shared.length * FULL) / union), shared: shared.slice(0, MAX_SHARED) };
 }
@@ -235,8 +235,22 @@ function byRank(a: DetectionMatch, b: DetectionMatch): number {
   if (a.score !== b.score) {
     return b.score - a.score;
   }
-  const issues = a.issues.join(',').localeCompare(b.issues.join(','));
-  return issues === 0 ? a.objectives.join(',').localeCompare(b.objectives.join(',')) : issues;
+  const issues = ordinal(a.issues.join(','), b.issues.join(','));
+  return issues === 0 ? ordinal(a.objectives.join(','), b.objectives.join(',')) : issues;
+}
+
+/**
+ * Compare stable string keys by UTF-16 ordinal value, independent of host locale.
+ *
+ * @param left - First key.
+ * @param right - Second key.
+ * @returns Stable ordering.
+ */
+function ordinal(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? -1 : 1;
 }
 
 /**
@@ -259,14 +273,13 @@ export function detectDuplicates(input: {
   const reuse = reused
     .map((operation) => ({ identity: inertIdentity(operation.identity), issue: operation.issue ?? null }))
     .toSorted((a, b) => (a.issue ?? 0) - (b.issue ?? 0));
-  const reusedIssues = new Set(reused.map((operation) => operation.issue));
+  if (reuse.length > 0) {
+    return { matches: [], ambiguous: false, survivor: null, reuse };
+  }
 
   const matches: DetectionMatch[] = [];
   const issueNumbers = new Set(input.issues.map((issue) => issue.number));
   for (const issue of input.issues) {
-    if (reusedIssues.has(issue.number)) {
-      continue;
-    }
     const result = evaluate(input.request, issue);
     if (result.evidence.length === 0) {
       continue;

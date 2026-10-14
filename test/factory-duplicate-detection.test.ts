@@ -140,6 +140,61 @@ await test('objectives and dependencies provide related evidence', () => {
   assert.deepEqual(first(result).evidence[0], { dimension: 'dependencies', overlap: 1000, shared: ['4'] });
 });
 
+await test('exact operation reuse suppresses all competing matches, including an unknown target', () => {
+  for (const operation of [
+    { identity: 'create:abc', resolved: false, issue: 8 },
+    { identity: 'create:abc', resolved: false },
+  ]) {
+    const result = detectDuplicates({
+      request: { ...login, operationIdentity: 'create:abc' },
+      issues: [issue(8), issue(9)],
+      objectives: [{ ...login, id: 'competing-objective', issues: [9] }],
+      operations: [operation],
+    });
+    assert.deepEqual(result.reuse, [{ identity: 'create:abc', issue: operation.issue ?? null }]);
+    assert.deepEqual(result.matches, []);
+    assert.equal(result.survivor, null);
+    assert.equal(result.ambiguous, false);
+  }
+  const ordinary = detectDuplicates({
+    request: { ...login, operationIdentity: 'create:abc' },
+    issues: [issue(9)],
+    objectives: [],
+    operations: [
+      { identity: 'create:abc', resolved: true, issue: 9 },
+      { identity: 'unrelated', resolved: false, issue: 9 },
+    ],
+  });
+  assert.deepEqual(ordinary.reuse, []);
+  assert.equal(ordinary.survivor, 9);
+});
+
+await test('Unicode evidence and ranking use ordinal ordering without locale collation', (t) => {
+  t.mock.method(String.prototype, 'localeCompare', () => {
+    throw new Error('Classification must not consult host locale collation.');
+  });
+  const record = { ...login, body: 'ångström zebra äpple', components: ['ångström zebra äpple'] };
+  const result = detectDuplicates({
+    request: record,
+    issues: [issue(9, record), issue(8, record)],
+    objectives: [
+      { ...record, id: 'z-role', issues: [] },
+      { ...record, id: 'a-role', issues: [] },
+    ],
+    operations: [],
+  });
+  assert.deepEqual(
+    result.matches.map((match) => [match.issues, match.objectives]),
+    [
+      [[8], []],
+      [[9], []],
+      [[], ['a-role']],
+      [[], ['z-role']],
+    ],
+  );
+  assert.deepEqual(first(result).evidence[0]?.shared, ['zebra', 'äpple', 'ångström']);
+});
+
 await test('output is deterministic regardless of input order', () => {
   const issues = [issue(12), issue(11, { components: [] }), issue(13, { state: 'closed' })];
   assert.deepEqual(run(issues), run(issues.toReversed()));
