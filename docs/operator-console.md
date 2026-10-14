@@ -11,7 +11,7 @@ node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team
 node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
 ```
 
-The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, listed ahead of recent completions) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
+The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 

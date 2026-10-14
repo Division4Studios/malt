@@ -4,9 +4,8 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics } from './brand-ui.js';
+import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
-import { objectiveQueue } from './objective-queue.js';
 import { organizationPanel } from './organization-ui.js';
 import {
   artifactSelector,

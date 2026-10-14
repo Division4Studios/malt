@@ -15,6 +15,7 @@ import {
   hasFlag,
   resourceSummary,
 } from './api.js';
+import { QueueState } from './brand-ui.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { updateNavigation, bindNavigation } from './navigation.js';
 import {
@@ -25,7 +26,6 @@ import {
   githubConnectionDescription,
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
-import { QueueState } from './queue-state.js';
 import {
   ROLES,
   activityView,
