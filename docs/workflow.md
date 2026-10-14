@@ -157,6 +157,14 @@ After replacement, old idle approvals are revoked, pending requests are routed t
 - No lead, an offline lead, a network failure, or a timeout ever creates an idle grant.
 - A human stop instruction always overrides this collaboration routine.
 
+## Managed factory scheduling
+
+The managed factory offers verification, final integration and independent review before development or planning. Eligible development tasks are interleaved round-robin across objectives, ordered by feature creation time (stable input order for ties). Within an objective, repository insertion order preserves task creation order; later task updates do not move a task forward. Standalone deliveries and deliveries without a known feature follow known objectives in insertion order.
+
+The first development candidate is followed by queued product-owner planning and team-lead refinement, before the remaining development candidates. Each planning role is offered at most once per pass, so planning can compete for the second slot at the default cap of two. Development candidates prefer alternating available developer roles; alternative roles remain later in the list for transactional admission. Occupied roles and active feature planning claims stay excluded.
+
+This orders candidates only: transactional claims, resource/provider ceilings, original-developer rework ownership, completed-dependency gates, attempt limits, failure cooldowns and scope-replacement exclusions still apply. It adds no slots or preemption and does not estimate which tasks are cheap. Running work can occupy both slots until it finishes.
+
 ## What still requires a provider adapter
 
 This protocol is cooperative. It cannot force an agent that chooses to end its turn to reopen a tool, restart a killed CLI, or inject an unsolicited model turn. Managed provider sessions and their native resume/steering APIs are a separate layer. The persistent state and messages already provide the information such a layer would need.

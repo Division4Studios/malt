@@ -204,8 +204,13 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   };
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
+  const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
+  const development = interleaveDevelopment(input, intents.splice(developmentStart));
+  // One development candidate, then planning, leaves room at the default cap of two.
+  intents.push(...development.slice(0, 1));
   scheduleGroup4(input, live, intents, append);
+  intents.push(...development.slice(1));
 
   scheduleGroup5(input, live, intents, append);
   const learning = input.jobs.findLast((job) => job.kind === 'learn');
@@ -243,6 +248,54 @@ interface SchedulingState {
 }
 /** Append one dependency and role-gated delivery candidate. */
 type AppendIntent = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask) => void;
+
+/**
+ * Round-robin eligible tasks across objectives before offering alternative roles.
+ * Task insertion order is the repository's creation order; updatedAt is mutable.
+ *
+ * @param input - Durable feature creation order.
+ * @param candidates - Already gated development candidates.
+ * @returns Reordered candidates without changing their eligibility.
+ */
+function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]): JobIntent[] {
+  const features = input.features.toSorted((left, right) => left.createdAt - right.createdAt);
+  const ranks = new Map<string | null, number>(features.map((feature, index) => [feature.id, index]));
+  const groups = new Map<string | null, Map<string | null, JobIntent[]>>();
+  for (const intent of candidates) {
+    const tasks = groups.get(intent.featureId) ?? new Map<string | null, JobIntent[]>();
+    const roles = tasks.get(intent.taskId) ?? [];
+    roles.push(intent);
+    tasks.set(intent.taskId, roles);
+    groups.set(intent.featureId, tasks);
+  }
+  // Standalone or absent-feature deliveries retain insertion order after known features.
+  const queues = groups
+    .entries()
+    .toArray()
+    .toSorted(([left], [right]) => (ranks.get(left) ?? ranks.size) - (ranks.get(right) ?? ranks.size))
+    .map(([, tasks]) => tasks.values().toArray());
+  const primary: JobIntent[] = [];
+  const alternatives: JobIntent[] = [];
+  let previousRole: FactoryRole | undefined;
+  const rounds = Math.max(0, ...queues.map((queue) => queue.length));
+  for (let round = 0; round < rounds; round += 1) {
+    for (const queue of queues) {
+      const roles = queue[round];
+      if (roles === undefined) {
+        continue;
+      }
+      const lastRole = previousRole;
+      const preferred = roles.find((intent) => intent.role !== lastRole) ?? roles[0];
+      if (preferred === undefined) {
+        continue;
+      }
+      primary.push(preferred);
+      previousRole = preferred.role;
+      alternatives.push(...roles.filter((intent) => intent !== preferred));
+    }
+  }
+  return [...primary, ...alternatives];
+}
 
 /**
  * Schedule one independently bounded delivery or planning stage.
@@ -349,13 +402,18 @@ function scheduleGroup4(
   intents: JobIntent[],
   _append: AppendIntent,
 ): void {
-  const candidates = input.features.filter(
-    (candidate) =>
-      candidate.scopeReplacement === undefined && (candidate.phase === 'queued' || candidate.phase === 'refining'),
-  );
+  const candidates = input.features
+    .toSorted((left, right) => left.createdAt - right.createdAt)
+    .filter(
+      (candidate) =>
+        candidate.scopeReplacement === undefined && (candidate.phase === 'queued' || candidate.phase === 'refining'),
+    );
   for (const feature of candidates) {
     const role = feature.productPlan === null ? 'product-owner' : 'team-lead';
-    if (live.every((job) => !(job.role === role || job.featureId === feature.id))) {
+    if (
+      live.every((job) => !(job.role === role || job.featureId === feature.id)) &&
+      intents.every((intent) => intent.role !== role)
+    ) {
       intents.push({
         role,
         kind: feature.productPlan === null ? 'plan' : 'refine',
