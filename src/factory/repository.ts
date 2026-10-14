@@ -15,6 +15,7 @@ import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
 import { InstructionLedger } from './instructions.ts';
+import { windowFreshness } from './quota-windows.ts';
 import {
   LEASE_MS,
   isTokenCapExceeded,
@@ -500,6 +501,7 @@ export class FactoryRepository {
             cooldownUntil: 0,
             subscriptionUsedPercent: null,
             subscriptionResetAt: null,
+            subscriptionWindows: [],
             telemetrySource: null,
             updatedAt: now,
           }
@@ -514,6 +516,12 @@ export class FactoryRepository {
     const nextReset = current.resetAt + (Math.floor((now - current.resetAt) / windowMs) + 1) * windowMs;
     return {
       ...current,
+      subscriptionWindows: (current.subscriptionWindows ?? []).map((window) => {
+        return {
+          ...window,
+          freshness: windowFreshness(window, now),
+        };
+      }),
       usedTokens: current.resetAt <= now ? 0 : current.usedTokens,
       resetAt: current.resetAt <= now ? nextReset : current.resetAt,
       subscriptionUsedPercent:
