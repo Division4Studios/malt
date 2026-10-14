@@ -6,15 +6,15 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { quotaReadingSchema } from './quota-windows.ts';
+import { quotaObservationSchema, QUOTA_REFRESH_MS } from './quota-windows.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryContext } from './context.ts';
 import type { ProcessRunner } from './processes.ts';
-import type { QuotaReading } from './quota-windows.ts';
+import type { QuotaObservation } from './quota-windows.ts';
 
 /** Reuse one authenticated CLI observation across projects for five minutes. */
-export const QUOTA_REFRESH_MS = 300_000;
+export { QUOTA_REFRESH_MS } from './quota-windows.ts';
 /** Strict account-only diagnostic deadline. */
 const TIMEOUT_MS = 15_000;
 /** Bound executable cache variants; no live entry is discarded. */
@@ -28,7 +28,9 @@ const PROCESS_LIMIT = 8;
 /** Reached default account quota. */
 const FULL_PERCENT = 100;
 /** Native account requests, never model jobs. */
-const cache = new Map<string, { expires: number; result: Promise<QuotaReading | null> }>();
+const cache = new Map<string, { expires: number; result: Promise<QuotaObservation | null> }>();
+/** Only metadata and persistence dependencies are needed for observation. */
+type QuotaContext = Pick<FactoryContext, 'mesh' | 'repository' | 'settings' | 'processes'>;
 
 /**
  * Read supported Codex account limits under the existing owned-process runner.
@@ -41,7 +43,7 @@ export async function codexQuota(input: {
   executable: string;
   processes: ProcessRunner;
   signal: AbortSignal;
-}): Promise<QuotaReading | null> {
+}): Promise<QuotaObservation | null> {
   const previous = cache.get(input.executable);
   if (previous !== undefined && previous.expires > Date.now()) {
     return previous.result;
@@ -63,14 +65,14 @@ export async function codexQuota(input: {
  * Launch one metadata-only helper with the same descendant cleanup as jobs.
  *
  * @param input - Project-local diagnostics and native executable.
- * @returns Validated scalar telemetry without raw account information.
+ * @returns Validated window telemetry without raw account information.
  */
 async function probe(input: {
   mesh: MeshConfig;
   executable: string;
   processes: ProcessRunner;
   signal: AbortSignal;
-}): Promise<QuotaReading | null> {
+}): Promise<QuotaObservation | null> {
   const result = await input.processes({
     file: process.execPath,
     args: [path.join(import.meta.dirname, 'codex-quota-probe.ts'), input.executable],
@@ -88,7 +90,7 @@ async function probe(input: {
     return null;
   }
   try {
-    return quotaReadingSchema.parse(JSON.parse(result.stdout.trim()));
+    return quotaObservationSchema.parse(JSON.parse(result.stdout.trim()));
   } catch {
     return null;
   }
@@ -111,7 +113,7 @@ export class QuotaObserver {
    *
    * @param context - Verified project state and native executable.
    */
-  public async observe(context: FactoryContext): Promise<void> {
+  public async observe(context: QuotaContext): Promise<void> {
     const now = context.repository.store.now();
     if (!context.settings.providers.codex.enabled || now < this.nextAt) {
       return;
@@ -127,12 +129,12 @@ export class QuotaObserver {
   }
 
   /**
-   * Store only scalar verified account data; raw credentials never enter memory.
+   * Store only verified normalized account data, preserving observation time.
    *
    * @param context - Selected project ledger.
    * @param controller - Owned stop boundary.
    */
-  private async collect(context: FactoryContext, controller: AbortController): Promise<void> {
+  private async collect(context: QuotaContext, controller: AbortController): Promise<void> {
     const reading = await codexQuota({
       mesh: context.mesh,
       executable: context.settings.providers.codex.executable,
@@ -148,6 +150,7 @@ export class QuotaObserver {
       subscriptionUsedPercent: reading?.usedPercent ?? null,
       subscriptionResetAt: reading?.resetAt ?? null,
       telemetrySource: reading === null ? null : 'codex-app-server',
+      subscriptionWindows: reading?.windows ?? [],
       cooldownUntil:
         reading?.usedPercent === FULL_PERCENT
           ? Math.max(prior.cooldownUntil, reading.resetAt ?? this.nextAt)
