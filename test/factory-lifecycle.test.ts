@@ -173,6 +173,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       );
     },
   };
+  const lifecycle: { factory: FactoryService | null } = { factory: null };
   const agent = async (request: AgentRequest): Promise<AgentCompletion> => {
     stages.push(request.job.kind);
     assert.ok(request.prompt.includes('factory-session'));
@@ -205,6 +206,16 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     }
     if (!isReturned && request.job.role === 'qa-1') {
       isReturned = true;
+      const currentFactory = lifecycle.factory;
+      assert.ok(currentFactory !== null);
+      const stagesBeforeDrain = stages.length;
+      currentFactory.repository.setActive(false);
+      now += 31_000;
+      await currentFactory.tick();
+      const liveClaim = currentFactory.repository.jobs().find((job) => job.id === request.job.id);
+      assert.ok(liveClaim !== undefined && liveClaim.expiresAt > now, 'Draining must renew owned review claims.');
+      assert.equal(stages.length, stagesBeforeDrain, 'Draining must not dispatch another model assignment.');
+      currentFactory.repository.setActive(true);
       return completion({
         ...success,
         outcome: 'changes_requested',
@@ -225,6 +236,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
     },
   );
+  lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
@@ -312,4 +324,10 @@ await test('provider choice respects measured cooldown and unknown quota; termin
   ];
   assert.equal(chooseProvider({ config, capacities, jobs: [], now: 100 }), 'claude');
   assert.equal(safeText('hello\u{1B}[2J\u{1B}]0;malicious title\u{7}world'), 'helloworld');
+  assert.equal(
+    safeText('before\u{1B}]8;;https://example.invalid\u{1B}\\label\u{1B}]8;;\u{1B}\\after'),
+    'beforelabelafter',
+  );
+  assert.equal(safeText('safe\u{1B}]0;unfinished title'), 'safe');
+  assert.equal(safeText('before\u{9D}0;title\u{9C}after'), 'beforeafter');
 });

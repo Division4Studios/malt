@@ -17,6 +17,7 @@ import { retireManagedPresence } from './controls.ts';
 import { InstructionLedger } from './instructions.ts';
 import {
   LEASE_MS,
+  isTokenCapExceeded,
   capacitySchema,
   effectSchema,
   factoryConfigSchema,
@@ -563,7 +564,7 @@ export class FactoryRepository {
         !limits.enabled ||
         capacity.subscriptionUsedPercent === PERCENT_MAX ||
         capacity.cooldownUntil > this.store.now() ||
-        capacity.usedTokens + capacity.reservedTokens + record.reservation > limits.budgetTokens ||
+        isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + record.reservation) ||
         live.filter((candidate) => candidate.provider === record.provider).length >= limits.concurrency
       ) {
         return false;
