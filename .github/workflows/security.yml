@@ -1,0 +1,82 @@
+name: Security
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: Secret history scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify and run pinned Gitleaks
+        env:
+          VERSION: 8.30.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}"
+          curl --fail --silent --show-error --location "$base/gitleaks_${VERSION}_linux_x64.tar.gz" -o "$work/gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location "$base/gitleaks_${VERSION}_checksums.txt" -o "$work/checksums.txt"
+          (cd "$work" && grep " gitleaks_${VERSION}_linux_x64.tar.gz$" checksums.txt | sha256sum --check --strict)
+          tar -xzf "$work/gitleaks_${VERSION}_linux_x64.tar.gz" -C "$work" gitleaks
+          "$work/gitleaks" git --no-banner --redact=100 --log-opts=--all --config .gitleaks.toml .
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm audit --audit-level=low
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low
+  security-gate:
+    name: Security gate
+    if: always()
+    needs: [secrets, dependencies, dependency-review]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require security evidence
+        env:
+          SECRETS: ${{ needs.secrets.result }}
+          DEPENDENCIES: ${{ needs.dependencies.result }}
+          REVIEW: ${{ needs.dependency-review.result }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          test "$SECRETS" = success && test "$DEPENDENCIES" = success
+          if [ "$EVENT" = pull_request ]; then test "$REVIEW" = success; else test "$REVIEW" = skipped; fi

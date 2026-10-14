@@ -1,0 +1,11 @@
+title = "MALT public source secret policy"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Exact deterministic redaction-test fixture, never a deployed credential"
+condition = "AND"
+paths = ['''(^|/)test/secrets\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef0123456789abcdef$''']
