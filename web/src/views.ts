@@ -8,6 +8,7 @@ import { overviewMetrics, dispatchPanel, objectiveQueue } from './brand-ui.js';
 import { appendQuotaWindows, appendProcessUsage } from './capacity-details.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
+import { triagePanel } from './triage-ui.js';
 import {
   artifactSelector,
   element,
@@ -19,6 +20,7 @@ import {
 } from './worker-ui.js';
 
 import type { Data, Snapshot } from './api.js';
+import type { TriageAction } from './triage-ui.js';
 /** Percentage width limit for verified subscription telemetry. */
 const PERCENT_MAX = 100;
 /** Keep diagnostic token counts distinct from provider billing. */
@@ -45,6 +47,8 @@ export const ROLES = [
 ] as const;
 /** Operator actions are routed by the controller, never run by a view. */
 export interface Actions {
+  /** Decide against one exact delivery revision. */
+  readonly triage: (task: Data, action: TriageAction) => void;
   /** Edit reusable types and the backend-validated reporting hierarchy. */
   readonly organization: () => void;
   /** Human-authorized handoff to a separate MALT source-project factory. */
@@ -385,7 +389,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
     panel('Latest handoffs', 'COMMITTED EVENTS', activityView(state, true)),
   );
   grid.append(left, right);
-  node.append(metrics, grid);
+  node.append(metrics, triagePanel(state, actions), grid);
   return node;
 }
 

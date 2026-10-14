@@ -29,6 +29,7 @@ import {
   githubConnectionDescription,
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
+import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
   activityView,
@@ -41,7 +42,7 @@ import {
   teamView,
   workerView,
 } from './views.js';
-import { isWorkerArtifact, isInstallEvent, restoredRoles } from './worker-ui.js';
+import { isWorkerArtifact, isInstallEvent, restoredRoles, persistRoles } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
 import type { Snapshot, Data } from './api.js';
@@ -189,6 +190,7 @@ function editor(
   evidence.textContent = description.evidence ?? '';
   evidence.hidden = description.evidence === undefined;
   node('editor-body', HTMLTextAreaElement).value = description.initial;
+  node('editor-error', HTMLParagraphElement).textContent = '';
   node('editor', HTMLDialogElement).showModal();
 }
 
@@ -219,6 +221,10 @@ async function control(operation: string, input: unknown): Promise<void> {
 }
 /** Role and ticket interactions feed the durable server control path. */
 const actions: Actions = {
+  triage: (task, action) => {
+    const dialog = triageDialog(task, action);
+    editor(dialog.description, dialog.action);
+  },
   organization: () => {
     const dialog = organizationDialog(child(state.current?.factory ?? {}, 'settings'));
     editor(dialog.description, dialog.action);
@@ -242,11 +248,7 @@ const actions: Actions = {
   },
   inspect: (role) => {
     state.panes = [role, ...state.panes.filter((item) => item !== role)].slice(0, MAX_PANES);
-    try {
-      localStorage.setItem(layoutKey, JSON.stringify(state.panes));
-    } catch {
-      /* Persistence is optional for layout. */
-    }
+    persistRoles(layoutKey, state.panes);
     state.view = 'workers';
     render();
     void readLogs();
@@ -616,7 +618,8 @@ async function start(): Promise<void> {
       node('editor', HTMLDialogElement).close();
       void control(operation, input);
     } catch (error) {
-      notice(error instanceof Error ? error.message : 'Invalid control input.');
+      node('editor-error', HTMLParagraphElement).textContent =
+        error instanceof Error ? error.message : 'Invalid control input.';
     }
   });
   node('project', HTMLSelectElement).addEventListener('change', () => {
