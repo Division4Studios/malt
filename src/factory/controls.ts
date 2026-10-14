@@ -98,7 +98,9 @@ export function shouldParkForMemory(
         reason: 'Critical free-memory pressure; owned processes are stopping and work is preserved.',
       });
     });
-    assignment.controller.abort();
+    assignment.controller.abort(
+      new Error('Critical free-memory pressure; owned processes are stopping and work is preserved.'),
+    );
   }
   return true;
 }
@@ -143,7 +145,9 @@ export function recoverUnownedClaims(repository: FactoryRepository, owned: Reado
   const stale = repository.jobs().filter((job) => job.state === 'running' && !owned.has(job.id));
   repository.prepareSender();
   for (const job of stale) {
-    repository.finishJob(job, null, 'interrupted');
+    repository.finishJob(job, null, 'interrupted', {
+      reason: 'Recovered after supervisor restart; the previous process outcome was not observed.',
+    });
   }
 }
 
