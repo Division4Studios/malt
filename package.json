@@ -1,6 +1,14 @@
 {
   "name": "malt",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Division4Studios/malt.git"
+  },
+  "homepage": "https://github.com/Division4Studios/malt/wiki",
+  "bugs": "https://github.com/Division4Studios/malt/issues",
+  "funding": "https://github.com/sponsors/Division4Studios",
   "description": "Local, durable coordination for independent coding agents (pure TypeScript on Node.js 24)",
   "type": "module",
   "private": true,
@@ -19,7 +27,7 @@
     "lint:fix": "eslint --flag unstable_native_nodejs_ts_config --max-warnings 0 --fix .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test \"test/**/*.test.ts\"",
+    "test": "node --test --test-concurrency=2 \"test/**/*.test.ts\"",
     "test:docker": "node scripts/smoke-docker.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run build:web && npm test"
   },
