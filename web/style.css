@@ -1324,3 +1324,16 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
   border-radius: 8px;
   font: inherit;
 }
+
+.objective-group,
+.objective-completed {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.objective-group > h3,
+.objective-completed > summary {
+  padding: 12px 18px;
+}
+.objective-completed > summary {
+  cursor: pointer;
+}

@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { objectivePreview } from '../web/dist/brand-ui.js';
+import { objectiveGroups } from '../web/dist/brand-ui.js';
 
 /**
  * Build numbered objectives with one phase.
@@ -32,18 +32,39 @@ function ids(list: Record<string, unknown>[]): unknown[] {
   return list.map((item) => item['id']);
 }
 
-void test('older pending objectives stay ahead of the last completed ones', () => {
-  const list = [...objectives('d', 8, 'done'), ...objectives('p', 9, 'active')];
-  const result = ids(objectivePreview(list, 4));
-  assert.deepEqual(result.slice(0, 9), ['p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8']);
-  assert.deepEqual(result.slice(9), ['d4', 'd5', 'd6', 'd7']);
+void test('all 60 unfinished and 20 completed objectives appear once in truthful phase groups', () => {
+  const list = [
+    ...objectives('q', 10, 'queued'),
+    ...objectives('r', 10, 'refining'),
+    ...objectives('p', 10, 'provisioning'),
+    ...objectives('a', 20, 'active'),
+    ...objectives('b', 10, 'blocked'),
+    ...objectives('d', 20, 'done'),
+    { id: 'old', phase: 'blocked', scopeReplacement: 'new' },
+  ];
+  const groups = objectiveGroups(list);
+  assert.deepEqual(
+    groups.map((group) => [group.title, group.items.length]),
+    [
+      ['Queued', 10],
+      ['In progress', 40],
+      ['Needs attention', 10],
+      ['Completed', 20],
+      ['Scope replaced (superseded)', 1],
+    ],
+  );
+  const visible = groups.flatMap((group) => ids(group.items));
+  const unique = new Set(visible);
+  assert.equal(unique.size, list.length);
+  assert.deepEqual(new Set(visible), new Set(ids(list)));
+  assert.deepEqual(ids(groups[2]?.items ?? []), ids(objectives('b', 10, 'blocked')));
+  assert.deepEqual(ids(groups[3]?.items ?? []), ids(objectives('d', 20, 'done')));
 });
 
-void test('pending objectives are bounded to fifty', () => {
-  assert.equal(objectivePreview(objectives('p', 100, 'queued'), 4).length, 50);
-});
-
-void test('scope-replaced objectives are not pending', () => {
-  const list = [{ id: 'old', phase: 'blocked', scopeReplacement: { by: 'x' } }, ...objectives('p', 1, 'active')];
-  assert.deepEqual(ids(objectivePreview(list, 4)), ['p0']);
+void test('empty phase groups have zero counts and replacement wins over completed phase', () => {
+  const groups = objectiveGroups([{ id: 'old', phase: 'done', scopeReplacement: 'new' }]);
+  assert.deepEqual(
+    groups.map((group) => group.items.length),
+    [0, 0, 0, 0, 1],
+  );
 });
