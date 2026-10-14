@@ -3,7 +3,8 @@
  *
  * @file
  */
-import { readFileSync, statSync } from 'node:fs';
+import { Buffer } from 'node:buffer';
+import { closeSync, openSync, readSync } from 'node:fs';
 import path from 'node:path';
 
 import { z } from 'zod';
@@ -75,12 +76,19 @@ export function ownedProcessUsage(jobs: readonly FactoryJob[], now = Date.now())
  */
 function readSample(job: FactoryJob, now: number): OwnedUsage['sample'] {
   const file = path.join(job.artifact, 'resources.json');
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed diagnostic file under the backend-owned assignment root.
-  if (statSync(file).size > MAX_BYTES) {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Open only the fixed diagnostic artifact in this backend-owned attempt directory.
+  const descriptor = openSync(file, 'r');
+  const bytes = Buffer.alloc(MAX_BYTES + 1);
+  let length: number;
+  try {
+    length = readSync(descriptor, bytes, 0, bytes.length, 0);
+  } finally {
+    closeSync(descriptor);
+  }
+  if (length > MAX_BYTES) {
     return null;
   }
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed bounded diagnostic file, never a browser-selected path.
-  const parsed = sampleSchema.safeParse(JSON.parse(readFileSync(file, 'utf8')));
+  const parsed = sampleSchema.safeParse(JSON.parse(bytes.toString('utf8', 0, length)));
   return parsed.success && parsed.data.sampledAt <= now && now - parsed.data.sampledAt <= MAX_AGE_MS
     ? parsed.data
     : null;
