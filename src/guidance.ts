@@ -12,9 +12,9 @@ import { hasErrorCode } from './errors.ts';
 import { writeAtomic } from './summary.ts';
 
 /** Opening marker for provider discovery instructions. */
-const BEGIN = '<!-- mlt:project-context:start -->';
+const BEGIN = '<!-- malt:project-context:start -->';
 /** Closing marker; content outside the pair belongs to the project. */
-const END = '<!-- mlt:project-context:end -->';
+const END = '<!-- malt:project-context:end -->';
 /** Shared provider instructions; source snapshots never become instructions. */
 const BLOCK = [
   BEGIN,
@@ -55,6 +55,35 @@ const BLOCK = [
 ].join('\n');
 
 /**
+ * Identify one complete delimiter pair without interpreting inline examples.
+ *
+ * @param previous - User-authored instructions and any existing managed block.
+ * @param name - Provider file name for actionable errors.
+ * @returns Exact replaceable range, or null when no standalone markers exist.
+ * @throws {Error} When marker ownership is ambiguous or incomplete.
+ */
+function managedRange(previous: string, name: string): { start: number; end: number } | null {
+  const markers = previous
+    .matchAll(/^<!-- (?<family>malt|mlt):project-context:(?<edge>end|start) -->\r?$/gmv)
+    .toArray();
+  if (markers.length === 0) {
+    return null;
+  }
+  const [start, end, ...extra] = markers;
+  if (
+    start === undefined ||
+    end === undefined ||
+    extra.length > 0 ||
+    start.groups?.['edge'] !== 'start' ||
+    end.groups?.['edge'] !== 'end' ||
+    start.groups['family'] !== end.groups['family']
+  ) {
+    throw new Error(`Malformed MALT context markers in ${name}; repair the block before setup.`);
+  }
+  return { start: start.index, end: end.index + end[0].length };
+}
+
+/**
  * Append or refresh a managed block without rewriting project instructions.
  *
  * @param root - Accessible project root.
@@ -72,17 +101,12 @@ export function ensureProjectGuidance(root: string): void {
         throw error;
       }
     }
-    const start = previous.indexOf(BEGIN);
-    const end = previous.indexOf(END);
-    const hasStart = start !== -1;
-    const hasEnd = end !== -1;
-    if (hasStart !== hasEnd || (hasStart && end < start)) {
-      throw new Error(`Malformed MALT context markers in ${name}; repair the block before setup.`);
-    }
+    const range = managedRange(previous, name);
     const separator = previous === '' ? '' : '\n\n';
-    const updated = hasStart
-      ? `${previous.slice(0, start)}${BLOCK}${previous.slice(end + END.length)}`
-      : `${previous}${separator}${BLOCK}\n`;
+    const updated =
+      range === null
+        ? `${previous}${separator}${BLOCK}\n`
+        : `${previous.slice(0, range.start)}${BLOCK}${previous.slice(range.end)}`;
     if (updated !== previous) {
       writeAtomic(file, updated);
     }
