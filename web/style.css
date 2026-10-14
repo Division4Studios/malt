@@ -1309,3 +1309,18 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
     transition: none;
   }
 }
+
+.connection-fields {
+  display: grid;
+  gap: 10px;
+}
+.connection-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
