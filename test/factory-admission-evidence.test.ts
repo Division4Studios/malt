@@ -254,6 +254,23 @@ await test('provider categories distinguish caps, cooldowns and unavailable fami
   assert.equal(admissionBlocker(policy, idle, 4, { codex: null, claude: null }), 'job_cap');
 });
 
+await test('admission evidence ignores uncapped diagnostic usage and retains explicit token caps', (t) => {
+  const { repository } = ledger(createCleanup(t));
+  const pool = new AdmissionPool();
+  repository.saveCapacity({ ...repository.capacity('codex', policy), usedTokens: 10_000_000 });
+  const uncapped = admissionEvidence(repository, pool, idle, new Map());
+  assert.equal(uncapped.blocker, 'none');
+  assert.equal(uncapped.providers?.codex, null);
+  const capped = factoryConfigSchema.parse({
+    ...policy,
+    providers: { ...policy.providers, codex: { ...policy.providers.codex, budgetTokens: 1000 } },
+  });
+  repository.configure(capped);
+  const limited = admissionEvidence(repository, pool, idle, new Map());
+  assert.equal(limited.blocker, 'provider_unavailable');
+  assert.equal(limited.providers?.codex, 'budget');
+});
+
 await test('admission evidence leaves durable accounting and shared telemetry unchanged', (t) => {
   const { repository } = ledger(createCleanup(t));
   const pool = new AdmissionPool();

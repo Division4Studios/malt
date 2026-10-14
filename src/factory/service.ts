@@ -213,7 +213,7 @@ export class FactoryService {
 
   /** Heartbeat remains independent of slow network calls and paid turns. */
   public async tick(): Promise<void> {
-    if (this.stopped || !this.repository.active()) {
+    if (this.stopped || (!this.repository.active() && this.running.size === 0)) {
       return;
     }
     if (!this.repository.lease(this.owner)) {
@@ -234,7 +234,7 @@ export class FactoryService {
     for (const job of candidates1) {
       this.repository.saveJob({ ...job, expiresAt: this.repository.store.now() + LEASE_MS });
     }
-    if (this.driving !== null) {
+    if (!this.repository.active() || this.driving !== null) {
       return;
     }
     this.driving = this.driveSafely();

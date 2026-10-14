@@ -8,7 +8,7 @@
 
 import { MeshError } from '../protocol.ts';
 
-import { PROVIDERS } from './schema.ts';
+import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
   AgentResult,
@@ -154,11 +154,11 @@ function providerState(
   if (active >= limits.concurrency) {
     return { blocker: 'concurrency' };
   }
-  if (capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens > limits.budgetTokens) {
+  if (isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)) {
     return { blocker: 'budget' };
   }
   const utilization = Math.max(
-    (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
+    limits.budgetTokens === null ? 0 : (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
     (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
   );
   return { blocker: null, utilization, active };

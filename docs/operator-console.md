@@ -11,6 +11,8 @@ node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team
 node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
 ```
 
+The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, listed ahead of recent completions) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
+
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
 ## Private state and Git
@@ -47,7 +49,7 @@ CLI: `factory-export-maintenance --file export.json` with `{ "requestId": "<appr
 
 ## Resource admission and cancellation
 
-Managed pipelines share machine and provider concurrency admission across all projects in the broker process. A larger project policy cannot override a stricter live project's ceiling. Provider cooldowns and reported native quota observations are shared conservatively; absent or expired quota telemetry is unknown. Scheduling token budgets remain project policies, not subscription entitlements. This design assumes one subscription account per provider family in a broker; run separate explicitly configured brokers for distinct accounts, with OS-level resource ceilings appropriate to the whole machine.
+Managed pipelines share machine and provider concurrency admission across all projects in the broker process. A larger project policy cannot override a stricter live project's ceiling. Provider cooldowns and reported native quota observations are shared conservatively; absent or expired quota telemetry is unknown. Subscription-only scheduling defaults to `budgetTokens: null`: reported token counts are diagnostic, do not use API credits and do not block dispatch. A positive numeric token cap is optional project policy, not a subscription entitlement. Previously persisted numeric values remain in force until changed; saved settings are not migrated. Observed subscription usage at 100% and active cooldowns still block dispatch, alongside concurrency and local resource ceilings. This design assumes one subscription account per provider family in a broker; run separate explicitly configured brokers for distinct accounts, with OS-level resource ceilings appropriate to the whole machine.
 
 Before eligible native work, Codex quota can be read through the supported `account/rateLimits/read` interface. A short-lived owned helper performs only initialization and that readonly account request; it never starts a thread or model turn, consumes a reset credit, or sends a billing notification. The default account bucket is shared across projects for five minutes. Model-specific bucket mappings are not guessed. Claude stream telemetry supports both legacy utilization and current unified quota windows. Expired or unavailable observations remain unknown; scheduling budgets are separate. No quota helper runs merely because roles are idle. See the [official Codex app-server account reference](https://learn.chatgpt.com/docs/app-server).
 
