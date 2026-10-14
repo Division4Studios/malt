@@ -114,42 +114,81 @@ export function validatePlan(result: AgentResult): void {
   }
 }
 
+/** Provider admission inputs shared by dispatch and read-only evidence. */
+export interface ProviderInput {
+  /** Effective broker-wide policy. */
+  readonly config: FactoryConfig;
+  /** Broker-shared capacity snapshots. */
+  readonly capacities: readonly Capacity[];
+  /** Live broker-wide attempts. */
+  readonly jobs: readonly FactoryJob[];
+  /** Current supervisor clock. */
+  readonly now: number;
+}
+/** Why one provider cannot admit another assignment. */
+export type ProviderBlocker = 'disabled' | 'cooldown' | 'subscription' | 'concurrency' | 'budget';
+
+/**
+ * Evaluate one provider with the exact conditions dispatch applies.
+ *
+ * @param provider - Provider family.
+ * @param input - Capacity snapshots, settings and live attempts.
+ * @returns Blocker, or utilization ordering evidence when admissible.
+ */
+function providerState(
+  provider: Provider,
+  input: ProviderInput,
+): { blocker: ProviderBlocker } | { blocker: null; utilization: number; active: number } {
+  const limits = input.config.providers[provider];
+  const capacity = input.capacities.find((candidate) => candidate.provider === provider);
+  if (capacity === undefined || !limits.enabled) {
+    return { blocker: 'disabled' };
+  }
+  if (capacity.cooldownUntil > input.now) {
+    return { blocker: 'cooldown' };
+  }
+  if (capacity.subscriptionUsedPercent === PERCENT_MAX) {
+    return { blocker: 'subscription' };
+  }
+  const active = input.jobs.filter((job) => job.state === 'running' && job.provider === provider).length;
+  if (active >= limits.concurrency) {
+    return { blocker: 'concurrency' };
+  }
+  if (
+    isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)
+  ) {
+    return { blocker: 'budget' };
+  }
+  const utilization = Math.max(
+    limits.budgetTokens === null ? 0 : (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
+    (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
+  );
+  return { blocker: null, utilization, active };
+}
+
+/**
+ * Explain each provider's admission state without selecting or claiming.
+ *
+ * @param input - Capacity snapshots, settings and live attempts.
+ * @returns Per-provider blocker, null when it could admit another assignment.
+ */
+export function providerBlockers(input: ProviderInput): Record<Provider, ProviderBlocker | null> {
+  return {
+    codex: providerState('codex', input).blocker,
+    claude: providerState('claude', input).blocker,
+  };
+}
+
 /**
  * Select a provider by normalized utilization while respecting cooldown and caps.
  *
  * @param input - Capacity snapshots, settings and live attempts.
  * @returns Provider choice, absent when neither can admit another assignment.
  */
-export function chooseProvider(input: {
-  config: FactoryConfig;
-  capacities: readonly Capacity[];
-  jobs: readonly FactoryJob[];
-  now: number;
-}): Provider | null {
-  const live = input.jobs.filter((job) => job.state === 'running');
+export function chooseProvider(input: ProviderInput): Provider | null {
   const choices = PROVIDERS.map((provider) => {
-    const limits = input.config.providers[provider];
-    const capacity = input.capacities.find((candidate) => candidate.provider === provider);
-    if (
-      capacity === undefined ||
-      !limits.enabled ||
-      capacity.cooldownUntil > input.now ||
-      capacity.subscriptionUsedPercent === PERCENT_MAX
-    ) {
-      return null;
-    }
-    const active = live.filter((job) => job.provider === provider).length;
-    if (
-      active >= limits.concurrency ||
-      isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)
-    ) {
-      return null;
-    }
-    const utilization = Math.max(
-      limits.budgetTokens === null ? 0 : (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
-      (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
-    );
-    return { provider, utilization, active };
+    const state = providerState(provider, input);
+    return state.blocker === null ? { provider, utilization: state.utilization, active: state.active } : null;
   })
     .filter((choice) => choice !== null)
     .toSorted((left, right) => {

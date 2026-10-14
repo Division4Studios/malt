@@ -82,6 +82,7 @@ export class FactoryRepository {
     this.store = store;
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_source_views (job_id TEXT PRIMARY KEY REFERENCES factory_jobs(id), head TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_operator_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_features (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -485,9 +486,10 @@ export class FactoryRepository {
    *
    * @param provider - Provider family.
    * @param config - Current project settings.
+   * @param shouldInitialize - Persist missing accounting; false for read-only status.
    * @returns Normalized, reset-aware accounting.
    */
-  public capacity(provider: Provider, config: FactoryConfig): Capacity {
+  public capacity(provider: Provider, config: FactoryConfig, shouldInitialize = true): Capacity {
     const now = this.store.now();
     const row = selectOne(this.store.db, payloadSchema, 'SELECT data FROM factory_capacity WHERE provider=?', provider);
     const current =
@@ -505,7 +507,7 @@ export class FactoryRepository {
             updatedAt: now,
           }
         : capacitySchema.parse(JSON.parse(row.data));
-    if (row === undefined) {
+    if (row === undefined && shouldInitialize) {
       this.store.transaction(() => {
         run(this.store.db, 'INSERT OR IGNORE INTO factory_capacity VALUES(?,?)', provider, JSON.stringify(current));
       });
