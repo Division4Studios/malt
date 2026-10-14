@@ -107,6 +107,9 @@ const invalidProjectUrl =
  * @throws {Error} For invalid host, path, credentials or field selection.
  */
 export function githubConnectionInput(repository: string, projectUrl: string, statusFieldName: string): Data {
+  if (!/^https:\/\/github\.com\//iv.test(projectUrl.trim())) {
+    throw new Error(invalidProjectUrl);
+  }
   const repositoryName = repository.trim();
   const field = statusFieldName.trim();
   let url: URL;
