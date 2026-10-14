@@ -50,6 +50,8 @@ Read protocol.ts first to see the public operations, then coordination.ts for th
 
 Node.js 24 runs the TypeScript sources directly (type stripping), which keeps the toolchain free of build steps and native modules across operating systems. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; schema 3 adds the `agents.lifetime` column (existing identities become durable). Startup performs these additive migrations inside a transaction. Unknown schema versions are rejected.
 
+Factory initialization also expands `factory_tasks` and `factory_effects` transactionally with nullable `tracker_provider` and `external_key` columns. Existing rows receive `github` and the numeric issue rendered as text; repeated initialization preserves populated keys and legacy payloads. New task and effect inserts write both representations. Numeric issue readers, task uniqueness and effect operation identities remain unchanged. This is only the expand step: Jira writes, typed-key readers and removal of numeric columns are deferred. Legacy readers remain compatible; older positional `INSERT ... VALUES` writers must be upgraded before writing to the expanded tables.
+
 ## Transactions and wait delivery
 
 Store.execute wraps mutations in BEGIN IMMEDIATE/COMMIT. Coordination methods run inside that transaction, so a message and idle revocation are indivisible, as are a lead decision and resolution of its request notification. A decision checks the current request ID and phase before changing anything.
