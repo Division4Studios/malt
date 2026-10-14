@@ -37,6 +37,46 @@ The CLI equivalent is `node src/cli.ts factory-skill-decide --project <folder> -
 
 Set `providers.codex.models` or `providers.claude.models` with account-available native model identifiers under `small`, `standard` and `advanced`. Before process launch, routing records the selected tier, model and rationale. Clearly simple scopes or a justified lead recommendation can use a small profile; a short description alone cannot. Rework, security, complex animation/domain work and integration/adoption review use a higher capability floor. Unconfigured profiles explicitly retain an unverified CLI default. Routing never claims to expand subscription quotas.
 
+### Project model and effort policy
+
+Without a saved policy, a project uses **legacy implicit routing**: tiers map to the provider `models` above, otherwise to the authenticated CLI default, and effort is the CLI default with unknown support. `factory_status` reports this as `modelPolicy.mode: "legacy"`.
+
+An explicit policy is a separate, revisioned project setting saved with `factory-model-policy --file policy.json` (RPC `factory_model_policy`):
+
+```json
+{
+  "expectedRevision": "<modelPolicy.revision from factory-status>",
+  "policy": {
+    "models": [
+      {
+        "id": "codex-fast",
+        "provider": "codex",
+        "model": "gpt-fast",
+        "capability": "small",
+        "efforts": ["low", "medium"]
+      },
+      {
+        "id": "claude-deep",
+        "provider": "claude",
+        "model": "claude-opus-5-5",
+        "capability": "advanced",
+        "efforts": ["high"]
+      }
+    ],
+    "defaults": {
+      "small": { "model": "codex-fast", "effort": "low" },
+      "advanced": { "model": "claude-deep", "effort": "high" }
+    }
+  }
+}
+```
+
+Each entry needs a unique `id`, a unique provider/native `model` pair, an explicit `capability` classification (model names never imply capability), `enabled` (default `true`) and distinct `efforts` from `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. An empty `efforts` list means only the provider default effort. Tier `defaults` must reference an enabled entry classified at or above that tier, using one of its efforts, or `null` only when it lists none. At least one default is required. Invalid, duplicate or contradictory documents are rejected whole and nothing is saved. Send `"policy": null` to restore legacy routing.
+
+Updates require a paused factory with no live or unsettled managed claims, and the exact current revision. Every save issues a new random revision; a stale revision, or one read from another project, returns `STALE_REVISION`. The policy is stored in project SQLite apart from `factory_setup` settings, so neither control overwrites the other, and it survives restart. Effort support is reported as `unknown` for every entry because no installed-interface evidence is recorded yet; operator input cannot mark it verified.
+
+Policy-enforced launch is not available yet. While an explicit policy is saved, admission parks before any claim, reservation or inference, and `factory_status.error` and `modelPolicy.admission` explain the reason. Restore legacy routing to resume dispatch.
+
 Use `assignmentSkills` to choose up to four extra adopted skills per stage. Workers receive their common lifecycle skill, relevant stage skill and selected project instructions, rather than the full upstream library. Mechanical failures should preferably become deterministic checks through normal delivery work.
 
 Project-specific overrides do not rewrite the MCP bundle or another project's preferences. After approving a proposal, **Learning library → Reusable factory improvements** lets you queue that exact adaptation as a separately reviewed maintenance objective. Enter the actual MALT source repository root, for example `E:\01 - Personal Projects\multiagent-local-team`. MALT verifies its Git root/package identity, journals the handoff in the origin `.malt/factory/maintenance/`, and queues one stable objective in the source project's own `.malt`. Retrying cannot create a second objective or change its destination/revision.

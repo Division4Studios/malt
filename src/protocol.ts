@@ -249,6 +249,7 @@ const ERROR_STATUSES = {
   NOT_JOINED: 409,
   NOT_ORCHESTRATOR: 403,
   STALE_CHECKIN: 409,
+  STALE_REVISION: 409,
   TOO_LARGE: 413,
   UNAUTHORIZED: 401,
   UNAUTHORIZED_AGENT: 401,
@@ -645,6 +646,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Managed readonly assignment only: read its exact pinned Git source. Omit path to list tracked files or supply a nonprivate relative path for a bounded file. Runtime state and secrets are excluded, and the live role claim is enforced by the backend.',
   factory_setup:
     'Designated lead only: configure this project factory with real validation commands, review standards, CLI providers and local resource limits. Pause before changing settings.',
+  factory_model_policy:
+    'Designated lead only: replace allowed provider/model entries, explicit capability classifications, effort choices and tier defaults, or restore legacy routing with policy null. Supply the revision from factory_status; stale revisions are rejected. Requires paused, settled work.',
   factory_start:
     'Designated lead only: start autonomous bounded assignments after this project has a verified GitHub Project connection.',
   factory_pause:

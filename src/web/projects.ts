@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
+import { modelPolicyViewSchema } from '../factory/model-policy.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
 import { ProjectLearning } from '../learning.ts';
@@ -21,6 +22,7 @@ const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), wo
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   settings: factoryConfigSchema.nullable(),
+  modelPolicy: modelPolicyViewSchema.optional(),
   pendingEffects: z.array(effectSchema),
   skillRequests: z.array(skillRequestSchema),
   conversations: z.array(conversationSchema).default([]),
@@ -33,6 +35,7 @@ export const controlSchema = z
       'factory_export_maintenance',
       'factory_skill_decide',
       'factory_setup',
+      'factory_model_policy',
       'factory_start',
       'factory_pause',
       'factory_request',

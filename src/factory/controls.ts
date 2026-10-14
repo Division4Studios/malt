@@ -4,16 +4,69 @@
  * @file
  */
 
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
 import { MeshError } from '../protocol.ts';
+import { writeAtomic } from '../summary.ts';
 
+import { updateModelPolicy } from './model-policy.ts';
 import { hasCriticalMemoryPressure } from './resources.ts';
-import { factorySchemas } from './schema.ts';
+import { factoryConfigSchema, factorySchemas } from './schema.ts';
+import { installFactorySkills } from './skills.ts';
 
+import type { MeshConfig } from '../config.ts';
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { ResourceSnapshot } from './resources.ts';
-import type { FactoryJob } from './schema.ts';
+import type { FactoryJob, FactoryOperation } from './schema.ts';
 import type { Store } from '../store.ts';
+
+/** Paused-only controls replacing project settings or model policy. */
+const POLICY_CONTROLS = ['factory_setup', 'factory_model_policy'] as const;
+/** A paused-only policy control. */
+export type PolicyControl = (typeof POLICY_CONTROLS)[number];
+
+/**
+ * Recognize paused-only policy controls.
+ *
+ * @param operation - Validated factory operation.
+ * @returns Whether it replaces settings or model policy.
+ */
+export function isPolicyControl(operation: FactoryOperation): operation is PolicyControl {
+  return (POLICY_CONTROLS as readonly string[]).includes(operation);
+}
+
+/**
+ * Replace factory settings or model policy; each control preserves the other's state.
+ *
+ * @param context - Selected project and its settling state.
+ * @param context.mesh - Project configuration.
+ * @param context.repository - Project ledger.
+ * @param context.isSettling - Whether this supervisor still owns settling pipelines.
+ * @param operation - Settings or model policy replacement.
+ * @param input - Validated control input.
+ * @throws {MeshError} When work is active or unsettled, or a policy revision is stale.
+ */
+export function applyPolicyControl(
+  context: { mesh: MeshConfig; repository: FactoryRepository; isSettling: boolean },
+  operation: PolicyControl,
+  input: unknown,
+): void {
+  if (operation === 'factory_model_policy') {
+    updateModelPolicy(context.repository, input, context.isSettling);
+    return;
+  }
+  if (context.repository.active() || context.isSettling) {
+    throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
+  }
+  const settings = factoryConfigSchema.parse(input);
+  context.repository.configure(settings);
+  installFactorySkills(context.mesh);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Factory policy and execution artifacts are stored in this project's managed directory.
+  mkdirSync(path.join(context.mesh.directory, 'factory'), { recursive: true, mode: 0o700 });
+  writeAtomic(path.join(context.mesh.directory, 'factory', 'config.json'), `${JSON.stringify(settings, null, 2)}\n`);
+}
 
 /**
  * Persist explicitly sourced provider telemetry without fabricating a quota.

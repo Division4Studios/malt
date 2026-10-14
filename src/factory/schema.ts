@@ -148,6 +148,98 @@ export const factoryConfigSchema = z
       .default({}),
   })
   .strict();
+/** Capability classifications shared by routing and explicit model policy. */
+export const CAPABILITY_TIERS = ['small', 'standard', 'advanced'] as const;
+/** Bounded reasoning-effort vocabulary; native support is verified separately per provider interface. */
+export const EFFORTS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
+/** Most provider/model entries one project policy may allow. */
+const MAX_POLICY_MODELS = 32;
+/** Native model identifiers are literal CLI arguments: no whitespace, quoting or leading option dash. */
+const nativeModelSchema = z.string().regex(/^[\da-z][\w\-.\/:@]{0,127}$/iv);
+/** One operator-approved provider/model with an explicit, not name-inferred, capability classification. */
+const policyModelSchema = z
+  .object({
+    id: keySchema,
+    provider: z.enum(PROVIDERS),
+    model: nativeModelSchema,
+    enabled: z.boolean().default(true),
+    capability: z.enum(CAPABILITY_TIERS),
+    efforts: z.array(z.enum(EFFORTS)).max(EFFORTS.length).default([]),
+  })
+  .strict();
+/** A default combination; a null effort selects the provider's own default and is allowed only without explicit efforts. */
+const policySelectionSchema = z.object({ model: keySchema, effort: z.enum(EFFORTS).nullable().default(null) }).strict();
+/** Explicit project model/effort policy, validated as one atomic document. */
+export const modelPolicySchema = z
+  .object({
+    models: z.array(policyModelSchema).min(1).max(MAX_POLICY_MODELS),
+    defaults: z
+      .object({
+        small: policySelectionSchema.optional(),
+        standard: policySelectionSchema.optional(),
+        advanced: policySelectionSchema.optional(),
+      })
+      .strict(),
+  })
+  .strict()
+  .superRefine((policy, issues) => {
+    const ids = new Set<string>();
+    const natives = new Set<string>();
+    for (const [index, entry] of policy.models.entries()) {
+      const native = `${entry.provider}/${entry.model}`;
+      const efforts = new Set(entry.efforts);
+      if (ids.has(entry.id) || natives.has(native)) {
+        issues.addIssue({ code: 'custom', path: ['models', index], message: 'Duplicate model id or provider model.' });
+      }
+      ids.add(entry.id);
+      natives.add(native);
+      if (efforts.size !== entry.efforts.length) {
+        issues.addIssue({ code: 'custom', path: ['models', index, 'efforts'], message: 'Duplicate effort choice.' });
+      }
+    }
+    const tiers = CAPABILITY_TIERS.filter((tier) => policy.defaults[tier] !== undefined);
+    if (tiers.length === 0) {
+      issues.addIssue({ code: 'custom', path: ['defaults'], message: 'Define at least one default combination.' });
+    }
+    for (const tier of tiers) {
+      const selection = policy.defaults[tier];
+      const entry = policy.models.find((candidate) => candidate.id === selection?.model);
+      const reason = selectionDefect(tier, selection?.effort ?? null, entry);
+      if (reason !== null) {
+        issues.addIssue({ code: 'custom', path: ['defaults', tier], message: reason });
+      }
+    }
+  });
+/** Explicit project model/effort policy. */
+export type ModelPolicy = z.output<typeof modelPolicySchema>;
+
+/**
+ * Explain why a tier default contradicts its referenced model entry.
+ *
+ * @param tier - Default's capability tier.
+ * @param effort - Selected effort, or null for the provider default.
+ * @param entry - Referenced policy model, absent for an unknown reference.
+ * @returns Actionable defect, or null for a consistent default.
+ */
+function selectionDefect(
+  tier: (typeof CAPABILITY_TIERS)[number],
+  effort: (typeof EFFORTS)[number] | null,
+  entry: z.output<typeof policyModelSchema> | undefined,
+): string | null {
+  if (entry === undefined) {
+    return 'Default references an unknown model id.';
+  }
+  if (!entry.enabled) {
+    return 'Default references a disabled model.';
+  }
+  if (CAPABILITY_TIERS.indexOf(entry.capability) < CAPABILITY_TIERS.indexOf(tier)) {
+    return `Default model is classified ${entry.capability}, below the ${tier} tier.`;
+  }
+  if (effort === null ? entry.efforts.length > 0 : !entry.efforts.includes(effort)) {
+    return 'Default effort must be an allowed effort of its model, or null only when none are listed.';
+  }
+  return null;
+}
 /** A configured project factory. */
 export type FactoryConfig = z.output<typeof factoryConfigSchema>;
 /** A managed role. */
@@ -370,6 +462,9 @@ export const factorySchemas = {
     })
     .strict(),
   factory_setup: factoryConfigSchema,
+  factory_model_policy: z
+    .object({ expectedRevision: z.string().uuid(), policy: modelPolicySchema.nullable() })
+    .strict(),
   factory_status: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
@@ -403,6 +498,7 @@ export const FACTORY_OPERATIONS = [
   'factory_export_maintenance',
   'factory_skill_decide',
   'factory_setup',
+  'factory_model_policy',
   'factory_status',
   'factory_start',
   'factory_pause',

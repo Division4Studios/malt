@@ -4,7 +4,6 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
@@ -14,6 +13,8 @@ import { AdmissionPool } from './admission.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
+  applyPolicyControl,
+  isPolicyControl,
   recordCancellation,
   shouldParkForMemory,
   recoverUnownedClaims,
@@ -25,6 +26,7 @@ import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { modelPolicyBlocker, modelPolicyState, modelPolicyView } from './model-policy.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { runAgent } from './providers.ts';
@@ -35,7 +37,7 @@ import { FactoryRepository } from './repository.ts';
 import { resourceBlocker, resourceProbe } from './resources.ts';
 import { routeAssignment } from './routing.ts';
 import { chooseProvider, retryFeaturePhase, jobIntents } from './scheduler.ts';
-import { LEASE_MS, PROVIDERS, factoryConfigSchema, factorySchemas } from './schema.ts';
+import { LEASE_MS, PROVIDERS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
@@ -48,6 +50,7 @@ import type { ProjectGitHub } from '../github.ts';
 import type { ProjectLearning } from '../learning.ts';
 import type { Store } from '../store.ts';
 import type { FactoryContext, ExecutedJob } from './context.ts';
+import type { PolicyControl } from './controls.ts';
 import type { ProcessRunner } from './processes.ts';
 import type { AgentRunner } from './providers.ts';
 import type { DeliveryRemote } from './remote.ts';
@@ -191,6 +194,7 @@ export class FactoryService {
       error: this.error,
       resources: this.probe(),
       settings,
+      modelPolicy: modelPolicyView(modelPolicyState(this.repository.store)),
       features: this.repository.features(),
       tasks: this.repository.tasks(),
       jobs: this.repository.jobs(),
@@ -281,6 +285,9 @@ export class FactoryService {
    */
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
+    if (isPolicyControl(operation)) {
+      return this.controlPolicy(operation, parsed);
+    }
     switch (operation) {
       case 'factory_read_source': {
         return readSource(this.configured(), parsed, actorId);
@@ -300,9 +307,6 @@ export class FactoryService {
       case 'factory_status': {
         return this.status();
       }
-      case 'factory_setup': {
-        return this.controlSetup(parsed);
-      }
       case 'factory_start': {
         this.configured();
         this.repository.setActive(true);
@@ -317,7 +321,8 @@ export class FactoryService {
         return queueObjective(this.repository, parsed);
       }
       case 'factory_capacity': {
-        return this.controlCapacity(parsed);
+        recordCapacity(this.configured(), parsed);
+        return this.status();
       }
       case 'factory_cancel_job': {
         return this.controlCancelJob(parsed);
@@ -358,6 +363,11 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
+    const policyBlocker = modelPolicyBlocker(modelPolicyState(this.repository.store));
+    if (policyBlocker !== null) {
+      this.error = policyBlocker;
+      return;
+    }
     if (shouldParkForMemory(context, this.running, this.probe())) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
@@ -701,35 +711,17 @@ export class FactoryService {
   }
 
   /**
-   * Handle the validated factory_setup operator control.
+   * Save paused project policy and clear the previous scheduling diagnostic.
    *
+   * @param operation - Selected policy control.
    * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
+   * @returns Updated operator status.
    */
-  private controlSetup(parsed: unknown): unknown {
-    if (this.repository.active() || this.running.size > 0) {
-      throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
-    }
-    const settings = factoryConfigSchema.parse(parsed);
-    this.repository.configure(settings);
+  private controlPolicy(operation: PolicyControl, parsed: unknown): unknown {
+    const isSettling = this.running.size > 0 || this.driving !== null;
+    applyPolicyControl({ mesh: this.mesh, repository: this.repository, isSettling }, operation, parsed);
     this.context = null;
-    installFactorySkills(this.mesh);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Factory policy and execution artifacts are stored in this project's managed directory.
-    mkdirSync(path.join(this.mesh.directory, 'factory'), { recursive: true, mode: 0o700 });
-    writeAtomic(path.join(this.mesh.directory, 'factory', 'config.json'), `${JSON.stringify(settings, null, 2)}\n`);
-    return this.status();
-  }
-
-  /**
-   * Handle the validated factory_capacity operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlCapacity(parsed: unknown): unknown {
-    recordCapacity(this.configured(), parsed);
+    this.error = null;
     return this.status();
   }
 

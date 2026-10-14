@@ -118,6 +118,7 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 | `INSTRUCTIONS_REQUIRED`         | A work decision needs nonblank instructions.                |
 | `WAIT_ALREADY_ACTIVE`           | Another wait is already open for this identity.             |
 | `INVALID_REVISION`              | Cursor exceeds the current revision; inspect work status.   |
+| `STALE_REVISION`                | Factory model policy changed; reread status and reapply.    |
 | `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                  |
 | `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.  |
 | `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.   |
@@ -138,17 +139,20 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 Factory state is separate from cooperative check-in state. Project-authenticated CLI/PWA controls use the broker's durable supervisor; a designated cooperative lead may coordinate permitted controls. Human skill decisions reject all agent credentials. Managed role bridges expose only read/communication tools, plus research/proposal tools for the learning steward; they do not offer check-in/wait, scheduler mutations, ticket creation or skill activation.
 
-| RPC operation                    | Input                                                                                           | Behavior                                                                                                               |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}` | Requires paused/drained work; validates resource/provider/standards policy.                                            |
-| `factory_request`                | `{objective,requestId?}`                                                                        | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.      |
-| `factory_start`, `factory_pause` | `{}`                                                                                            | Resume unpaid scheduling or drain owned processes and preserve edits.                                                  |
-| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions and skills.                           |
-| `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                        | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.              |
-| `factory_cancel_job`             | `{jobId}`                                                                                       | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                    |
-| `factory_retry`                  | `{taskId? ,featureId?}`                                                                         | Retry a selected blocked delivery or planning request.                                                                 |
-| `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.               |
-| `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
+| RPC operation                    | Input                                                                                           | Behavior                                                                                                                         |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}` | Requires paused/drained work; validates resource/provider/standards policy.                                                      |
+| `factory_model_policy`           | `{expectedRevision,policy}`; `policy` is `null` (legacy) or `{models,defaults}`                 | Paused/settled only; rejects stale or cross-project revisions and invalid documents atomically. Explicit policy parks admission. |
+| `factory_request`                | `{objective,requestId?}`                                                                        | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.                |
+| `factory_start`, `factory_pause` | `{}`                                                                                            | Resume unpaid scheduling or drain owned processes and preserve edits.                                                            |
+| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions and skills.                                     |
+| `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                        | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.                        |
+| `factory_cancel_job`             | `{jobId}`                                                                                       | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                              |
+| `factory_retry`                  | `{taskId? ,featureId?}`                                                                         | Retry a selected blocked delivery or planning request.                                                                           |
+| `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.                         |
+| `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters.           |
+
+`factory_status.modelPolicy` reports `mode` (`legacy` or `explicit`), the current `revision`, the saved `policy`, per-entry `effortSupport` (always `unknown` until installed-interface evidence exists) and `admission` (`legacy` or `parked`) with its reason. See [project model policy](operator-console.md#project-model-and-effort-policy).
 
 See [Mission control](operator-console.md) for exact startup and JSON-file CLI examples. All text/schema limits are enforced server-side. An authenticated project token authorizes these operator controls; browser clients never receive that token.
 

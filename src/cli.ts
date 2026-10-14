@@ -50,6 +50,7 @@ Usage: node src/cli.ts <command> [options]
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
   factory-setup --file FILE    Configure target factory validation and resource policies
+  factory-model-policy --file FILE Replace revisioned allowed model/effort policy (paused)
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch
   factory-status              Inspect factory ledger as JSON
