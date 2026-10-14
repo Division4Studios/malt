@@ -230,8 +230,7 @@ async function applyDelivery(
   }
   switch (record.kind) {
     case 'develop': {
-      await completeDevelopment(context, record, task, signal);
-      queueDevelopmentComment(context, task.id, record.role, result.summary);
+      await completeDevelopment(context, record, task, { signal, summary: result.summary });
       break;
     }
     case 'review': {
@@ -299,15 +298,16 @@ function completePlan(context: FactoryContext, job: FactoryJob, result: AgentRes
  * @param context - Project Git and test services.
  * @param job - Responsible developer attempt.
  * @param task - Its owned branch.
- * @param signal - Stop validation on pause.
+ * @param evidence - Cancellation and validated developer handoff.
  */
 async function completeDevelopment(
   context: FactoryContext,
   job: FactoryJob,
   task: FactoryTask,
-  signal: AbortSignal,
+  evidence: { signal: AbortSignal; summary: string },
 ): Promise<void> {
   const record = task;
+  const { signal } = evidence;
   if (record.worktree === null) {
     throw new MeshError('FACTORY_GATED', 'The developer worktree is missing.');
   }
@@ -322,19 +322,22 @@ async function completeDevelopment(
     if (claim?.state !== 'running' || claim.token !== job.token) {
       throw new MeshError('FACTORY_GATED', 'The developer claim expired before publication.');
     }
-    context.repository.editTask(record.id, (current) => {
-      if (current.phase !== 'development' || current.version !== record.version || current.developer !== job.role) {
-        throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
-      }
-      return {
-        ...current,
-        phase: 'publishing',
-        head: source.head,
-        base: source.base,
-        reviews: [],
-        finalReview: null,
-        error: null,
-      };
+    context.repository.store.transaction(() => {
+      context.repository.editTask(record.id, (current) => {
+        if (current.phase !== 'development' || current.version !== record.version || current.developer !== job.role) {
+          throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
+        }
+        return {
+          ...current,
+          phase: 'publishing',
+          head: source.head,
+          base: source.base,
+          reviews: [],
+          finalReview: null,
+          error: null,
+        };
+      });
+      queueDevelopmentComment(context, record.id, job.role, evidence.summary);
     });
   });
 }

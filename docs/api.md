@@ -207,3 +207,5 @@ Head listings include a bounded `changes` page with the exact supplied base, sea
 ## Managed developer ticket checkpoints
 
 `mesh_factory_progress({ key, body })` queues a checkpoint on the current managed developer assignment's issue. It accepts no target issue or role override. The backend requires a current unexpired owned development claim and rejects QA, unmanaged callers, changed content for a reused key, and more than twenty checkpoints per job. Stable keys deduplicate retries through the transactional outbox and remote comment marker. Results say `queued` until a confirmed remote receipt exists; temporary GitHub failures do not rerun implementation. The supervisor supplies a start update and a validated completion summary. Keep updates meaningful, concise and free of secrets, private paths or raw transcripts.
+
+The validated completion intent commits atomically with the publication checkpoint, before pushing. A rejected or ambiguous push retries publication without losing the completion update or repeating paid implementation.
