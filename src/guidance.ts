@@ -63,7 +63,9 @@ const BLOCK = [
  * @throws {Error} When marker ownership is ambiguous or incomplete.
  */
 function managedRange(previous: string, name: string): { start: number; end: number } | null {
-  const markers = [...previous.matchAll(/^<!-- (malt|mlt):project-context:(start|end) -->\r?$/gmv)];
+  const markers = previous
+    .matchAll(/^<!-- (?<family>malt|mlt):project-context:(?<edge>end|start) -->\r?$/gmv)
+    .toArray();
   if (markers.length === 0) {
     return null;
   }
@@ -72,9 +74,9 @@ function managedRange(previous: string, name: string): { start: number; end: num
     start === undefined ||
     end === undefined ||
     extra.length > 0 ||
-    start[2] !== 'start' ||
-    end[2] !== 'end' ||
-    start[1] !== end[1]
+    start.groups?.['edge'] !== 'start' ||
+    end.groups?.['edge'] !== 'end' ||
+    start.groups['family'] !== end.groups['family']
   ) {
     throw new Error(`Malformed MALT context markers in ${name}; repair the block before setup.`);
   }
