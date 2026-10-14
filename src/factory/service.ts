@@ -32,7 +32,7 @@ import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
-import { resourceBlocker, resourceProbe } from './resources.ts';
+import { ResourceSampler, admissionEvidence, resourceBlocker, resourceProbe } from './resources.ts';
 import { routeAssignment } from './routing.ts';
 import { chooseProvider, retryFeaturePhase, jobIntents } from './scheduler.ts';
 import { LEASE_MS, PROVIDERS, factoryConfigSchema, factorySchemas } from './schema.ts';
@@ -106,8 +106,8 @@ export class FactoryService {
   private readonly quota = new QuotaObserver();
   /** Managed pipelines only; never unrelated processes. */
   private readonly running = new Map<string, Running>();
-  /** Resource sampler retains CPU deltas. */
-  private readonly probe: ResourceProbe;
+  /** Sole stateful sampler; only the scheduling cycle advances it. */
+  private readonly sampler: ResourceSampler;
   /** Validated execution context, absent before setup. */
   private context: FactoryContext | null = null;
   /** Unpaid timer. */
@@ -144,7 +144,7 @@ export class FactoryService {
     this.learning = integrations.learning;
     this.options = options;
     this.repository = new FactoryRepository(store);
-    this.probe = options.resources ?? resourceProbe();
+    this.sampler = new ResourceSampler(options.resources ?? resourceProbe(), store.now());
   }
 
   /**
@@ -189,7 +189,8 @@ export class FactoryService {
       active: this.repository.active(),
       connected: this.connected,
       error: this.error,
-      resources: this.probe(),
+      resources: this.sampler.latest,
+      admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
       settings,
       features: this.repository.features(),
       tasks: this.repository.tasks(),
@@ -199,7 +200,7 @@ export class FactoryService {
       instructions: this.repository.instructionLedger.recent(),
       conversations: conversationWindow(this.repository.store, this.mesh),
       workflow: workflowState(this.repository),
-      capacities: settings === null ? [] : PROVIDERS.map((provider) => this.repository.capacity(provider, settings)),
+      capacities: settings === null ? [] : PROVIDERS.map((name) => this.repository.capacity(name, settings, false)),
     };
   }
 
@@ -358,7 +359,7 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
-    if (shouldParkForMemory(context, this.running, this.probe())) {
+    if (shouldParkForMemory(context, this.running, this.sampler.sample(this.repository.store.now()))) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
     }
@@ -401,7 +402,7 @@ export class FactoryService {
     }
     for (const intent of intents) {
       const policy = LOCAL_JOBS.policy(context.settings);
-      if (resourceBlocker(policy, this.probe(), LOCAL_JOBS.size) !== null) {
+      if (resourceBlocker(policy, this.sampler.latest, LOCAL_JOBS.size) !== null) {
         break;
       }
       const provider = chooseProvider({
@@ -430,7 +431,7 @@ export class FactoryService {
     if (
       count === 0 ||
       this.options.agent !== undefined ||
-      resourceBlocker(LOCAL_JOBS.policy(context.settings), this.probe(), LOCAL_JOBS.size) !== null
+      resourceBlocker(LOCAL_JOBS.policy(context.settings), this.sampler.latest, LOCAL_JOBS.size) !== null
     ) {
       return;
     }

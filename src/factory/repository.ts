@@ -483,9 +483,10 @@ export class FactoryRepository {
    *
    * @param provider - Provider family.
    * @param config - Current project settings.
+   * @param shouldInitialize - Persist missing accounting; false for read-only status.
    * @returns Normalized, reset-aware accounting.
    */
-  public capacity(provider: Provider, config: FactoryConfig): Capacity {
+  public capacity(provider: Provider, config: FactoryConfig, shouldInitialize = true): Capacity {
     const now = this.store.now();
     const row = selectOne(this.store.db, payloadSchema, 'SELECT data FROM factory_capacity WHERE provider=?', provider);
     const current =
@@ -502,7 +503,7 @@ export class FactoryRepository {
             updatedAt: now,
           }
         : capacitySchema.parse(JSON.parse(row.data));
-    if (row === undefined) {
+    if (row === undefined && shouldInitialize) {
       this.store.transaction(() => {
         run(this.store.db, 'INSERT OR IGNORE INTO factory_capacity VALUES(?,?)', provider, JSON.stringify(current));
       });
