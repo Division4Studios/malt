@@ -4,7 +4,7 @@
 # A separate build stage compiles the dependency-free browser application.
 # Only production server dependencies and compiled browser assets enter the
 # final image; TypeScript, ESLint and Prettier remain build-time tools.
-FROM node:24-bookworm-slim AS web-build
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS web-build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.json ./
 RUN npm ci --ignore-scripts
@@ -12,7 +12,7 @@ COPY web ./web
 COPY scripts/build-shell.ts ./scripts/build-shell.ts
 RUN npm run build:web
 
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
 ENV NODE_ENV=production
 WORKDIR /app
 
