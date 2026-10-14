@@ -104,7 +104,7 @@ Explicit cancellation requires a currently live job owned by that supervisor. It
 
 The broker still rejects browser-origin RPC. The UI server binds to loopback and checks Host, Origin and Fetch Metadata. Pairing is rate-limited and produces an expiring HttpOnly/SameSite=Strict cookie. Cross-site API traffic is rejected; ordinary navigation to the public app shell is allowed. Private responses are `no-store`, and the service worker caches only fixed public assets.
 
-Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/stream`, `/api/artifact`, `/api/control` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Offline controls are not replayed.
+Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
 
 ## Verification limits
 
