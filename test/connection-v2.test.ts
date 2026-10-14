@@ -14,6 +14,7 @@ import { z } from 'zod';
 
 import { CAPABILITY_NAMES, capabilityState } from '../src/connector.ts';
 import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
+import { refreshReadme } from '../src/summary.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
@@ -41,6 +42,28 @@ const v1Record = {
 };
 /** Explicit existing-project selection used by connect calls. */
 const selection = { projectNumber: 10, statusFieldName: 'Status' };
+
+for (const version of [1, 2]) {
+  await test(`README preserves repository and Project links for connection v${String(version)}`, async (t) => {
+    const config = createProject(createCleanup(t));
+    const directory = path.join(config.directory, 'github');
+    mkdir(directory);
+    const file = path.join(directory, 'connection.json');
+    if (version === 1) {
+      write(file, JSON.stringify(v1Record));
+    } else {
+      const github = new ProjectGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
+      await github.execute('github_connect', { repository: 'Division4Studios/malt', ...selection });
+    }
+    const before = read(file);
+    refreshReadme(config, { agents: [], lead: null, revision: 1, unreadMessages: 0, pendingCheckIns: 0 });
+    const readme = read(path.join(config.directory, 'README.md'));
+    assert.ok(readme.includes('GitHub repository: Division4Studios/malt'));
+    assert.ok(readme.includes(`GitHub Project: ${project.url}`));
+    assert.ok(!readme.includes('saved connection needs repair'));
+    assert.equal(read(file), before, 'rendering must not rewrite the saved connection');
+  });
+}
 
 /** One capability descriptor as serialized. */
 const capabilitiesSchema = z.record(z.string(), z.enum(['supported', 'unsupported', 'unverified']));
