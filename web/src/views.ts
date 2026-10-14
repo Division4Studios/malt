@@ -4,7 +4,7 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics } from './brand-ui.js';
+import { overviewMetrics, objectivePreview } from './brand-ui.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import {
@@ -386,7 +386,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
       ),
     );
   } else {
-    const completed = objectives.slice(-COMPLETED_PREVIEW);
+    const completed = objectivePreview(objectives, COMPLETED_PREVIEW);
     for (const feature of completed) {
       const row = element('article', 'lesson');
       const objective = text(feature, 'objective');
