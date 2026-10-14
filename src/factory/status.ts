@@ -20,11 +20,11 @@ import type { AdmissionEvidence, ResourceSnapshot } from './resources.ts';
  * @param telemetry - Current supervisor connection and machine measurements.
  * @returns Operator/MCP projection with explicit unknown telemetry.
  */
-export function factoryStatus(
+export async function factoryStatus(
   repository: FactoryRepository,
   mesh: MeshConfig,
   telemetry: { connected: boolean; error: string | null; resources: ResourceSnapshot; admission: AdmissionEvidence },
-): unknown {
+): Promise<unknown> {
   const settings = repository.config();
   return {
     configured: settings !== null,
@@ -33,7 +33,7 @@ export function factoryStatus(
     error: telemetry.error,
     resources: telemetry.resources,
     admission: telemetry.admission,
-    processUsage: ownedProcessUsage(repository.jobs()),
+    processUsage: await ownedProcessUsage(repository.jobs()),
     settings,
     features: repository.features(),
     tasks: repository.tasks(),

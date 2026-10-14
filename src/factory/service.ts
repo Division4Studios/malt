@@ -185,7 +185,7 @@ export class FactoryService {
    *
    * @returns Dashboard and MCP state.
    */
-  public status(): unknown {
+  public async status(): Promise<unknown> {
     return factoryStatus(this.repository, this.mesh, {
       connected: this.connected,
       error: this.error,
@@ -283,9 +283,9 @@ export class FactoryService {
       },
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
-      factory_status: () => this.status(),
+      factory_status: async () => this.status(),
       factory_setup: () => this.controlSetup(parsed),
-      factory_start: () => {
+      factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
         this.begin();

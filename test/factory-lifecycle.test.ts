@@ -260,7 +260,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     });
     const task = factory.repository.tasks()[0];
     assert.ok(task !== undefined);
-    assert.equal(task.phase, 'done', JSON.stringify(factory.status()));
+    assert.equal(task.phase, 'done', JSON.stringify(await factory.status()));
     assert.equal(task.attempts, 2);
     assert.equal(writes, 2, 'Push and ambiguous PR failures must not repeat successful paid implementation.');
     assert.equal(
@@ -296,7 +296,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect the fixed baseline file in disposable project memory.
     assert.ok(existsSync(path.join(mesh.directory, 'skills', 'builtin', 'factory-review', 'SKILL.md')));
     assert.equal(await command('git', ['show', 'origin/main:value.mjs'], source), 'export const value = 3;');
-    const dashboard = dashboardSchema.parse(factory.status());
+    const dashboard = dashboardSchema.parse(await factory.status());
     assert.ok(
       renderDashboard(dashboard, { tab: 0, row: 0, scroll: 0 }, { width: 120, height: 30 }, '').includes(
         'SOFTWARE FACTORY',
