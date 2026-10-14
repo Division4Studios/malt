@@ -9,7 +9,7 @@ import test from 'node:test';
 import { z } from 'zod';
 
 /** Compiled browser module, checked without installing browser dependencies. */
-const moduleUrl = new URL('../web/dist/brand-ui.js', import.meta.url);
+const moduleUrl = new URL(['..', 'web', 'dist', 'brand-ui.js'].join('/'), import.meta.url);
 /** Runtime contract for native browser summary text. */
 const summaryFunction = z.function().args(z.record(z.unknown())).returns(z.array(z.string()));
 /** Runtime contract for the compiled module. */

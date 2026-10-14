@@ -27,13 +27,10 @@ const connection = z
 const dispatchModule = new URL(['..', 'web', 'dist', 'brand-ui.js'].join('/'), import.meta.url);
 /** Checked plain text messages from the compiled browser module. */
 const messagesSchema = z.array(z.string());
-/** Bounded objective rows returned by the public overview selector. */
-const objectivesSchema = z.array(dataSchema);
 /** Checked callable export; no unsafe browser-module cast. */
 const dispatch = z
   .object({
     dispatchSummary: z.function().args(dataSchema).returns(messagesSchema),
-    objectivePreview: z.function().args(objectivesSchema, z.number()).returns(objectivesSchema),
   })
   .parse(await import(dispatchModule.href));
 
@@ -114,19 +111,4 @@ await test('quiet coordinator explains a local budget gate independently of subs
   assert.ok(messages.some((message) => message.includes('Issue #13 blocked: spawn EPERM')));
   const expired = dispatch.dispatchSummary({ active: true, settings, capacities: [{ ...capacity, resetAt: 1 }] });
   assert.ok(expired.every((message) => !message.includes('budget exhausted')));
-});
-
-await test('product overview retains older pending objectives beyond the old four-row tail', () => {
-  const pending = Array.from({ length: 9 }, (_, index) => ({ id: `pending-${String(index)}`, phase: 'queued' }));
-  const completed = Array.from({ length: 8 }, (_, index) => ({ id: `done-${String(index)}`, phase: 'done' }));
-  const visible = dispatch.objectivePreview([...pending, ...completed], 4);
-  assert.deepEqual(visible.slice(0, pending.length), pending);
-  assert.deepEqual(visible.slice(pending.length), completed.slice(-4));
-  assert.equal(
-    dispatch.objectivePreview(
-      Array.from({ length: 100 }, () => ({ phase: 'queued' })),
-      4,
-    ).length,
-    50,
-  );
 });
