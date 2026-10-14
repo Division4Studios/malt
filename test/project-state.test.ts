@@ -268,13 +268,57 @@ await test('provider discovery preserves existing instructions and is idempotent
   assert.equal(readFileSync(agents, 'utf8'), first);
   assert.ok(first.startsWith('# Existing rules\n\nUse the project test suite.\n'));
   assert.ok(readFileSync(claude, 'utf8').startsWith('# Claude project instructions\n'));
-  assert.equal(first.split('<!-- mlt:project-context:start -->').length, 2);
+  assert.equal(first.split('<!-- malt:project-context:start -->').length, 2);
+  writeFileSync(agents, first.replaceAll('<!-- malt:', '<!-- mlt:'));
+  ensureProjectGuidance(config.root);
+  assert.equal(readFileSync(agents, 'utf8'), first, 'Legacy guidance upgrades without duplicating user instructions.');
   assert.match(first, /\.malt\/skills\/README\.md/v);
   writeFileSync(agents, '<!-- mlt:project-context:start -->\nmissing closing marker');
   assert.throws(() => {
     ensureProjectGuidance(config.root);
   }, /Malformed MALT/v);
   assert.equal(readFileSync(agents, 'utf8'), '<!-- mlt:project-context:start -->\nmissing closing marker');
+});
+
+await test('provider guidance preserves literal marker examples outside its managed block', (t) => {
+  const config = createProject(createCleanup(t));
+  ensureProjectGuidance(config.root);
+  for (const name of ['AGENTS.md', 'CLAUDE.md']) {
+    const file = path.join(config.root, name);
+    const managed = readFileSync(file, 'utf8');
+    const prefix = '# User rules\r\nLiteral `<!-- mlt:project-context:start -->` is historical.\r\nKeep this rule.\r\n';
+    const suffix = '\nDocumented pair: `<!-- mlt:project-context:start -->` / `<!-- mlt:project-context:end -->`.\n';
+    const original = `${prefix}${managed}${suffix}`;
+    writeFileSync(file, original);
+    ensureProjectGuidance(config.root);
+    assert.equal(readFileSync(file, 'utf8'), original);
+    ensureProjectGuidance(config.root);
+    assert.equal(readFileSync(file, 'utf8'), original, 'Refreshing examples remains idempotent.');
+  }
+});
+
+await test('ambiguous duplicate mixed and reversed guidance markers fail without rewriting the file', (t) => {
+  const config = createProject(createCleanup(t));
+  ensureProjectGuidance(config.root);
+  const file = path.join(config.root, 'AGENTS.md');
+  const managed = readFileSync(file, 'utf8');
+  const legacyStart = '<!-- mlt:project-context:start -->';
+  const legacyEnd = '<!-- mlt:project-context:end -->';
+  const currentStart = '<!-- malt:project-context:start -->';
+  const currentEnd = '<!-- malt:project-context:end -->';
+  for (const original of [
+    `${legacyStart}\nUser rule\n${managed}`,
+    `${legacyStart}\nExample block\n${legacyEnd}\n${managed}`,
+    `${managed}\n${managed}`,
+    `${legacyStart}\nMixed markers\n${currentEnd}`,
+    `${currentEnd}\nReversed markers\n${currentStart}`,
+  ]) {
+    writeFileSync(file, original);
+    assert.throws(() => {
+      ensureProjectGuidance(config.root);
+    }, /Malformed MALT/v);
+    assert.equal(readFileSync(file, 'utf8'), original, 'Ambiguous user instructions must remain byte-for-byte intact.');
+  }
 });
 
 await test('Docker mappings are bounded and inaccessible workspaces never create phantom folders', (t) => {

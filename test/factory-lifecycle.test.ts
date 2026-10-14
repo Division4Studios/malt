@@ -76,7 +76,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Install a fixed hook only in the disposable remote to exercise unpaid push recovery.
   await writeFile(
     path.join(root, 'origin.git', 'hooks', 'pre-receive'),
-    '#!/bin/sh\nwhile read old new ref; do\ncase "$ref" in refs/heads/mlt/*)\nif [ ! -e hooks/failed-once ]; then\n: > hooks/failed-once\necho "Fixture transient push rejection" >&2\nexit 1\nfi\n;;\nesac\ndone\nexit 0\n',
+    '#!/bin/sh\nwhile read old new ref; do\ncase "$ref" in refs/heads/malt/*)\nif [ ! -e hooks/failed-once ]; then\n: > hooks/failed-once\necho "Fixture transient push rejection" >&2\nexit 1\nfi\n;;\nesac\ndone\nexit 0\n',
     { mode: 0o755 },
   );
   await command('git', ['clone', path.join(root, 'origin.git'), source], root);
@@ -199,6 +199,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       });
     }
     if (request.job.kind === 'develop') {
+      assert.match(await command('git', ['branch', '--show-current'], request.cwd), /^malt\/issue-/v);
       if (owner === null) {
         owner = request.job.role;
       } else {
