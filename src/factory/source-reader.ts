@@ -3,6 +3,8 @@
  *
  * @file
  */
+import { Buffer } from 'node:buffer';
+
 import { z } from 'zod';
 
 import { run, selectOne } from '../database.ts';
@@ -21,6 +23,12 @@ import type { SourceSnapshot } from './workspaces.ts';
 const PAGE = 100;
 /** Avoid loading an entire large artifact into a model context. */
 const FILE_BYTES = 32_000;
+/** Bound native blob memory while permitting ordinary large source modules. */
+const SOURCE_BYTES = 1_048_576;
+/** UTF-8 continuation bytes cannot begin a page. */
+const CONTINUATION_MIN = 0x80;
+/** Exclusive continuation-byte upper bound. */
+const CONTINUATION_MAX = 0xc0;
 /** Private operational state and common credential files are never source tools. */
 const PRIVATE_SEGMENTS = new Set(['.git', '.malt', '.mlt', '.agentmesh', '.npmrc']);
 /** Sealed native source identity, never model-provided data. */
@@ -104,26 +112,65 @@ export async function readSource(context: FactoryContext, input: unknown, actorI
   if (isUnsafeSourcePath(file)) {
     throw new MeshError('INVALID_INPUT', 'Only nonprivate relative tracked source paths are available.');
   }
-  const object = `${source.head}:${file}`;
+  return readBlob(context, { head: source.head, path: file, cursor: request.cursor, jobId: job.id });
+}
+
+/**
+ * Page a verified immutable blob with bounded memory and complete UTF-8 characters.
+ *
+ * @param context - Project-owned native Git and redaction boundary.
+ * @param request - Already authorized immutable file identity and cursor.
+ * @returns Exact source page or an explicit size-limit result.
+ * @throws {MeshError} When a cursor splits a character or exceeds the source.
+ */
+async function readBlob(
+  context: FactoryContext,
+  request: { head: string; path: string; cursor: number; jobId: string },
+): Promise<unknown> {
+  const object = `${request.head}:${request.path}`;
   const bytes = Number(await context.workspaces.git(['cat-file', '-s', object]));
-  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > FILE_BYTES) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > SOURCE_BYTES) {
     return {
-      jobId: job.id,
-      head: source.head,
-      path: file,
+      jobId: request.jobId,
+      head: request.head,
+      path: request.path,
       truncated: true,
       reason: 'File exceeds the source inspection limit.',
     };
   }
   const content = await command('git', ['cat-file', 'blob', object], context.mesh.root, false);
   const redactor = new SecretRedactor([context.mesh.token]);
+  const safe = Buffer.from(redactor.redact(content));
+  if (request.cursor > safe.length || isContinuation(safe[request.cursor])) {
+    throw new MeshError('INVALID_INPUT', 'Source cursor must identify a complete UTF-8 character within the file.');
+  }
+  let end = Math.min(request.cursor + FILE_BYTES, safe.length);
+  while (isContinuation(safe[end])) {
+    end -= 1;
+  }
   return {
-    jobId: job.id,
-    head: source.head,
-    path: file,
-    truncated: false,
-    content: redactor.redact(content),
+    jobId: request.jobId,
+    head: request.head,
+    path: request.path,
+    truncated: end < safe.length,
+    content: safe.subarray(request.cursor, end).toString('utf8'),
+    ...((safe.length > FILE_BYTES || request.cursor > 0) && {
+      cursor: request.cursor,
+      nextCursor: end < safe.length ? end : null,
+      totalBytes: safe.length,
+      guidance: 'Read the next page using nextCursor as cursor with the same path and revision.',
+    }),
   };
+}
+
+/**
+ * Identify a UTF-8 continuation byte without splitting source code points.
+ *
+ * @param byte - Byte at a requested page boundary, absent at EOF.
+ * @returns Whether the byte continues an earlier character.
+ */
+function isContinuation(byte: number | undefined): boolean {
+  return byte !== undefined && byte >= CONTINUATION_MIN && byte < CONTINUATION_MAX;
 }
 
 /**
