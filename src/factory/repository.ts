@@ -18,6 +18,7 @@ import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
 import { initializeObjectiveOrder, nextObjectiveRank } from './objective-order.ts';
 import { windowFreshness } from './quota-windows.ts';
+import { RecommendationLedger } from './recommendations.ts';
 import {
   LEASE_MS,
   isTokenCapExceeded,
@@ -71,6 +72,8 @@ const BOARD_STATES = {
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
   public readonly instructionLedger: InstructionLedger;
+  /** Project-scoped immutable recommendation content and fenced lifecycle. */
+  public readonly recommendations: RecommendationLedger;
   /** Shared store owns SQLite and transaction boundaries. */
   public readonly store: Store;
   /** System sender, prepared only when an actual factory is configured. */
@@ -99,11 +102,14 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_skill_requests (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_lease (id INTEGER PRIMARY KEY CHECK(id = 1), owner TEXT NOT NULL, expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_instructions (id TEXT PRIMARY KEY, role TEXT NOT NULL, task_id TEXT, body TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS factory_recommendations (project TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, PRIMARY KEY(project,id));
+      CREATE TABLE IF NOT EXISTS factory_recommendation_revisions (project TEXT NOT NULL, id TEXT NOT NULL, revision TEXT NOT NULL, data TEXT NOT NULL, PRIMARY KEY(project,id,revision));
       CREATE TABLE IF NOT EXISTS factory_handoffs (instruction_id TEXT PRIMARY KEY REFERENCES factory_instructions(id), job_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
     initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
+    this.recommendations = new RecommendationLedger(store);
   }
 
   /**
