@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';
-import { accountQuota } from './quota-windows.ts';
+import { accountObservation } from './quota-windows.ts';
 
 /** Bound native metadata output independently of the managed wrapper. */
 const MAX_BYTES = 65_536;
@@ -83,7 +83,7 @@ function receive(line: string): void {
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     child.stdin.write(`${JSON.stringify({ method: 'account/rateLimits/read', id: QUOTA_ID })}\n`);
   } else if (parsed.data.id === QUOTA_ID) {
-    const reading = accountQuota(parsed.data.result);
+    const reading = accountObservation(parsed.data.result);
     if (reading !== null) {
       state.hasReading = true;
       process.stdout.write(`${JSON.stringify(reading)}\n`);

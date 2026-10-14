@@ -39,7 +39,6 @@ import {
   agentRowSchema,
   columnRowSchema,
   countRowSchema,
-  eventRowSchema,
   idRowSchema,
   inboxRowSchema,
   run,
@@ -48,6 +47,7 @@ import {
   selectOne,
   valueRowSchema,
 } from './database.ts';
+import { readEvents } from './event-log.ts';
 import { log } from './log.ts';
 import {
   AGENT_STATES,
@@ -72,6 +72,7 @@ import type {
   WorkState,
 } from './coordination.ts';
 import type { AgentRow } from './database.ts';
+import type { EventPage, HistoryPage } from './event-log.ts';
 import type { AgentLifetime, AgentStatus, Handoff, Operation, OperationInput, OperationRawInput } from './protocol.ts';
 
 // -----------------------------------------------------------------------------
@@ -148,20 +149,6 @@ export interface InboxPage {
   readonly messages: InboxMessage[];
   /** Whether more messages follow `nextCursor`. */
   readonly hasMore: boolean;
-  /** The `after` value that fetches the next page. */
-  readonly nextCursor: number;
-}
-
-/** One durable event, with its data payload decoded. */
-export interface MeshEvent extends Omit<z.output<typeof eventRowSchema>, 'data'> {
-  /** The decoded event payload. */
-  readonly data: unknown;
-}
-
-/** One page of the event log. */
-export interface EventPage {
-  /** The events on this page, oldest first. */
-  readonly events: MeshEvent[];
   /** The `after` value that fetches the next page. */
   readonly nextCursor: number;
 }
@@ -256,8 +243,8 @@ export interface StoreResults {
   readonly ack_message: AckResult;
   /** The delivered reply. */
   readonly reply: SentMessage;
-  /** One page of the event log. */
-  readonly events: EventPage;
+  /** One forward/recent or backward page of the event log. */
+  readonly events: EventPage | HistoryPage;
 }
 
 /**
@@ -704,7 +691,7 @@ export class Store implements CoordinationHost {
         const original = this.inboxMessage(input.id, id);
         return this.send(id, this.recipient(original.sender), { body: input.body, type: 'direct' }, input.id);
       },
-      events: (input) => this.events(input),
+      events: (input) => readEvents(this.db, input),
     };
   }
 
@@ -939,26 +926,6 @@ export class Store implements CoordinationHost {
       this.event('MESSAGE_READ', actor, { id });
     }
     return { id, acknowledged: true };
-  }
-
-  /**
-   * Read one page of the durable event log.
-   *
-   * @param input - Pagination.
-   * @returns The page and the cursor for the next one.
-   */
-  private events(input: OperationInput<'events'>): EventPage {
-    const events = selectAll(
-      this.db,
-      eventRowSchema,
-      input.recent
-        ? 'SELECT * FROM events WHERE seq > ? ORDER BY seq DESC LIMIT ?'
-        : 'SELECT * FROM events WHERE seq > ? ORDER BY seq LIMIT ?',
-      input.after,
-      input.limit,
-    ).map((row): MeshEvent => ({ ...row, data: parseJson(row.data) }));
-    const ordered = input.recent ? events.toReversed() : events;
-    return { events: ordered, nextCursor: ordered.at(-1)?.seq ?? input.after };
   }
 
   /** Configure the connection and create the schema-1 tables if missing. */
