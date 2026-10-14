@@ -98,7 +98,9 @@ export function shouldParkForMemory(
         reason: 'Critical free-memory pressure; owned processes are stopping and work is preserved.',
       });
     });
-    assignment.controller.abort();
+    assignment.controller.abort(
+      new Error('Critical free-memory pressure; owned processes are stopping and work is preserved.'),
+    );
   }
   return true;
 }

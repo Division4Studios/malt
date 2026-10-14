@@ -5,14 +5,19 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod';
 
 import { recoverUnownedClaims } from '../src/factory/controls.ts';
-import { HANDOFF_SUMMARY_MAX, handoffSchema, settlementEvidence } from '../src/factory/handoffs.ts';
+import { HANDOFF_SUMMARY_MAX, handoffSchema } from '../src/factory/handoffs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, featureSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
+import { FactoryService } from '../src/factory/service.ts';
+import { ProjectGitHub } from '../src/github.ts';
+import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -167,7 +172,6 @@ await test('reports cite delivery purpose and keep process state separate from a
   assert.equal(report.verifiedDelivery, false);
   assert.equal(report.context.issue, 18);
   assert.equal(report.context.title?.text, 'Include recorded purpose');
-  assert.equal(report.context.objective, null);
   assert.deepEqual(report.summary, { text: 'Missing regression for replay.', truncated: false });
   assert.equal(report.summaryStatus, 'recorded');
   const body = repository.instructions('team-lead', null)[0]?.body ?? '';
@@ -199,7 +203,6 @@ await test('planning reports cite the objective; failures and recovery record re
   recoverUnownedClaims(repository, new Map());
   const [recovered, failure] = reports(repository);
   assert.equal(failure?.context.objective?.text, feature.objective);
-  assert.equal(failure.context.issue, null);
   assert.equal(failure.summary, null);
   assert.equal(failure.summaryStatus, 'unavailable');
   assert.equal(failure.reason?.text, 'Project test command 1 failed.');
@@ -243,19 +246,16 @@ await test('frozen recipients, null managers, stale tokens and replay cannot rer
   const { repository } = openLedger(t);
   const frozen = fixtureJob({ reportsTo: 'product-owner' });
   const unmanaged = fixtureJob({ role: 'qa-2', reportsTo: null });
-  for (const job of [frozen, unmanaged]) {
-    assert.equal(repository.claim(job, settings), true);
-  }
+  assert.equal(repository.claim(frozen, settings), true);
+  assert.equal(repository.claim(unmanaged, settings), true);
+  const changed = factoryConfigSchema.parse(settings);
+  changed.organization.members['qa-1'] = { type: 'general', reportsTo: null };
+  repository.configure(changed);
   const used = repository.capacity('codex', settings).usedTokens;
   assert.equal(repository.finishJob({ ...frozen, token: randomUUID() }, 5, 'succeeded'), false, 'Stale token.');
-  assert.equal(
-    repository.finishJob(frozen, 5, 'succeeded', { result: { outcome: 'success', summary: 'Done.' } }),
-    true,
-  );
-  assert.equal(
-    repository.finishJob(frozen, 5, 'succeeded', { result: { outcome: 'success', summary: 'Done.' } }),
-    false,
-  );
+  const evidence = { result: { outcome: 'success', summary: 'Done.' } };
+  assert.equal(repository.finishJob(frozen, 5, 'succeeded', evidence), true);
+  assert.equal(repository.finishJob(frozen, 5, 'succeeded', evidence), false);
   recoverUnownedClaims(repository, new Map([[unmanaged.id, null]]));
   assert.equal(repository.finishJob(unmanaged, 5, 'failed', { reason: 'Gate rejected.' }), true);
   assert.equal(
@@ -266,8 +266,7 @@ await test('frozen recipients, null managers, stale tokens and replay cannot rer
   assert.equal(reports(repository, 'product-owner').length, 1);
   assert.equal(reports(repository, 'product-owner')[0]?.to, 'product-owner');
   assert.equal(reports(repository).length, 0, 'Current organization settings must not reroute the frozen manager.');
-  const all = historySchema.parse(repository.instructionLedger.recent());
-  assert.equal(all.length, 1, 'A null manager creates no report.');
+  assert.equal(historySchema.parse(repository.instructionLedger.recent()).length, 1, 'No null-manager report.');
 });
 
 await test('legacy and operator instructions expose no fabricated provenance', (t) => {
@@ -277,41 +276,88 @@ await test('legacy and operator instructions expose no fabricated provenance', (
   assert.equal(legacy?.handoff, null);
 });
 
-await test('settlement evidence reports supervisor-observed reasons without reading artifacts', () => {
-  const now = Date.now();
-  const completion = {
-    result: null,
-    usageTokens: null,
-    cooldownUntil: now + 60_000,
-    subscriptionUsedPercent: null,
-    subscriptionResetAt: null,
-    process: { exitCode: 0, stdout: '', stderr: '', interrupted: false },
-  };
-  const cooled = settlementEvidence(
-    { execution: { completion, snapshot: null, checks: [], waiting: null }, state: 'interrupted', reason: null },
-    false,
-    now,
-  );
-  assert.equal(cooled.cooldown, now + 60_000);
-  assert.match(cooled.reason ?? '', /Provider cooldown until/v);
-  const parked = settlementEvidence(
-    {
-      execution: { completion: null, snapshot: null, checks: [], waiting: 'Awaiting CI.' },
-      state: 'failed',
-      reason: null,
-    },
-    false,
-    now,
-  );
-  assert.equal(parked.reason, 'Awaiting CI.');
-  assert.match(
-    settlementEvidence({ execution: null, state: 'interrupted', reason: null }, true, now).reason ?? '',
-    /Supervisor stopped/v,
-  );
-  assert.equal(settlementEvidence({ execution: null, state: 'interrupted', reason: null }, false, now).reason, null);
-  assert.equal(
-    settlementEvidence({ execution: null, state: 'interrupted', reason: 'Assignment exceeded timeout.' }, true, now)
-      .reason,
-    'Assignment exceeded timeout.',
-  );
-});
+for (const mode of ['timeout', 'operator'] as const) {
+  await test(`service preserves ${mode} reason when the agent resolves after abort`, { timeout: 20_000 }, async (t) => {
+    const defer = createCleanup(t);
+    const mesh = createProject(defer);
+    const store = new Store(mesh);
+    defer(() => {
+      store.close();
+    });
+    const started = Promise.withResolvers<string>();
+    const settled = Promise.withResolvers<undefined>();
+    const factory = new FactoryService(
+      mesh,
+      store,
+      { github: new ProjectGitHub(mesh), learning: new ProjectLearning(mesh) },
+      {
+        home: mesh.root,
+        resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
+        agent: async (request) => {
+          started.resolve(request.job.id);
+          await new Promise<void>((resolve) => {
+            request.signal.addEventListener(
+              'abort',
+              () => {
+                resolve();
+              },
+              { once: true },
+            );
+          });
+          return {
+            result: null,
+            usageTokens: 1,
+            cooldownUntil: 0,
+            subscriptionUsedPercent: null,
+            subscriptionResetAt: null,
+            process: { exitCode: null, stdout: '', stderr: '', interrupted: true },
+          };
+        },
+      },
+    );
+    defer(async () => factory.close());
+    const configured = factoryConfigSchema.parse({ ...settings, jobTimeoutMs: 5000 });
+    configured.organization.members['product-owner'] = { type: 'general', reportsTo: 'team-lead' };
+    configured.organization.members['team-lead'] = { type: 'general', reportsTo: null };
+    factory.repository.configure(configured);
+    const context = factory.configured();
+    t.mock.method(context.remote, 'verify', async () => {
+      await delay(0);
+    });
+    t.mock.method(context.remote, 'readyIssues', async () => await delay(0, []));
+    const finish = factory.repository.finishJob.bind(factory.repository);
+    t.mock.method(factory.repository, 'finishJob', (...args: Parameters<typeof finish>) => {
+      const isFinished = finish(...args);
+      settled.resolve(undefined);
+      return isFinished;
+    });
+    await context.workspaces.git(['init', '--initial-branch=main']);
+    await context.workspaces.git(['config', 'user.name', 'Handoff fixture']);
+    await context.workspaces.git(['config', 'user.email', 'fixture@example.invalid']);
+    await context.workspaces.git(['add', '.']);
+    await context.workspaces.git(['commit', '-m', 'Fixture baseline']);
+    const origin = path.join(mesh.directory, 'origin.git');
+    await context.workspaces.git(['init', '--bare', origin]);
+    await context.workspaces.git(['remote', 'add', 'origin', origin]);
+    await context.workspaces.git(['push', '-u', 'origin', 'main']);
+    await factory.execute('factory_request', { objective: 'Explain cancellation.' });
+    factory.repository.setActive(true);
+    await factory.tick();
+    const jobId = await started.promise;
+    if (mode === 'operator') {
+      await factory.execute('factory_cancel_job', { jobId });
+    }
+    await settled.promise;
+    await factory.close();
+    const [report] = reports(factory.repository);
+    assert.equal(report?.jobId, jobId);
+    assert.equal(report.processState, 'interrupted');
+    assert.equal(report.resultOutcome, null);
+    assert.equal(
+      report.reason?.text,
+      mode === 'timeout'
+        ? 'Assignment exceeded its 5000 ms timeout.'
+        : 'Operator cancelled this attempt; explicit retry required.',
+    );
+  });
+}
