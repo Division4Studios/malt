@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/Division4Studios/malt/security/advisories/new
+    about: Report vulnerabilities privately. Never paste credentials or project memory into issues.
+  - name: Questions and setup help
+    url: https://github.com/Division4Studios/malt/discussions/categories/q-a
+    about: Search existing answers and ask a usage question.
+  - name: Discuss an idea
+    url: https://github.com/Division4Studios/malt/discussions/categories/ideas
+    about: Refine substantial proposals before implementation.
