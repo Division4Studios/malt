@@ -1,5 +1,7 @@
 # Public release readiness
 
+**Temporary solo-maintainer exception (owner authorized 2026-10-14; review by 2026-10-28):** GitHub approval count is zero, code-owner approval and latest-push approval are not enforced because no independent collaborator is available. PRs, fresh required checks, CodeQL merge protection, conversation resolution, linear history and administrator enforcement remain active. Factory deliveries still require two independent local QA results and final verification. Restore two authenticated approvals, code-owner review and latest-push approval when trusted collaborators join. This is an explicit exception, not proof of independent GitHub review.
+
 MALT uses the [OpenSSF OSPS Baseline](https://baseline.openssf.org/) and [OpenSSF best-practices criteria](https://www.bestpractices.dev/en/criteria/0) as review frameworks. This is an evidence ledger, not a certification, badge award or guarantee that every defect has been found.
 
 ## Audit scope and evidence — 2026-10-14

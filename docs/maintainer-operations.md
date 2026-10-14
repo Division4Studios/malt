@@ -1,5 +1,7 @@
 # Maintainer operations
 
+**Temporary solo-maintainer exception (owner authorized 2026-10-14; review by 2026-10-28):** GitHub approval count is zero, code-owner approval and latest-push approval are not enforced because no independent collaborator is available. PRs, fresh required checks, CodeQL merge protection, conversation resolution, linear history and administrator enforcement remain active. Factory deliveries still require two independent local QA results and final verification. Restore two authenticated approvals, code-owner review and latest-push approval when trusted collaborators join. This is an explicit exception, not proof of independent GitHub review.
+
 ## Repository gates
 
 Protect `main` with required pull requests, two real authenticated approvals, code-owner review, dismissal of stale approvals, approval of the latest push, resolved conversations and current-base checks. Require the stable `Quality gate` and `Security gate` checks. Disallow force pushes, branch deletion and administrator bypass. Prefer squash merges and linear history; keep update-branch available so contributors can refresh main. Do not require a nonexistent check and call protection complete: confirm actual check-run names after the workflows land.

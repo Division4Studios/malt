@@ -1,5 +1,7 @@
 # GitHub controls and operating decisions
 
+**Temporary solo-maintainer exception (owner authorized 2026-10-14; review by 2026-10-28):** GitHub approval count is zero, code-owner approval and latest-push approval are not enforced because no independent collaborator is available. PRs, fresh required checks, CodeQL merge protection, conversation resolution, linear history and administrator enforcement remain active. Factory deliveries still require two independent local QA results and final verification. Restore two authenticated approvals, code-owner review and latest-push approval when trusted collaborators join. This is an explicit exception, not proof of independent GitHub review.
+
 This inventory records the public MIT repository's intended controls and the verified settings on 2026-10-14. GitHub features, availability and permissions change. Read back the live setting after an update; an unchecked setup checklist is not evidence of protection.
 
 ## Code and review
