@@ -42,7 +42,7 @@ const TEXT_MAX = 32_000;
 /** Longest public title. */
 const TITLE_MAX = 200;
 /** Largest atomic plan accepted at once. */
-const PLAN_MAX = 20;
+const PLAN_MAX = 100;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -58,7 +58,7 @@ const MAX_ATTEMPTS = 5;
 /** Maximum source files in one atomic delivery. */
 const MAX_FILES = 20;
 /** Maximum diff lines in one atomic delivery. */
-const MAX_LINES = 1200;
+const MAX_LINES = 500;
 /** Conservative local resource defaults for transient model/test processes. */
 const MEMORY_MB = 2048;
 /** Stop admitting work before the machine approaches memory exhaustion. */
@@ -464,6 +464,7 @@ export const AGENT_OUTPUT_SCHEMA = {
     },
     deliveries: {
       type: 'array',
+      maxItems: PLAN_MAX,
       items: {
         type: 'object',
         additionalProperties: false,
