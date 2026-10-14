@@ -16,8 +16,10 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { windowFreshness } from './quota-windows.ts';
 import {
   LEASE_MS,
+  isTokenCapExceeded,
   capacitySchema,
   effectSchema,
   factoryConfigSchema,
@@ -82,6 +84,7 @@ export class FactoryRepository {
     this.store = store;
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_source_views (job_id TEXT PRIMARY KEY REFERENCES factory_jobs(id), head TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_operator_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_features (id TEXT PRIMARY KEY, data TEXT NOT NULL);
@@ -486,9 +489,10 @@ export class FactoryRepository {
    *
    * @param provider - Provider family.
    * @param config - Current project settings.
+   * @param shouldInitialize - Persist missing accounting; false for read-only status.
    * @returns Normalized, reset-aware accounting.
    */
-  public capacity(provider: Provider, config: FactoryConfig): Capacity {
+  public capacity(provider: Provider, config: FactoryConfig, shouldInitialize = true): Capacity {
     const now = this.store.now();
     const row = selectOne(this.store.db, payloadSchema, 'SELECT data FROM factory_capacity WHERE provider=?', provider);
     const current =
@@ -501,11 +505,12 @@ export class FactoryRepository {
             cooldownUntil: 0,
             subscriptionUsedPercent: null,
             subscriptionResetAt: null,
+            subscriptionWindows: [],
             telemetrySource: null,
             updatedAt: now,
           }
         : capacitySchema.parse(JSON.parse(row.data));
-    if (row === undefined) {
+    if (row === undefined && shouldInitialize) {
       this.store.transaction(() => {
         run(this.store.db, 'INSERT OR IGNORE INTO factory_capacity VALUES(?,?)', provider, JSON.stringify(current));
       });
@@ -515,6 +520,12 @@ export class FactoryRepository {
     const nextReset = current.resetAt + (Math.floor((now - current.resetAt) / windowMs) + 1) * windowMs;
     return {
       ...current,
+      subscriptionWindows: (current.subscriptionWindows ?? []).map((window) => {
+        return {
+          ...window,
+          freshness: windowFreshness(window, now),
+        };
+      }),
       usedTokens: current.resetAt <= now ? 0 : current.usedTokens,
       resetAt: current.resetAt <= now ? nextReset : current.resetAt,
       subscriptionUsedPercent:
@@ -566,7 +577,7 @@ export class FactoryRepository {
         !limits.enabled ||
         capacity.subscriptionUsedPercent === PERCENT_MAX ||
         capacity.cooldownUntil > this.store.now() ||
-        capacity.usedTokens + capacity.reservedTokens + record.reservation > limits.budgetTokens ||
+        isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + record.reservation) ||
         live.filter((candidate) => candidate.provider === record.provider).length >= limits.concurrency
       ) {
         return false;

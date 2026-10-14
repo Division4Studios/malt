@@ -8,7 +8,7 @@
 
 import { MeshError } from '../protocol.ts';
 
-import { PROVIDERS } from './schema.ts';
+import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
   AgentResult,
@@ -114,42 +114,81 @@ export function validatePlan(result: AgentResult): void {
   }
 }
 
+/** Provider admission inputs shared by dispatch and read-only evidence. */
+export interface ProviderInput {
+  /** Effective broker-wide policy. */
+  readonly config: FactoryConfig;
+  /** Broker-shared capacity snapshots. */
+  readonly capacities: readonly Capacity[];
+  /** Live broker-wide attempts. */
+  readonly jobs: readonly FactoryJob[];
+  /** Current supervisor clock. */
+  readonly now: number;
+}
+/** Why one provider cannot admit another assignment. */
+export type ProviderBlocker = 'disabled' | 'cooldown' | 'subscription' | 'concurrency' | 'budget';
+
+/**
+ * Evaluate one provider with the exact conditions dispatch applies.
+ *
+ * @param provider - Provider family.
+ * @param input - Capacity snapshots, settings and live attempts.
+ * @returns Blocker, or utilization ordering evidence when admissible.
+ */
+function providerState(
+  provider: Provider,
+  input: ProviderInput,
+): { blocker: ProviderBlocker } | { blocker: null; utilization: number; active: number } {
+  const limits = input.config.providers[provider];
+  const capacity = input.capacities.find((candidate) => candidate.provider === provider);
+  if (capacity === undefined || !limits.enabled) {
+    return { blocker: 'disabled' };
+  }
+  if (capacity.cooldownUntil > input.now) {
+    return { blocker: 'cooldown' };
+  }
+  if (capacity.subscriptionUsedPercent === PERCENT_MAX) {
+    return { blocker: 'subscription' };
+  }
+  const active = input.jobs.filter((job) => job.state === 'running' && job.provider === provider).length;
+  if (active >= limits.concurrency) {
+    return { blocker: 'concurrency' };
+  }
+  if (
+    isTokenCapExceeded(limits.budgetTokens, capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens)
+  ) {
+    return { blocker: 'budget' };
+  }
+  const utilization = Math.max(
+    limits.budgetTokens === null ? 0 : (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
+    (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
+  );
+  return { blocker: null, utilization, active };
+}
+
+/**
+ * Explain each provider's admission state without selecting or claiming.
+ *
+ * @param input - Capacity snapshots, settings and live attempts.
+ * @returns Per-provider blocker, null when it could admit another assignment.
+ */
+export function providerBlockers(input: ProviderInput): Record<Provider, ProviderBlocker | null> {
+  return {
+    codex: providerState('codex', input).blocker,
+    claude: providerState('claude', input).blocker,
+  };
+}
+
 /**
  * Select a provider by normalized utilization while respecting cooldown and caps.
  *
  * @param input - Capacity snapshots, settings and live attempts.
  * @returns Provider choice, absent when neither can admit another assignment.
  */
-export function chooseProvider(input: {
-  config: FactoryConfig;
-  capacities: readonly Capacity[];
-  jobs: readonly FactoryJob[];
-  now: number;
-}): Provider | null {
-  const live = input.jobs.filter((job) => job.state === 'running');
+export function chooseProvider(input: ProviderInput): Provider | null {
   const choices = PROVIDERS.map((provider) => {
-    const limits = input.config.providers[provider];
-    const capacity = input.capacities.find((candidate) => candidate.provider === provider);
-    if (
-      capacity === undefined ||
-      !limits.enabled ||
-      capacity.cooldownUntil > input.now ||
-      capacity.subscriptionUsedPercent === PERCENT_MAX
-    ) {
-      return null;
-    }
-    const active = live.filter((job) => job.provider === provider).length;
-    if (
-      active >= limits.concurrency ||
-      capacity.usedTokens + capacity.reservedTokens + limits.reservationTokens > limits.budgetTokens
-    ) {
-      return null;
-    }
-    const utilization = Math.max(
-      (capacity.usedTokens + capacity.reservedTokens) / limits.budgetTokens,
-      (capacity.subscriptionUsedPercent ?? 0) / PERCENT_MAX,
-    );
-    return { provider, utilization, active };
+    const state = providerState(provider, input);
+    return state.blocker === null ? { provider, utilization: state.utilization, active: state.active } : null;
   })
     .filter((choice) => choice !== null)
     .toSorted((left, right) => {
@@ -204,8 +243,14 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   };
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
+  const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
+  const development = interleaveDevelopment(input, intents.splice(developmentStart));
+  // At most one development job, running or offered, precedes planning, leaving room at the default cap of two.
+  const leading = live.some((job) => job.kind === 'develop') ? 0 : 1;
+  intents.push(...development.slice(0, leading));
   scheduleGroup4(input, live, intents, append);
+  intents.push(...development.slice(leading));
 
   scheduleGroup5(input, live, intents, append);
   const learning = input.jobs.findLast((job) => job.kind === 'learn');
@@ -243,6 +288,86 @@ interface SchedulingState {
 }
 /** Append one dependency and role-gated delivery candidate. */
 type AppendIntent = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask) => void;
+
+/**
+ * Leave fixed-owner roles for later repairs while retaining flexible alternatives.
+ *
+ * @param tasks - Eligible task groups in round-robin order.
+ * @returns Primary assignments followed by transactional fallback choices.
+ */
+function assignDevelopmentRoles(tasks: JobIntent[][]): JobIntent[] {
+  const reservations = new Map<FactoryRole, number>();
+  for (const roles of tasks) {
+    const only = roles.length === 1 ? roles[0] : undefined;
+    if (only !== undefined) {
+      reservations.set(only.role, (reservations.get(only.role) ?? 0) + 1);
+    }
+  }
+  const primary: JobIntent[] = [];
+  const alternatives: JobIntent[] = [];
+  const assigned = new Set<FactoryRole>();
+  let previousRole: FactoryRole | undefined;
+  for (const roles of tasks) {
+    const only = roles.length === 1 ? roles[0] : undefined;
+    if (only !== undefined) {
+      reservations.set(only.role, (reservations.get(only.role) ?? 1) - 1);
+    }
+    const unreserved = roles.filter((intent) => (reservations.get(intent.role) ?? 0) === 0);
+    const choices = unreserved.length === 0 ? roles : unreserved;
+    const lastRole = previousRole;
+    const preferred =
+      choices.find((intent) => !assigned.has(intent.role)) ??
+      choices.find((intent) => intent.role !== lastRole) ??
+      choices[0];
+    if (preferred === undefined) {
+      continue;
+    }
+    primary.push(preferred);
+    assigned.add(preferred.role);
+    previousRole = preferred.role;
+    alternatives.push(...roles.filter((intent) => intent !== preferred));
+  }
+  return [...primary, ...alternatives];
+}
+
+/**
+ * Round-robin eligible tasks across objectives before offering alternative roles.
+ * Task insertion order is the repository's creation order; updatedAt is mutable.
+ *
+ * @param input - Durable feature creation order.
+ * @param candidates - Already gated development candidates.
+ * @returns Reordered candidates without changing their eligibility.
+ */
+function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]): JobIntent[] {
+  const features = input.features.toSorted((left, right) => left.createdAt - right.createdAt);
+  const ranks = new Map<string | null, number>(features.map((feature, index) => [feature.id, index]));
+  const groups = new Map<string | null, Map<string | null, JobIntent[]>>();
+  for (const intent of candidates) {
+    const tasks = groups.get(intent.featureId) ?? new Map<string | null, JobIntent[]>();
+    const roles = tasks.get(intent.taskId) ?? [];
+    roles.push(intent);
+    tasks.set(intent.taskId, roles);
+    groups.set(intent.featureId, tasks);
+  }
+  // Standalone or absent-feature deliveries retain insertion order after known features.
+  const queues = groups
+    .entries()
+    .toArray()
+    .toSorted(([left], [right]) => (ranks.get(left) ?? ranks.size) - (ranks.get(right) ?? ranks.size))
+    .map(([, tasks]) => tasks.values().toArray());
+  const ordered: JobIntent[][] = [];
+  const rounds = Math.max(0, ...queues.map((queue) => queue.length));
+  for (let round = 0; round < rounds; round += 1) {
+    for (const queue of queues) {
+      const roles = queue[round];
+      if (roles === undefined) {
+        continue;
+      }
+      ordered.push(roles);
+    }
+  }
+  return assignDevelopmentRoles(ordered);
+}
 
 /**
  * Schedule one independently bounded delivery or planning stage.
@@ -349,13 +474,18 @@ function scheduleGroup4(
   intents: JobIntent[],
   _append: AppendIntent,
 ): void {
-  const candidates = input.features.filter(
-    (candidate) =>
-      candidate.scopeReplacement === undefined && (candidate.phase === 'queued' || candidate.phase === 'refining'),
-  );
+  const candidates = input.features
+    .toSorted((left, right) => left.createdAt - right.createdAt)
+    .filter(
+      (candidate) =>
+        candidate.scopeReplacement === undefined && (candidate.phase === 'queued' || candidate.phase === 'refining'),
+    );
   for (const feature of candidates) {
     const role = feature.productPlan === null ? 'product-owner' : 'team-lead';
-    if (live.every((job) => !(job.role === role || job.featureId === feature.id))) {
+    if (
+      live.every((job) => !(job.role === role || job.featureId === feature.id)) &&
+      intents.every((intent) => intent.role !== role)
+    ) {
       intents.push({
         role,
         kind: feature.productPlan === null ? 'plan' : 'refine',

@@ -8,6 +8,7 @@
 import { z } from 'zod';
 
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
+import { subscriptionWindowsSchema } from './quota-windows.ts';
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
 /** Extra reviewed project skills attached to one stage. */
@@ -42,8 +43,6 @@ const TEXT_MAX = 32_000;
 const TITLE_MAX = 200;
 /** Largest atomic plan accepted at once. */
 const PLAN_MAX = 20;
-/** Default scheduling budget, distinct from a subscription quota. */
-const TOKEN_BUDGET = 1_000_000;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -94,11 +93,22 @@ export const providerSchema = z
       .strict()
       .default({}),
     concurrency: z.number().int().min(1).max(FACTORY_ROLES.length).default(2),
-    budgetTokens: z.number().int().positive().default(TOKEN_BUDGET),
+    budgetTokens: z.number().int().positive().nullable().default(null),
     reservationTokens: z.number().int().positive().default(TOKEN_RESERVATION),
     windowMs: z.number().int().positive().default(WINDOW_MS),
   })
   .strict();
+
+/**
+ * Apply a token cap only when an operator explicitly configured one.
+ *
+ * @param budget - Optional diagnostic-token ceiling; null means subscription-only.
+ * @param usage - Observed, reserved and requested accounting total.
+ * @returns Whether that explicit cap would be exceeded.
+ */
+export function isTokenCapExceeded(budget: number | null, usage: number): boolean {
+  return budget !== null && usage > budget;
+}
 /** Project-specific factory setup; meaningful validation commands are mandatory. */
 export const factoryConfigSchema = z
   .object({
@@ -315,6 +325,7 @@ export const capacitySchema = z.object({
   cooldownUntil: z.number(),
   subscriptionUsedPercent: z.number().min(0).max(PERCENT_MAX).nullable(),
   subscriptionResetAt: z.number().nullable(),
+  subscriptionWindows: subscriptionWindowsSchema.optional().catch([]),
   telemetrySource: z.string().nullable(),
   updatedAt: z.number(),
 });
@@ -347,6 +358,7 @@ export const skillRequestSchema = skillActionSchema.extend({
 export type SkillRequest = z.output<typeof skillRequestSchema>;
 /** MCP/CLI operations exposed by the factory. */
 export const factorySchemas = {
+  factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
       path: z.string().min(1).max(WORKSPACE_MAX).optional(),
@@ -399,6 +411,7 @@ export const factorySchemas = {
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_progress',
   'factory_read_source',
   'factory_export_maintenance',
   'factory_skill_decide',

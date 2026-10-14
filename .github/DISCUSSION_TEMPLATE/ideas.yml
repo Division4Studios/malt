@@ -1,0 +1,16 @@
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: What outcome would this enable?
+    validations:
+      required: true
+  - type: textarea
+    id: prior
+    attributes:
+      label: Related work and alternatives
+      description: Link existing issues/discussions and explain what is distinct.
+  - type: textarea
+    id: scope
+    attributes:
+      label: Smallest verifiable first slice

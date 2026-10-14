@@ -76,7 +76,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Install a fixed hook only in the disposable remote to exercise unpaid push recovery.
   await writeFile(
     path.join(root, 'origin.git', 'hooks', 'pre-receive'),
-    '#!/bin/sh\nwhile read old new ref; do\ncase "$ref" in refs/heads/mlt/*)\nif [ ! -e hooks/failed-once ]; then\n: > hooks/failed-once\necho "Fixture transient push rejection" >&2\nexit 1\nfi\n;;\nesac\ndone\nexit 0\n',
+    '#!/bin/sh\nwhile read old new ref; do\ncase "$ref" in refs/heads/malt/*)\nif [ ! -e hooks/failed-once ]; then\n: > hooks/failed-once\necho "Fixture transient push rejection" >&2\nexit 1\nfi\n;;\nesac\ndone\nexit 0\n',
     { mode: 0o755 },
   );
   await command('git', ['clone', path.join(root, 'origin.git'), source], root);
@@ -109,6 +109,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   let owner: string | null = null;
   const closed = new Set<number>();
   const stages: string[] = [];
+  const completionUpdates: string[] = [];
   const remote: DeliveryRemote = {
     verify: async () => {
       /* Fixture remote verified by isolated ownership. */
@@ -154,6 +155,9 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       return task.head;
     },
     effect: async (effect) => {
+      if (effect.kind === 'comment' && effect.value.includes('implementation prepared.')) {
+        completionUpdates.push(effect.value);
+      }
       if (effect.kind !== 'close') {
         return delay(0);
       }
@@ -173,6 +177,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       );
     },
   };
+  const lifecycle: { factory: FactoryService | null } = { factory: null };
   const agent = async (request: AgentRequest): Promise<AgentCompletion> => {
     stages.push(request.job.kind);
     assert.ok(request.prompt.includes('factory-session'));
@@ -194,6 +199,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       });
     }
     if (request.job.kind === 'develop') {
+      assert.match(await command('git', ['branch', '--show-current'], request.cwd), /^malt\/issue-/v);
       if (owner === null) {
         owner = request.job.role;
       } else {
@@ -205,6 +211,16 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     }
     if (!isReturned && request.job.role === 'qa-1') {
       isReturned = true;
+      const currentFactory = lifecycle.factory;
+      assert.ok(currentFactory !== null);
+      const stagesBeforeDrain = stages.length;
+      currentFactory.repository.setActive(false);
+      now += 31_000;
+      await currentFactory.tick();
+      const liveClaim = currentFactory.repository.jobs().find((job) => job.id === request.job.id);
+      assert.ok(liveClaim !== undefined && liveClaim.expiresAt > now, 'Draining must renew owned review claims.');
+      assert.equal(stages.length, stagesBeforeDrain, 'Draining must not dispatch another model assignment.');
+      currentFactory.repository.setActive(true);
       return completion({
         ...success,
         outcome: 'changes_requested',
@@ -225,6 +241,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
     },
   );
+  lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
@@ -243,6 +260,13 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.equal(task.phase, 'done', JSON.stringify(factory.status()));
     assert.equal(task.attempts, 2);
     assert.equal(writes, 2, 'Push and ambiguous PR failures must not repeat successful paid implementation.');
+    assert.equal(
+      completionUpdates.length,
+      writes,
+      'Every validated implementation needs its durable completion update after push recovery.',
+    );
+    const uniqueUpdates = new Set(completionUpdates);
+    assert.equal(uniqueUpdates.size, writes, 'Publication retries must not duplicate completion updates.');
     assert.equal(creations, 1, 'Ambiguous PR creation must reconcile the existing PR.');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Confirm that the disposable remote actually rejected a publication push once.
     assert.ok(existsSync(path.join(root, 'origin.git', 'hooks', 'failed-once')));
@@ -312,4 +336,10 @@ await test('provider choice respects measured cooldown and unknown quota; termin
   ];
   assert.equal(chooseProvider({ config, capacities, jobs: [], now: 100 }), 'claude');
   assert.equal(safeText('hello\u{1B}[2J\u{1B}]0;malicious title\u{7}world'), 'helloworld');
+  assert.equal(
+    safeText('before\u{1B}]8;;https://example.invalid\u{1B}\\label\u{1B}]8;;\u{1B}\\after'),
+    'beforelabelafter',
+  );
+  assert.equal(safeText('safe\u{1B}]0;unfinished title'), 'safe');
+  assert.equal(safeText('before\u{9D}0;title\u{9C}after'), 'beforeafter');
 });

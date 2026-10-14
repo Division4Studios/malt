@@ -319,7 +319,7 @@ h3 {
 }
 .metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 26px;
 }
@@ -866,6 +866,7 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
   .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
   }
   .metric {
@@ -1307,4 +1308,19 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
   .message-route {
     transition: none;
   }
+}
+
+.connection-fields {
+  display: grid;
+  gap: 10px;
+}
+.connection-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
 }

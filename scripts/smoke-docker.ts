@@ -37,6 +37,8 @@ const exec = promisify(execFile);
 
 /** A unique Compose project name, so the test never touches a real team. */
 const project = `agentmesh-smoke-${randomUUID().slice(0, 8)}`;
+/** The official Node image's default nonroot UID and GID. */
+const NODE_ID = 1000;
 
 /** The Compose arguments selecting this repository's file and the test project. */
 const compose = ['compose', '-f', path.resolve('compose.yaml'), '-p', project];
@@ -64,6 +66,8 @@ async function consolePort(): Promise<number> {
 /** Bind only disposable test directories, never the real checkout. */
 const environment = {
   ...process.env,
+  MALT_DOCKER_UID: String(process.getuid?.() ?? NODE_ID),
+  MALT_DOCKER_GID: String(process.getgid?.() ?? NODE_ID),
   AGENTMESH_PORT: '0',
   AGENTMESH_UI_PORT: String(await consolePort()),
   AGENTMESH_PROJECT_NAME: project,
@@ -240,6 +244,15 @@ async function closeClients(): Promise<void> {
  * @param shouldQueue - Queue once, then verify persistence after recreation.
  */
 async function verifyConsole(shouldQueue: boolean): Promise<void> {
+  await command(
+    'exec',
+    '-T',
+    'broker',
+    'node',
+    '--input-type=module',
+    '-e',
+    "import {writeFileSync,unlinkSync} from 'node:fs'; import {join} from 'node:path'; const file=join(process.env.HOME,'.malt-smoke-write'); writeFileSync(file,'fixture',{flag:'wx',mode:0o600}); unlinkSync(file);",
+  );
   const logs = await exec('docker', [...compose, 'logs', '--no-log-prefix', 'broker'], {
     env: environment,
     timeout: COMMAND_TIMEOUT_MS,

@@ -4,7 +4,7 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics } from './brand-ui.js';
+import { overviewMetrics, objectivePreview } from './brand-ui.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import {
@@ -386,7 +386,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
       ),
     );
   } else {
-    const completed = objectives.slice(-COMPLETED_PREVIEW);
+    const completed = objectivePreview(objectives, COMPLETED_PREVIEW);
     for (const feature of completed) {
       const row = element('article', 'lesson');
       const objective = text(feature, 'objective');
@@ -684,6 +684,7 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
   const grid = element('div', 'setup-steps');
   const connection = child(state.github, 'connection');
   const project = child(connection, 'project');
+  const workflowField = firstText(text(child(connection, 'statusField'), 'name'), 'not selected');
   const github = element('section', 'setup-card');
   const repositoryLabel = firstText(
     text(connection, 'repository'),
@@ -694,6 +695,11 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
     element('h2', '', 'GitHub Project'),
     pill(hasFlag(state.github, 'connected') ? 'connected' : 'not connected'),
     element('p', 'subtle', repositoryLabel),
+    element(
+      'p',
+      'subtle',
+      `Workflow field: ${workflowField}. Tickets appear in this Project; board grouping must use this field.`,
+    ),
     link(text(project, 'url'), 'Open connected Project ↗'),
     button(
       'Configure connection',
