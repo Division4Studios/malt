@@ -13,6 +13,7 @@ import { resourceBlocker, resourceProbe } from './resources.ts';
 import { providerBlockers } from './scheduler.ts';
 import { TerminalBuffer } from './terminal-buffer.ts';
 import { MAX_COLUMNS, MAX_ROWS, MIN_COLUMNS, MIN_ROWS } from './terminal-frames.ts';
+import { terminalLaunchSchema, terminalMcpServers } from './terminal-launch.ts';
 import { TerminalLifetime, terminalClock } from './terminal-lifetime.ts';
 import { startTerminalProcess } from './terminal-process.ts';
 import { WorkspaceManager } from './workspaces.ts';
@@ -41,6 +42,8 @@ export const terminalStartSchema = z
   .strict();
 /** Injectable native boundaries; fixtures never invoke paid providers. */
 export interface TerminalOptions {
+  /** Unpaid MCP name inspection; substitute explicitly in fixture tests. */
+  readonly inspectMcp?: typeof terminalMcpServers;
   /** Timer substitution for deterministic timeout verification. */
   readonly clock?: TerminalClock;
   /** Broker-wide pool shared with managed assignments. */
@@ -120,6 +123,7 @@ export class TerminalService {
       spawn: options.spawn ?? startTerminalProcess,
       preflight: options.preflight ?? preflight,
       clock: options.clock ?? terminalClock,
+      inspectMcp: options.inspectMcp ?? terminalMcpServers,
     };
   }
 
@@ -147,6 +151,11 @@ export class TerminalService {
     if (settings === null) {
       throw new MeshError('FACTORY_GATED', 'Configure the selected project first.');
     }
+    terminalLaunchSchema.parse({
+      ...request,
+      file: settings.providers[request.provider].executable,
+      cwd: this.mesh.root,
+    });
     if (this.live.size + this.preparing.size >= settings.terminals.max) {
       throw new MeshError('FACTORY_GATED', 'Terminal session cap reached or terminals disabled.');
     }
@@ -178,6 +187,10 @@ export class TerminalService {
       const base = await workspaces.base();
       const branch = `malt/terminal/${id}`;
       const worktree = await workspaces.create(`terminal-${id}`, base, branch, false);
+      const mcpServers =
+        request.provider === 'codex'
+          ? await this.options.inspectMcp(settings.providers.codex.executable, worktree)
+          : [];
       this.assertCurrent(generation);
       const session = this.repository.terminals.create({
         ...request,
@@ -190,7 +203,7 @@ export class TerminalService {
       this.repository.terminals.change(id, 'requested', 'starting');
       const buffer = new TerminalBuffer(OUTPUT_BYTES, process.env, [this.mesh.token]);
       const native = this.options.spawn({
-        launch: { ...request, file: settings.providers[request.provider].executable, cwd: worktree },
+        launch: { ...request, file: settings.providers[request.provider].executable, cwd: worktree, mcpServers },
         artifact: path.join(this.mesh.directory, 'terminals', id),
         memoryMb: settings.resources.jobMemoryMb,
         cpuPercent: settings.resources.jobCpuPercent,
