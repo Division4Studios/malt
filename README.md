@@ -22,7 +22,7 @@ MALT coordinates real subscription-authenticated Codex and Claude Code sessions 
 
 ## Start natively
 
-Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
+Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
 
 ```sh
 git clone https://github.com/Division4Studios/malt.git
@@ -105,6 +105,8 @@ To direct MALT's own remaining development from the console, see
 - [Detailed guides](#detailed-guides)
 
 ## What works today
+
+See the [current capability map](docs/current-status.md) and [complete 95-issue audit](docs/issue-audit-2026-10-15.md) for merged evidence, partial integrations and remaining work. A historical blocked issue is not proof its original defect persists.
 
 | Capability             | Current behavior                                                                        |
 | ---------------------- | --------------------------------------------------------------------------------------- |
@@ -490,7 +492,7 @@ This is a trusted local-user tool. Users with OS-account or Docker access can in
 
 Sends do not have idempotency keys. A timed-out send may have committed; inspect history before retrying. Pending check-ins are deduplicated, but repeated decisions are rejected after resolution. Message/event retention is unbounded.
 
-The managed factory now adds durable task claims, native subscription sessions, owned worktrees, two independent QA reviews, serialized merge gates and merged-main verification. The PWA controls that same supervisor; cooperative attached sessions retain their instruction/check-in loop. The explicitly authorized source pilot completed [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11) under a private-repository protection exception. It published only Git-ignore rules. The factory implementation was subsequently committed in `5711e3a` and reached remote main at `d9b2984`; owned delivery worktrees can now use that baseline.
+The managed factory provides durable task claims, subscription CLI sessions, owned worktrees, independent QA, serialized merges and actual-main verification. The PWA controls that supervisor; attached sessions retain their cooperative loop. The historical [Git-ignore pilot](https://github.com/Division4Studios/malt/pull/11) did not publish the whole implementation. Current main additionally includes objective priority/focus, actionable blocker recovery and reviewed publication-size exceptions; see the [capability map](docs/current-status.md).
 
 Remaining work includes arbitrary additional managed specialist seats, complete local history pagination, and the full installed-window/accessibility audit. A fresh real Codex developer command path also needs validation after startup repairs; the live pilot's developer used Claude. Protected GitHub enforcement is covered by fixtures and remains unverified against a live protected branch. See [current verification limits](docs/operator-console.md#verification-limits).
 
