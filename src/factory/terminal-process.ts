@@ -1,4 +1,5 @@
 /** @file Owned interactive process handle; terminal content is never written to disk. */
+import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -17,6 +18,8 @@ import type { TerminalLaunch } from './terminal-launch.ts';
 const STOP_MS = 8000;
 /** Process ceilings include host, conhost, CLI, tools and native cleanup helper. */
 const PROCESS_LIMIT = 32;
+/** Only the deterministic fixture can expose a bounded startup diagnostic. */
+const DIAGNOSTIC_MAX = 500;
 
 /** An in-memory handle to exactly one owned native host. */
 export interface TerminalProcess {
@@ -106,7 +109,10 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
       spec.onFrame({
         type: 'error',
         code: 'host_setup_failed',
-        message: spec.fixture === true ? diagnostic.slice(0, 500) : 'The native host wrapper failed during startup.',
+        message:
+          spec.fixture === true
+            ? diagnostic.slice(0, DIAGNOSTIC_MAX)
+            : 'The native host wrapper failed during startup.',
       });
     }
     if (stopping === null) {
@@ -119,7 +125,10 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
   });
   child.once('error', finish);
   child.stderr?.on('data', (bytes: Uint8Array) => {
-    diagnostic = (diagnostic + Buffer.from(bytes).toString('utf8')).slice(0, 500);
+    diagnostic =
+      spec.fixture === true
+        ? (diagnostic + Buffer.from(bytes).toString('utf8')).slice(0, DIAGNOSTIC_MAX)
+        : 'The native host wrapper reported a startup error.';
   });
   const stop = async (): Promise<void> => {
     stopping ??= (async (): Promise<void> => {
