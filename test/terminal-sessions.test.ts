@@ -26,7 +26,7 @@ await test('terminal metadata survives additive migration and recovery without c
     store.close();
   });
   let sessions = new TerminalSessions(store);
-  const first = sessions.create({ ...metadata, id: randomUUID() });
+  const first = sessions.create({ ...metadata, id: randomUUID(), base: 'a'.repeat(64) });
   sessions.change(first.id, 'requested', 'starting');
   sessions.change(first.id, 'starting', 'running', { outputBytes: 20 });
   const finished = sessions.create({ ...metadata, id: randomUUID() });
