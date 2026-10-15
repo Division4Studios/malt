@@ -21,6 +21,10 @@ npm run check
 
 The gate runs strict TypeScript for backend/browser/service worker, ESLint with zero warnings, Prettier, reproducible browser compilation and Node regression tests. Use `npm run format` for formatting and rerun checks after meaningful changes. `npm run test:docker` builds and exercises isolated disposable container state when Docker is available. Do not point fixture tests at a live project or spend paid model turns to test scheduling.
 
+CI uses a documentation fast path only when every changed path is a human-facing Markdown file under `docs/` or a conventional root document (README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, CHANGELOG, SUPPORT or THIRD_PARTY_NOTICES). Formatting and all security checks still run. Existing required platform and Docker checks report an explicit documentation-only success without installing dependencies or running their suites. Agent instructions (`AGENTS.md`, `CLAUDE.md`), skills (`SKILL.md` and `resources/`), prompts, workflows, assets, source and mixed changes retain the full gate. Renames inspect both paths; unknown events, unavailable history and empty diffs also use the full gate. Manual CI runs always run everything. No workflow-level path filter can leave required checks pending.
+
+Classification executes the classifier from the immutable base commit, never from the proposed PR checkout. Missing base classifiers use full CI, including the initial introduction of this optimization. A PR changing the classifier cannot use its proposed classifier to exempt itself from validation.
+
 Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. Backend MCP SDK, Zod and Node SQLite remain allowed. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
 
 ## Pull requests

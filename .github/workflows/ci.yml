@@ -1,8 +1,8 @@
-# Continuous integration for Agent Mesh.
+# Continuous integration for MALT.
 #
 # `check` runs the full quality gate (typecheck, lint with zero warnings,
-# formatting, tests) on every supported operating system. `docker` builds the
-# image and runs the end-to-end Compose smoke test on Linux.
+# formatting, tests) on every supported operating system for executable changes.
+# Human-facing Markdown changes retain required check names with explicit skips.
 name: Verify MALT
 on:
   push:
@@ -19,7 +19,49 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.classify.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Classify the complete immutable diff
+        id: classify
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || github.event.merge_group.base_sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after || github.event.merge_group.head_sha }}
+        shell: bash
+        run: |
+          classifier="$RUNNER_TEMP/malt-ci-classifier.ts"
+          if [[ ! "$CI_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || ! git show "$CI_BASE_SHA:scripts/ci-changes.ts" > "$classifier"; then
+            echo 'docs_only=false' >> "$GITHUB_OUTPUT"
+          else
+            node "$classifier" >> "$GITHUB_OUTPUT"
+          fi
+  documentation:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
   check:
+    needs: changes
     strategy:
       fail-fast: false
       matrix:
@@ -27,37 +69,64 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Documentation-only fast path
+        if: needs.changes.outputs.docs_only == 'true'
+        shell: bash
+        run: echo 'Human-facing Markdown only; cross-platform tests are unnecessary. Formatting and security remain required.' >> "$GITHUB_STEP_SUMMARY"
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run check
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: npm ci --ignore-scripts
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: npm run check
   docker:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Documentation-only fast path
+        if: needs.changes.outputs.docs_only == 'true'
+        run: echo 'Human-facing Markdown only; container build and smoke test are unnecessary.' >> "$GITHUB_STEP_SUMMARY"
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - if: needs.changes.outputs.docs_only != 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npm run test:docker
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: npm ci --ignore-scripts
+      - if: needs.changes.outputs.docs_only != 'true'
+        run: npm run test:docker
   quality-gate:
     name: Quality gate
     if: always()
-    needs: [check, docker]
+    needs: [changes, documentation, check, docker]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require every platform and container check
+      - name: Require the selected checks without weakening failures
         env:
+          CHANGES: ${{ needs.changes.result }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs_only }}
+          DOCUMENTATION: ${{ needs.documentation.result }}
           CHECK: ${{ needs.check.result }}
           DOCKER: ${{ needs.docker.result }}
-        run: test "$CHECK" = success && test "$DOCKER" = success
+        run: |
+          test "$CHANGES" = success
+          test "$CHECK" = success
+          test "$DOCKER" = success
+          if [ "$DOCS_ONLY" = true ]; then
+            test "$DOCUMENTATION" = success
+          else
+            test "$DOCUMENTATION" = skipped
+          fi
