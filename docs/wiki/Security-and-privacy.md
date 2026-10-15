@@ -18,4 +18,6 @@ flowchart TD
 - Scan current files and all reachable Git history before release. Ignoring a file does not remove a historical leak; revocation takes priority.
 - Review third-party skills/tools for license, provenance, compatibility and security. Human adoption is for an exact revision; downloaded instructions are not authority.
 
-The project uses the OpenSSF Baseline and best-practices criteria as review frameworks. It has not claimed a badge, penetration-test certification or complete absence of defects. See the repository's audit/readiness document once the corresponding public-readiness PR is merged.
+The project uses the OpenSSF Baseline and best-practices criteria as review frameworks. It has not claimed a badge, penetration-test certification or complete absence of defects. See the merged [release-readiness ledger](https://github.com/Division4Studios/malt/blob/main/docs/open-source-readiness.md).
+
+On 2026-10-15, API readback verified private reporting, secret scanning/push protection and the active CodeQL rule. Required checks include all three OS checks, Docker, Quality gate and Security gate. The temporary solo-maintainer authenticated-review exception remains documented; no audit note substitutes for runtime QA or GitHub approvals.
