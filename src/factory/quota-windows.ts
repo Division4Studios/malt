@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Time conversion for native Unix-second reset deadlines. */
 const SECOND_MS = 1000;

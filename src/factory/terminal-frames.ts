@@ -9,7 +9,7 @@
 
 import { Buffer } from 'node:buffer';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Bytes in a kibibyte. */
 const KIB = 1024;

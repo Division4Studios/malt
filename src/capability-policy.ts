@@ -8,7 +8,7 @@
  */
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode, readJsonFile } from './config.ts';
 import { parseConnection } from './connector.ts';

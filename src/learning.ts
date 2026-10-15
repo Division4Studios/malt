@@ -11,7 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode, readJsonFile } from './config.ts';
 import { baselineConflicts } from './factory/baselines.ts';

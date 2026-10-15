@@ -11,7 +11,7 @@ import { mkdirSync as makeDirectory, readFileSync as readFile, writeFileSync as 
 import path from 'node:path';
 import test from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { CAPABILITY_NAMES, capabilityState } from '../src/connector.ts';
 import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';

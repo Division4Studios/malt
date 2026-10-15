@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { symlink, lstat, realpath, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { readJsonFile } from '../config.ts';
 import { hasErrorCode } from '../errors.ts';

@@ -18,7 +18,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, openTeamConfig, rpc } from '../src/client.ts';

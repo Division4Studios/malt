@@ -21,7 +21,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { STATE_DIRECTORY_NAME, loadIdentity, sessionIdentity } from './config.ts';
 import { log } from './log.ts';

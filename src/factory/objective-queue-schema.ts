@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Bound the queue control to the existing request-body ceiling. */
 export const MAX_OBJECTIVES = 5000;

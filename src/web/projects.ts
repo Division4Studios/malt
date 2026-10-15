@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';

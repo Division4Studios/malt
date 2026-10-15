@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode } from '../errors.ts';
 import { writeAtomic } from '../summary.ts';

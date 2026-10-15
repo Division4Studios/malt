@@ -10,7 +10,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { rejectDelivery, completeJob } from '../src/factory/completion.ts';
 import { queueObjective } from '../src/factory/objectives.ts';

@@ -15,7 +15,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';

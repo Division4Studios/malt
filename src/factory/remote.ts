@@ -8,7 +8,7 @@
 
 import { createHash } from 'node:crypto';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { githubRunner } from '../github.ts';
 import { MeshError } from '../protocol.ts';

@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { loadIdentity } from '../config.ts';
 import { selectAll, messageRowSchema } from '../database.ts';

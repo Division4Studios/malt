@@ -28,7 +28,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { log } from './log.ts';

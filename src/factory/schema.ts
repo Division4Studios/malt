@@ -5,7 +5,7 @@
  * @file
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';

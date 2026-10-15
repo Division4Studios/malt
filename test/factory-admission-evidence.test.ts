@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { AdmissionPool } from '../src/factory/admission.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
