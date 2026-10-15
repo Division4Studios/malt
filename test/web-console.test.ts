@@ -16,6 +16,7 @@ import { z } from 'zod';
 
 import { startBroker } from '../src/broker.ts';
 import { loadConfig } from '../src/config.ts';
+import { objectiveQueueSchema } from '../src/factory/objective-queue-schema.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { jobSchema, factoryConfigSchema } from '../src/factory/schema.ts';
 import { readArtifact } from '../src/web/artifacts.ts';
@@ -33,7 +34,11 @@ const streamPageSchema = z.object({
   events: eventPageSchema,
 });
 /** Validate the actual factory snapshot fields inspected by controls. */
-const factoryViewSchema = z.object({ features: z.array(z.unknown()), active: z.boolean().optional() });
+const factoryViewSchema = z.object({
+  features: z.array(z.unknown()),
+  active: z.boolean().optional(),
+  objectiveQueue: objectiveQueueSchema.optional(),
+});
 /** Operator snapshot envelope. */
 const viewSchema = z.object({ factory: factoryViewSchema });
 /** A bounded native artifact response. */
@@ -349,6 +354,21 @@ await test('paired browser controls persist objectives, isolate projects and rej
   const snapshot = viewSchema.parse(await view.json());
   assert.equal(snapshot.factory.features.length, 1);
   assert.equal(snapshot.factory.active, false);
+  const queue = snapshot.factory.objectiveQueue;
+  assert.ok(queue !== undefined);
+  const focusedFeatureId = queue.order[0];
+  assert.ok(focusedFeatureId !== undefined);
+  const queueBody = JSON.stringify({
+    operation: 'factory_queue',
+    input: { order: queue.order, expectedRevision: queue.revision, focusedFeatureId },
+  });
+  const reorder = await fetch(`${url}/api/control?project=home`, { method: 'POST', headers, body: queueBody });
+  assert.equal(reorder.status, 200);
+  const queuedView = viewSchema.parse(await (await fetch(`${url}/api/snapshot?project=home`, { headers })).json());
+  assert.equal(queuedView.factory.objectiveQueue?.focusedFeatureId, focusedFeatureId);
+  const stale = await fetch(`${url}/api/control?project=home`, { method: 'POST', headers, body: queueBody });
+  assert.equal(stale.status, 400);
+
   const opened = await fetch(`${url}/api/projects`, {
     method: 'POST',
     headers,

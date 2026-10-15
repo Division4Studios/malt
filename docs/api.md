@@ -161,7 +161,7 @@ running-job state. Unknown/foreign IDs, done or superseded targets/anchors, self
 revisions fail without mutation. Refresh status after a stale revision; do not blindly retry.
 An identical `requestId` and payload returns the original committed response, even after later
 moves or restart; changed payloads with that ID are rejected. Fetch status for the latest order.
-This contract does not yet change scheduler selection or provide browser reorder buttons.
+The Mission dispatch queue and `factory_queue` use these same ranks and revision. Relative moves retain focus and update dispatch order; full queue replacements invalidate stale relative moves. Completing or superseding a focused objective releases focus. Existing assignments are preserved.
 Status reads obtain ranks and revision from one read-only SQLite statement; they do not acquire a write-intent lock or regenerate the project README.
 
 `factory_status.admission` explains local admission without sampling, claiming or acknowledging anything:

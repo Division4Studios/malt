@@ -258,9 +258,14 @@ const OBJECTIVE_TITLE = 160;
  *
  * @param objectives - Complete factory feature snapshot.
  * @param actions - Operator retry controls.
+ * @param queue - Durable operator priority and focus snapshot.
  * @returns Queue body and truthful unfinished total.
  */
-export function objectiveQueue(objectives: Data[], actions: Actions): { body: HTMLElement; unfinished: number } {
+export function objectiveQueue(
+  objectives: Data[],
+  actions: Actions,
+  queue: Data = {},
+): { body: HTMLElement; unfinished: number } {
   const body = element('div', 'panel-body');
   if (objectives.length === 0) {
     body.append(
@@ -272,7 +277,42 @@ export function objectiveQueue(objectives: Data[], actions: Actions): { body: HT
       ),
     );
   }
-  const groups = objectiveGroups(objectives);
+  const order = Array.isArray(queue['order'])
+    ? queue['order'].filter((id): id is string => typeof id === 'string')
+    : objectives.map((feature) => text(feature, 'id'));
+  const ranks = new Map(order.map((id, index) => [id, index]));
+  const ordered = objectives.toSorted(
+    (left, right) => (ranks.get(text(left, 'id')) ?? ranks.size) - (ranks.get(text(right, 'id')) ?? ranks.size),
+  );
+  const unfinishedItems = pendingObjectives(ordered);
+  const focus = text(queue, 'focusedFeatureId');
+  const revision = number(queue, 'revision');
+  body.append(
+    element(
+      'p',
+      'subtle',
+      'Priority applies to new assignments. Running work finishes safely. Blocked work stays blocked until resolved and explicitly retried.',
+    ),
+  );
+  if (focus !== '') {
+    const notice = element('div', 'notice');
+    const focusedObjective = ordered.find((item) => text(item, 'id') === focus) ?? {};
+    const focusedTitle = text(focusedObjective, 'objective').slice(0, OBJECTIVE_TITLE);
+    notice.append(element('p', '', `Focused objective: ${focusedTitle}. Other objectives are held from new dispatch.`));
+    const release = element('button', 'small-button', 'Resume all objectives');
+    release.type = 'button';
+    release.addEventListener('click', () => {
+      actions.queue(order, null, revision);
+    });
+    notice.append(release);
+    body.append(notice);
+  }
+  const groups = [
+    { title: 'Dispatch priority', items: unfinishedItems },
+    ...objectiveGroups(ordered).filter(
+      (group) => group.title === 'Completed' || group.title === 'Scope replaced (superseded)',
+    ),
+  ];
   const completed = element('details', 'objective-completed');
   completed.dataset['queueKey'] = 'completed';
   const count = groups.find((group) => group.title === 'Completed')?.items.length ?? 0;
@@ -288,7 +328,11 @@ export function objectiveQueue(objectives: Data[], actions: Actions): { body: HT
     section.setAttribute('aria-label', group.title);
     section.append(element('h3', '', `${group.title} (${String(group.items.length)})`));
     for (const feature of group.items) {
-      section.append(objectiveRow(feature, actions));
+      const row = objectiveRow(feature, actions);
+      if (group.title === 'Dispatch priority') {
+        appendQueueControls(row, feature, { order, focus, revision, unfinished: unfinishedItems }, actions);
+      }
+      section.append(row);
     }
     if (group.title === 'Completed' || group.title === 'Scope replaced (superseded)') {
       completed.append(section);
@@ -338,6 +382,59 @@ function objectiveRow(feature: Data, actions: Actions): HTMLElement {
     row.append(element('p', 'subtle', text(feature, 'error')), retry);
   }
   return row;
+}
+
+/**
+ * Give each unfinished objective keyboard-operable priority and focus controls.
+ *
+ * @param row - Safe objective article.
+ * @param feature - Actual project objective.
+ * @param state - Current complete order and concurrency revision.
+ * @param actions - Authenticated controller boundary.
+ */
+function appendQueueControls(
+  row: HTMLElement,
+  feature: Data,
+  state: { order: string[]; focus: string; revision: number; unfinished: Data[] },
+  actions: Actions,
+): void {
+  const id = text(feature, 'id');
+  const index = state.unfinished.findIndex((item) => text(item, 'id') === id);
+  const controls = element('div', 'objective-controls');
+  controls.append(element('span', 'pill', `Priority ${String(index + 1)}`));
+  const options = [
+    ['Move first', 0],
+    ['Move up', index - 1],
+    ['Move down', index + 1],
+  ] as const;
+  for (const [label, destination] of options) {
+    const button = element('button', 'small-button', label);
+    button.type = 'button';
+    button.disabled = destination < 0 || destination >= state.unfinished.length || destination === index;
+    button.setAttribute('aria-label', `${label}: ${text(feature, 'objective').slice(0, OBJECTIVE_TITLE)}`);
+    button.dataset['queueFocus'] = `${label}:${id}`;
+    button.addEventListener('click', () => {
+      const target = state.unfinished[destination];
+      if (target === undefined) {
+        return;
+      }
+      const order = state.order.filter((item) => item !== id);
+      const targetId = text(target, 'id');
+      const targetIndex = order.indexOf(targetId);
+      order.splice(targetIndex + (destination > index ? 1 : 0), 0, id);
+      actions.queue(order, state.focus === '' ? null : state.focus, state.revision);
+    });
+    controls.append(button);
+  }
+  const focus = element('button', 'small-button', state.focus === id ? 'Focused' : 'Focus only this objective');
+  focus.type = 'button';
+  focus.disabled = state.focus === id;
+  focus.dataset['queueFocus'] = `focus:${id}`;
+  focus.addEventListener('click', () => {
+    actions.queue(state.order, id, state.revision);
+  });
+  controls.append(focus);
+  row.append(controls);
 }
 
 /** Native queue state isolated to one selected project. */

@@ -4,7 +4,6 @@
  * @file
  */
 import { conversationWindow } from './conversations.ts';
-import { objectiveOrder } from './objective-order.ts';
 import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
 import { workflowState } from './workflow.ts';
@@ -27,6 +26,7 @@ export async function factoryStatus(
   telemetry: { connected: boolean; error: string | null; resources: ResourceSnapshot; admission: AdmissionEvidence },
 ): Promise<unknown> {
   const settings = repository.config();
+  const processUsage = await ownedProcessUsage(repository.jobs());
   return {
     configured: settings !== null,
     active: repository.active(),
@@ -34,9 +34,9 @@ export async function factoryStatus(
     error: telemetry.error,
     resources: telemetry.resources,
     admission: telemetry.admission,
-    processUsage: await ownedProcessUsage(repository.jobs()),
+    processUsage,
     settings,
-    ...objectiveOrder(repository.store),
+    ...repository.objectiveQueue.snapshot(),
     tasks: repository.tasks(),
     jobs: repository.jobs(),
     pendingEffects: repository.effects(),

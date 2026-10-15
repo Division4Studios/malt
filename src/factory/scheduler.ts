@@ -266,7 +266,10 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   ) {
     intents.push({ role: 'learning-steward', kind: 'learn', taskId: null, featureId: null, head: null, base: null });
   }
-  return intents;
+  const queue = input.objectiveQueue;
+  return queue === undefined
+    ? intents
+    : intents.filter((intent) => queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId);
 }
 
 /** Current durable scheduling state. */
@@ -277,6 +280,8 @@ interface SchedulingState {
   tasks: readonly FactoryTask[];
   /** Features state. */
   features: readonly Feature[];
+  /** Operator order and optional exclusive focus; absent preserves FIFO. */
+  objectiveQueue?: { order: readonly string[]; focusedFeatureId: string | null };
   /** Jobs state. */
   jobs: readonly FactoryJob[];
   /** Skill Requests state. */
@@ -339,7 +344,15 @@ function assignDevelopmentRoles(tasks: JobIntent[][]): JobIntent[] {
  * @returns Reordered candidates without changing their eligibility.
  */
 function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]): JobIntent[] {
-  const features = input.features.toSorted((left, right) => left.createdAt - right.createdAt);
+  const features = input.features.toSorted((left, right) => {
+    const order = input.objectiveQueue?.order;
+    const rank = (id: string): number => {
+      const index = order?.indexOf(id) ?? -1;
+      return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+    };
+    const difference = rank(left.id) - rank(right.id);
+    return difference === 0 ? left.createdAt - right.createdAt : difference;
+  });
   const ranks = new Map<string | null, number>(features.map((feature, index) => [feature.id, index]));
   const groups = new Map<string | null, Map<string | null, JobIntent[]>>();
   for (const intent of candidates) {
@@ -475,11 +488,23 @@ function scheduleGroup4(
   _append: AppendIntent,
 ): void {
   const candidates = input.features
-    .toSorted((left, right) => left.createdAt - right.createdAt)
-    .filter(
-      (candidate) =>
-        candidate.scopeReplacement === undefined && (candidate.phase === 'queued' || candidate.phase === 'refining'),
-    );
+    .toSorted((left, right) => {
+      const order = input.objectiveQueue?.order;
+      const rank = (id: string): number => {
+        const index = order?.indexOf(id) ?? -1;
+        return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+      };
+      const difference = rank(left.id) - rank(right.id);
+      return difference === 0 ? left.createdAt - right.createdAt : difference;
+    })
+    .filter((candidate) => {
+      return (
+        candidate.scopeReplacement === undefined &&
+        ((input.objectiveQueue?.focusedFeatureId ?? null) === null ||
+          candidate.id === input.objectiveQueue?.focusedFeatureId) &&
+        (candidate.phase === 'queued' || candidate.phase === 'refining')
+      );
+    });
   for (const feature of candidates) {
     const role = feature.productPlan === null ? 'product-owner' : 'team-lead';
     if (

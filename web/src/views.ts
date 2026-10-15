@@ -61,6 +61,8 @@ export interface Actions {
   readonly cancel: (job: string) => void;
   /** Resume a resolved blocker. */
   readonly retry: (id: string, isFeature: boolean) => void;
+  /** Atomically save operator dispatch order and focus. */
+  readonly queue: (order: string[], focusedFeatureId: string | null, expectedRevision: number) => void;
   /** Edit validated project configuration or GitHub connection. */
   readonly setup: (isConnection: boolean) => void;
 }
@@ -375,7 +377,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const team = element('div', 'panel-body');
   team.append(teamView(state, actions, false));
   left.append(panel('Your autonomous team', '08 LOGICAL ROLES', team));
-  const queue = objectiveQueue(records(state.factory['features']), actions);
+  const queue = objectiveQueue(records(state.factory['features']), actions, child(state.factory, 'objectiveQueue'));
   left.append(panel('Product queue', `${String(queue.unfinished)} UNFINISHED OBJECTIVES`, queue.body));
   const right = element('div');
   right.append(

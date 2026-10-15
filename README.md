@@ -504,3 +504,5 @@ Remaining work includes arbitrary additional managed specialist seats, complete 
 | [Logging and troubleshooting](docs/logging-and-troubleshooting.md) | Logs, stuck workers, duplicate sessions and failures.          |
 | [Claude configuration](examples/claude-mcp.json)                   | Nameless session bridge and long timeout.                      |
 | [Codex configuration](examples/codex.config.toml)                  | Launcher-based session bridge and long timeout.                |
+
+Mission-control objectives can be reordered with keyboard-accessible priority controls and focused individually to hold unrelated new assignments while repairs are addressed. See [objective priority and repair focus](docs/operator-console.md#objective-priority-and-repair-focus).

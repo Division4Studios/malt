@@ -7,6 +7,7 @@
 
 import { z } from 'zod';
 
+import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 /** Named min free percent bound. */
@@ -494,6 +495,7 @@ export const factorySchemas = {
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
   factory_request: z.object({ objective: textSchema, requestId: z.string().uuid().optional() }).strict(),
+  factory_queue: queueControlSchema,
   factory_reorder_objective: z
     .object({
       featureId: z.string().uuid(),
@@ -538,6 +540,7 @@ export const FACTORY_OPERATIONS = [
   'factory_pause',
   'factory_request',
   'factory_retry',
+  'factory_queue',
   'factory_reorder_objective',
   'factory_enqueue',
   'factory_capacity',

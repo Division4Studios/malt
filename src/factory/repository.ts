@@ -16,7 +16,8 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
-import { initializeObjectiveOrder, nextObjectiveRank } from './objective-order.ts';
+import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
+import { ObjectiveQueue } from './objective-queue.ts';
 import { windowFreshness } from './quota-windows.ts';
 import { RecommendationLedger } from './recommendations.ts';
 import {
@@ -72,6 +73,8 @@ const BOARD_STATES = {
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
   public readonly instructionLedger: InstructionLedger;
+  /** Durable operator dispatch order and focus. */
+  public readonly objectiveQueue: ObjectiveQueue;
   /** Project-scoped immutable recommendation content and fenced lifecycle. */
   public readonly recommendations: RecommendationLedger;
   /** Shared store owns SQLite and transaction boundaries. */
@@ -111,6 +114,7 @@ export class FactoryRepository {
     this.expandWorkKeys();
     initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
+    this.objectiveQueue = new ObjectiveQueue(store);
     this.recommendations = new RecommendationLedger(store);
   }
 
@@ -342,12 +346,7 @@ export class FactoryRepository {
   public saveFeature(feature: Feature): void {
     const value = featureSchema.parse(feature);
     this.store.transaction(() => {
-      const features = this.features();
-      const prior = features.find((item) => item.id === value.id);
-      value.rank = prior?.rank ?? nextObjectiveRank(features);
-      if (prior === undefined) {
-        run(this.store.db, 'UPDATE factory_objective_order SET revision=revision+1 WHERE id=1');
-      }
+      value.rank = rankForFeatureSave(this.store, value.id);
       run(
         this.store.db,
         'INSERT INTO factory_features VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
@@ -781,7 +780,11 @@ export class FactoryRepository {
    * @returns Whether its scope is still eligible.
    */
   private scopeEligible(job: FactoryJob): boolean {
-    return job.taskId === null || this.task(job.taskId).scopeReplacement === undefined;
+    const focus = this.objectiveQueue.read().focusedFeatureId;
+    return (
+      (focus === null || job.featureId === focus) &&
+      (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
+    );
   }
 
   /**

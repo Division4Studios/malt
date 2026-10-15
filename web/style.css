@@ -1415,3 +1415,15 @@ summary {
 .objective-completed > summary {
   cursor: pointer;
 }
+
+.objective-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+.objective-controls button:hover:not(:disabled) {
+  border-color: var(--cyan);
+  transform: translateY(-1px);
+}

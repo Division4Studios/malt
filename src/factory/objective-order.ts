@@ -48,6 +48,24 @@ export function nextObjectiveRank(features: z.output<typeof featureSchema>[]): n
 }
 
 /**
+ * Retain an existing rank or append a new identity and advance the shared revision.
+ * Runs inside the feature writer's transaction, before its feature row is saved.
+ *
+ * @param store - Selected project's transaction owner.
+ * @param id - Feature identity being saved.
+ * @returns Rank preserved against stale feature snapshots.
+ */
+export function rankForFeatureSave(store: Store, id: string): number {
+  const { features } = objectiveOrder(store);
+  const prior = features.find((feature) => feature.id === id);
+  if (prior !== undefined) {
+    return prior.rank ?? nextObjectiveRank(features);
+  }
+  run(store.db, 'UPDATE factory_objective_order SET revision=revision+1 WHERE id=1');
+  return nextObjectiveRank(features);
+}
+
+/**
  * Upgrade legacy JSON in place, preserving every field and timestamp.
  *
  * @param store - Selected project database.

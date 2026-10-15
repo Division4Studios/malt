@@ -297,6 +297,7 @@ export class FactoryService {
         return this.status();
       },
       factory_request: () => queueObjective(this.repository, parsed),
+      factory_queue: () => this.repository.objectiveQueue.update(parsed),
       factory_capacity: () => this.controlCapacity(parsed),
       factory_cancel_job: () => this.controlCancelJob(parsed),
       factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
@@ -359,7 +360,7 @@ export class FactoryService {
       return;
     }
     this.cancelStale();
-    const intents = jobIntents({
+    const scheduling = {
       feedbackAt: Math.max(
         0,
         ...this.repository.instructions('learning-steward', null).map((instruction) => instruction.createdAt),
@@ -367,12 +368,17 @@ export class FactoryService {
       config: context.settings,
       tasks: this.repository.tasks(),
       features: this.repository.features(),
+      objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
       now,
-    });
+    };
+    const intents = jobIntents(scheduling);
     await this.refreshQuota(context, intents.length);
-    if (!this.canDispatch()) {
+    if (
+      !this.canDispatch() ||
+      JSON.stringify(scheduling.objectiveQueue) !== JSON.stringify(this.repository.objectiveQueue.read())
+    ) {
       return;
     }
     for (const intent of intents) {
