@@ -279,16 +279,9 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     intents.push({ role: 'learning-steward', kind: 'learn', taskId: null, featureId: null, head: null, base: null });
   }
   const queue = input.objectiveQueue;
-  if (queue === undefined) {
-    return intents;
-  }
-  const ranks = new Map(queue.order.map((id, index) => [id, index]));
-  return intents
-    .filter((intent) => queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId)
-    .toSorted(
-      (left, right) =>
-        (ranks.get(left.featureId ?? '') ?? ranks.size) - (ranks.get(right.featureId ?? '') ?? ranks.size),
-    );
+  return queue === undefined
+    ? intents
+    : intents.filter((intent) => queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId);
 }
 
 /** Current durable scheduling state. */

@@ -9,6 +9,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { hasParkedPRUpdate } from '../src/factory/blocked-pr.ts';
+import { recordCancellation } from '../src/factory/controls.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
 import { factoryConfigSchema, taskSchema, jobSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
@@ -311,4 +312,63 @@ await test('old queued investigations survive a full newer history and focus fil
     instructionReceipts: [],
   });
   assert.deepEqual(pendingTriage(repository, null), []);
+});
+
+await test('cancelled investigations stay parked and stale decisions cannot claim paid capacity', (t) => {
+  const { repository } = fixture(t);
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const decision = decideTriage(repository, {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: task.version,
+    action: 'investigate',
+  });
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    role: 'team-lead',
+    kind: 'triage',
+    target: decision.id,
+    taskId: task.id,
+    featureId: null,
+    head: null,
+    base: null,
+    provider: 'codex',
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: Date.now() + 1000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(repository.claim(job, config), true);
+  recordCancellation(repository, job);
+  repository.finishJob(job, 0, 'interrupted', {});
+  queueBlockerInvestigations(repository);
+  assert.deepEqual(pendingTriage(repository, null), []);
+  const parked = triageStatus(repository).find((item) => item.id === decision.id);
+  assert.equal(parked?.state, 'awaiting_operator');
+  assert.equal(parked.version, repository.task(task.id).version);
+  const newer = decideTriage(repository, {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: repository.task(task.id).version,
+    action: 'investigate',
+  });
+  decideTriage(repository, {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: repository.task(task.id).version,
+    action: 'repair',
+  });
+  assert.equal(
+    repository.claim({ ...job, id: randomUUID(), token: randomUUID(), target: newer.id }, config),
+    false,
+    'An operator change while quota is loading must fence the stale claim.',
+  );
+  assert.equal(repository.capacity('codex', config).reservedTokens, 0);
 });

@@ -251,3 +251,43 @@ export function completeTriage(repository: FactoryRepository, job: FactoryJob, r
     repository.store.event('FACTORY_TRIAGE_REPORTED', null, updated);
   });
 }
+
+/**
+ * Retain the human stop against the newly blocked revision instead of scheduling another diagnosis.
+ *
+ * @param repository - Project ledger inside the cancellation transaction.
+ * @param job - Cancelled investigation.
+ */
+export function cancelTriage(repository: FactoryRepository, job: FactoryJob): void {
+  const decision = decisionById(repository, job.target);
+  if (decision?.state !== 'queued') {
+    return;
+  }
+  const updated: TriageDecision = {
+    ...decision,
+    version: repository.task(decision.taskId).version,
+    state: 'awaiting_operator',
+    summary: 'Operator cancelled this investigation; explicit retry required.',
+  };
+  run(
+    repository.store.db,
+    'UPDATE factory_triage SET version=?,data=? WHERE id=?',
+    updated.version,
+    JSON.stringify(updated),
+    decision.id,
+  );
+  repository.store.event('FACTORY_TRIAGE_CANCELLED', null, updated);
+}
+
+/**
+ * Settle an unsuccessful bounded investigation without repeating it.
+ *
+ * @param repository - Project ledger.
+ * @param job - Original assignment.
+ * @param state - Observed settlement.
+ */
+export function settleTriage(repository: FactoryRepository, job: FactoryJob, state: string): void {
+  if (state !== 'succeeded' && job.kind === 'triage') {
+    completeTriage(repository, job, null);
+  }
+}

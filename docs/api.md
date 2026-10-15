@@ -150,6 +150,20 @@ Factory state is separate from cooperative check-in state. Project-authenticated
 | `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.               |
 | `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
 
+`factory_reorder_objective {featureId, beforeFeatureId?, afterFeatureId?, expectedRevision, requestId?}`
+requires exactly one anchor. Only the operator, designated project lead or authenticated web
+gateway can move objectives; ordinary agents cannot. The CLI alias is
+`malt factory-reorder-objective --project <repository> --file move.json`, with the same JSON payload. It returns
+`{features, orderRevision}` with zero-based global `rank` values, also exposed by `factory_status`. Enumeration remains insertion ordered; consumers sort by rank explicitly.
+Legacy objectives receive ranks by `createdAt`, then insertion rowid. New objectives append and
+advance the revision. Moves atomically advance the revision and preserve all other objective and
+running-job state. Unknown/foreign IDs, done or superseded targets/anchors, self moves and stale
+revisions fail without mutation. Refresh status after a stale revision; do not blindly retry.
+An identical `requestId` and payload returns the original committed response, even after later
+moves or restart; changed payloads with that ID are rejected. Fetch status for the latest order.
+The Mission dispatch queue and `factory_queue` use these same ranks and revision. Relative moves retain focus and update dispatch order; full queue replacements invalidate stale relative moves. Completing or superseding a focused objective releases focus. Existing assignments are preserved.
+Status reads obtain ranks and revision from one read-only SQLite statement; they do not acquire a write-intent lock or regenerate the project README.
+
 `factory_status.admission` explains local admission without sampling, claiming or acknowledging anything:
 
 - `sample`: `{cpuPercent,freeMemoryMb,totalMemoryMb,observedAt}`. This is the cached measurement from the supervisor's latest scheduling cycle (or its construction). `cpuPercent` is `null` until a valid CPU delta exists; it is never reported as `0` in its place. The top-level `resources` field returns the same cached sample.

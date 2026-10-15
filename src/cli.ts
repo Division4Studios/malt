@@ -30,7 +30,7 @@ import { parseArgs } from 'node:util';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { loadConfig, saveBrokerDiscovery } from './config.ts';
-import { isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
+import { FACTORY_COMMANDS, isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
 import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
@@ -54,7 +54,10 @@ Usage: node src/cli.ts <command> [options]
   factory-pause               Stop managed processes and pause new dispatch
   factory-status              Inspect factory ledger as JSON
   factory-request --body TEXT  Queue an objective for product owner and lead
+  factory-triage --file FILE   Decide an exact delivery blocker
+  factory-queue --file FILE    Reorder unfinished objectives and set dispatch focus
   factory-retry --file FILE    Resume a resolved blocked task or feature
+  factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
   agents                       List registered agents and presence
@@ -88,15 +91,7 @@ Docker: docker compose up -d --build
 /** Every command the CLI accepts. */
 const COMMANDS = [
   'ui',
-  'dashboard',
-  'github-connect',
-  'factory-setup',
-  'factory-start',
-  'factory-pause',
-  'factory-status',
-  'factory-request',
-  'factory-retry',
-  'factory-instruct',
+  ...FACTORY_COMMANDS,
   'init',
   'start',
   'mcp',

@@ -6,7 +6,7 @@
 import { z } from 'zod';
 
 /** Bound the queue control to the existing request-body ceiling. */
-const MAX_OBJECTIVES = 5000;
+export const MAX_OBJECTIVES = 5000;
 /** Persisted order is independent of mutable delivery progress. */
 export const objectiveQueueSchema = z
   .object({

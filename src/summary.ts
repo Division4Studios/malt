@@ -292,7 +292,23 @@ function objectiveQueueOverview(database: DatabaseSync): string[] {
     return [];
   }
   const queue = objectiveQueueSchema.parse(JSON.parse(row.data));
+  const hasRanks =
+    selectCount(
+      database,
+      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='factory_objective_order'",
+    ) > 0;
+  const revision = hasRanks
+    ? (selectOne(
+        database,
+        z.object({ revision: z.number() }),
+        'SELECT revision FROM factory_objective_order WHERE id=1',
+      )?.revision ?? queue.revision)
+    : queue.revision;
+  const positions = selectCount(
+    database,
+    "SELECT COUNT(*) AS count FROM factory_features WHERE json_extract(data,'$.phase') != 'done' AND json_extract(data,'$.scopeReplacement') IS NULL",
+  );
   return [
-    `Objective priority: revision ${String(queue.revision)}, ${String(queue.order.length)} saved positions; requested focus ${queue.focusedFeatureId ?? 'all objectives'}. Completed or superseded focus releases automatically.`,
+    `Objective priority: revision ${String(revision)}, ${String(positions)} unfinished positions; requested focus ${queue.focusedFeatureId ?? 'all objectives'}. Completed or superseded focus releases automatically.`,
   ];
 }
