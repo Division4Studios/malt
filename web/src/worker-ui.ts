@@ -8,6 +8,29 @@ import { records, text } from './api.js';
 
 import type { Data, Snapshot } from './api.js';
 
+/**
+ * Validate public persisted layout without accepting arbitrary worker names.
+ *
+ * @param value - Untrusted local layout value.
+ * @param allowed - Known logical roles.
+ * @param fallback - Existing harmless selection.
+ * @param maximum - Pane ceiling.
+ * @returns Bounded known role names or the retained selection.
+ */
+export function restoredRoles(
+  value: unknown,
+  allowed: readonly string[],
+  fallback: string[],
+  maximum: number,
+): string[] {
+  if (!Array.isArray(value)) {
+    return fallback;
+  }
+  const names = new Set(allowed);
+  const roles = value.filter((role): role is string => typeof role === 'string' && names.has(role)).slice(0, maximum);
+  return roles.length > 0 ? roles : fallback;
+}
+
 /** Optional browser-native PWA install capability. */
 export interface InstallEvent extends Event {
   /** Launch the browser's supported installation prompt. */

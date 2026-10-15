@@ -8,6 +8,10 @@ Add-Type -TypeDefinition @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
+using System.Collections.Generic;
+using System.IO;
+using System.Globalization;
 public static class MltWindowsJob {
   [StructLayout(LayoutKind.Sequential)] struct BasicLimits { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
   [StructLayout(LayoutKind.Sequential)] struct IoCounters { public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount; }
@@ -18,6 +22,8 @@ public static class MltWindowsJob {
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool SetInformationJobObject(IntPtr job,int info,IntPtr data,uint size);
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool AssignProcessToJobObject(IntPtr job,IntPtr process);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool QueryInformationJobObject(IntPtr job,int info,IntPtr data,uint size,IntPtr returned);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool IsProcessInJob(IntPtr process,IntPtr job,out bool belongs);
   [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool CreateProcess(string app,StringBuilder command,IntPtr pa,IntPtr ta,bool inherit,uint flags,IntPtr env,string cwd,ref StartupInfo si,out ProcessInfo pi);
   [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int kind);
   [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr thread);
@@ -31,7 +37,34 @@ public static class MltWindowsJob {
     foreach(char c in arg) { if(c=='\\') { slashes++; continue; } if(c=='\"') result.Append('\\',slashes*2+1); else result.Append('\\',slashes); result.Append(c); slashes=0; }
     result.Append('\\',slashes*2); result.Append('"'); return result.ToString();
   }
-  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit) {
+  static readonly Dictionary<int,Tuple<long,double>> previous = new Dictionary<int,Tuple<long,double>>();
+  static long sampledAt;
+  // Query only this Job Object. PID reuse cannot admit an unrelated process.
+  static void Sample(IntPtr job,string destination) {
+    const int maximum=128; int size=8+IntPtr.Size*maximum; IntPtr data=Marshal.AllocHGlobal(size);
+    try {
+      if(!QueryInformationJobObject(job,3,data,(uint)size,IntPtr.Zero)) return;
+      long now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(); double elapsed=now-sampledAt;
+      int count=Math.Min(maximum,Marshal.ReadInt32(data,4)); var rows=new List<string>(); var next=new Dictionary<int,Tuple<long,double>>();
+      for(int i=0;i<count;i++) {
+        int pid=Marshal.ReadIntPtr(data,8+i*IntPtr.Size).ToInt32();
+        try {
+          using(var process=Process.GetProcessById(pid)) {
+            bool belongs; if(!IsProcessInJob(process.Handle,job,out belongs)||!belongs) continue;
+            long started=process.StartTime.ToUniversalTime().Ticks; double cpu=process.TotalProcessorTime.TotalMilliseconds; Tuple<long,double> prior;
+            string percent="null";
+            if(elapsed>0 && previous.TryGetValue(pid,out prior) && prior.Item1==started) percent=Math.Max(0,Math.Min(100,(cpu-prior.Item2)/elapsed/Environment.ProcessorCount*100)).ToString("F2",CultureInfo.InvariantCulture);
+            next[pid]=Tuple.Create(started,cpu);
+            rows.Add("{\"pid\":"+pid+",\"memoryMb\":"+(process.WorkingSet64/1048576.0).ToString("F2",CultureInfo.InvariantCulture)+",\"cpuPercent\":"+percent+"}");
+          }
+        } catch(System.ArgumentException) {} catch(System.InvalidOperationException) {} catch(System.ComponentModel.Win32Exception) {}
+      }
+      previous.Clear(); foreach(var item in next) previous[item.Key]=item.Value; sampledAt=now;
+      string temp=destination+".tmp"; File.WriteAllText(temp,"{\"sampledAt\":"+now+",\"processes\":["+String.Join(",",rows)+"]}");
+      if(File.Exists(destination)) File.Replace(temp,destination,null); else File.Move(temp,destination);
+    } catch(IOException) {} catch(UnauthorizedAccessException) {} finally { Marshal.FreeHGlobal(data); }
+  }
+  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry) {
     IntPtr job=CreateJobObject(IntPtr.Zero,null); if(job==IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
     ProcessInfo pi=new ProcessInfo();
     try {
@@ -45,9 +78,13 @@ public static class MltWindowsJob {
       var command=new StringBuilder(Quote(file)); foreach(string arg in args) command.Append(' ').Append(Quote(arg));
       Check(CreateProcess(null,command,IntPtr.Zero,IntPtr.Zero,true,0x08000004,IntPtr.Zero,cwd,ref si,out pi));
       try { Check(AssignProcessToJobObject(job,pi.hProcess)); } catch { TerminateProcess(pi.hProcess,1); throw; }
-      ResumeThread(pi.hThread); WaitForSingleObject(pi.hProcess,0xffffffff); uint code; Check(GetExitCodeProcess(pi.hProcess,out code)); return unchecked((int)code);
+      ResumeThread(pi.hThread);
+      Sample(job,telemetry);
+      while(WaitForSingleObject(pi.hProcess,2000)==258) Sample(job,telemetry);
+      uint code; Check(GetExitCodeProcess(pi.hProcess,out code)); return unchecked((int)code);
     } finally { if(pi.hThread!=IntPtr.Zero) CloseHandle(pi.hThread); if(pi.hProcess!=IntPtr.Zero) CloseHandle(pi.hProcess); CloseHandle(job); }
   }
 }
 '@
-exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit)
+$telemetry = Join-Path (Split-Path -LiteralPath $Descriptor) 'resources.json'
+exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry)

@@ -1,4 +1,4 @@
-<!-- mlt:project-context:start -->
+<!-- malt:project-context:start -->
 
 ## MALT project context
 
@@ -32,4 +32,4 @@ supervisor schedules the next role. Do not spawn extra agents or polling shells.
 Do not ask whether to continue routine authorized work. Human stop instructions
 and existing project rules apply. All of `.malt/` is private and Git-ignored.
 
-<!-- mlt:project-context:end -->
+<!-- malt:project-context:end -->

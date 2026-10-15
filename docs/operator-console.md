@@ -2,18 +2,50 @@
 
 The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod and SQLite remain server-side.
 
+To use the already configured source repository as its own delivery project,
+follow [Run MALT's development from mission control](operating-malt-on-itself.md).
+
 ## Native startup
 
 ```powershell
 npm run build:web
-node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team" --port 4319
+node src/cli.ts start --project "C:\work\malt" --port 4319
 # In another terminal:
-node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
+node src/cli.ts ui --project "C:\work\malt" --port 4318
 ```
 
-The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, listed ahead of recent completions) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
+The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
+
+## GitHub connection and board visibility
+
+**Project → Configure connection** opens a native form prefilled from the
+selected project's saved repository, Project URL and workflow-field name.
+Paste an existing user/organization Project URL; the form derives its owner
+and number rather than resetting them to placeholder values. The backend
+verifies the actual repository, Project access and required workflow options.
+Reconnect preserves the selected field. A renamed GitHub repository may retain
+its older Git remote URL only when authoritative repository node IDs agree;
+other repositories and hosts remain blocked.
+
+Project membership is separate from board status. On this source Project 10,
+the visible board uses **Status**, while a separate **MALT Status** field is
+preserved. An attached issue with an empty visible status can appear unassigned.
+Changing the connector does not configure or rearrange saved views. The broader
+GitHub/Jira capability console and actual interactive worker terminals are
+tracked in [the connector delivery scope](project-connectors.md); these are
+queued features rather than controls already available in the form.
+
+## Delivery requirements and planning policy
+
+**Project → Configure factory policy** exposes a native **Maximum changed lines per PR** field and the existing advanced policy editor. New policies default to 500 added/deleted text lines, counting tests and documentation. Explicit saved limits remain unchanged until the operator saves a change while paused. The frontend preserves advanced provider/resource settings; the backend validates and enforces the publication limit.
+
+Project attachment is a required factory invariant (`requireProjectAttachment: true`), not permission for a role to opt out. Issue creation attaches parents/children before completion; replay reconciles membership without resetting a current status. A delivery tracking gate reasserts its Project membership and stage before starting its model turn. Failure produces a durable unpaid waiting reason; retries preserve the original developer and source work.
+
+An issue is the underlying ticket. Backlog holds received/unrefined work; Ready holds lead-reviewed actionable deliveries. Dependency-blocked Ready tickets wait for their real prerequisites; Development and subsequent states reflect execution. The same Project can expose filtered intake/bug views and a delivery board without duplicating tickets. MALT does not currently configure those saved views through this form.
+
+The product/lead skill requires a duplicate/related-ticket check during intake and scope changes. Consolidation of existing tickets requires a separate human decision, with survivor, acceptance/dependency transfers and active-work consequences specified. A dedicated project-management recommendation/approval panel is queued under [its accepted delivery scope](project-management-decisions.md); current human skill approval controls authorize exact skill revisions only, not ticket closure or consolidation. Pending recommendations must persist without a model process and must never hold unrelated work hostage.
 
 ## Private state and Git
 
@@ -41,11 +73,11 @@ Set `providers.codex.models` or `providers.claude.models` with account-available
 
 Use `assignmentSkills` to choose up to four extra adopted skills per stage. Workers receive their common lifecycle skill, relevant stage skill and selected project instructions, rather than the full upstream library. Mechanical failures should preferably become deterministic checks through normal delivery work.
 
-Project-specific overrides do not rewrite the MCP bundle or another project's preferences. After approving a proposal, **Learning library → Reusable factory improvements** lets you queue that exact adaptation as a separately reviewed maintenance objective. Enter the actual MALT source repository root, for example `E:\01 - Personal Projects\multiagent-local-team`. MALT verifies its Git root/package identity, journals the handoff in the origin `.malt/factory/maintenance/`, and queues one stable objective in the source project's own `.malt`. Retrying cannot create a second objective or change its destination/revision.
+Project-specific overrides do not rewrite the MCP bundle or another project's preferences. After approving a proposal, **Learning library → Reusable factory improvements** lets you queue that exact adaptation as a separately reviewed maintenance objective. Enter the actual MALT source repository root, for example `C:\work\malt`. MALT verifies its Git root/package identity, journals the handoff in the origin `.malt/factory/maintenance/`, and queues one stable objective in the source project's own `.malt`. Retrying cannot create a second objective or change its destination/revision.
 
 The source project needs its own explicitly connected GitHub Project, validation commands and active factory before maintenance agents run. Export does not create a board, enable dispatch, copy subscription credentials, modify source code or restart the broker. Once configured, its normal PO/lead/developer/QA/final pipeline schedules work under the same shared resource limits. Its lead must distinguish reusable improvements from project-specific preferences and retain licensing/provenance. Deployment remains separate from changing repository files. Existing dirty source work is preserved in the primary checkout.
 
-CLI: `factory-export-maintenance --file export.json` with `{ "requestId": "<approved-proposal-uuid>", "workspace": "E:\\01 - Personal Projects\\multiagent-local-team" }`, addressed to the origin project. This is an explicit human-authorized cross-project handoff; agents cannot invoke it. This repository is never automatically given a delivery board.
+CLI: `factory-export-maintenance --file export.json` with `{ "requestId": "<approved-proposal-uuid>", "workspace": "C:\\work\\malt" }`, addressed to the origin project. This is an explicit human-authorized cross-project handoff; agents cannot invoke it. This repository is never automatically given a delivery board.
 
 ## Resource admission and cancellation
 
@@ -112,7 +144,7 @@ Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api
 
 On 2026-10-14, the explicitly selected source repository completed a real subscription-backed private-repository pilot: [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11), actual merged-main proof, native child/parent closure and Done board states. The console showed one verified delivery, no blocked work and all eight roles spun down. Its supported Codex account probe returned actual quota metadata without a model turn. Two bounded learning assignments recorded lessons; they did not propose or activate a skill change. Early Codex startup failures were retained and repaired, and Claude completed the original developer's delivery; a fresh real Codex developer command path remains to be validated. No administrator bypass was used. This repository's explicit protection exception does not change the default for other projects.
 
-Remaining product work includes arbitrary additional managed specialist seats, full local history pagination, and publication of the existing factory implementation through reviewed atomic deliveries. The source checkout remains uncommitted; the pilot PR did not publish that implementation.
+Remaining product work includes arbitrary additional managed specialist seats and full local history pagination. The pilot PR did not publish the factory implementation; it subsequently reached remote main at `d9b2984`, after commit `5711e3a`. The console can now schedule development against that foundation. See the [operator handoff](operating-malt-on-itself.md) for the prepared first objective and restart/deployment distinction.
 
 Superseded feature parents wait for their local children to be delivered or safely retired, for pending child effects to settle, and for actual GitHub native children to close. The parent is then closed as `not_planned` through durable receipts; it never becomes a delivered outcome. Dirty child source remains preserved. Parent closure receipts survive a database restart.
 
@@ -139,3 +171,7 @@ Spokes represent logical membership, directed arcs represent recent actual broke
 Navigation groups related views under **Mission**, **Workflow**, **Workers** and **Project**. The workflow map responds gently to fine-pointer movement and emphasizes a selected role's connected message routes. Keyboard focus provides the same role inspection, and reduced-motion settings disable depth and flight effects.
 
 Browser verification (2026-10-14): inspected the source console and an isolated `.malt/validation/` fixture with real broker clients and no inference/GitHub calls. Verified a QA-to-developer directed message route, hostile script text rendered as text, a Development ticket's conditional QA destinations, and its association with a spun-down developer. Keyboard Enter and the compact native roster selector open role details. Stopping the fixture daemon and reloading served the cached public shell with an explicit stale/disconnected notice and disabled objective/dispatch controls. Native installed-window behavior remains separately unverified.
+
+The Mission Product queue shows every unfinished objective under **Queued**, **In progress** (refining, provisioning and active), or **Needs attention** (blocked), with group counts and a total unfinished count. Blocked objectives retain **Retry resolved request**. **Completed** appears last in a native collapsed section; expand it to reach every completed objective and the separately labelled **Scope replaced (superseded)** records. Replaced records do not count as unfinished and offer no Retry control.
+
+Use Tab to reach summaries and Retry buttons, and Enter or Space to open details. Full-objective details and the completed section keep their open/closed state across live refresh; focused queue controls retain focus by objective identity. Switching projects clears these choices. Long text wraps on narrow screens.

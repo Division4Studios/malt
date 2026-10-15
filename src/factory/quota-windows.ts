@@ -9,6 +9,10 @@ import { z } from 'zod';
 const SECOND_MS = 1000;
 /** Maximum normalized quota percentage. */
 const PERCENT_MAX = 100;
+/** Duration labels apply only to known native Claude window names. */
+const FIVE_HOUR_MINUTES = 300;
+/** Duration of the documented weekly window. */
+const WEEK_MINUTES = 10_080;
 /** Observation cadence and display freshness ceiling; never an admission allowance. */
 export const QUOTA_REFRESH_MS = 300_000;
 /** Bound supported window collections independently of native payload size. */
@@ -26,6 +30,7 @@ export const subscriptionWindowSchema = z.object({
   resetAt: z.number().int().nonnegative().safe().nullable(),
   observedAt: z.number().int().nonnegative().safe(),
   source: z.enum(['codex-app-server', 'claude-stream']),
+  minutes: z.number().int().positive().nullable().optional(),
   freshness: z.enum(['current', 'stale']).optional(),
 });
 /** Shared bounded persisted observation collection. */
@@ -56,6 +61,7 @@ const windowSchema = z.object({
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER / SECOND_MS)
     .nullable(),
+  windowDurationMins: z.number().int().positive().nullable().optional(),
 });
 /** Default Codex account bucket; additional buckets are not guessed as models. */
 const bucketSchema = z.object({ primary: windowSchema.nullable(), secondary: windowSchema.nullable() });
@@ -78,6 +84,7 @@ type NativeWindow = z.output<typeof windowSchema>;
 export const quotaReadingSchema = z.object({
   usedPercent: z.number().min(0).max(PERCENT_MAX),
   resetAt: z.number().nullable(),
+  windows: z.array(subscriptionWindowSchema).max(MAX_WINDOWS).optional(),
 });
 /** Verified default account quota. */
 export type QuotaReading = z.output<typeof quotaReadingSchema>;
@@ -123,6 +130,7 @@ export function accountObservation(input: unknown, now = Date.now()): QuotaObser
         resetAt: window.resetsAt === null ? null : window.resetsAt * SECOND_MS,
         observedAt: now,
         source: 'codex-app-server',
+        ...(window.windowDurationMins !== undefined && { minutes: window.windowDurationMins }),
       });
     }
   }
@@ -143,6 +151,50 @@ export function accountQuota(input: unknown, now = Date.now()): QuotaReading | n
   return !result.success || result.data.rateLimits === null || result.data.rateLimits === undefined
     ? null
     : restrictiveQuota([result.data.rateLimits.primary, result.data.rateLimits.secondary], now);
+}
+
+/**
+ * Project current account observations into the legacy duration display shape.
+ *
+ * @param input - Native account payload.
+ * @param now - Observation time.
+ * @returns Bounded current display windows without guessed durations.
+ */
+export function accountWindows(
+  input: unknown,
+  now = Date.now(),
+): Omit<SubscriptionWindow, 'observedAt' | 'source' | 'freshness'>[] {
+  return (accountObservation(input, now)?.windows ?? [])
+    .filter((window) => window.resetAt === null || window.resetAt > now)
+    .map(({ id, minutes = null, usedPercent, resetAt }) => ({ id, minutes, usedPercent, resetAt }));
+}
+
+/**
+ * Retain bounded Claude windows with their own observation provenance.
+ *
+ * @param input - Native stream quota metadata.
+ * @param now - Observation time.
+ * @returns Current validated windows, never inferred from token accounting.
+ */
+export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWindow[] {
+  const parsed = claudeInfoSchema.safeParse(input);
+  if (!parsed.success) {
+    return [];
+  }
+  return Object.entries(parsed.data.unifiedWindows ?? {})
+    .slice(0, MAX_WINDOWS)
+    .flatMap(([id, window]) => {
+      const minutes = id === 'five_hour' ? FIVE_HOUR_MINUTES : null;
+      const observation = subscriptionWindowSchema.safeParse({
+        id,
+        minutes: id === 'seven_day' ? WEEK_MINUTES : minutes,
+        usedPercent: Math.min(PERCENT_MAX, window.utilization * PERCENT_MAX),
+        resetAt: window.resetsAt * SECOND_MS,
+        observedAt: now,
+        source: 'claude-stream',
+      });
+      return observation.success && window.resetsAt * SECOND_MS > now ? [observation.data] : [];
+    });
 }
 
 /**

@@ -189,9 +189,9 @@ This is a settings fragment: also supply the selected target project's validatio
 The operator console displays the actual selected project's `.malt` path. Disposable validation workspaces may live under the OS temporary directory, but normal use should initialize and start the broker in the selected repository:
 
 ```powershell
-node src/cli.ts start --project "E:\01 - Personal Projects\multiagent-local-team" --port 4319
+node src/cli.ts start --project "C:\work\malt" --port 4319
 # In another terminal:
-node src/cli.ts ui --project "E:\01 - Personal Projects\multiagent-local-team" --port 4318
+node src/cli.ts ui --project "C:\work\malt" --port 4318
 ```
 
 For another delivery repository, select/open that repository in the console. Its operational state is stored in its own `.malt`, not in the broker-home repository. The MALT source repository is not automatically connected to a GitHub delivery board. Subscription credentials remain in provider-supported credential stores.
@@ -206,4 +206,4 @@ A manually edited file or an older index without a matching ownership receipt is
 
 A coordinated scope change is committed with its durable instruction and replacement objective in one SQLite transaction. Project-wide changes park old planning requests and every unfinished, unmerged delivery; selected changes also park dependent deliveries transitively. `scopeReplacement` links the parked record to the new product-owner/lead objective. Old approvals are invalidated, while completed proof and verification of already-merged code are retained. Ordinary retry cannot re-enable a superseded scope. Worktrees and source history are preserved for the replacement plan to inspect.
 
-Superseded child deliveries reconcile through stable outbox identities: explanatory comments, same-head open-PR closure, issue closure with `not_planned`, then owned-source retirement. Remote receipts precede cleanup; dirty or newer worktrees and source history are retained. Parked work is not represented as delivered. Superseded parent closure and recovery when a PR merges during cancellation remain incomplete; an unexpected merged or changed PR blocks retirement rather than deleting its source.
+Superseded child deliveries reconcile through stable outbox identities: explanatory comments, same-head open-PR closure, issue closure with `not_planned`, then owned-source retirement. Remote receipts precede cleanup; dirty or newer worktrees and source history are retained. Parked work is not represented as delivered. Superseded parents wait for settled local children and closed actual native children before checkpointed `not_planned` closure. When GitHub completes a merge during scope replacement, retained exact-head/base QA and final evidence from a historical merging revision restore actual-main verification; obsolete pending close effects are retired with audit events. An unexpected merge without that proof preserves its actual commit and blocks for investigation. Changed PR heads remain gated rather than deleting their source.
