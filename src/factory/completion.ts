@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
+import { completeTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
@@ -174,6 +175,10 @@ async function applyOutcome(
   evidence: { result: AgentResult; execution: ExecutedJob; signal: AbortSignal },
 ): Promise<void> {
   const { result, execution, signal } = evidence;
+  if (record.kind === 'triage') {
+    completeTriage(context.repository, record, result);
+    return;
+  }
   if (record.kind === 'plan' || record.kind === 'refine') {
     completePlan(context, record, result);
     return;
@@ -186,7 +191,7 @@ async function applyOutcome(
     completeSkillReview(context, record, result);
     return;
   }
-  await applyDelivery(context, record, { result, execution, signal });
+  await applyDelivery(context, { ...record, kind: record.kind }, { result, execution, signal });
 }
 
 /**
@@ -199,7 +204,7 @@ async function applyOutcome(
  */
 async function applyDelivery(
   context: FactoryContext,
-  job: FactoryJob,
+  job: FactoryJob & { kind: 'develop' | 'review' | 'final' | 'verify' },
   evidence: { result: AgentResult; execution: ExecutedJob; signal: AbortSignal },
 ): Promise<void> {
   const record = job;
@@ -217,6 +222,7 @@ async function applyDelivery(
     refine: '',
     learn: '',
     skill: '',
+    triage: '',
   } as const;
   if (task.phase !== stages[record.kind]) {
     return;
@@ -244,12 +250,6 @@ async function applyDelivery(
     case 'verify': {
       completeVerification(context, record, task, { execution, result });
       break;
-    }
-    case 'plan':
-    case 'refine':
-    case 'learn':
-    case 'skill': {
-      throw new MeshError('FACTORY_GATED', 'Unknown delivery stage.');
     }
   }
 }

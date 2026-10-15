@@ -29,6 +29,7 @@ const ROUTES = {
   verify: 'factory-release',
   learn: 'factory-learning',
   skill: 'factory-learning',
+  triage: 'factory-product',
 } as const;
 /** Active review provenance must be validated before becoming instructions. */
 const SKILL_TEXT_MAX = 32_000;

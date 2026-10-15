@@ -10,6 +10,9 @@ import { z } from 'zod';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
+
+/** Bound operator triage context independently of model transcripts. */
+const TRIAGE_NOTE_MAX = 4000;
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
 /** Extra reviewed project skills attached to one stage. */
@@ -246,7 +249,7 @@ export const factoryConfigSchema = z
     learningMs: z.number().int().positive().default(LEARNING_MS),
     assignmentSkills: z
       .record(
-        z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill']),
+        z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
         z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS),
       )
       .default({}),
@@ -404,7 +407,7 @@ export const jobSchema = z.object({
       organization: frozenOrganizationSchema.optional(),
     })
     .optional(),
-  kind: z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill']),
+  kind: z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
   taskId: z.string().uuid().nullable(),
   featureId: z.string().uuid().nullable(),
   target: z.string().uuid().nullable().default(null),
@@ -506,6 +509,15 @@ export const factorySchemas = {
     })
     .strict(),
   factory_retry: z.object({ taskId: z.string().uuid().optional(), featureId: z.string().uuid().optional() }).strict(),
+  factory_triage: z
+    .object({
+      requestId: z.string().uuid(),
+      taskId: z.string().uuid(),
+      expectedVersion: z.number().int().nonnegative(),
+      action: z.enum(['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait']),
+      note: z.string().trim().max(TRIAGE_NOTE_MAX).default(''),
+    })
+    .strict(),
   factory_enqueue: z
     .object({
       issue: z.number().int().positive(),
@@ -541,6 +553,7 @@ export const FACTORY_OPERATIONS = [
   'factory_request',
   'factory_retry',
   'factory_queue',
+  'factory_triage',
   'factory_reorder_objective',
   'factory_enqueue',
   'factory_capacity',

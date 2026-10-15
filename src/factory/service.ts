@@ -19,6 +19,7 @@ import {
   recoverUnownedClaims,
   recordScopeFeedback,
   recordCapacity,
+  refundUnpaidAttempt,
 } from './controls.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
@@ -43,6 +44,7 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
+import * as triage from './triage.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -275,6 +277,7 @@ export class FactoryService {
     const parsed = factorySchemas[operation].parse(input);
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_triage: () => triage.decideTriage(this.repository, parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(
@@ -354,6 +357,7 @@ export class FactoryService {
         this.connected = true;
       }
       await reconcile(context);
+      triage.queueBlockerInvestigations(this.repository);
       this.error = null;
     }
     if (!this.connected || this.stopped || !this.repository.active()) {
@@ -371,6 +375,7 @@ export class FactoryService {
       objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
+      triage: triage.pendingTriage(this.repository, this.repository.objectiveQueue.read().focusedFeatureId),
       now,
     };
     const intents = jobIntents(scheduling);
@@ -438,6 +443,12 @@ export class FactoryService {
         continue;
       }
       const task = this.repository.task(job.taskId);
+      if (job.kind === 'triage') {
+        if (!triage.isCurrentTriage(this.repository, job)) {
+          this.running.get(job.id)?.controller.abort();
+        }
+        continue;
+      }
       const phases = {
         review: 'review',
         final: 'merge_ready',
@@ -447,6 +458,7 @@ export class FactoryService {
         develop: '',
         learn: '',
         skill: '',
+        triage: '',
       } as const;
       if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
         this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
@@ -602,21 +614,18 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
+    triage.settleTriage(this.repository, job, attempt.state);
     const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
       settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    const isUnpaidGate = attempt.execution?.completion === null && attempt.execution.waiting !== null;
-    if (
-      hasSettled &&
-      job.kind === 'develop' &&
-      job.taskId !== null &&
-      (isUnpaidGate || attempt.state === 'interrupted')
-    ) {
-      this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
-    }
+    refundUnpaidAttempt(this.repository, job, {
+      hasSettled,
+      isUnpaidGate: attempt.execution?.completion === null && attempt.execution.waiting !== null,
+      state: attempt.state,
+    });
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
   }
 
@@ -628,6 +637,10 @@ export class FactoryService {
    */
   private async failure(job: FactoryJob, reason: string): Promise<void> {
     this.error = reason;
+    if (job.kind === 'triage') {
+      triage.completeTriage(this.repository, job, null);
+      return;
+    }
     if (job.taskId !== null) {
       const task = this.repository.task(job.taskId);
       if (task.scopeReplacement !== undefined) {

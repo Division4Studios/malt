@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { broadcastFactoryNotice } from './notifications.ts';
 import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
 import { ObjectiveQueue } from './objective-queue.ts';
 import { windowFreshness } from './quota-windows.ts';
@@ -31,6 +32,7 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { isCurrentTriage } from './triage.ts';
 
 import type { Store } from '../store.ts';
 import type { HandoffEvidence } from './handoffs.ts';
@@ -92,6 +94,7 @@ export class FactoryRepository {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
+      CREATE TABLE IF NOT EXISTS factory_triage (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, version INTEGER NOT NULL, input TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_source_views (job_id TEXT PRIMARY KEY REFERENCES factory_jobs(id), head TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_operator_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL);
@@ -782,6 +785,7 @@ export class FactoryRepository {
   private scopeEligible(job: FactoryJob): boolean {
     const focus = this.objectiveQueue.read().focusedFeatureId;
     return (
+      (job.kind !== 'triage' || isCurrentTriage(this, job)) &&
       (focus === null || job.featureId === focus) &&
       (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
     );
@@ -865,19 +869,6 @@ export class FactoryRepository {
    * @param body - Public decision or rejection reason.
    */
   private notifyInside(body: string): void {
-    if (this.sender === null) {
-      return;
-    }
-    // Direct store.send keeps task transition and inbox wake state atomic.
-    const agents = selectAll(
-      this.store.db,
-      z.object({ id: z.string() }),
-      "SELECT id FROM agents WHERE lifetime != 'ended'",
-    );
-    for (const agent of agents) {
-      if (agent.id !== this.sender) {
-        this.store.send(this.sender, agent.id, { body, type: 'broadcast' });
-      }
-    }
+    broadcastFactoryNotice(this.store, this.sender, body);
   }
 }
