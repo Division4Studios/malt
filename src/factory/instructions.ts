@@ -59,6 +59,9 @@ export class InstructionLedger {
    */
   public constructor(store: Store) {
     this.store = store;
+    store.db.exec(
+      'CREATE TABLE IF NOT EXISTS factory_instruction_scopes (instruction_id TEXT PRIMARY KEY REFERENCES factory_instructions(id), feature_id TEXT NOT NULL REFERENCES factory_features(id))',
+    );
     store.db.exec(`CREATE TABLE IF NOT EXISTS factory_instruction_receipts (
       instruction_id TEXT NOT NULL REFERENCES factory_instructions(id), job_id TEXT NOT NULL REFERENCES factory_jobs(id),
       delivered_at INTEGER NOT NULL, acknowledged_at INTEGER, applied_at INTEGER, evidence TEXT,
@@ -66,21 +69,33 @@ export class InstructionLedger {
   }
 
   /**
+   * Bind recovery guidance to its actual objective inside the operator transaction.
+   *
+   * @param instructionId - Existing durable instruction.
+   * @param featureId - Actual target objective.
+   */
+  public scope(instructionId: string, featureId: string): void {
+    run(this.store.db, 'INSERT INTO factory_instruction_scopes VALUES(?,?)', instructionId, featureId);
+  }
+
+  /**
    * Select pending guidance first while retaining a small recent context window.
    *
    * @param role - Addressed logical role.
    * @param taskId - Optional current delivery.
+   * @param featureId - Current objective; omitted callers see only shared guidance.
    * @returns Up to twenty relevant durable instructions.
    */
-  public guidance(role: string, taskId: string | null): Instruction[] {
+  public guidance(role: string, taskId: string | null, featureId: string | null = null): Instruction[] {
     return selectAll(
       this.store.db,
       guidanceSchema,
       `SELECT i.id,i.body,i.created_at AS createdAt
-      FROM factory_instructions i WHERE i.role=? AND (i.task_id IS NULL OR i.task_id=?)
+      FROM factory_instructions i LEFT JOIN factory_instruction_scopes s ON s.instruction_id=i.id WHERE i.role=? AND (i.task_id IS NULL OR i.task_id=?) AND (s.feature_id IS NULL OR s.feature_id=?)
       ORDER BY EXISTS(SELECT 1 FROM factory_instruction_receipts r WHERE r.instruction_id=i.id AND r.acknowledged_at IS NOT NULL), i.created_at DESC,i.rowid DESC LIMIT 20`,
       role,
       taskId,
+      featureId,
     );
   }
 
@@ -102,12 +117,13 @@ export class InstructionLedger {
         run(
           this.store.db,
           `INSERT OR IGNORE INTO factory_instruction_receipts(instruction_id,job_id,delivered_at)
-          SELECT id,?,? FROM factory_instructions WHERE id=? AND role=? AND (task_id IS NULL OR task_id=?)`,
+          SELECT id,?,? FROM factory_instructions WHERE id=? AND role=? AND (task_id IS NULL OR task_id=?) AND NOT EXISTS(SELECT 1 FROM factory_instruction_scopes s WHERE s.instruction_id=id AND s.feature_id IS NOT ?)`,
           job.id,
           this.store.now(),
           instruction.id,
           job.role,
           job.taskId,
+          job.featureId,
         );
       }
       this.store.event('FACTORY_INSTRUCTIONS_DELIVERED', null, {

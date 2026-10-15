@@ -115,7 +115,12 @@ export class ObjectiveQueue {
       ) {
         throw new MeshError('INVALID_INPUT', 'Focus requires an unfinished objective in this project.');
       }
-      const next = { revision: prior.revision + 1, order: value.order, focusedFeatureId: value.focusedFeatureId };
+      const next = {
+        revision: prior.revision + 1,
+        order: value.order,
+        focusedFeatureId: value.focusedFeatureId,
+        existingOnly: value.existingOnly ?? prior.existingOnly,
+      };
       this.writeRanks(
         [...value.order, ...features.filter((feature) => !ids.has(feature.id)).map((feature) => feature.id)],
         next.revision,
@@ -145,6 +150,7 @@ export class ObjectiveQueue {
     return {
       ...order,
       objectiveQueue: {
+        existingOnly: saved?.existingOnly ?? false,
         revision: order.orderRevision,
         order: unfinished.toSorted((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map((feature) => feature.id),
         focusedFeatureId: unfinished.some((feature) => feature.id === focusedFeatureId) ? focusedFeatureId : null,

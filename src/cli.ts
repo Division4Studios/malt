@@ -54,6 +54,7 @@ Usage: node src/cli.ts <command> [options]
   factory-pause               Stop managed processes and pause new dispatch
   factory-status              Inspect factory ledger as JSON
   factory-request --body TEXT  Queue an objective for product owner and lead
+  factory-recover --file FILE  Recover a blocked objective with an explicit decision
   factory-triage --file FILE   Decide an exact delivery blocker
   factory-queue --file FILE    Reorder unfinished objectives and set dispatch focus
   factory-retry --file FILE    Resume a resolved blocked task or feature

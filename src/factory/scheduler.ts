@@ -281,7 +281,11 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   const queue = input.objectiveQueue;
   return queue === undefined
     ? intents
-    : intents.filter((intent) => queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId);
+    : intents.filter((intent) => {
+        return queue.existingOnly === true
+          ? intent.taskId !== null
+          : queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId;
+      });
 }
 
 /** Current durable scheduling state. */
@@ -295,7 +299,7 @@ interface SchedulingState {
   /** Features state. */
   features: readonly Feature[];
   /** Operator order and optional exclusive focus; absent preserves FIFO. */
-  objectiveQueue?: { order: readonly string[]; focusedFeatureId: string | null };
+  objectiveQueue?: { order: readonly string[]; focusedFeatureId: string | null; existingOnly?: boolean };
   /** Jobs state. */
   jobs: readonly FactoryJob[];
   /** Skill Requests state. */

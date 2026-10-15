@@ -13,11 +13,12 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 
 import { startBroker } from '../src/broker.ts';
-import { rpc } from '../src/client.ts';
+import { rpc, AgentClient } from '../src/client.ts';
 import { run } from '../src/database.ts';
 import { objectiveOrder, reorderObjective } from '../src/factory/objective-order.ts';
 import { objectiveQueueSchema, MAX_OBJECTIVES } from '../src/factory/objective-queue-schema.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
+import { recoverObjective } from '../src/factory/recovery.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { Store } from '../src/store.ts';
 import { writeAtomic } from '../src/summary.ts';
@@ -64,6 +65,7 @@ await test('objective order and focus survive restart and reject stale, foreign 
   const otherRepository = new FactoryRepository(other);
   assert.deepEqual(otherRepository.objectiveQueue.read(), {
     revision: 0,
+    existingOnly: false,
     order: [],
     focusedFeatureId: null,
   });
@@ -143,10 +145,20 @@ await test('legacy queue migrates once; both controls share ranks, revisions, re
   store.close();
   store = new Store(mesh);
   repository = new FactoryRepository(store);
-  assert.deepEqual(repository.objectiveQueue.read(), { revision: 20, order: [b, a], focusedFeatureId: b });
+  assert.deepEqual(repository.objectiveQueue.read(), {
+    revision: 20,
+    order: [b, a],
+    focusedFeatureId: b,
+    existingOnly: false,
+  });
   const input = { featureId: a, beforeFeatureId: b, expectedRevision: 20, requestId: randomUUID() };
   const receipt = reorderObjective(store, input);
-  assert.deepEqual(repository.objectiveQueue.read(), { revision: 21, order: [a, b], focusedFeatureId: b });
+  assert.deepEqual(repository.objectiveQueue.read(), {
+    revision: 21,
+    order: [a, b],
+    focusedFeatureId: b,
+    existingOnly: false,
+  });
   const next = repository.objectiveQueue.update({ expectedRevision: 21, order: [b, a], focusedFeatureId: null });
   assert.equal(objectiveOrder(store).orderRevision, next.revision);
   assert.deepEqual(reorderObjective(store, input), receipt);
@@ -220,7 +232,7 @@ await test('real factory-queue CLI and relative RPC moves publish one consistent
     { timeout: 10_000 },
   );
   const saved = objectiveQueueSchema.parse(JSON.parse(cli.stdout));
-  assert.deepEqual(saved, { revision: before.revision + 1, order: [b, a], focusedFeatureId: b });
+  assert.deepEqual(saved, { revision: before.revision + 1, order: [b, a], focusedFeatureId: b, existingOnly: false });
   await rpc(connected, 'factory_reorder_objective', {
     featureId: a,
     beforeFeatureId: b,
@@ -229,6 +241,96 @@ await test('real factory-queue CLI and relative RPC moves publish one consistent
   const status = z
     .object({ orderRevision: z.number(), objectiveQueue: objectiveQueueSchema })
     .parse(await rpc(connected, 'factory_status', {}));
-  assert.deepEqual(status.objectiveQueue, { revision: saved.revision + 1, order: [a, b], focusedFeatureId: b });
+  assert.deepEqual(status.objectiveQueue, {
+    revision: saved.revision + 1,
+    order: [a, b],
+    focusedFeatureId: b,
+    existingOnly: false,
+  });
   assert.equal(status.orderRevision, status.objectiveQueue.revision);
+});
+
+await test('blocked objective recovery is revision fenced, durable and does not duplicate tickets or instructions', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  let store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  let repository = new FactoryRepository(store);
+  const { featureId } = queueObjective(repository, { objective: 'Clear existing work' });
+  const feature = repository.features()[0];
+  assert.ok(feature !== undefined);
+  repository.saveFeature({ ...feature, phase: 'blocked', error: 'Need retained evidence' });
+  const input = {
+    requestId: randomUUID(),
+    featureId,
+    expectedUpdatedAt: feature.updatedAt,
+    action: 'lead',
+    note: 'Inspect existing tickets, preserve their scopes.',
+  };
+  recoverObjective(repository, input);
+  assert.equal(repository.features()[0]?.phase, 'refining');
+  assert.equal(repository.features()[0]?.productPlan?.summary.includes('Need retained evidence'), true);
+  assert.equal(repository.instructions('team-lead', null).length, 0, 'Recovery must not become role-global guidance.');
+  const otherFeature = queueObjective(repository, { objective: 'Another outcome' }).featureId;
+  assert.equal(repository.instructions('team-lead', null, otherFeature).length, 0);
+  const instructions = repository.instructions('team-lead', null, featureId).length;
+  recoverObjective(repository, input);
+  assert.equal(repository.instructions('team-lead', null, featureId).length, instructions);
+  assert.throws(() => recoverObjective(repository, { ...input, requestId: randomUUID() }), /changed/v);
+  assert.throws(() => recoverObjective(repository, { ...input, note: 'Changed' }), /identity/v);
+  const current = repository.features()[0];
+  assert.ok(current !== undefined);
+  repository.saveFeature({ ...current, phase: 'blocked', error: 'Evidence available' });
+  recoverObjective(repository, {
+    ...input,
+    requestId: randomUUID(),
+    expectedUpdatedAt: current.updatedAt,
+    action: 'existing',
+  });
+  assert.equal(repository.features().length, 2);
+  assert.equal(repository.tasks().length, 0);
+  assert.equal(repository.objectiveQueue.read().existingOnly, true);
+  const queue = repository.objectiveQueue.read();
+  repository.objectiveQueue.update({
+    expectedRevision: queue.revision,
+    order: queue.order.toReversed(),
+    focusedFeatureId: null,
+  });
+  assert.equal(repository.objectiveQueue.read().existingOnly, true, 'Ordinary reorder preserves clearance mode.');
+  store.close();
+  store = new Store(mesh);
+  repository = new FactoryRepository(store);
+  assert.equal(repository.instructions('team-lead', null, otherFeature).length, 0);
+  assert.equal(repository.instructions('team-lead', null, featureId).length, instructions);
+  assert.equal(repository.objectiveQueue.read().existingOnly, true);
+  assert.equal(repository.features()[0]?.phase, 'blocked', 'Clearance does not falsely complete the campaign');
+});
+
+await test('only the operator can recover an objective through the actual broker', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const broker = await startBroker(mesh, { port: 0 });
+  defer(async () => broker.close());
+  const connected = updateConfig(mesh, { url: brokerUrl(broker.port) });
+  const repository = new FactoryRepository(broker.store);
+  const { featureId } = queueObjective(repository, { objective: 'Recover only with human consent' });
+  const feature = repository.features()[0];
+  assert.ok(feature !== undefined);
+  repository.saveFeature({ ...feature, phase: 'blocked' });
+  const input = {
+    requestId: randomUUID(),
+    featureId,
+    expectedUpdatedAt: feature.updatedAt,
+    action: 'owner' as const,
+    note: 'Resume this objective',
+  };
+  const lead = new AgentClient(connected, { name: 'attached-lead', role: 'lead' });
+  await lead.connect();
+  defer(async () => lead.close());
+  await assert.rejects(lead.call('factory_recover', input), { code: 'NOT_ORCHESTRATOR' });
+  assert.equal(repository.features()[0]?.phase, 'blocked');
+  assert.deepEqual(await rpc(connected, 'factory_recover', input), { featureId });
+  assert.equal(repository.features()[0]?.phase, 'queued');
 });

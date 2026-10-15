@@ -364,6 +364,24 @@ await test('operator order selects newer repair planning first and focus holds u
   assert.equal(busy.state, 'running');
 });
 
+await test('existing-delivery clearance bypasses campaign focus for tickets while holding all new objective work', () => {
+  const campaign = feature(1, { phase: 'blocked' });
+  const unrelated = feature(2, { phase: 'queued' });
+  const owner = feature(3);
+  const delivery = task(owner);
+  const intents = jobIntents({
+    config,
+    now,
+    tasks: [delivery],
+    features: [campaign, unrelated, owner],
+    jobs: [],
+    skillRequests: [],
+    objectiveQueue: { order: [campaign.id, unrelated.id, owner.id], focusedFeatureId: campaign.id, existingOnly: true },
+  });
+  assert.ok(intents.some((intent) => intent.kind === 'develop' && intent.taskId === delivery.id));
+  assert.ok(intents.every((intent) => intent.taskId !== null));
+});
+
 await test('objective priority preserves verification/review precedence and development round-robin', () => {
   const a = feature(1);
   const b = feature(2);
