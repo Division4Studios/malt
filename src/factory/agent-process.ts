@@ -7,7 +7,9 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod/v3';
@@ -39,6 +41,7 @@ async function main(): Promise<void> {
   }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Descriptor is created inside the owning job's private artifact directory.
   const launch = launchSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+  const cancellation = path.join(path.dirname(file), `cancel-${randomUUID()}`);
 
   const executable =
     process.platform === 'win32'
@@ -54,6 +57,8 @@ async function main(): Promise<void> {
           '-File',
           path.join(import.meta.dirname, 'windows-job.ps1'),
           file,
+          '-CancelFile',
+          cancellation,
         ]
       : launch.args;
   const child = spawn(executable, args, {
@@ -65,11 +70,24 @@ async function main(): Promise<void> {
       ? terminalEnvironment(process.env)
       : subscriptionEnvironment({ ...process.env, ...launch.env }),
   });
+  const completed = new Promise<void>((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code: number | null) => {
+      process.exitCode = typeof code === 'number' ? code : 1;
+      resolve();
+    });
+  });
   let cliPid: number | null = null;
   let stopping: Promise<void> | null = null;
   const teardown = async (): Promise<void> => {
     stopping ??= (async (): Promise<void> => {
-      if (cliPid !== null && launch.interactive && process.platform !== 'win32') {
+      if (process.platform === 'win32') {
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Unique private control marker belongs only to this owned Job helper.
+        writeFileSync(cancellation, 'stop', { mode: 0o600 });
+        await completed;
+        return;
+      }
+      if (cliPid !== null && launch.interactive) {
         await stopTerminalGroup(cliPid);
       }
       if (child.pid !== undefined) {
@@ -106,13 +124,7 @@ async function main(): Promise<void> {
   } else {
     child.stdin.end(launch.input);
   }
-  await new Promise<void>((resolve, reject) => {
-    child.once('error', reject);
-    child.once('close', (code: number | null) => {
-      process.exitCode = typeof code === 'number' ? code : 1;
-      resolve();
-    });
-  });
+  await completed;
   if (launch.interactive) {
     await teardown();
     process.stdin.unpipe(child.stdin);
@@ -124,6 +136,8 @@ async function main(): Promise<void> {
   process.removeListener('disconnect', stop);
   process.removeListener('SIGTERM', stop);
   process.removeListener('SIGINT', stop);
+
+  await rm(cancellation, { force: true });
   disconnectOwned();
 }
 
