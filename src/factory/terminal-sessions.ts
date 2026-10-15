@@ -24,7 +24,7 @@ export const terminalSessionSchema = z
     provider: z.enum(['codex', 'claude']),
     worktree: z.string().min(1).max(PATH_LIMIT),
     branch: z.string().min(1).max(REASON_LIMIT),
-    base: z.string().regex(/^[\da-f]{40}$/v),
+    base: z.string().regex(/^(?:[\da-f]{40}|[\da-f]{64})$/v),
     baseBranch: z.string().min(1).max(REASON_LIMIT),
     state: z.enum(STATES),
     createdAt: z.number().int().nonnegative(),
