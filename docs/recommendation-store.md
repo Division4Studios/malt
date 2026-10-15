@@ -34,4 +34,4 @@ stateDiagram-v2
   reconciling --> failed
 ```
 
-Terminal revisions stay immutable. Re-proposing after stale or rejected creates a new revision; it does not reopen the same revision. This diagram documents the existing store, not an implemented human approval endpoint or ticket executor. See [project management scope](project-management-decisions.md) for the remaining integration.
+Terminal revisions stay immutable. Re-proposing with changed content after stale or rejected creates a new revision; it does not reopen the same revision. Replaying identical content returns its original revision unchanged. This diagram documents the existing store, not an implemented human approval endpoint or ticket executor. See [project management scope](project-management-decisions.md) for the remaining integration.
