@@ -14,6 +14,9 @@ import { z } from 'zod/v3';
 
 import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';
+import { FrameDecoder } from './terminal-frames.ts';
+import { stopTerminalGroup } from './terminal-groups.ts';
+import { terminalEnvironment } from './terminal-launch.ts';
 
 /** Structured launch descriptor; model credentials are inherited, never saved. */
 const launchSchema = z.object({
@@ -25,6 +28,7 @@ const launchSchema = z.object({
   memoryMb: z.number(),
   cpuPercent: z.number(),
   processLimit: z.number().int().positive(),
+  interactive: z.boolean().default(false),
 });
 
 /** Run the owned process, forwarding streams and watching the parent link. */
@@ -57,12 +61,25 @@ async function main(): Promise<void> {
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: subscriptionEnvironment({ ...process.env, ...launch.env }),
+    env: launch.interactive
+      ? terminalEnvironment(process.env)
+      : subscriptionEnvironment({ ...process.env, ...launch.env }),
   });
+  let cliPid: number | null = null;
+  let stopping: Promise<void> | null = null;
+  const teardown = async (): Promise<void> => {
+    stopping ??= (async (): Promise<void> => {
+      if (cliPid !== null && launch.interactive && process.platform !== 'win32') {
+        await stopTerminalGroup(cliPid);
+      }
+      if (child.pid !== undefined) {
+        await terminateTree(child.pid);
+      }
+    })();
+    await stopping;
+  };
   const stop = (): void => {
-    if (child.pid !== undefined) {
-      void terminateTree(child.pid);
-    }
+    void teardown();
   };
   process.once('disconnect', stop);
   process.once('SIGTERM', stop);
@@ -72,7 +89,23 @@ async function main(): Promise<void> {
   child.stdin.on('error', () => {
     /* Exit status is reported through the completion promise. */
   });
-  child.stdin.end(launch.input);
+  if (launch.interactive) {
+    const decoder = new FrameDecoder();
+    child.stdout.on('data', (bytes: Uint8Array) => {
+      try {
+        for (const frame of decoder.push(bytes)) {
+          if (frame.type === 'started') {
+            cliPid = frame.pid;
+          }
+        }
+      } catch {
+        stop();
+      }
+    });
+    process.stdin.pipe(child.stdin);
+  } else {
+    child.stdin.end(launch.input);
+  }
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code: number | null) => {
@@ -80,7 +113,12 @@ async function main(): Promise<void> {
       resolve();
     });
   });
-  if (process.platform !== 'win32' && child.pid !== undefined) {
+  if (launch.interactive) {
+    await teardown();
+    process.stdin.unpipe(child.stdin);
+    process.stdin.destroy();
+    process.stdin.unref();
+  } else if (process.platform !== 'win32' && child.pid !== undefined) {
     await terminateTree(child.pid);
   }
   process.removeListener('disconnect', stop);
