@@ -59,7 +59,12 @@ for (const mode of ['close', 'disconnect'] as const) {
         },
       });
       defer(async () => terminal.stop());
-      await until(() => text.includes('SIZE 80 24') || failure !== '', 10_000);
+      try {
+        await until(() => text.includes('SIZE 80 24') || failure !== '', 10_000);
+      } catch {
+        await terminal.stop();
+        assert.fail(JSON.stringify({ failure, text }));
+      }
       assert.equal(failure, '', 'The contained host must start successfully.');
       terminal.send({ type: 'input', data: Buffer.from('spawn\rignore-term\r') });
       await until(() => text.includes('GRANDCHILD ') && text.includes('IGNORING SIGTERM'), 10_000);
