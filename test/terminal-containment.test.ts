@@ -48,7 +48,7 @@ for (const mode of ['close', 'disconnect'] as const) {
         fixture: true,
         onFrame(frame) {
           if (frame.type === 'error') {
-            failure = frame.code;
+            failure = `${frame.code}: ${frame.message}`;
             return;
           }
           if (frame.type === 'started') {
