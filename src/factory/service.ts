@@ -594,13 +594,19 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
-    this.repository.finishJob(
+    const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
       settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    if (attempt.state === 'interrupted' && job.kind === 'develop' && job.taskId !== null) {
+    const isUnpaidGate = attempt.execution?.completion === null && attempt.execution.waiting !== null;
+    if (
+      hasSettled &&
+      job.kind === 'develop' &&
+      job.taskId !== null &&
+      (isUnpaidGate || attempt.state === 'interrupted')
+    ) {
       this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
     }
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
