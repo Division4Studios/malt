@@ -506,3 +506,5 @@ Remaining work includes arbitrary additional managed specialist seats, complete 
 | [Codex configuration](examples/codex.config.toml)                  | Launcher-based session bridge and long timeout.                |
 
 Mission-control objectives can be reordered with keyboard-accessible priority controls and focused individually to hold unrelated new assignments while repairs are addressed. See [objective priority and repair focus](docs/operator-console.md#objective-priority-and-repair-focus).
+
+Blocked objective before any child ticket exists? Mission provides explicit lead/product recovery and an existing-deliveries-only clearance mode. Validated oversized work can request a human exception for its exact head/base while retaining tests and review gates. See [recovery and size exceptions](docs/operator-console.md#recover-a-stopped-objective).

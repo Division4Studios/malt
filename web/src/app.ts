@@ -30,6 +30,7 @@ import {
   githubConnectionDescription,
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
+import { openRecovery } from './recovery-ui.js';
 import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
@@ -48,16 +49,10 @@ import { workflowView } from './workflow-ui.js';
 
 import type { Snapshot, Data } from './api.js';
 import type { View } from './navigation.js';
+import type { OperatorEdit as Edit } from './recovery-ui.js';
 import type { Actions } from './views.js';
 import type { InstallEvent } from './worker-ui.js';
 
-/** Explicit operator mutation presented in the editor dialog. */
-interface Edit {
-  /** Validated broker operation. */
-  readonly operation: string;
-  /** Convert user text to the expected control input. */
-  readonly input: (body: string) => unknown;
-}
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
 /** Captured output histories retained in memory only. */
@@ -202,6 +197,7 @@ function editor(
 
 /** Role and ticket interactions feed the durable server control path. */
 const actions: Actions = {
+  recover: openRecovery.bind(null, editor),
   triage: (task, action) => {
     const dialog = triageDialog(task, action);
     editor(dialog.description, dialog.action);
@@ -256,8 +252,8 @@ const actions: Actions = {
   retry: (id, isFeature) => {
     void control('factory_retry', isFeature ? { featureId: id } : { taskId: id });
   },
-  queue: (order, focusedFeatureId, expectedRevision) => {
-    void control('factory_queue', { order, focusedFeatureId, expectedRevision });
+  queue: (order, focusedFeatureId, expectedRevision, shouldLimitToExisting) => {
+    void control('factory_queue', { order, focusedFeatureId, expectedRevision, existingOnly: shouldLimitToExisting });
   },
   setup: (isConnection) => {
     const body = node('editor-body', HTMLTextAreaElement);
