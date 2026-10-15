@@ -1,6 +1,6 @@
 # Interactive terminals: feasibility and binding decisions
 
-Status: decision record for the interactive-terminal feature (parent issue #101, this record #102). The operator-to-PTY session path is not implemented by this record. The deterministic terminal fixture and bounded output buffer already exist as supporting components. Worker panes in the operator console show real logs and durable messages; they are not terminals.
+Status: decision record for the interactive-terminal feature (parent issue #101, this record #102). The operator-to-PTY session path is not implemented by this record. The deterministic terminal fixture (#103 / PR #126), bounded host frame codec (#104 / PR #130) and redacted output buffer (#105 / PR #127) are merged supporting components. Worker panes in the operator console show real logs and durable messages; they are not terminals.
 
 This record binds the later terminal children so they do not have to guess. A child that needs to depart from a decision here must update this record in the same delivery and say why. Decisions that need a human are marked **human decision**.
 
@@ -10,6 +10,8 @@ Evidence labels used below:
 - **Source**: read from the MALT source at base `f921452` or from a package's published files.
 - **Help**: copied from the installed CLI's own `--help` output. No model call was made.
 - **Unverified**: reasoned design that a named later child must prove.
+
+See the [current capability map](current-status.md) and [issue audit](issue-audit-2026-10-15.md). Completed supporting slices do not establish a real PTY host, terminal routes, browser screen/input or platform end-to-end support.
 
 ## 1. Native CLI interactive modes
 

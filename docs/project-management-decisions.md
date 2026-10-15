@@ -2,6 +2,10 @@
 
 This is the accepted delivery scope for the dedicated project-management approval panel. The panel and general ticket-decision executor are not implemented yet. Current human skill decisions approve exact skill revisions only. Product/lead intake guidance already requires duplicate and related-ticket inspection; it does not authorize consolidation.
 
+## Implemented foundations
+
+The [recommendation store](recommendation-store.md) is merged (#51 / PR #93), as is the [deterministic duplicate/related classifier](duplicate-detection.md) (#52 / PR #94). Neither is connected to the complete human decision/execution lifecycle below. The repository-wide observed-revision corpus, scoped submission/read/decision routes, intake hook, executor, notifications and browser pane remain open under [#50](https://github.com/Division4Studios/malt/issues/50). Dispatcher task triage and exact skill approval are separate existing controls; they must not be presented as this recommendation panel. See [current capabilities](current-status.md).
+
 ## Intake and recommendation
 
 Before new feature/bug planning, scope changes and ticket creation, search the selected repository's open and relevant closed issues, native parent/child relationships, local objectives and unresolved remote operations. Exact interrupted-operation recovery reuses its existing identity automatically. Semantic similarity produces a recommendation, not automatic closure. Compare behavior, acceptance, reproduction, component and dependencies; retain contrary evidence and distinguish related work from a true duplicate.

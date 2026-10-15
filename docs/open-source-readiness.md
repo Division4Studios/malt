@@ -14,20 +14,26 @@ MALT uses the [OpenSSF OSPS Baseline](https://baseline.openssf.org/) and [OpenSS
 
 Repository metadata is mutable. Inspect current GitHub settings/checks rather than treating this document as proof that a rule remains enabled forever. Secret scanning protects supported patterns; no credential was rotated solely because a synthetic fixture matched. A future real finding must trigger revocation/rotation and coordinated history remediation.
 
+## Follow-up verification — 2026-10-15
+
+Audited main `0325f63` passes clean locked installation, strict checks and all 236 tests. The merged dependency/CI stack passed hosted Windows/Linux/macOS, Docker/MCP restart and security checks. All 95 initially open issues were inspected against current source and merged PRs; see the [audit](issue-audit-2026-10-15.md) for completed, partial and queued scopes. This follow-up does not claim a new exhaustive manual secret audit or a completed live-provider/installed-PWA certification.
+
+Live API readback confirms public vulnerability reporting, detected MIT/community documents, Dependabot security updates, secret scanning and push protection. CodeQL default setup uses the extended suite and an active all-threshold merge rule. The required-check list was corrected to retain all three platform checks and Docker and also require the existing Quality gate and Security gate. Review count/code-owner/latest-push exception settings were preserved.
+
 ## Controls and release gates
 
-| Area                | Evidence or required follow-up                                                                                                                                                                |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| License/provenance  | Owner selected MIT; root LICENSE and third-party notices retain upstream MIT licenses/commits.                                                                                                |
-| Community           | Contribution/support/conduct/governance policies, issue/discussion/PR forms and release-note categories are prepared. They become GitHub defaults when merged into the default branch.        |
-| Local privacy       | Project-local state is private/ignored; browser session credentials are memory-only and known process secrets are redacted. Review logs before export.                                        |
-| Supply chain        | Lockfile, install scripts disabled in CI, pinned official action SHAs, history scanning, dependency audit/review and CodeQL workflow. Hosted checks must pass on the final commits.           |
-| Repository security | Enable private vulnerability reporting, Dependabot alerts/updates, secret scanning and push protection; verify actual API readback. Generic-pattern and validity features may be unavailable. |
-| Main branch         | Require two authenticated approvals, code owner, fresh checks and conversations; no bypass/force push/deletion. Distinct reviewer identities are an actual external requirement.              |
-| Funding             | Owner has a publicly reachable Sponsors listing; account-owner verification of payouts/tax details remains outside this audit.                                                                |
-| Continuity          | A second trusted maintainer, account recovery/access review and private conduct contact still need owner setup.                                                                               |
-| Product claims      | Factory exists, but connector/Jira, interactive terminals and the human project-management queue remain incomplete. Do not describe them as shipped.                                          |
-| Assurance           | No OpenSSF badge, penetration-test certification, live protected-review proof or universal installation/accessibility result is claimed.                                                      |
+| Area                | Evidence or required follow-up                                                                                                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| License/provenance  | Owner selected MIT; root LICENSE and third-party notices retain upstream MIT licenses/commits.                                                                                                                                  |
+| Community           | Contribution/support/conduct/governance policies, issue/discussion/PR forms and release-note categories are on the default branch; GitHub community-profile readback reports 100% health. This is not a security certification. |
+| Local privacy       | Project-local state is private/ignored; browser session credentials are memory-only and known process secrets are redacted. Review logs before export.                                                                          |
+| Supply chain        | Lockfile, install scripts disabled in CI, pinned official action SHAs, history scanning, dependency audit/review and CodeQL workflow. Hosted checks must pass on the final commits.                                             |
+| Repository security | Private reporting, Dependabot security updates, secret scanning and push protection verified enabled on 2026-10-15. Generic-pattern and validity checks are disabled.                                                           |
+| Main branch         | Require two authenticated approvals, code owner, fresh checks and conversations; no bypass/force push/deletion. Distinct reviewer identities are an actual external requirement.                                                |
+| Funding             | Owner has a publicly reachable Sponsors listing; account-owner verification of payouts/tax details remains outside this audit.                                                                                                  |
+| Continuity          | A second trusted maintainer, account recovery/access review and private conduct contact still need owner setup.                                                                                                                 |
+| Product claims      | Factory exists, but connector/Jira, interactive terminals and the human project-management queue remain incomplete. Do not describe them as shipped.                                                                            |
+| Assurance           | No OpenSSF badge, penetration-test certification, live protected-review proof or universal installation/accessibility result is claimed.                                                                                        |
 
 ## Repeat before release
 
