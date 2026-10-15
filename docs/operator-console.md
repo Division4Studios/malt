@@ -197,3 +197,22 @@ The equivalent operator command is `node src/cli.ts factory-queue --file queue.j
 Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` must contain **every unfinished** current objective ID exactly once; completed and superseded objectives are excluded. Use `null` for `focusedFeatureId` to release focus. The same validated `factory_queue` operation serves MCP, CLI and paired browser controls. A project can have at most 5,000 unfinished objectives, matching the request-size boundary. Completed and superseded objectives remain in history without consuming queue positions.
 
 Full queue replacements and `factory-reorder-objective` share the same durable ranks and revision. Either control invalidates stale inputs to the other; relative moves retain the current focus. Existing saved queue order/focus is migrated once without discarding history. Status reads use a deferred read-only SQLite snapshot and do not regenerate the README or reserve the writer lock.
+
+## Dispatcher decisions
+
+Mission overview replaces the raw blocker wall with **Clear the path** cards. Expand a card to see the issue/PR/owner, a concise cause, the latest durable disposition and a formatted complete report. Headings, lists, code and emphasis render safely as native elements; HTML remains literal text.
+
+| Action             | Durable effect                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| Acknowledge        | Records that you saw this exact revision; does not resolve it.                                                  |
+| Ask the lead       | Queues one bounded, read-only diagnosis with evidence and a recommended next step or precise operator question. |
+| Send to owner      | Returns unmerged work to its original developer with your instructions and invalidates prior approvals.         |
+| Request fresh QA   | Clears old approvals and schedules independent reviews of published source.                                     |
+| Verify merged main | Requests final verification of a confirmed external merge; missing historical approvals remain missing.         |
+| Wait for decision  | Parks the delivery with your explicit reason or question, without an idle model process.                        |
+
+The editor explains each action before submission. Decisions use a stable request ID and expected task version; changed, foreign, completed, superseded or actively owned deliveries reject unsafe actions. Repeated identical submissions return the original receipt. Pause saves decisions without dispatching jobs; resume admits them under the same provider, machine, focus and ownership limits.
+
+The supervisor inspects parked PRs before another implementation turn. An external merge becomes a traceable verification decision rather than repeated empty-diff development; a changed head invalidates stale approvals. One automatic lead investigation is queued per blocked revision, and completion or failure parks that diagnosis without repeatedly spending turns on the same revision. Existing published PR repairs are offered before fresh development when objective priorities are equal. Operator objective priority/focus remains explicit authority.
+
+CLI equivalent: `node src/cli.ts factory-triage --file decision.json`. Read current task IDs/versions from `factory-status`. A decision contains `requestId`, `taskId`, `expectedVersion`, `action` (one of the table's validated operation names: `acknowledge`, `investigate`, `repair`, `review`, `verify`, `wait`) and `note`. Decisions are not queued offline and never imply acceptance, protected review or a merge.

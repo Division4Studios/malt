@@ -24,6 +24,8 @@ const FILES = [
   'dist/brand-ui.js',
   'dist/workflow-ui.js',
   'dist/organization-ui.js',
+  'dist/triage-ui.js',
+  'dist/report-ui.js',
   'dist/navigation.js',
   'dist/freshness.js',
   'dist/console-clock.js',

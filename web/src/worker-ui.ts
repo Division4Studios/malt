@@ -383,3 +383,17 @@ export function artifactSelector(
   });
   return selector;
 }
+
+/**
+ * Save only harmless role layout; storage failure must not prevent navigation.
+ *
+ * @param key - Application-owned public layout key.
+ * @param roles - Validated logical role selections.
+ */
+export function persistRoles(key: string, roles: readonly string[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(roles));
+  } catch {
+    /* Layout remains usable when browser storage is unavailable. */
+  }
+}

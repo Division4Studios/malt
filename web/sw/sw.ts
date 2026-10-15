@@ -17,6 +17,8 @@ const SHELL = [
   '/brand-ui.js',
   '/workflow-ui.js',
   '/organization-ui.js',
+  '/triage-ui.js',
+  '/report-ui.js',
   '/navigation.js',
   '/freshness.js',
   '/console-clock.js',

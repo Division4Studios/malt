@@ -244,16 +244,16 @@ export interface ControlHooks {
  * @param hooks - Current controller state and read-only refresh callbacks.
  * @returns An explicit validated-backend control sender.
  */
-export function createOperatorControl(hooks: ControlHooks): (operation: string, input: unknown) => Promise<void> {
+export function createOperatorControl(hooks: ControlHooks): (operation: string, input: unknown) => Promise<boolean> {
   const pending = new Set<string>();
   return async (operation, input) => {
     const { project, isReady } = hooks.scope();
     if (!isReady || pending.size > 0) {
-      return;
+      return false;
     }
     pending.add(operation);
     try {
-      await applyOperatorControl(hooks, project, operation, input);
+      return await canApplyOperatorControl(hooks, project, operation, input);
     } catch (error) {
       if (project === hooks.scope().project) {
         hooks.notice(error instanceof Error ? error.message : 'The control could not be applied.');
@@ -261,6 +261,7 @@ export function createOperatorControl(hooks: ControlHooks): (operation: string, 
           await hooks.refresh();
         }
       }
+      return false;
     } finally {
       pending.delete(operation);
     }
@@ -274,21 +275,23 @@ export function createOperatorControl(hooks: ControlHooks): (operation: string, 
  * @param project - Initiating public project ID.
  * @param operation - Explicit backend operation.
  * @param input - Untrusted payload validated by the server.
+ * @returns Whether the operation succeeded in its intended scope.
  */
-async function applyOperatorControl(
+async function canApplyOperatorControl(
   hooks: ControlHooks,
   project: string,
   operation: string,
   input: unknown,
-): Promise<void> {
+): Promise<boolean> {
   if (operation === 'open-project' && typeof input === 'string') {
     await hooks.openProject(input);
-    return;
+    return true;
   }
   await request(scoped(project, '/api/control'), { operation, input });
   if (project !== hooks.scope().project) {
-    return;
+    return false;
   }
   hooks.notice('Saved to project memory. The factory will coordinate the next safe step.', true);
   await hooks.refresh();
+  return true;
 }

@@ -101,7 +101,35 @@ await test('late failure is fenced and explicit project selection uses its scope
   project = 'two';
   response.resolve(Response.json({ error: 'Old failure' }, { status: 400 }));
   await pending;
-  await control('open-project', 'three');
+  assert.equal(await control('open-project', 'three'), true);
   assert.equal(project, 'three');
   assert.equal(requests, 1);
+});
+
+await test('an uncertain editor mutation remains retryable until success is confirmed', async (t) => {
+  let shouldFail = true;
+  t.mock.method(globalThis, 'fetch', async () => {
+    await Promise.resolve();
+    if (shouldFail) {
+      throw new TypeError('Connection lost after submission');
+    }
+    return Response.json({});
+  });
+  const control = createOperatorControl({
+    scope: () => ({ project: 'one', isReady: true }),
+    openProject: async () => {
+      await Promise.resolve();
+      throw new Error('Cannot select project');
+    },
+    refresh: async () => {
+      await Promise.resolve();
+    },
+    notice: (message) => {
+      assert.ok(message.length > 0);
+    },
+  });
+  assert.equal(await control('factory_triage', { requestId: 'same' }), false);
+  shouldFail = false;
+  assert.equal(await control('factory_triage', { requestId: 'same' }), true);
+  assert.equal(await control('open-project', 'unavailable'), false);
 });

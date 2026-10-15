@@ -1,0 +1,97 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../web/style.css" />
+<main id="content"></main>
+<pre id="result">PENDING</pre>
+<script type="module">
+  import { triagePanel, triageDialog } from '../../web/dist/triage-ui.js';
+  const result = document.querySelector('#result');
+  const check = (condition, message) => {
+    if (!condition) throw new Error(message);
+  };
+  try {
+    const task = {
+      id: '00000000-0000-4000-8000-000000000001',
+      version: 7,
+      issue: 13,
+      title: 'Repair source inspection',
+      phase: 'blocked',
+      developer: 'developer-1',
+      pr: 3,
+      prUrl: 'https://github.com/fixture/app/pull/3',
+      merge: null,
+      error:
+        '# Review access blocked\n\n**Cause:** missing claim.\n- Restore read-only scope\n- Rerun independent QA\n\n`FACTORY_GATED`\n<img src=x onerror="window.injected=true">',
+    };
+    const state = {
+      project: { id: 'fixture' },
+      factory: {
+        active: true,
+        tasks: [task],
+        jobs: [],
+        triage: [],
+        settings: { providers: { codex: { budgetTokens: 1, reservationTokens: 1 } } },
+        capacities: [
+          {
+            provider: 'codex',
+            usedTokens: 2,
+            reservedTokens: 0,
+            resetAt: Date.now() + 60000,
+            cooldownUntil: Date.now() + 60000,
+          },
+        ],
+      },
+      github: { connection: { repository: 'fixture/app' } },
+    };
+    let selected;
+    const actions = {
+      triage: (item, action) => {
+        selected = { item, action };
+      },
+    };
+    const content = document.querySelector('#content');
+    content.append(triagePanel(state, actions));
+    const card = content.querySelector('.triage-card');
+    card.open = true;
+    check(content.querySelectorAll('.triage-action').length === 6, 'six explicit actions');
+    check(
+      content.querySelector('a').getAttribute('href') === 'https://github.com/fixture/app/issues/13',
+      'connected issue reference',
+    );
+    const buttons = [...content.querySelectorAll('button')];
+    buttons.find((button) => button.textContent === 'Ask the lead').click();
+    check(selected.action === 'investigate' && selected.item.id === task.id, 'exact task and action forwarded');
+    check(
+      buttons.find((button) => button.textContent === 'Verify merged main').disabled,
+      'unmerged verification gated',
+    );
+    const editor = triageDialog(task, 'repair');
+    const request = editor.action.input('Fix the cause');
+    check(
+      request.expectedVersion === 7 && request.action === 'repair' && request.taskId === task.id,
+      'fenced editor request',
+    );
+    check(
+      content.textContent.includes('scheduling budget exhausted') && content.textContent.includes('provider cooldown'),
+      'dispatch admission diagnostics retained',
+    );
+    check(
+      triageDialog(task, 'repair').action.input('Fix the cause').requestId === request.requestId,
+      'uncertain retry keeps identity',
+    );
+    check(editor.action.input('Different intent').requestId !== request.requestId, 'changed payload gets new identity');
+    const report = content.querySelector('.triage-evidence');
+    report.open = true;
+    check(
+      content.querySelector('h4') &&
+        content.querySelector('strong') &&
+        content.querySelector('ul') &&
+        content.querySelector('code'),
+      'Markdown is formatted',
+    );
+    check(!content.querySelector('img') && !window.injected, 'HTML remains inert');
+    result.textContent = 'PASS: actions, exact identity/version, merge gate, formatted Markdown and hostile text';
+  } catch (error) {
+    result.textContent = `FAIL: ${error.message}`;
+  }
+</script>
