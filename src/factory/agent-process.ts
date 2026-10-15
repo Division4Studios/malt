@@ -12,63 +12,32 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import path from 'node:path';
 
-import { z } from 'zod/v3';
-
-import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';
+import { ownedLaunchSchema, prepareOwnedInput, ownedInvocation, ownedEnvironment } from './owned-launch.ts';
 import { FrameDecoder } from './terminal-frames.ts';
 import { stopTerminalGroup } from './terminal-groups.ts';
-import { terminalEnvironment } from './terminal-launch.ts';
-
-/** Structured launch descriptor; model credentials are inherited, never saved. */
-const launchSchema = z.object({
-  file: z.string(),
-  args: z.array(z.string()),
-  cwd: z.string(),
-  input: z.string(),
-  env: z.record(z.string()).default({}),
-  memoryMb: z.number(),
-  cpuPercent: z.number(),
-  processLimit: z.number().int().positive(),
-  interactive: z.boolean().default(false),
-});
 
 /** Run the owned process, forwarding streams and watching the parent link. */
 async function main(): Promise<void> {
   const file = process.argv[2];
-  if (file === undefined || process.send === undefined || !process.connected) {
+  if (file === undefined || process.send === undefined || !hasOwner()) {
     throw new Error('This helper must be launched by the factory with an IPC link.');
   }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Descriptor is created inside the owning job's private artifact directory.
-  const launch = launchSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+  const launch = ownedLaunchSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
   const cancellation = path.join(path.dirname(file), `cancel-${randomUUID()}`);
-
-  const executable =
-    process.platform === 'win32'
-      ? path.join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
-      : launch.file;
-  const args =
-    process.platform === 'win32'
-      ? [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy',
-          'Bypass',
-          '-File',
-          path.join(import.meta.dirname, 'windows-job.ps1'),
-          file,
-          '-CancelFile',
-          cancellation,
-        ]
-      : launch.args;
-  const child = spawn(executable, args, {
+  const { descriptor: jobFile, pipe: inputPipe } = await prepareOwnedInput(file, launch);
+  if (!hasOwner()) {
+    await inputPipe?.close();
+    throw new Error('Factory owner disconnected before native startup.');
+  }
+  const invocation = ownedInvocation(jobFile, launch, cancellation);
+  const child = spawn(invocation.file, invocation.args, {
     cwd: launch.cwd,
     windowsHide: true,
     detached: process.platform !== 'win32',
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: launch.interactive
-      ? terminalEnvironment(process.env)
-      : subscriptionEnvironment({ ...process.env, ...launch.env }),
+    env: ownedEnvironment(launch),
   });
   const completed = new Promise<void>((resolve, reject) => {
     child.once('error', reject);
@@ -120,7 +89,11 @@ async function main(): Promise<void> {
         stop();
       }
     });
-    process.stdin.pipe(child.stdin);
+    if (inputPipe === null) {
+      process.stdin.pipe(child.stdin);
+    } else {
+      child.stdin.end();
+    }
   } else {
     child.stdin.end(launch.input);
   }
@@ -136,9 +109,19 @@ async function main(): Promise<void> {
   process.removeListener('disconnect', stop);
   process.removeListener('SIGTERM', stop);
   process.removeListener('SIGINT', stop);
+  await inputPipe?.close();
 
   await rm(cancellation, { force: true });
   disconnectOwned();
+}
+
+/**
+ * Read ownership afresh after asynchronous setup rather than preserving static narrowing.
+ *
+ * @returns Current parent IPC connection state.
+ */
+function hasOwner(): boolean {
+  return process.connected;
 }
 
 /** Detach only this owned helper's IPC after its provider has fully stopped. */
