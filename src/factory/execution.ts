@@ -208,6 +208,7 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
     repository.editTask(task.id, (current) => {
       return {
         ...current,
+        publicationGate: undefined,
         branch: prepared.branch,
         worktree: prepared.directory,
         base: prepared.base,

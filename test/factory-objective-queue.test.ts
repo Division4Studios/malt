@@ -330,6 +330,16 @@ await test('only the operator can recover an objective through the actual broker
   await lead.connect();
   defer(async () => lead.close());
   await assert.rejects(lead.call('factory_recover', input), { code: 'NOT_ORCHESTRATOR' });
+  await assert.rejects(
+    lead.call('factory_triage', {
+      requestId: randomUUID(),
+      taskId: randomUUID(),
+      expectedVersion: 0,
+      action: 'approve_size',
+      note: 'Agent must not approve its own ceiling exception.',
+    }),
+    { code: 'NOT_ORCHESTRATOR' },
+  );
   assert.equal(repository.features()[0]?.phase, 'blocked');
   assert.deepEqual(await rpc(connected, 'factory_recover', input), { featureId });
   assert.equal(repository.features()[0]?.phase, 'queued');

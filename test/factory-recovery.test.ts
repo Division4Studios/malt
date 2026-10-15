@@ -12,14 +12,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod';
 
-import { rejectDelivery } from '../src/factory/completion.ts';
+import { rejectDelivery, completeJob } from '../src/factory/completion.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { runProcess } from '../src/factory/processes.ts';
+import { PublicationSizeError, assertPublicationSize } from '../src/factory/publication-size.ts';
 import { reconcile } from '../src/factory/reconcile.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { taskSchema, factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { taskSchema, factoryConfigSchema, jobSchema, resultSchema } from '../src/factory/schema.ts';
 import { replaceScope } from '../src/factory/scope-changes.ts';
 import { sealSource, readSource } from '../src/factory/source-reader.ts';
+import { decideTriage } from '../src/factory/triage.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
@@ -558,4 +560,104 @@ await test('post-merge defects preserve dirty owned edits and history and return
 
   await access(filename);
   assert.equal(await context.workspaces.git(['rev-parse', branch]), task.head);
+});
+
+await test('oversized validated source parks for an exact human exception and publishes without another developer turn', async (t) => {
+  const { context, task } = await fixture(t);
+  const settings = { ...context.settings, maxDiffLines: 1, maxFiles: 1 };
+  const manager = new WorkspaceManager(context.mesh, settings);
+  const developer = await manager.developer(task);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only in its owned throwaway developer worktree.
+  await writeFile(path.join(developer.directory, 'large.txt'), 'one\ntwo\nthree\n');
+  const { repository } = context;
+  repository.editTask(task.id, (prior) => {
+    return {
+      ...prior,
+      branch: developer.branch,
+      worktree: developer.directory,
+      phase: 'development',
+    };
+  });
+  const instructionId = repository.instruct('developer-1', task.id, 'Include the indivisible regression.');
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    kind: 'develop',
+    role: 'developer-1',
+    provider: 'codex',
+    taskId: task.id,
+    featureId: null,
+    head: null,
+    base: null,
+    state: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    expiresAt: Date.now() + 60_000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: path.join(context.mesh.directory, 'checks'),
+  });
+  assert.equal(repository.claim(job, settings), true);
+  repository.instructionLedger.deliver(job, repository.instructions(job.role, job.taskId));
+  const execution = {
+    waiting: null,
+    snapshot: null,
+    checks: [],
+    completion: {
+      result: resultSchema.parse({
+        outcome: 'success',
+        summary: 'Implementation and regression completed.',
+        findings: [],
+        deliveries: [],
+        instructionReceipts: [
+          { id: instructionId, acknowledged: true, applied: true, evidence: 'Included the three-line regression.' },
+        ],
+      }),
+      usageTokens: 1,
+      cooldownUntil: 0,
+      subscriptionUsedPercent: null,
+      subscriptionResetAt: null,
+      process: { exitCode: 0, stdout: '', stderr: '', interrupted: false },
+    },
+  };
+  const controller = new AbortController();
+  await completeJob({ ...context, settings, workspaces: manager }, job, execution, controller.signal);
+  const current = repository.task(task.id);
+  assert.equal(current.phase, 'blocked');
+  const gate = current.publicationGate;
+  assert.ok(gate !== undefined);
+  const statuses = z.array(z.object({ id: z.string(), state: z.string() }));
+  assert.equal(
+    statuses.parse(repository.instructionLedger.recent()).find((item) => item.id === instructionId)?.state,
+    'applied',
+  );
+  repository.finishJob(job, 1, 'succeeded');
+  await assert.rejects(completeJob({ ...context, settings, workspaces: manager }, job, execution, controller.signal), {
+    code: 'FACTORY_GATED',
+  });
+  const decision = {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: current.version,
+    action: 'approve_size',
+    note: 'Indivisible fixture regression and implementation.',
+  };
+  assert.throws(() => decideTriage(context.repository, { ...decision, note: '' }), /reason/v);
+  decideTriage(context.repository, decision);
+  const approved = context.repository.task(task.id);
+  assert.equal(approved.phase, 'publishing');
+  assert.deepEqual(approved.reviews, current.reviews, 'Size approval cannot invent QA approvals');
+  assert.equal(approved.attempts, current.attempts);
+  await manager.retryPublication(approved);
+  assert.equal(await manager.git(['rev-parse', 'HEAD'], developer.directory), gate.head);
+  assertPublicationSize(gate, settings, approved.sizeApproval);
+  assert.throws(() => {
+    assertPublicationSize({ ...gate, head: 'changed' }, settings, approved.sizeApproval);
+  }, PublicationSizeError);
+  assert.throws(() => {
+    assertPublicationSize({ ...gate, base: 'advanced' }, settings, approved.sizeApproval);
+  }, PublicationSizeError);
+  assert.throws(() => decideTriage(context.repository, { ...decision, requestId: randomUUID() }), /changed/v);
 });
