@@ -52,6 +52,7 @@ export const controlSchema = z
       'factory_retry',
       'factory_queue',
       'factory_triage',
+      'factory_recover',
       'factory_reorder_objective',
       'factory_cancel_job',
       'factory_capacity',

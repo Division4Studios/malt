@@ -25,6 +25,10 @@ import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
+/** Bounded planning inventory, without historical transcripts. */
+const PLANNING_DELIVERIES = 100;
+/** Keep diagnostics compact; full histories stay in durable artifacts. */
+const PLANNING_EXCERPT = 1000;
 
 /**
  * Run project-specified commands under the same cancellation/resource bounds.
@@ -131,7 +135,7 @@ export async function executeJob(
   const evidence = await roleEvidence(context, record);
 
   const currentTask = task === null ? null : repository.task(task.id);
-  const guidance = repository.instructions(record.role, record.taskId);
+  const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
   const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence } })}`;
   writeAtomic(
@@ -292,6 +296,51 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
   let evidence: unknown = null;
   if (record.kind === 'plan' || record.kind === 'refine') {
     evidence = {
+      retainedWork: {
+        objectives: repository
+          .features()
+          .slice(-RECENT_EVIDENCE_COUNT)
+          .map((item) => {
+            return {
+              id: item.id,
+              phase: item.phase,
+              parentIssue: item.parentIssue,
+              error: item.error?.slice(0, PLANNING_EXCERPT) ?? null,
+            };
+          }),
+        deliveries: repository
+          .tasks()
+          .slice(-PLANNING_DELIVERIES)
+          .map((item) => {
+            return {
+              id: item.id,
+              featureId: item.featureId,
+              issue: item.issue,
+              phase: item.phase,
+              dependencies: item.dependencies,
+              developer: item.developer,
+              head: item.head,
+              base: item.base,
+              pr: item.pr,
+              error: item.error?.slice(0, PLANNING_EXCERPT) ?? null,
+            };
+          }),
+        recentAssignments: repository
+          .jobs()
+          .slice(-RECENT_EVIDENCE_COUNT)
+          .map((item) => {
+            return {
+              id: item.id,
+              role: item.role,
+              taskId: item.taskId,
+              featureId: item.featureId,
+              state: item.state,
+              summary: item.summary?.slice(0, PLANNING_EXCERPT) ?? null,
+            };
+          }),
+        coverage:
+          'Bounded local summaries, not repository-wide remote issue or PR verification. Preserve existing identities and request targeted missing evidence.',
+      },
       deliveryLimits: {
         maxDiffLines: context.settings.maxDiffLines,
         maxFiles: context.settings.maxFiles,

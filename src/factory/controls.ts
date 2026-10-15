@@ -209,3 +209,13 @@ export function refundUnpaidAttempt(
     repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
   }
 }
+
+/**
+ * Latest shared learning request used to avoid repeated idle research assignments.
+ *
+ * @param repository - Current project ledger.
+ * @returns Most recent explicit guidance timestamp, or zero.
+ */
+export function latestLearningFeedback(repository: FactoryRepository): number {
+  return Math.max(0, ...repository.instructions('learning-steward', null).map((instruction) => instruction.createdAt));
+}

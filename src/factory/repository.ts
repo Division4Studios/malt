@@ -161,10 +161,15 @@ export class FactoryRepository {
    *
    * @param role - Current role.
    * @param taskId - Current delivery.
+   * @param featureId - Current objective, if any.
    * @returns Recent operator guidance.
    */
-  public instructions(role: string, taskId: string | null): ReturnType<InstructionLedger['guidance']> {
-    return this.instructionLedger.guidance(role, taskId);
+  public instructions(
+    role: string,
+    taskId: string | null,
+    featureId: string | null = null,
+  ): ReturnType<InstructionLedger['guidance']> {
+    return this.instructionLedger.guidance(role, taskId, featureId);
   }
 
   /**
@@ -783,10 +788,11 @@ export class FactoryRepository {
    * @returns Whether its scope is still eligible.
    */
   private scopeEligible(job: FactoryJob): boolean {
-    const focus = this.objectiveQueue.read().focusedFeatureId;
+    const queue = this.objectiveQueue.read();
+    const focus = queue.focusedFeatureId;
     return (
       (job.kind !== 'triage' || isCurrentTriage(this, job)) &&
-      (focus === null || job.featureId === focus) &&
+      (queue.existingOnly ? job.taskId !== null : focus === null || job.featureId === focus) &&
       (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
     );
   }

@@ -667,6 +667,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_reorder_objective:
     'Designated lead only: atomically reorder unfinished objectives using an expected project order revision.',
   factory_retry: 'Designated lead only: resume a blocked delivery or product objective after its blocker is resolved.',
+  factory_recover:
+    'Operator only: recover a blocked objective or authorize existing-delivery clearance without new objectives.',
   factory_triage:
     'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, or explicitly authorize verification of a confirmed external merge. Never creates approvals.',
   factory_enqueue:

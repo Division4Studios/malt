@@ -509,6 +509,15 @@ export const factorySchemas = {
     })
     .strict(),
   factory_retry: z.object({ taskId: z.string().uuid().optional(), featureId: z.string().uuid().optional() }).strict(),
+  factory_recover: z
+    .object({
+      requestId: z.string().uuid(),
+      featureId: z.string().uuid(),
+      expectedUpdatedAt: z.number(),
+      action: z.enum(['lead', 'owner', 'existing']),
+      note: z.string().trim().min(1).max(TRIAGE_NOTE_MAX),
+    })
+    .strict(),
   factory_triage: z
     .object({
       requestId: z.string().uuid(),
@@ -554,6 +563,7 @@ export const FACTORY_OPERATIONS = [
   'factory_retry',
   'factory_queue',
   'factory_triage',
+  'factory_recover',
   'factory_reorder_objective',
   'factory_enqueue',
   'factory_capacity',

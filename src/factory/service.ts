@@ -19,6 +19,7 @@ import {
   recoverUnownedClaims,
   recordScopeFeedback,
   recordCapacity,
+  latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
 import { enqueueDelivery } from './enqueue.ts';
@@ -27,12 +28,14 @@ import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
+import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
+import { recoverObjective } from './recovery.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import { ResourceSampler, admissionEvidence, resourceBlocker, resourceProbe } from './resources.ts';
@@ -276,6 +279,7 @@ export class FactoryService {
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
     const handlers: Record<FactoryOperation, () => unknown> = {
+      factory_recover: () => recoverObjective(this.repository, parsed),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
       factory_triage: () => triage.decideTriage(this.repository, parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
@@ -301,7 +305,10 @@ export class FactoryService {
       },
       factory_request: () => queueObjective(this.repository, parsed),
       factory_queue: () => this.repository.objectiveQueue.update(parsed),
-      factory_capacity: () => this.controlCapacity(parsed),
+      factory_capacity: async () => {
+        recordCapacity(this.configured(), parsed);
+        return this.status();
+      },
       factory_cancel_job: () => this.controlCancelJob(parsed),
       factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
       factory_retry: () => this.controlRetry(parsed),
@@ -365,17 +372,14 @@ export class FactoryService {
     }
     this.cancelStale();
     const scheduling = {
-      feedbackAt: Math.max(
-        0,
-        ...this.repository.instructions('learning-steward', null).map((instruction) => instruction.createdAt),
-      ),
+      feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
       tasks: this.repository.tasks(),
       features: this.repository.features(),
       objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
-      triage: triage.pendingTriage(this.repository, this.repository.objectiveQueue.read().focusedFeatureId),
+      triage: triage.pendingTriage(this.repository, deliveryFocus(this.repository.objectiveQueue.read())),
       now,
     };
     const intents = jobIntents(scheduling);
@@ -719,18 +723,6 @@ export class FactoryService {
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Factory policy and execution artifacts are stored in this project's managed directory.
     mkdirSync(path.join(this.mesh.directory, 'factory'), { recursive: true, mode: 0o700 });
     writeAtomic(path.join(this.mesh.directory, 'factory', 'config.json'), `${JSON.stringify(settings, null, 2)}\n`);
-    return this.status();
-  }
-
-  /**
-   * Handle the validated factory_capacity operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlCapacity(parsed: unknown): unknown {
-    recordCapacity(this.configured(), parsed);
     return this.status();
   }
 
