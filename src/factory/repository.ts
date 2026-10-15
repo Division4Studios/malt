@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { initializeObjectiveOrder, nextObjectiveRank } from './objective-order.ts';
 import { windowFreshness } from './quota-windows.ts';
 import { RecommendationLedger } from './recommendations.ts';
 import {
@@ -108,6 +109,7 @@ export class FactoryRepository {
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
     this.expandWorkKeys();
+    initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
     this.recommendations = new RecommendationLedger(store);
   }
@@ -340,6 +342,12 @@ export class FactoryRepository {
   public saveFeature(feature: Feature): void {
     const value = featureSchema.parse(feature);
     this.store.transaction(() => {
+      const features = this.features();
+      const prior = features.find((item) => item.id === value.id);
+      value.rank = prior?.rank ?? nextObjectiveRank(features);
+      if (prior === undefined) {
+        run(this.store.db, 'UPDATE factory_objective_order SET revision=revision+1 WHERE id=1');
+      }
       run(
         this.store.db,
         'INSERT INTO factory_features VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',

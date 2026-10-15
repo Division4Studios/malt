@@ -21,6 +21,7 @@ import type { Operation } from '../protocol.ts';
 const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), workspace: z.string().nullable() }));
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
+  orderRevision: z.number().int().nonnegative(),
   settings: factoryConfigSchema.nullable(),
   pendingEffects: z.array(effectSchema),
   skillRequests: z.array(skillRequestSchema),
@@ -44,6 +45,7 @@ export const controlSchema = z
       'factory_request',
       'factory_instruct',
       'factory_retry',
+      'factory_reorder_objective',
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',

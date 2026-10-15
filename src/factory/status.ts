@@ -4,6 +4,7 @@
  * @file
  */
 import { conversationWindow } from './conversations.ts';
+import { objectiveOrder } from './objective-order.ts';
 import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
 import { workflowState } from './workflow.ts';
@@ -35,7 +36,7 @@ export async function factoryStatus(
     admission: telemetry.admission,
     processUsage: await ownedProcessUsage(repository.jobs()),
     settings,
-    features: repository.features(),
+    ...objectiveOrder(repository.store),
     tasks: repository.tasks(),
     jobs: repository.jobs(),
     pendingEffects: repository.effects(),
