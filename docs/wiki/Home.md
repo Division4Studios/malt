@@ -1,8 +1,12 @@
 # MALT — Multi-Agent Local Team
 
+![MALT — local agents, shared intent, verified delivery](https://raw.githubusercontent.com/Division4Studios/malt/main/docs/assets/malt-social.svg)
+
 **Local agents. Shared intent. Verified delivery.**
 
 MALT coordinates real Codex and Claude Code subscription sessions with a durable MCP broker and installable browser console. Each target repository owns its `.malt/` memory. The unpaid supervisor schedules short-lived assignments; logical roles can exist without live processes.
+
+Read [current implementation status](Current-status) and the [complete 95-issue audit](Issue-audit-2026-10-15) before planning new work. The audit separates merged delivery from partial foundations and preserves actual remaining requirements.
 
 ## Start here
 

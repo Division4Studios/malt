@@ -1,6 +1,8 @@
 **MALT handbook**
 
 - [Home](Home)
+- [Current implementation](Current-status)
+- [95-issue audit](Issue-audit-2026-10-15)
 - [Getting started](Getting-started)
 - [Architecture](Architecture)
 - [Delivery workflow](Delivery-workflow)
