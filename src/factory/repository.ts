@@ -32,6 +32,7 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { TerminalSessions } from './terminal-sessions.ts';
 import { isCurrentTriage } from './triage.ts';
 
 import type { Store } from '../store.ts';
@@ -79,6 +80,8 @@ export class FactoryRepository {
   public readonly objectiveQueue: ObjectiveQueue;
   /** Project-scoped immutable recommendation content and fenced lifecycle. */
   public readonly recommendations: RecommendationLedger;
+  /** Operator terminal metadata; content is never persisted here. */
+  public readonly terminals: TerminalSessions;
   /** Shared store owns SQLite and transaction boundaries. */
   public readonly store: Store;
   /** System sender, prepared only when an actual factory is configured. */
@@ -119,6 +122,7 @@ export class FactoryRepository {
     this.instructionLedger = new InstructionLedger(store);
     this.objectiveQueue = new ObjectiveQueue(store);
     this.recommendations = new RecommendationLedger(store);
+    this.terminals = new TerminalSessions(store);
   }
 
   /**
