@@ -20,6 +20,8 @@ const STOP_MS = 8000;
 const PROCESS_LIMIT = 32;
 /** Only the deterministic fixture can expose a bounded startup diagnostic. */
 const DIAGNOSTIC_MAX = 500;
+/** Only fixture failures expose the first few transport bytes for CI diagnosis. */
+const FRAME_PREVIEW = 32;
 
 /** An in-memory handle to exactly one owned native host. */
 export interface TerminalProcess {
@@ -171,6 +173,14 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
         spec.onFrame(frame);
       }
     } catch {
+      spec.onFrame({
+        type: 'error',
+        code: 'host_protocol_failed',
+        message:
+          spec.fixture === true
+            ? Buffer.from(bytes).subarray(0, FRAME_PREVIEW).toString('hex')
+            : 'The native host violated its frame protocol.',
+      });
       void stop();
     }
   });
