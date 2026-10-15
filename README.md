@@ -1,6 +1,78 @@
 # MALT — Multi-Agent Local Team
 
-**A local coordination service for independent coding agents, with durable inboxes and an orchestrator-controlled work/wait loop.**
+![MALT — local agents, shared intent, verified delivery](docs/assets/malt-social.svg)
+
+[![Build](https://github.com/Division4Studios/malt/actions/workflows/ci.yml/badge.svg)](https://github.com/Division4Studios/malt/actions/workflows/ci.yml)
+[![Security checks](https://github.com/Division4Studios/malt/actions/workflows/security.yml/badge.svg)](https://github.com/Division4Studios/malt/actions/workflows/security.yml)
+[![MIT license](https://img.shields.io/badge/license-MIT-e8a634?labelColor=101018)](LICENSE)
+[![Node.js 24](https://img.shields.io/badge/Node.js-24.x-7ed99b?labelColor=101018)](https://nodejs.org/)
+[![Stars](https://img.shields.io/github/stars/Division4Studios/malt?style=flat&color=e8a634&labelColor=101018)](https://github.com/Division4Studios/malt/stargazers)
+[![Forks](https://img.shields.io/github/forks/Division4Studios/malt?style=flat&color=ff7a4d&labelColor=101018)](https://github.com/Division4Studios/malt/forks)
+[![Contributors](https://img.shields.io/github/contributors/Division4Studios/malt?color=7ed99b&labelColor=101018)](https://github.com/Division4Studios/malt/graphs/contributors)
+[![Sponsors](https://img.shields.io/github/sponsors/Division4Studios?color=e8a634&labelColor=101018)](https://github.com/sponsors/Division4Studios)
+
+**Your local team of coding agents. Small deliveries. Independent review. One mission control.**
+
+[Get started](#start-natively) · [Wiki](https://github.com/Division4Studios/malt/wiki) · [Discussions](https://github.com/Division4Studios/malt/discussions) · [Contribute](CONTRIBUTING.md) · [Report privately](SECURITY.md) · [Sponsor](https://github.com/sponsors/Division4Studios)
+
+MALT coordinates real subscription-authenticated Codex and Claude Code sessions through an MCP broker and an installable progressive web app. The supervisor schedules bounded work; idle roles need no model process. Each target repository owns its durable `.malt/` memory.
+
+> [!IMPORTANT]
+> MALT is pre-1.0 and runs with the permissions you grant locally. Start with a disposable target project and review its commands and resource policy. A PWA installation does not install the native daemon. No inference API credits or API-key fallback are used by managed subscription jobs.
+
+## Start natively
+
+Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
+
+```sh
+git clone https://github.com/Division4Studios/malt.git
+cd malt
+npm ci --ignore-scripts
+npm run check
+node src/cli.ts start --project /absolute/path/to/your/project --port 4317
+```
+
+In a second terminal, from the MALT source folder:
+
+```sh
+node src/cli.ts ui --project /absolute/path/to/your/project --port 4318
+```
+
+Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process, and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
+
+See [complete setup and provider authentication](docs/operator-console.md), [GitHub coordination](docs/software-factory.md), and [Docker startup](#quick-start-with-docker-compose). Keep `.malt/`, provider credentials and pairing codes private.
+
+## The delivery loop
+
+```mermaid
+flowchart LR
+  O[Your outcome] --> P[Product owner and lead]
+  P --> B[Feature and atomic children]
+  B --> D[Owned developer worktree]
+  D --> Q[Two independent QA reviews]
+  Q -->|Defect| D
+  Q --> F[Final integration gate]
+  F --> M[Protected expected-head merge]
+  M --> V[Verify actual main and reconcile tickets]
+```
+
+Aim for **1–500 changed text lines per PR**, including tests and documentation. Large features may need 20+ meaningful children. Genuine prerequisites form ordered chains; independent slices remain parallel and separately mergeable. Main stays usable after every delivery. Model reviews and GitHub's authenticated protected-branch reviews are separate gates.
+
+## Community and project health
+
+| Need                        | Start here                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Setup or a question         | [Q&A](https://github.com/Division4Studios/malt/discussions/categories/q-a) and [support guide](SUPPORT.md)   |
+| Bug or feature              | [Issue forms](https://github.com/Division4Studios/malt/issues/new/choose); search related work first         |
+| Contribute code or docs     | [Contribution process](CONTRIBUTING.md) and [PR template](.github/PULL_REQUEST_TEMPLATE.md)                  |
+| Security disclosure         | [Private reporting policy](SECURITY.md)                                                                      |
+| Community decisions         | [Governance](GOVERNANCE.md) and [code of conduct](CODE_OF_CONDUCT.md)                                        |
+| License and upstream skills | [MIT](LICENSE) and [third-party notices](THIRD_PARTY_NOTICES.md)                                             |
+| Audit and release evidence  | [Readiness ledger](docs/open-source-readiness.md) and [maintainer operations](docs/maintainer-operations.md) |
+
+Live count badges use Shields.io/GitHub; they are not locally fabricated counters. Build badges describe hosted workflow results, not guarantees that every provider, OS configuration or deployment has been verified. No OpenSSF certification or coverage score is claimed.
+
+## How the existing components fit
 
 MALT lets Claude Code, Codex, and other MCP-capable sessions communicate as members of one team. Each agent keeps its own model, context and terminal. A shared broker remembers their identities, messages, work requests and idle decisions in each target project's .malt folder. One broker serves a separate team for each project folder, so sessions in one repository never see the lead, workers or messages of another.
 
@@ -11,6 +83,9 @@ This repository includes durable communication, **cooperative wait/resume**, pro
 See [Project coordination and learning](docs/software-factory.md) for project-scoped GitHub setup, atomic parent/sub-issues, the learning steward, shared Claude/Codex skills, migration and the remaining factory milestones.
 
 The public product and native command are **MALT** (`malt`). Existing `agentmesh` registrations and MCP tool names remain compatible. See [the branding and storage migration guide](docs/rebranding.md).
+
+To direct MALT's own remaining development from the console, see
+[the operator handoff](docs/operating-malt-on-itself.md).
 
 ## Contents
 
@@ -52,7 +127,7 @@ The public product and native command are **MALT** (`malt`). Existing `agentmesh
 | Diagnostics            | Structured stderr logs, a persistent event log, and commented source explain execution. |
 | Docker lifecycle       | `docker compose up` starts the service; ordinary `down` preserves its data.             |
 
-**Not included yet:** a task board with atomic task claims/dependencies, managed model launching, automatic restart of ended model turns, provider-native steering, worktree management, enforced PR review/merge gates or a dashboard.
+The managed factory additionally provides atomic task claims/dependencies, bounded native model launching, owned worktrees, independent review/merge gates and a PWA dashboard. Interactive PTY workers, the full GitHub/Jira connector console and the human project-management approval queue remain separate unfinished scopes; real worker logs must not be mistaken for an interactive terminal. See [verification limits](docs/operator-console.md#verification-limits).
 
 ## The components and where they run
 
@@ -133,7 +208,7 @@ A session identity lasts as long as its session. When the session closes, its pe
 Use an absolute path to this repository's `compose.yaml`. On Windows, forward slashes in JSON/TOML avoid backslash escaping:
 
 ```text
-E:/01 - Personal Projects/multiagent-local-team/compose.yaml
+C:/work/malt/compose.yaml
 ```
 
 Keep `-T` in every `docker compose exec` MCP command. It disables terminal formatting that would corrupt the protocol. Start the broker before opening model sessions.
@@ -415,9 +490,9 @@ This is a trusted local-user tool. Users with OS-account or Docker access can in
 
 Sends do not have idempotency keys. A timed-out send may have committed; inspect history before retrying. Pending check-ins are deduplicated, but repeated decisions are rejected after resolution. Message/event retention is unbounded.
 
-The managed factory now adds durable task claims, native subscription sessions, owned worktrees, two independent QA reviews, serialized merge gates and merged-main verification. The PWA controls that same supervisor; cooperative attached sessions retain their instruction/check-in loop. The explicitly authorized source pilot completed [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11) under a private-repository protection exception. It published only Git-ignore rules, preserving the uncommitted factory implementation in this checkout.
+The managed factory now adds durable task claims, native subscription sessions, owned worktrees, two independent QA reviews, serialized merge gates and merged-main verification. The PWA controls that same supervisor; cooperative attached sessions retain their instruction/check-in loop. The explicitly authorized source pilot completed [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11) under a private-repository protection exception. It published only Git-ignore rules. The factory implementation was subsequently committed in `5711e3a` and reached remote main at `d9b2984`; owned delivery worktrees can now use that baseline.
 
-Remaining work includes arbitrary additional managed specialist seats, complete local history pagination, reviewed publication of the factory foundation, and the full installed-window/accessibility audit. A fresh real Codex developer command path also needs validation after startup repairs; the live pilot's developer used Claude. Protected GitHub enforcement is covered by fixtures and remains unverified against a live protected branch. See [current verification limits](docs/operator-console.md#verification-limits).
+Remaining work includes arbitrary additional managed specialist seats, complete local history pagination, and the full installed-window/accessibility audit. A fresh real Codex developer command path also needs validation after startup repairs; the live pilot's developer used Claude. Protected GitHub enforcement is covered by fixtures and remains unverified against a live protected branch. See [current verification limits](docs/operator-console.md#verification-limits).
 
 ## Detailed guides
 

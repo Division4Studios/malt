@@ -1,17 +1,15 @@
-﻿/**
+/**
  * Original isometric MALT illustrations, rendered with native SVG and CSS.
  * Decorative motion is separate from the factual factory metrics.
  *
  * @file
  */
 
-import { records, text } from './api.js';
+import { records, text, child, number, hasFlag } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
-
-/** Bound DOM work while showing every ordinary pending queue. */
-const OBJECTIVE_PREVIEW = 50;
+import type { Actions } from './views.js';
 
 /** Original line motifs for process, verified delivery, queue and blocker cards. */
 const MOTIFS = [
@@ -22,6 +20,19 @@ const MOTIFS = [
 ] as const;
 /** Fixed namespace, with no markup/string injection or external asset loading. */
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Bound overview blocker text while retaining full evidence in artifacts. */
+const BLOCKER_EXCERPT = 500;
+
+/**
+ * Format an observed reset time.
+ *
+ * @param milliseconds - Persisted accounting timestamp.
+ * @returns Local display time.
+ */
+function resetLabel(milliseconds: number): string {
+  const date = new Date(milliseconds);
+  return date.toLocaleString();
+}
 
 /**
  * Build a safe native SVG element from internal static attributes.
@@ -76,15 +87,31 @@ function pendingObjectives(objectives: Data[]): Data[] {
 }
 
 /**
- * Select objectives to list: pending ones first so older requests stay visible, then recent completions.
+ * Group the complete snapshot without letting completed work hide unfinished work.
  *
  * @param objectives - Product objectives in original order.
- * @param completedLimit - Number of most recent completed objectives to append.
- * @returns Bounded objective list.
+ * @returns Phase groups, with completed and scope-replaced records last.
  */
-export function objectivePreview(objectives: Data[], completedLimit: number): Data[] {
-  const completed = objectives.filter((feature) => text(feature, 'phase') === 'done').slice(-completedLimit);
-  return [...pendingObjectives(objectives).slice(0, OBJECTIVE_PREVIEW), ...completed];
+export function objectiveGroups(objectives: Data[]): { title: string; items: Data[] }[] {
+  const groups = [
+    { title: 'Queued', phases: ['queued'] },
+    { title: 'In progress', phases: ['refining', 'provisioning', 'active'] },
+    { title: 'Needs attention', phases: ['blocked'] },
+    { title: 'Completed', phases: ['done'] },
+  ];
+  const current = objectives.filter((feature) => feature['scopeReplacement'] === undefined);
+  return [
+    ...groups.map(({ title, phases }) => {
+      return {
+        title,
+        items: current.filter((feature) => phases.includes(text(feature, 'phase'))),
+      };
+    }),
+    {
+      title: 'Scope replaced (superseded)',
+      items: objectives.filter((feature) => feature['scopeReplacement'] !== undefined),
+    },
+  ];
 }
 
 /**
@@ -132,4 +159,224 @@ export function overviewMetrics(factory: Data): HTMLElement {
     metrics.append(item);
   }
   return metrics;
+}
+
+/**
+ * Explain quiet dispatch using actual settings and provider accounting.
+ *
+ * @param factory - Authenticated project factory snapshot.
+ * @returns Logical coordinator state and concrete current blockers.
+ */
+export function dispatchSummary(factory: Data): string[] {
+  const messages = [
+    hasFlag(factory, 'active')
+      ? 'Supervisor enabled. Product owner and lead are scheduled when work is eligible; they do not keep idle model processes running.'
+      : 'Factory paused. Start the factory to dispatch queued work.',
+  ];
+  const error = text(factory, 'error');
+  if (error !== '') {
+    messages.push(error);
+  }
+  const providers = child(child(factory, 'settings'), 'providers');
+  const capacities = records(factory['capacities']);
+  for (const capacity of capacities) {
+    const provider = text(capacity, 'provider');
+    const policy = child(providers, provider);
+    const budget = number(policy, 'budgetTokens');
+    const pending =
+      number(capacity, 'usedTokens') + number(capacity, 'reservedTokens') + number(policy, 'reservationTokens');
+    if (budget > 0 && pending > budget && number(capacity, 'resetAt') > Date.now()) {
+      messages.push(
+        `${provider}: configured scheduling budget exhausted; resets ${resetLabel(number(capacity, 'resetAt'))}. This is separate from subscription quota.`,
+      );
+    }
+    if (number(capacity, 'cooldownUntil') > Date.now()) {
+      messages.push(`${provider}: provider cooldown until ${resetLabel(number(capacity, 'cooldownUntil'))}.`);
+    }
+  }
+  const blocked = records(factory['tasks']).filter(
+    (task) => text(task, 'phase') === 'blocked' && task['scopeReplacement'] === undefined,
+  );
+  for (const task of blocked) {
+    messages.push(`Issue #${String(number(task, 'issue'))} blocked: ${readableBlocker(text(task, 'error'))}`);
+  }
+  return messages;
+}
+
+/**
+ * Describe a known harness failure without inventing a model diagnosis.
+ *
+ * @param error - Durable technical evidence, rendered separately in full.
+ * @returns Bounded operator explanation with an explicit continuation marker.
+ */
+function readableBlocker(error: string): string {
+  if (error.includes('No current managed source claim')) {
+    return 'QA cannot inspect the PR because its read-only assignment claim is missing or expired. This is a review-access blocker, not an approval or confirmed code defect. Restore the owned claim and rerun independent QA on the same commits.';
+  }
+  if (error.includes('truncated:true') || error.includes('essential source remains inaccessible')) {
+    return 'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.';
+  }
+  const first = error.split('\n', 1)[0] ?? '';
+  return first.length > BLOCKER_EXCERPT
+    ? `${first.slice(0, BLOCKER_EXCERPT)}… Read the technical details below.`
+    : first;
+}
+
+/**
+ * Present concise blocker meaning while preserving full exact evidence.
+ *
+ * @param factory - Authenticated project state.
+ * @returns Keyboard-accessible overview with expandable technical reports.
+ */
+export function dispatchPanel(factory: Data): HTMLElement {
+  const panel = element('section', 'notice');
+  panel.append(element('h2', '', 'Coordinator & dispatch'));
+  for (const message of dispatchSummary(factory)) {
+    panel.append(element('p', '', message));
+  }
+  const tasks = records(factory['tasks']);
+  for (const task of tasks) {
+    if (text(task, 'phase') !== 'blocked' || task['scopeReplacement'] !== undefined) {
+      continue;
+    }
+    const details = element('details', 'blocker-details');
+    const issue = String(number(task, 'issue'));
+    details.append(
+      element('summary', '', `Technical details for issue #${issue}`),
+      element('pre', '', text(task, 'error')),
+    );
+    panel.append(details);
+  }
+  return panel;
+}
+
+/** Keep full objectives reachable behind compact titles. */
+const OBJECTIVE_TITLE = 160;
+
+/**
+ * Render all unfinished work, followed by a collapsed completed archive.
+ *
+ * @param objectives - Complete factory feature snapshot.
+ * @param actions - Operator retry controls.
+ * @returns Queue body and truthful unfinished total.
+ */
+export function objectiveQueue(objectives: Data[], actions: Actions): { body: HTMLElement; unfinished: number } {
+  const body = element('div', 'panel-body');
+  if (objectives.length === 0) {
+    body.append(
+      element('h3', '', 'The next mission starts here'),
+      element(
+        'p',
+        'subtle',
+        'Add an objective. Your product owner and lead will prepare small, verifiable deliveries.',
+      ),
+    );
+  }
+  const groups = objectiveGroups(objectives);
+  const completed = element('details', 'objective-completed');
+  completed.dataset['queueKey'] = 'completed';
+  const count = groups.find((group) => group.title === 'Completed')?.items.length ?? 0;
+  const summary = element('summary', '', `Completed (${String(count)})`);
+  summary.dataset['queueFocus'] = 'completed';
+  completed.append(summary);
+  let unfinished = 0;
+  for (const group of groups) {
+    if (group.items.length === 0) {
+      continue;
+    }
+    const section = element('section', 'objective-group');
+    section.setAttribute('aria-label', group.title);
+    section.append(element('h3', '', `${group.title} (${String(group.items.length)})`));
+    for (const feature of group.items) {
+      section.append(objectiveRow(feature, actions));
+    }
+    if (group.title === 'Completed' || group.title === 'Scope replaced (superseded)') {
+      completed.append(section);
+    } else {
+      unfinished += group.items.length;
+      body.append(section);
+    }
+  }
+  if (completed.children.length > 1) {
+    body.append(completed);
+  }
+  return { body, unfinished };
+}
+
+/**
+ * Render safe objective text and native keyboard controls with stable refresh keys.
+ *
+ * @param feature - Persisted product request.
+ * @param actions - Authorized operator controls.
+ * @returns Native article with stable interaction keys.
+ */
+function objectiveRow(feature: Data, actions: Actions): HTMLElement {
+  const row = element('article', 'lesson');
+  const id = text(feature, 'id');
+  row.dataset['featureId'] = id;
+  const objective = text(feature, 'objective');
+  const isReplaced = feature['scopeReplacement'] !== undefined;
+  row.append(
+    element('span', 'pill', isReplaced ? 'superseded' : text(feature, 'phase')),
+    element('h3', '', objective.slice(0, OBJECTIVE_TITLE)),
+  );
+  if (objective.length > OBJECTIVE_TITLE) {
+    const detail = element('details');
+    detail.dataset['queueKey'] = `objective:${id}`;
+    const summary = element('summary', '', 'Read full objective');
+    summary.dataset['queueFocus'] = `objective:${id}`;
+    detail.append(summary, element('p', 'subtle', objective));
+    row.append(detail);
+  }
+  if (!isReplaced && text(feature, 'phase') === 'blocked') {
+    const retry = element('button', 'small-button', 'Retry resolved request');
+    retry.type = 'button';
+    retry.addEventListener('click', () => {
+      actions.retry(id, true);
+    });
+    retry.dataset['queueFocus'] = `retry:${id}`;
+    row.append(element('p', 'subtle', text(feature, 'error')), retry);
+  }
+  return row;
+}
+
+/** Native queue state isolated to one selected project. */
+export class QueueState {
+  /** Scope prevents identical feature IDs from leaking between projects. */
+  private project = '';
+  /** Retain both open and closed choices, including while another view is selected. */
+  private readonly details = new Map<string, boolean>();
+
+  /**
+   * Replace a view while restoring only the selected project's queue state.
+   *
+   * @param target - Existing content container.
+   * @param next - Newly rendered view.
+   * @param project - Selected project identifier.
+   */
+  public replace(target: HTMLElement, next: HTMLElement, project: string): void {
+    const isSameProject = project === this.project;
+    let focus = '';
+    if (isSameProject) {
+      for (const detail of target.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
+        this.details.set(detail.dataset['queueKey'] ?? '', detail.open);
+      }
+      const active = target.ownerDocument.activeElement;
+      if (active instanceof HTMLElement && target.contains(active)) {
+        focus = active.dataset['queueFocus'] ?? '';
+      }
+    } else {
+      this.details.clear();
+      this.project = project;
+    }
+    for (const detail of next.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
+      detail.open = this.details.get(detail.dataset['queueKey'] ?? '') ?? false;
+    }
+    target.replaceChildren(next);
+    if (focus === '') {
+      return;
+    }
+    const control = target.querySelector<HTMLElement>(`[data-queue-focus="${CSS.escape(focus)}"]`);
+    control?.focus({ preventScroll: true });
+  }
 }

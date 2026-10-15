@@ -654,7 +654,10 @@ export class ProjectGitHub {
     }
     const { journal: saved, isFresh } = this.loadJournal(input, connection);
     if (saved.phase === 'complete') {
-      return saved;
+      const itemId = await this.addItem(connection, this.requireIssue(saved).node_id);
+      const reconciled = { ...saved, itemId };
+      this.saveJournal(reconciled);
+      return reconciled;
     }
     let journal = saved.issue === undefined ? await this.createRemoteIssue(saved, isFresh, connection) : saved;
     const issue = this.requireIssue(journal);

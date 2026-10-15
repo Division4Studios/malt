@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
+import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
 import { ProjectLearning } from '../learning.ts';
@@ -25,6 +26,7 @@ const factoryViewSchema = dashboardSchema.extend({
   skillRequests: z.array(skillRequestSchema),
   conversations: z.array(conversationSchema).default([]),
   workflow: z.record(z.unknown()).default({}),
+  processUsage: z.array(ownedUsageSchema).default([]),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z

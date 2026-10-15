@@ -15,11 +15,15 @@ import {
   hasFlag,
   resourceSummary,
 } from './api.js';
+import { QueueState } from './brand-ui.js';
+import { startConsoleClock } from './console-clock.js';
+import { Freshness } from './freshness.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
-import { updateNavigation, bindNavigation } from './navigation.js';
+import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import {
   organizationDialog,
   mountConnectionFields,
+  mountFactoryPolicyFields,
   resetConnectionFields,
   factoryPolicyDialog,
   githubConnectionDescription,
@@ -37,15 +41,14 @@ import {
   teamView,
   workerView,
 } from './views.js';
-import { isWorkerArtifact, isInstallEvent } from './worker-ui.js';
+import { isWorkerArtifact, isInstallEvent, restoredRoles } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
 import type { Snapshot, Data } from './api.js';
+import type { View } from './navigation.js';
 import type { Actions } from './views.js';
 import type { InstallEvent } from './worker-ui.js';
 
-/** View routes remain local UI state, not a competing delivery ledger. */
-type View = 'overview' | 'team' | 'workflow' | 'deliveries' | 'workers' | 'activity' | 'learning' | 'setup';
 /** Explicit operator mutation presented in the editor dialog. */
 interface Edit {
   /** Validated broker operation. */
@@ -59,8 +62,6 @@ const MAX_PANES = 4;
 const MAX_LOGS = 8;
 /** HTTP status requiring a fresh local pairing. */
 const UNAUTHORIZED = 401;
-/** Clock refresh period. */
-const CLOCK_MS = 1000;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
 const MAX_RECONNECTS = 5;
 /** Bounded visible timeline memory; SQLite retains the complete history. */
@@ -100,17 +101,6 @@ const layoutKey = 'malt-worker-layout-v1';
 const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
-/** UI navigation descriptions. */
-const HEADINGS: Record<View, readonly [string, string]> = {
-  overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
-  workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
-  team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
-  deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],
-  workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
-  activity: ['Activity stream.', 'The committed story of your software factory.'],
-  learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
-  setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],
-};
 /** Application state contains no credential material. */
 const state: {
   /** Last observed backend snapshot. */
@@ -146,6 +136,9 @@ const state: {
   reconnects: 0,
 };
 
+/** Project-scoped queue interactions. */
+const queueState = new QueueState();
+
 /** Read-only log tails for selected panes. */
 const logs = new Map<string, string>();
 /** Public artifact tab choices; captured contents remain memory-only. */
@@ -160,37 +153,18 @@ const pendingLogs = new Set<string>();
 const eventHistory = new Map<number, Data>();
 /** Scope associated with the bounded in-memory timeline. */
 const historyScope = { project: 'home' };
+/** Actual observation time and bounded fallback read admission. */
+const freshness = new Freshness();
 
-/**
- * Validate native navigation without casts or a nested conditional chain.
- *
- * @param value - Untrusted element dataset.
- * @returns Whether the value names a local view.
- */
-const isView = (value: string): value is View => Object.hasOwn(HEADINGS, value);
 /** Restore only harmless role layout state, never private project data. */
 function restoreLayout(): void {
   try {
     const saved = localStorage.getItem(layoutKey) ?? localStorage.getItem('mlt-worker-layout-v1');
     const value: unknown = JSON.parse(saved ?? 'null');
-    restoreRoles(value);
+    state.panes = restoredRoles(value, ROLES, state.panes, MAX_PANES);
   } catch {
     /* Storage may be unavailable; the default layout remains usable. */
   }
-}
-
-/**
- * Validate harmless persisted role selections outside the storage error boundary.
- *
- * @param value - Untrusted browser storage.
- */
-function restoreRoles(value: unknown): void {
-  if (!Array.isArray(value)) {
-    return;
-  }
-  const names = new Set<string>(ROLES);
-  const roles = value.filter((role): role is string => typeof role === 'string' && names.has(role)).slice(0, MAX_PANES);
-  state.panes = roles.length > 0 ? roles : state.panes;
 }
 
 /**
@@ -300,21 +274,22 @@ const actions: Actions = {
     void control('factory_retry', isFeature ? { featureId: id } : { taskId: id });
   },
   setup: (isConnection) => {
+    const body = node('editor-body', HTMLTextAreaElement);
     if (isConnection) {
       editor(githubConnectionDescription(), { operation: 'github_connect', input: () => ({}) });
-      if (node('editor', HTMLDialogElement).open) {
+      if (state.edit?.operation === 'github_connect') {
         state.edit = {
           operation: 'github_connect',
-          input: mountConnectionFields(
-            node('editor-body', HTMLTextAreaElement),
-            child(state.current?.github ?? {}, 'connection'),
-          ),
+          input: mountConnectionFields(body, child(state.current?.github ?? {}, 'connection')),
         };
       }
       return;
     }
     const dialog = factoryPolicyDialog(child(state.current?.factory ?? {}, 'settings'));
     editor(dialog.description, dialog.action);
+    if (state.edit?.operation === 'factory_setup') {
+      state.edit = mountFactoryPolicyFields(body);
+    }
   },
 };
 
@@ -376,7 +351,7 @@ function render(): void {
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
   };
-  target.replaceChildren(builders[state.view]());
+  queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
@@ -390,6 +365,9 @@ function render(): void {
  * @param isConnected - Whether actual state was received.
  */
 function connection(isConnected: boolean): void {
+  if (isConnected) {
+    freshness.observe();
+  }
   state.isConnected = isConnected;
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
   node('connection-text', HTMLSpanElement).textContent = isConnected
@@ -410,10 +388,16 @@ async function refresh(): Promise<void> {
   const projectId = state.project;
   try {
     const response = await request(scoped(projectId, '/api/snapshot'));
+    if (state.project !== projectId) {
+      return;
+    }
     applyObserved(snapshot(response), projectId);
     connection(true);
     render();
   } catch (error) {
+    if (state.project !== projectId) {
+      return;
+    }
     connection(false);
     if (error instanceof LocalRequestError && error.status === UNAUTHORIZED) {
       const dialog = node('pairing', HTMLDialogElement);
@@ -681,10 +665,9 @@ async function start(): Promise<void> {
   window.addEventListener('pagehide', () => {
     state.stream?.close();
   });
-  setInterval(() => {
-    const now = new Date();
-    node('clock', HTMLSpanElement).textContent = now.toLocaleTimeString();
-  }, CLOCK_MS);
+  startConsoleClock(freshness, refresh, () => {
+    connection(false);
+  });
   setInterval(() => {
     void readLogs();
   }, LOG_REFRESH_MS);

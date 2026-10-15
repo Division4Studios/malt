@@ -1,4 +1,5 @@
 :root {
+  --font-terminal: ui-monospace, 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
   color-scheme: dark;
   --bg: #08080c;
   --surface: #101018;
@@ -1293,6 +1294,20 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
 .network-scene {
   max-height: 480px;
 }
+.connection-fields {
+  display: grid;
+  gap: 10px;
+}
+.connection-fields input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
 .workflow-node[aria-pressed='true'] circle {
   fill: #352817;
   stroke: var(--amber);
@@ -1309,6 +1324,69 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
     transition: none;
   }
 }
+/* Full technical evidence stays readable without widening the mission grid. */
+.blocker-details pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 24rem;
+  overflow: auto;
+}
+
+/* Terminal cues belong to controls and telemetry; long prose keeps its reading face. */
+.nav,
+.button,
+.panel-head,
+.brand-caption,
+.status,
+.count,
+.metric,
+.worker-log,
+.blocker-details summary {
+  font-family: var(--font-terminal);
+  font-variant-numeric: tabular-nums;
+}
+.button,
+.nav,
+summary {
+  -webkit-tap-highlight-color: #e8a63433;
+}
+.button:not(:disabled):active,
+.nav:not(:disabled):active {
+  box-shadow: inset 0 2px 6px #0006;
+}
+.button:disabled {
+  cursor: not-allowed;
+}
+.blocker-details summary {
+  padding-block: 0.6rem;
+  cursor: pointer;
+  color: var(--cyan);
+}
+.blocker-details[open] summary {
+  border-bottom: 1px solid var(--line);
+}
+.blocker-details summary:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .nav:hover,
+  .button:not(:disabled):hover {
+    border-color: var(--cyan);
+    box-shadow: 0 0 0 1px #e8a63424;
+  }
+  a:hover {
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.22em;
+  }
+}
+@media (max-width: 640px) {
+  .button,
+  .nav,
+  .blocker-details summary {
+    min-height: 44px;
+  }
+}
 
 .connection-fields {
   display: grid;
@@ -1323,4 +1401,17 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
   border: 1px solid var(--line);
   border-radius: 8px;
   font: inherit;
+}
+
+.objective-group,
+.objective-completed {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.objective-group > h3,
+.objective-completed > summary {
+  padding: 12px 18px;
+}
+.objective-completed > summary {
+  cursor: pointer;
 }

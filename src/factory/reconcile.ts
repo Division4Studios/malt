@@ -483,6 +483,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
       id: ids.get(mapping.key) ?? task.id,
       key: mapping.key,
       capabilityTier: scope.capabilityTier,
+      assignmentProfiles: scope.assignmentProfiles,
       skills: scope.skills,
       dependencies: scope.dependencies.map((key) => {
         const id = ids.get(key);

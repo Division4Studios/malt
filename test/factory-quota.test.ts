@@ -9,7 +9,14 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { decodeCompletion } from '../src/factory/providers.ts';
-import { accountQuota, accountObservation, claudeQuota, windowFreshness } from '../src/factory/quota-windows.ts';
+import {
+  accountQuota,
+  accountObservation,
+  accountWindows,
+  claudeQuota,
+  claudeWindows,
+  windowFreshness,
+} from '../src/factory/quota-windows.ts';
 import { codexQuota, QuotaObserver } from '../src/factory/quota.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { capacitySchema, factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
@@ -254,6 +261,32 @@ await test('actual unified Claude quota windows reach provider telemetry and ret
   assert.equal(completion.subscriptionUsedPercent, 75);
   assert.equal(completion.subscriptionResetAt, 80_000);
   assert.equal(completion.usageTokens, null, 'Quota percentages do not fabricate token usage.');
+  assert.deepEqual(
+    claudeWindows(info, 1000).map((window) => [window.id, window.minutes, window.usedPercent]),
+    [
+      ['five_hour', 300, 20],
+      ['seven_day', 10_080, 75],
+    ],
+  );
+  assert.equal(completion.subscriptionWindows?.length, 2);
+});
+
+await test('Codex window durations follow native telemetry rather than a guessed five-hour plan', () => {
+  const windows = accountWindows(
+    {
+      rateLimits: {
+        primary: { usedPercent: 40, resetsAt: 100, windowDurationMins: 10_080 },
+        secondary: null,
+      },
+    },
+    1000,
+  );
+  assert.deepEqual(windows, [{ id: 'primary', minutes: 10_080, usedPercent: 40, resetAt: 100_000 }]);
+  assert.deepEqual(accountWindows({ rateLimits: { primary: null, secondary: null } }), []);
+  assert.deepEqual(
+    accountWindows({ rateLimits: { primary: { usedPercent: 5, resetsAt: 1 }, secondary: null } }, 2000),
+    [],
+  );
 });
 
 await test('projects share a bounded native quota probe without starting a model assignment', async (t) => {

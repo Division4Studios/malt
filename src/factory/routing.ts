@@ -46,6 +46,10 @@ function taskTier(
   ) {
     return { tier: 'advanced', reason: 'Recorded rework or a high-risk scope requires deeper reasoning.' };
   }
+  const assignment = task?.assignmentProfiles?.find((profile) => profile.role === intent.role);
+  if (assignment !== undefined) {
+    return { tier: assignment.tier, reason: `Lead-reviewed role assignment: ${assignment.reason}` };
+  }
   if (['refine', 'final', 'skill'].includes(intent.kind)) {
     return {
       tier: 'advanced',
@@ -105,11 +109,12 @@ export function routeAssignment(context: {
   const floor = profile?.minimumTier ?? 'small';
   const tier = tiers.indexOf(floor) > tiers.indexOf(decision.tier) ? floor : decision.tier;
   const provider = context.settings.providers[context.provider];
-  const model = provider.models[tier] ?? provider.model ?? null;
+  const { model, effort } = resolveProfile(provider, context.task, context.intent.role, tier);
   return {
     ...decision,
     tier,
     model,
+    effort,
     reason: routingReason(decision.reason, tier !== decision.tier, floor, model),
     skillNames: [
       ...new Set([
@@ -130,6 +135,29 @@ export function routeAssignment(context: {
           reportsTo: member.reportsTo,
         },
       }),
+  };
+}
+
+/**
+ * Resolve account-configured models and reviewed effort independently of skills.
+ *
+ * @param provider - Selected provider's validated model profiles.
+ * @param task - Reviewed delivery, if any.
+ * @param role - Current independently scheduled role.
+ * @param tier - Capability after enforced risk and organization floors.
+ * @returns Frozen native model and supported effort.
+ */
+function resolveProfile(
+  provider: FactoryConfig['providers']['codex'],
+  task: FactoryTask | null,
+  role: FactoryJob['role'],
+  tier: 'small' | 'standard' | 'advanced',
+): { model: string | null; effort: 'low' | 'medium' | 'high' } {
+  const requested = task?.assignmentProfiles?.find((candidate) => candidate.role === role);
+  const efforts = { small: 'low', standard: 'medium', advanced: 'high' } as const;
+  return {
+    model: provider.models[tier] ?? provider.model ?? null,
+    effort: requested?.tier === tier ? requested.effort : efforts[tier],
   };
 }
 

@@ -48,3 +48,26 @@ export function updateNavigation(view: string): void {
     }
   }
 }
+
+/** View routes remain local UI state, not a competing delivery ledger. */
+export type View = 'overview' | 'team' | 'workflow' | 'deliveries' | 'workers' | 'activity' | 'learning' | 'setup';
+
+/** UI navigation descriptions. */
+export const HEADINGS: Record<View, readonly [string, string]> = {
+  overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
+  workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
+  team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
+  deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],
+  workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
+  activity: ['Activity stream.', 'The committed story of your software factory.'],
+  learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
+  setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],
+};
+
+/**
+ * Validate native navigation without casts or a nested conditional chain.
+ *
+ * @param value - Untrusted element dataset.
+ * @returns Whether the value names a local view.
+ */
+export const isView = (value: string): value is View => Object.hasOwn(HEADINGS, value);
