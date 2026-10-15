@@ -4,8 +4,8 @@
  *
  * @file
  */
-
 import { records, text, child, number, hasFlag } from './api.js';
+import { focusDescription } from './recovery-ui.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -298,7 +298,7 @@ export function objectiveQueue(
     const notice = element('div', 'notice');
     const focusedObjective = ordered.find((item) => text(item, 'id') === focus) ?? {};
     const focusedTitle = text(focusedObjective, 'objective').slice(0, OBJECTIVE_TITLE);
-    notice.append(element('p', '', `Focused objective: ${focusedTitle}. Other objectives are held from new dispatch.`));
+    notice.append(element('p', '', focusDescription(queue, focusedTitle)));
     const release = element('button', 'small-button', 'Resume all objectives');
     release.type = 'button';
     release.addEventListener('click', () => {

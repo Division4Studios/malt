@@ -13,6 +13,10 @@ import type { Actions } from './views.js';
 
 /** Typed choices correspond to server-side dispositions, never arbitrary commands. */
 export const TRIAGE_ACTIONS = {
+  approve_size: [
+    'Approve this size exception',
+    'Allow only this validated head/base and measured diff. Explain why splitting would be harmful. Tests, two QA reviews and merge gates remain required; changed source requires a new decision.',
+  ],
   acknowledge: ['Acknowledge', 'Record that you have seen this exact revision. It remains blocked until resolved.'],
   investigate: [
     'Ask the lead',
@@ -134,16 +138,26 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
       body.append(element('h4', '', 'Lead diagnosis & next action'), renderReport(text(decision, 'summary')));
     }
   }
+  const gate = child(task, 'publicationGate');
+  if (text(gate, 'head') !== '') {
+    const measurement = element(
+      'p',
+      'notice',
+      `Validated size: ${String(number(gate, 'lines'))} changed lines / ${String(number(gate, 'files'))} files. Approval covers only head ${text(gate, 'head')} against base ${text(gate, 'base')}.`,
+    );
+    body.append(measurement);
+  }
   const controls = element('div', 'triage-actions');
   const isOwned = records(state.factory['jobs']).some(
     (job) => text(job, 'state') === 'running' && text(job, 'taskId') === text(task, 'id'),
   );
-  for (const action of ['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait'] as const) {
+  for (const action of ['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait', 'approve_size'] as const) {
     const button = element('button', 'triage-action', TRIAGE_ACTIONS[action][0]);
     button.type = 'button';
     button.title = TRIAGE_ACTIONS[action][1];
     button.disabled =
       isOwned ||
+      (action === 'approve_size' && (text(task, 'phase') !== 'blocked' || task['publicationGate'] === undefined)) ||
       (action === 'verify'
         ? task['merge'] === null
         : action === 'review' && (task['pr'] === null || task['merge'] !== null));

@@ -5,6 +5,7 @@
 <pre id="result">PENDING</pre>
 <script type="module">
   import { triagePanel, triageDialog } from '../../web/dist/triage-ui.js';
+  import { recoveryPanel } from '../../web/dist/recovery-ui.js';
   const result = document.querySelector('#result');
   const check = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -54,7 +55,7 @@
     const card = content.querySelector('.triage-card');
     check(card.querySelector('.triage-signal').textContent === '\u{203A}', 'asymmetric open/closed disclosure signal');
     card.open = true;
-    check(content.querySelectorAll('.triage-action').length === 6, 'six explicit actions');
+    check(content.querySelectorAll('.triage-action').length === 7, 'seven explicit actions');
     check(
       content.querySelector('a').getAttribute('href') === 'https://github.com/fixture/app/issues/13',
       'connected issue reference',
@@ -66,6 +67,54 @@
       buttons.find((button) => button.textContent === 'Verify merged main').disabled,
       'unmerged verification gated',
     );
+    const sizeButton = buttons.find((button) => button.textContent === 'Approve this size exception');
+    check(sizeButton.disabled, 'absent measurement cannot be approved');
+    const gate = { head: 'exact', base: 'base', lines: 701, files: 9 };
+    const blocked = triagePanel(
+      { ...state, factory: { ...state.factory, tasks: [{ ...task, publicationGate: gate }] } },
+      actions,
+    );
+    check(
+      ![...blocked.querySelectorAll('button')].find((button) => button.textContent === 'Approve this size exception')
+        .disabled,
+      'blocked exact measurement can request approval',
+    );
+    const publishing = triagePanel(
+      {
+        ...state,
+        factory: {
+          ...state.factory,
+          tasks: [
+            { ...task, phase: 'publishing', publicationGate: gate, sizeApproval: { ...gate, reason: 'Approved' } },
+          ],
+        },
+      },
+      actions,
+    );
+    check(
+      [...publishing.querySelectorAll('button')].find((button) => button.textContent === 'Approve this size exception')
+        .disabled,
+      'publication retry cannot request another size approval',
+    );
+    let resumed;
+    const recovery = recoveryPanel(
+      {
+        ...state,
+        factory: {
+          ...state.factory,
+          features: [],
+          objectiveQueue: { existingOnly: true, order: ['objective'], revision: 8 },
+        },
+      },
+      {
+        ...actions,
+        queue: (...args) => {
+          resumed = args;
+        },
+      },
+    );
+    recovery.querySelector('button').click();
+    check(resumed[3] === false && resumed[2] === 8, 'return to objective dispatch explicitly releases clearance');
     const editor = triageDialog(task, 'repair');
     const request = editor.action.input('Fix the cause');
     check(
