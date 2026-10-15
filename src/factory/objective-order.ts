@@ -24,19 +24,15 @@ const orderSchema = z.object({ orderRevision: z.number(), features: z.array(feat
  * @returns Revision and ranked features.
  */
 export function objectiveOrder(store: Store): z.output<typeof orderSchema> {
-  return store.transaction(() => {
-    const revision = selectOne(
-      store.db,
-      z.object({ revision: z.number() }),
-      'SELECT revision FROM factory_objective_order WHERE id=1',
-    );
-    return {
-      orderRevision: revision?.revision ?? 0,
-      features: selectAll(store.db, rowSchema, 'SELECT data FROM factory_features ORDER BY rowid').map((row) =>
-        featureSchema.parse(JSON.parse(row.data)),
-      ),
-    };
-  });
+  const rows = selectAll(
+    store.db,
+    z.object({ revision: z.number(), data: z.string().nullable() }),
+    'SELECT factory_objective_order.revision AS revision, factory_features.data AS data FROM factory_objective_order LEFT JOIN factory_features ON 1=1 WHERE factory_objective_order.id=1 ORDER BY factory_features.rowid',
+  );
+  return {
+    orderRevision: rows[0]?.revision ?? 0,
+    features: rows.flatMap((row) => (row.data === null ? [] : [featureSchema.parse(JSON.parse(row.data))])),
+  };
 }
 
 /**

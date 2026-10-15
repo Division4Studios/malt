@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';
 import { run } from '../src/database.ts';
-import { reorderObjective } from '../src/factory/objective-order.ts';
+import { objectiveOrder, reorderObjective } from '../src/factory/objective-order.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, featureSchema, jobSchema, resultSchema } from '../src/factory/schema.ts';
@@ -253,4 +253,44 @@ await test('web reorder preserves running claims, rejects foreign and retired ob
     z.object({ factory: orderSchema }).parse(await snapshot.json()).factory.orderRevision,
     after.orderRevision,
   );
+});
+
+await test('order reads use one SQLite snapshot without a write lock or summary refresh', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const reader = new Store(config);
+  defer(() => {
+    reader.close();
+  });
+  const repository = new FactoryRepository(reader);
+  queueObjective(repository, { objective: 'Existing objective' });
+  const writer = new Store(config);
+  defer(() => {
+    writer.close();
+  });
+  new FactoryRepository(writer);
+  const prior = objectiveOrder(reader);
+  t.mock.method(reader, 'transaction', () => {
+    assert.fail('A read must not enter the write transaction wrapper.');
+  });
+  t.mock.method(reader, 'refreshSummary', () => {
+    assert.fail('A read must not regenerate project files.');
+  });
+  writer.db.exec('BEGIN IMMEDIATE');
+  try {
+    writer.db.exec('UPDATE factory_objective_order SET revision=revision+1 WHERE id=1');
+    assert.deepEqual(
+      objectiveOrder(reader),
+      prior,
+      'A concurrent writer must not block read-only snapshots or expose uncommitted revisions.',
+    );
+    writer.db.exec('COMMIT');
+  } finally {
+    if (writer.db.isTransaction) {
+      writer.db.exec('ROLLBACK');
+    }
+  }
+  const after = objectiveOrder(reader);
+  assert.equal(after.orderRevision, prior.orderRevision + 1);
+  assert.deepEqual(after.features, prior.features);
 });
