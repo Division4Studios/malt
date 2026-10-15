@@ -8,9 +8,44 @@ import { z } from 'zod/v3';
 import { run, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { retryFeaturePhase } from './scheduler.ts';
 import { factorySchemas, resultSchema } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
+
+/**
+ * Retry existing blocked scopes without changing their delivery gates.
+ *
+ * @param repository - Selected project ledger.
+ * @param input - Validated retry control.
+ * @throws {MeshError} For a nonblocked or superseded scope.
+ */
+export function retryBlocked(repository: FactoryRepository, input: unknown): void {
+  const value = factorySchemas.factory_retry.parse(input);
+  if (value.taskId !== undefined) {
+    repository.editTask(value.taskId, (task) => {
+      if (task.phase !== 'blocked' || task.scopeReplacement !== undefined) {
+        throw new MeshError('INVALID_INPUT', 'Only blocked deliveries can be retried.');
+      }
+      return {
+        ...task,
+        phase: task.merge === null ? 'development' : 'verifying',
+        attempts: 0,
+        error: null,
+        reviews: [],
+        finalReview: null,
+      };
+    });
+  }
+  if (value.featureId === undefined) {
+    return;
+  }
+  const feature = repository.features().find((candidate) => candidate.id === value.featureId);
+  if (feature?.phase !== 'blocked' || feature.scopeReplacement !== undefined) {
+    throw new MeshError('INVALID_INPUT', 'Only blocked product requests can be retried.');
+  }
+  repository.saveFeature({ ...feature, phase: retryFeaturePhase(feature), error: null });
+}
 
 /**
  * Resume a blocked planner or admit retained deliveries without new objectives.

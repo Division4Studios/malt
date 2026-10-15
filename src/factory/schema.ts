@@ -10,6 +10,7 @@ import { z } from 'zod/v3';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
+import { terminalPolicySchema } from './terminal-lifetime.ts';
 
 /** Bound operator triage context independently of model transcripts. */
 const TRIAGE_NOTE_MAX = 4000;
@@ -264,10 +265,7 @@ export const factoryConfigSchema = z
         jobProcessLimit: z.number().int().min(2).max(MAX_JOB_PROCESSES).default(DEFAULT_JOB_PROCESSES),
       })
       .default({}),
-    terminals: z
-      .object({ max: z.number().int().min(0).max(2).default(1) })
-      .strict()
-      .default({}),
+    terminals: terminalPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */

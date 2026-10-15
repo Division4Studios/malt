@@ -13,6 +13,7 @@ import { resourceBlocker, resourceProbe } from './resources.ts';
 import { providerBlockers } from './scheduler.ts';
 import { TerminalBuffer } from './terminal-buffer.ts';
 import { MAX_COLUMNS, MAX_ROWS, MIN_COLUMNS, MIN_ROWS } from './terminal-frames.ts';
+import { TerminalLifetime, terminalClock } from './terminal-lifetime.ts';
 import { startTerminalProcess } from './terminal-process.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
@@ -22,6 +23,7 @@ import type { FactoryRepository } from './repository.ts';
 import type { ResourceProbe } from './resources.ts';
 import type { FactoryConfig, Provider } from './schema.ts';
 import type { Frame } from './terminal-frames.ts';
+import type { TerminalClock, TerminalTimeout } from './terminal-lifetime.ts';
 import type { TerminalProcess } from './terminal-process.ts';
 import type { TerminalSession } from './terminal-sessions.ts';
 
@@ -39,6 +41,8 @@ export const terminalStartSchema = z
   .strict();
 /** Injectable native boundaries; fixtures never invoke paid providers. */
 export interface TerminalOptions {
+  /** Timer substitution for deterministic timeout verification. */
+  readonly clock?: TerminalClock;
   /** Broker-wide pool shared with managed assignments. */
   readonly pool?: AdmissionPool;
   /** Cached or sampled machine resources. */
@@ -50,6 +54,10 @@ export interface TerminalOptions {
 }
 /** In-memory execution state; no terminal content is durable. */
 interface LiveTerminal {
+  /** Idle/absolute timers, disposed before process teardown. */
+  readonly lifetime: TerminalLifetime;
+  /** First requested terminal outcome survives late native results. */
+  outcome: 'exited' | 'cancelled' | 'timed_out' | null;
   /** Owned process and descendant cleanup. */
   readonly process: TerminalProcess;
   /** Bounded, redacted transient replay. */
@@ -80,7 +88,13 @@ export class TerminalService {
   /** Runtime handles exist only for explicitly requested sessions. */
   private readonly live = new Map<string, LiveTerminal>();
   /** Reservations cover unpaid asynchronous preparation too. */
-  private readonly preparing = new Set<string>();
+  private readonly preparing = new Map<string, PromiseWithResolvers<undefined>>();
+  /** Fences asynchronous preflight/worktree results after pause or shutdown. */
+  private generation = 0;
+  /** Broker shutdown permanently closes this service instance. */
+  private isStopped = false;
+  /** Starts cannot race an in-progress pause/shutdown. */
+  private isClosing = false;
   /** Verified project root and private state. */
   private readonly mesh: MeshConfig;
   /** Metadata ledger owner. */
@@ -105,7 +119,17 @@ export class TerminalService {
       resources: options.resources ?? resourceProbe(),
       spawn: options.spawn ?? startTerminalProcess,
       preflight: options.preflight ?? preflight,
+      clock: options.clock ?? terminalClock,
     };
+  }
+
+  /**
+   * Logical occupancy includes unpaid preparation; reading it starts nothing.
+   *
+   * @returns Number of live/preparing sessions.
+   */
+  public get size(): number {
+    return this.live.size + this.preparing.size;
   }
 
   /**
@@ -116,6 +140,8 @@ export class TerminalService {
    * @throws {MeshError} For setup, admission or retention refusal.
    */
   public async start(input: z.input<typeof terminalStartSchema>): Promise<TerminalSession> {
+    const { generation } = this;
+    this.assertCurrent(generation);
     const request = terminalStartSchema.parse(input);
     const settings = this.repository.config();
     if (settings === null) {
@@ -140,16 +166,19 @@ export class TerminalService {
       throw new MeshError('FACTORY_GATED', resource ?? `Provider admission refused: ${provider ?? 'unavailable'}.`);
     }
     const id = randomUUID();
-    this.preparing.add(id);
+    const completion = Promise.withResolvers<undefined>();
+    this.preparing.set(id, completion);
     this.pool.add({ id, provider: request.provider, state: 'running' }, settings);
     try {
       await this.options.preflight(settings, request.provider, this.mesh.root);
+      this.assertCurrent(generation);
       const workspaces = new WorkspaceManager(this.mesh, settings);
       await workspaces.origin();
       await this.prune(workspaces);
       const base = await workspaces.base();
       const branch = `malt/terminal/${id}`;
       const worktree = await workspaces.create(`terminal-${id}`, base, branch, false);
+      this.assertCurrent(generation);
       const session = this.repository.terminals.create({
         ...request,
         id,
@@ -170,7 +199,22 @@ export class TerminalService {
           this.frame(id, frame);
         },
       });
-      this.live.set(id, { process: native, buffer, outputBytes: 0, exitCode: null, reason: '' });
+      const lifetime = new TerminalLifetime(
+        settings.terminals,
+        (reason) => {
+          void this.expire(id, reason);
+        },
+        this.options.clock,
+      );
+      this.live.set(id, {
+        process: native,
+        buffer,
+        lifetime,
+        outcome: null,
+        outputBytes: 0,
+        exitCode: null,
+        reason: '',
+      });
       void this.watch(id, native);
       return this.repository.terminals.get(session.id) ?? session;
     } catch (error) {
@@ -182,6 +226,7 @@ export class TerminalService {
       throw error;
     } finally {
       this.preparing.delete(id);
+      completion.resolve(undefined);
     }
   }
 
@@ -189,10 +234,16 @@ export class TerminalService {
    * Close exactly one owned session; already-closed sessions are idempotent.
    *
    * @param id - Project-fenced session identity.
+   * @param outcome - First operator/deadline cause, fenced against late native exits.
+   * @param reason - Fixed diagnostic category, never terminal content.
    * @returns Final metadata after descendant cleanup.
    * @throws {MeshError} For an unknown or unowned live session.
    */
-  public async close(id: string): Promise<TerminalSession> {
+  public async close(
+    id: string,
+    outcome: 'exited' | 'cancelled' | 'timed_out' = 'exited',
+    reason = 'operator closed',
+  ): Promise<TerminalSession> {
     const session = this.repository.terminals.get(id);
     if (session === null) {
       throw new MeshError('NOT_FOUND', 'Terminal session not found in this project.');
@@ -203,8 +254,10 @@ export class TerminalService {
     }
     if (session.state === 'starting' || session.state === 'running') {
       this.repository.terminals.change(id, session.state, 'closing');
+      live.reason = reason;
+      live.outcome = outcome;
     }
-    live.reason = 'operator closed';
+    live.lifetime.close();
     await live.process.stop();
     return this.repository.terminals.get(id) ?? session;
   }
@@ -217,6 +270,69 @@ export class TerminalService {
    */
   public buffer(id: string): TerminalBuffer | null {
     return this.live.get(id)?.buffer ?? null;
+  }
+
+  /**
+   * Cancel pending starts and stop all owned terminals before SQLite closes.
+   *
+   * @param reason - Fixed control category.
+   * @param isPermanent - Broker shutdown fences all future starts.
+   */
+  public async closeAll(reason: string, isPermanent = false): Promise<void> {
+    this.generation += 1;
+    const { generation } = this;
+    this.isClosing = true;
+    this.isStopped ||= isPermanent;
+    try {
+      await Promise.all(this.live.keys().map(async (id) => this.close(id, 'cancelled', reason)));
+      await Promise.allSettled(this.preparing.values().map(async (pending) => pending.promise));
+    } finally {
+      if (this.generation === generation) {
+        this.isClosing = false;
+      }
+    }
+  }
+
+  /**
+   * Accepted operator input touches idle time; output and resizes do not.
+   *
+   * @param id - Owned session.
+   */
+  public touch(id: string): void {
+    this.live.get(id)?.lifetime.touch();
+  }
+
+  /**
+   * Recover old metadata only after the owning supervisor acquires its lease.
+   */
+  public recover(): void {
+    this.repository.terminals.recover(new Set(this.live.keys()));
+  }
+
+  /**
+   * Fence late preparation after controls invalidate its generation.
+   *
+   * @param generation - Generation captured before any asynchronous work.
+   * @throws {MeshError} When pause/shutdown invalidated this start.
+   */
+  private assertCurrent(generation: number): void {
+    if (this.isStopped || this.isClosing || generation !== this.generation) {
+      throw new MeshError('FACTORY_GATED', 'Terminal preparation was cancelled by operator control.');
+    }
+  }
+
+  /**
+   * Deadline failures are classified without logging terminal text.
+   *
+   * @param id - Owned session.
+   * @param reason - First deadline category.
+   */
+  private async expire(id: string, reason: TerminalTimeout): Promise<void> {
+    try {
+      await this.close(id, 'timed_out', reason);
+    } catch {
+      log('warn', 'factory', 'terminal_timeout_failed');
+    }
   }
 
   /**
@@ -292,7 +408,8 @@ export class TerminalService {
       return;
     }
     live.buffer.finish();
-    const next = session.state === 'closing' || live.exitCode === 0 ? 'exited' : 'failed';
+    live.lifetime.close();
+    const next = live.outcome ?? (live.exitCode === 0 ? 'exited' : 'failed');
     this.repository.terminals.change(id, session.state, next, {
       exitCode: live.exitCode,
       reason: live.reason === '' ? 'provider exited' : live.reason,

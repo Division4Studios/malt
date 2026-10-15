@@ -35,18 +35,25 @@ import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
-import { recoverObjective } from './recovery.ts';
+import { recoverObjective, retryBlocked } from './recovery.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
-import { ResourceSampler, admissionEvidence, resourceBlocker, resourceProbe } from './resources.ts';
+import {
+  ResourceSampler,
+  admissionEvidence,
+  resourceBlocker,
+  resourceProbe,
+  hasCriticalMemoryPressure,
+} from './resources.ts';
 import { routeAssignment } from './routing.ts';
-import { chooseProvider, retryFeaturePhase, jobIntents } from './scheduler.ts';
+import { chooseProvider, jobIntents } from './scheduler.ts';
 import { LEASE_MS, PROVIDERS, factoryConfigSchema, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
+import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
@@ -61,6 +68,7 @@ import type { DeliveryRemote } from './remote.ts';
 import type { ResourceProbe } from './resources.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryJob, FactoryOperation } from './schema.ts';
+import type { TerminalOptions } from './terminals.ts';
 
 /** Unpaid scheduler heartbeat interval. */
 const TICK_MS = 5000;
@@ -76,6 +84,8 @@ export interface FactoryOptions {
   readonly remote?: DeliveryRemote;
   /** OS measurement adapter. */
   readonly resources?: ResourceProbe;
+  /** In-process native terminal substitutes, unavailable to browser/MCP callers. */
+  readonly terminals?: TerminalOptions;
 }
 /** One cancellable pipeline owned by this supervisor. */
 interface Running {
@@ -99,6 +109,8 @@ interface AttemptState {
 export class FactoryService {
   /** Public durable ledger for inspection and operator commands. */
   public readonly repository: FactoryRepository;
+  /** Operator sessions share this supervisor's admission and lifecycle controls. */
+  public readonly terminals: TerminalService;
   /** Dependencies selected at construction. */
   private readonly options: FactoryOptions;
   /** Project scope. */
@@ -152,6 +164,11 @@ export class FactoryService {
     this.options = options;
     this.repository = new FactoryRepository(store);
     this.sampler = new ResourceSampler(options.resources ?? resourceProbe(), store.now());
+    this.terminals = new TerminalService(mesh, this.repository, {
+      ...options.terminals,
+      pool: LOCAL_JOBS,
+      resources: () => this.sampler.latest,
+    });
   }
 
   /**
@@ -207,7 +224,7 @@ export class FactoryService {
 
   /** Heartbeat remains independent of slow network calls and paid turns. */
   public async tick(): Promise<void> {
-    if (this.stopped || (!this.repository.active() && this.running.size === 0)) {
+    if (this.stopped || (!this.repository.active() && this.running.size === 0 && this.terminals.size === 0)) {
       return;
     }
     if (!this.repository.lease(this.owner)) {
@@ -216,11 +233,18 @@ export class FactoryService {
       for (const run of this.running.values()) {
         run.controller.abort(new Error('Supervisor lease lost.'));
       }
+      await this.terminals.closeAll('supervisor lease lost');
       return;
     }
     if (!this.hasLease) {
       recoverUnownedClaims(this.repository, this.running);
+      this.terminals.recover();
       this.hasLease = true;
+    }
+    const sample = this.sampler.sample(this.repository.store.now());
+    const settings = this.repository.config();
+    if (settings !== null && this.terminals.size > 0 && hasCriticalMemoryPressure(settings, sample)) {
+      await this.terminals.closeAll('resource pressure');
     }
     const candidates1 = this.repository
       .jobs()
@@ -257,6 +281,7 @@ export class FactoryService {
       run.controller.abort(new Error('Supervisor stopped; owned assignment interrupted.'));
     }
     this.quota.cancel();
+    await this.terminals.closeAll(shouldPause ? 'factory paused' : 'broker shutdown', !shouldPause);
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
     if (this.driving !== null) {
       await this.driving;
@@ -309,7 +334,10 @@ export class FactoryService {
       },
       factory_cancel_job: () => this.controlCancelJob(parsed),
       factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
-      factory_retry: () => this.controlRetry(parsed),
+      factory_retry: async () => {
+        retryBlocked(this.repository, parsed);
+        return this.status();
+      },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
     };
     const result = await Promise.resolve(handlers[operation]());
@@ -343,7 +371,7 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
-    if (shouldParkForMemory(context, this.running, this.sampler.sample(this.repository.store.now()))) {
+    if (shouldParkForMemory(context, this.running, this.sampler.latest)) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
     }
@@ -739,44 +767,6 @@ export class FactoryService {
     }
     recordCancellation(this.repository, job);
     this.running.get(jobId)?.controller.abort(new Error('Operator cancelled this attempt; explicit retry required.'));
-    return this.status();
-  }
-
-  /**
-   * Handle the validated factory_retry operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlRetry(parsed: unknown): unknown {
-    const value = factorySchemas.factory_retry.parse(parsed);
-    if (value.taskId !== undefined) {
-      this.repository.editTask(value.taskId, (task) => {
-        if (task.phase !== 'blocked' || task.scopeReplacement !== undefined) {
-          throw new MeshError('INVALID_INPUT', 'Only blocked deliveries can be retried.');
-        }
-        return {
-          ...task,
-          phase: task.merge === null ? 'development' : 'verifying',
-          attempts: 0,
-          error: null,
-          reviews: [],
-          finalReview: null,
-        };
-      });
-    }
-    if (value.featureId !== undefined) {
-      const feature = this.repository.features().find((candidate) => candidate.id === value.featureId);
-      if (feature?.phase !== 'blocked' || feature.scopeReplacement !== undefined) {
-        throw new MeshError('INVALID_INPUT', 'Only blocked product requests can be retried.');
-      }
-      this.repository.saveFeature({
-        ...feature,
-        phase: retryFeaturePhase(feature),
-        error: null,
-      });
-    }
     return this.status();
   }
 }
