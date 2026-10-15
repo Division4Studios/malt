@@ -1,9 +1,11 @@
 /** @file Isolated native PTY addon host. Stdio contains framed bytes only, never logs. */
 import { Buffer } from 'node:buffer';
 import { open } from 'node:fs/promises';
+import { createConnection } from 'node:net';
 import path from 'node:path';
 
 import { encodeFrame, FrameDecoder, MAX_FRAME_BODY } from './terminal-frames.ts';
+import { isTerminalInputName } from './terminal-input.ts';
 import { terminalArguments, terminalEnvironment, terminalLaunchSchema } from './terminal-launch.ts';
 
 import type { Frame } from './terminal-frames.ts';
@@ -35,6 +37,17 @@ function send(frame: Frame, terminal?: IPty): void {
 }
 
 /**
+ * Report a fixed startup category without provider output.
+ *
+ * @param code - Fixed failure category.
+ * @param message - Safe diagnostic.
+ */
+function failStartup(code: string, message: string): void {
+  send({ type: 'error', code, message });
+  process.exitCode = 1;
+}
+
+/**
  * Read a bounded, private descriptor. It cannot name arbitrary arguments or environment.
  *
  * @returns Validated launch descriptor.
@@ -58,12 +71,16 @@ async function descriptor(): Promise<TerminalLaunch> {
 /** Run exactly one PTY, never a shell or a managed assignment. */
 async function main(): Promise<void> {
   const launch = await descriptor();
+  const pipeIndex = process.argv.indexOf('--input-pipe');
+  const pipe = pipeIndex === -1 ? undefined : process.argv[pipeIndex + 1];
+  if (pipeIndex !== -1 && (pipe === undefined || process.platform !== 'win32' || !isTerminalInputName(pipe))) {
+    throw new Error('Invalid private terminal input channel.');
+  }
   let native: typeof NativePty;
   try {
     native = await import('node-pty');
   } catch {
-    send({ type: 'error', code: 'unsupported_platform', message: 'Native terminal support is unavailable.' });
-    process.exitCode = 1;
+    failStartup('unsupported_platform', 'Native terminal support is unavailable.');
     return;
   }
   const isFixture = process.argv[3] === '--fixture';
@@ -82,8 +99,7 @@ async function main(): Promise<void> {
       },
     );
   } catch {
-    send({ type: 'error', code: 'unsupported_platform', message: 'Native terminal could not start.' });
-    process.exitCode = 1;
+    failStartup('unsupported_platform', 'Native terminal could not start.');
     return;
   }
   // ConPTY connects asynchronously: its public PID is zero until the socket is ready.
@@ -97,11 +113,12 @@ async function main(): Promise<void> {
     send({ type: 'started', pid: terminal.pid });
   };
   announce();
+  const input = pipe === undefined ? process.stdin : createConnection(pipe);
   let isEnded = false;
   const decoder = new FrameDecoder();
   const close = (): void => {
     terminal.kill();
-    process.stdin.pause();
+    input.pause();
   };
   const fail = (): void => {
     send({ type: 'error', code: 'protocol_error', message: 'Terminal channel rejected a frame.' });
@@ -128,8 +145,8 @@ async function main(): Promise<void> {
     if (process.platform === 'win32') {
       terminal.kill();
     }
-    process.stdin.destroy();
-    process.stdin.unref();
+    input.destroy();
+    input.unref();
   });
   const apply = (frame: Frame): void => {
     switch (frame.type) {
@@ -154,7 +171,7 @@ async function main(): Promise<void> {
       }
     }
   };
-  process.stdin.on('data', (chunk: Buffer) => {
+  input.on('data', (chunk: Buffer) => {
     try {
       const frames = decoder.push(chunk);
       for (const frame of frames) {
@@ -164,7 +181,8 @@ async function main(): Promise<void> {
       fail();
     }
   });
-  process.stdin.once('end', close);
+  input.once('end', close);
+  input.once('error', close);
   process.once('SIGTERM', close);
   process.stdout.once('error', close);
 }
@@ -172,6 +190,5 @@ async function main(): Promise<void> {
 try {
   await main();
 } catch {
-  send({ type: 'error', code: 'invalid_launch', message: 'Terminal launch descriptor was rejected.' });
-  process.exitCode = 1;
+  failStartup('invalid_launch', 'Terminal launch descriptor was rejected.');
 }
