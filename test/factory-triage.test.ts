@@ -372,3 +372,38 @@ await test('cancelled investigations stay parked and stale decisions cannot clai
   );
   assert.equal(repository.capacity('codex', config).reservedTokens, 0);
 });
+
+await test('publication recovery does not replace its validated local head with an older remote PR snapshot', async (t) => {
+  const context = fixture(t);
+  const task = context.repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const publishing = context.repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'publishing',
+      head: 'validated-new-head',
+      error: 'Transient publication failure',
+    };
+  });
+  t.mock.method(context.remote, 'inspect', async () => {
+    await delay(0);
+    return {
+      number: 3,
+      url: task.prUrl ?? '',
+      headRefOid: 'old',
+      baseRefOid: 'base',
+      baseRefName: 'main',
+      isDraft: false,
+      state: 'OPEN',
+      mergeStateStatus: 'CLEAN',
+      mergeCommit: null,
+      statusCheckRollup: [],
+    };
+  });
+  assert.equal(await hasParkedPRUpdate(context, publishing), false);
+  assert.deepEqual(
+    context.repository.task(task.id),
+    publishing,
+    'An unpaid publication retry must retain its validated local checkpoint.',
+  );
+});

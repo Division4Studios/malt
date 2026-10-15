@@ -1319,6 +1319,217 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
 .message-route {
   transition: stroke-opacity 160ms ease;
 }
+.triage-hub {
+  margin: 22px 0;
+  padding: clamp(16px, 3vw, 30px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: radial-gradient(ellipse at top right, #e8a6340d, transparent 65%), var(--surface);
+}
+.triage-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 22px;
+}
+.triage-header h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 30px);
+  letter-spacing: -0.04em;
+}
+.triage-header .eyebrow {
+  width: 100%;
+}
+.triage-header .pill {
+  margin-left: auto;
+}
+.triage-card {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: clip;
+  background: var(--bg);
+  transition:
+    border-color 160ms,
+    box-shadow 160ms;
+}
+.triage-card:hover,
+.triage-card:focus-within {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px #e8a63418;
+}
+.triage-card > summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 17px;
+  cursor: pointer;
+  list-style: none;
+}
+.triage-card > summary::-webkit-details-marker {
+  display: none;
+}
+.triage-card > summary:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -3px;
+}
+.triage-signal {
+  color: var(--amber);
+  display: inline-block;
+  transition: transform 180ms;
+  font-size: 22px;
+}
+.triage-card[open] .triage-signal {
+  transform: rotate(90deg);
+}
+.triage-title {
+  flex: 1;
+  font:
+    600 13px/1.5 Consolas,
+    'Cascadia Code',
+    monospace;
+  overflow-wrap: anywhere;
+}
+.triage-body {
+  padding: 0 20px 20px;
+  border-top: 1px solid var(--line);
+  animation: triage-reveal 170ms ease-out;
+}
+.triage-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding-top: 15px;
+  font:
+    11px/1.6 Consolas,
+    monospace;
+  letter-spacing: 0.04em;
+}
+.triage-refs a {
+  color: var(--cyan);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+.triage-cause {
+  font-size: 15px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+}
+.triage-action {
+  color: var(--text);
+  background: var(--raised);
+  border: 1px solid var(--line);
+  padding: 9px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font:
+    12px Consolas,
+    monospace;
+  transition:
+    background 150ms,
+    transform 150ms,
+    border-color 150ms;
+}
+.triage-action:hover:not(:disabled) {
+  background: #e8a63420;
+  border-color: var(--cyan);
+  transform: translateY(-2px);
+}
+.triage-action:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.triage-action:focus-visible {
+  outline: 2px solid var(--cyan);
+}
+.triage-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.triage-evidence {
+  margin-top: 14px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.triage-evidence > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font:
+    12px/1.6 Consolas,
+    monospace;
+}
+.triage-clear {
+  color: var(--green);
+  font-family: Consolas, monospace;
+}
+.evidence-markdown {
+  max-width: 90ch;
+  overflow-wrap: anywhere;
+  line-height: 1.75;
+}
+.evidence-markdown h4 {
+  color: var(--cyan);
+  margin: 18px 0 6px;
+}
+.evidence-markdown p {
+  margin: 8px 0;
+}
+.evidence-markdown code {
+  color: var(--amber);
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--raised);
+  font:
+    0.9em Consolas,
+    monospace;
+}
+.evidence-markdown pre {
+  white-space: pre-wrap;
+  overflow: auto;
+  padding: 14px;
+  background: var(--raised);
+  border-radius: 6px;
+}
+@keyframes triage-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 650px) {
+  .triage-card > summary {
+    flex-wrap: wrap;
+    gap: 9px;
+  }
+  .triage-card > summary .pill {
+    margin-left: 32px;
+  }
+  .triage-body {
+    padding-inline: 14px;
+  }
+  .triage-action {
+    flex: 1 1 135px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .triage-card,
+  .triage-signal,
+  .triage-action {
+    transition: none;
+  }
+  .triage-body {
+    animation: none;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .message-route {
     transition: none;
