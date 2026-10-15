@@ -120,7 +120,7 @@ export interface ProviderInput {
   /** Broker-shared capacity snapshots. */
   readonly capacities: readonly Capacity[];
   /** Live broker-wide attempts. */
-  readonly jobs: readonly FactoryJob[];
+  readonly jobs: readonly Pick<FactoryJob, 'id' | 'provider' | 'state'>[];
   /** Current supervisor clock. */
   readonly now: number;
 }

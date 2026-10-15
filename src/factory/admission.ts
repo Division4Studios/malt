@@ -11,10 +11,12 @@ import type { Capacity, FactoryConfig, FactoryJob } from './schema.ts';
 /** Owned pipelines retain their policy until all descendants have settled. */
 interface Reservation {
   /** Durable process claim. */
-  readonly job: FactoryJob;
+  readonly job: AdmissionJob;
   /** Operator-selected ceilings at claim time. */
   readonly settings: FactoryConfig;
 }
+/** Logical occupancy shared by assignments and operator terminals. */
+export type AdmissionJob = Pick<FactoryJob, 'id' | 'provider' | 'state'>;
 
 /** Provider families share the broker's native subscription account by default. */
 export class AdmissionPool {
@@ -37,7 +39,7 @@ export class AdmissionPool {
    *
    * @returns Broker-wide live claims.
    */
-  public jobs(): FactoryJob[] {
+  public jobs(): AdmissionJob[] {
     return this.reservations
       .values()
       .map((entry) => entry.job)
@@ -74,7 +76,7 @@ export class AdmissionPool {
    * @param settings - Project policy at admission time.
    * @throws {MeshError} When a pipeline is registered twice.
    */
-  public add(job: FactoryJob, settings: FactoryConfig): void {
+  public add(job: AdmissionJob, settings: FactoryConfig): void {
     if (this.reservations.has(job.id)) {
       throw new MeshError('FACTORY_GATED', 'This pipeline already owns local resources.');
     }
@@ -145,3 +147,5 @@ export class AdmissionPool {
     };
   }
 }
+/** Every project served by this broker shares one native-process admission pool. */
+export const brokerAdmission = new AdmissionPool();
