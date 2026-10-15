@@ -46,17 +46,13 @@ async function descriptor(): Promise<TerminalLaunch> {
     throw new Error('Missing terminal descriptor.');
   }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only the owning wrapper selects this private metadata file.
-  const fd = await open(file, 'r');
-  try {
-    const bytes = Buffer.alloc(DESCRIPTOR_BYTES + 1);
-    const { bytesRead: size } = await fd.read(bytes, 0, bytes.length, 0);
-    if (size > DESCRIPTOR_BYTES) {
-      throw new Error('Oversized terminal descriptor.');
-    }
-    return terminalLaunchSchema.parse(JSON.parse(bytes.subarray(0, size).toString('utf8')));
-  } finally {
-    await fd.close();
+  await using fd = await open(file, 'r');
+  const bytes = Buffer.alloc(DESCRIPTOR_BYTES + 1);
+  const { bytesRead: size } = await fd.read(bytes, 0, bytes.length, 0);
+  if (size > DESCRIPTOR_BYTES) {
+    throw new Error('Oversized terminal descriptor.');
   }
+  return terminalLaunchSchema.parse(JSON.parse(bytes.subarray(0, size).toString('utf8')));
 }
 
 /** Run exactly one PTY, never a shell or a managed assignment. */
