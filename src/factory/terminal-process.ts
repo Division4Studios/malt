@@ -37,6 +37,8 @@ export interface TerminalProcessSpec {
   readonly memoryMb: number;
   /** Windows aggregate Job CPU ceiling. */
   readonly cpuPercent: number;
+  /** Operator-configured hard Windows descendant ceiling. */
+  readonly processLimit?: number;
   /** Test-only deterministic CLI; never selected by a route or provider configuration. */
   readonly fixture?: boolean;
   /** Receive validated native frames in memory. */
@@ -72,7 +74,7 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
       interactive: true,
       memoryMb: spec.memoryMb,
       cpuPercent: spec.cpuPercent,
-      processLimit: PROCESS_LIMIT,
+      processLimit: spec.processLimit ?? PROCESS_LIMIT,
     }),
   );
   const child = spawn(process.execPath, [path.join(import.meta.dirname, 'agent-process.ts'), wrapperFile], {

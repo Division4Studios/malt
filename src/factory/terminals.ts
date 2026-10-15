@@ -165,6 +165,7 @@ export class TerminalService {
         artifact: path.join(this.mesh.directory, 'terminals', id),
         memoryMb: settings.resources.jobMemoryMb,
         cpuPercent: settings.resources.jobCpuPercent,
+        processLimit: settings.resources.jobProcessLimit,
         onFrame: (frame) => {
           this.frame(id, frame);
         },
