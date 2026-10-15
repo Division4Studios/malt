@@ -20,6 +20,7 @@ import type { Frame } from '../src/factory/terminal-frames.ts';
 
 const ESC_CSI_2J = [0x1b, 0x5b, 0x32, 0x4a, 0xff];
 const samples: Frame[] = [
+  { type: 'started', pid: 123 },
   { type: 'data', data: new Uint8Array(ESC_CSI_2J) },
   { type: 'input', data: new Uint8Array() },
   { type: 'resize', columns: 120, rows: 40 },

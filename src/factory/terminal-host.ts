@@ -1,0 +1,175 @@
+/** @file Isolated native PTY addon host. Stdio contains framed bytes only, never logs. */
+import { Buffer } from 'node:buffer';
+import { readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
+
+import { encodeFrame, FrameDecoder, MAX_FRAME_BODY } from './terminal-frames.ts';
+import { terminalArguments, terminalEnvironment, terminalLaunchSchema } from './terminal-launch.ts';
+
+import type { Frame } from './terminal-frames.ts';
+import type * as NativePty from 'node-pty';
+import type { IPty } from 'node-pty';
+
+/** Descriptor is metadata only and must fit this bound before reading. */
+const DESCRIPTOR_BYTES = 16_384;
+/** Fixture is selected only by the private test host invocation, never an operator route. */
+const FIXTURE = path.resolve(import.meta.dirname, '../../test/fixtures/terminal-fixture.ts');
+
+/**
+ * Write a bounded frame; a slow broker pauses native output until drain.
+ *
+ * @param frame - Validated host frame.
+ * @param terminal - Owned PTY, if started.
+ */
+function send(frame: Frame, terminal?: IPty): void {
+  const isAccepted = process.stdout.write(encodeFrame(frame));
+  if (terminal === undefined || isAccepted) {
+    return;
+  }
+
+  terminal.pause();
+  process.stdout.once('drain', () => {
+    terminal.resume();
+  });
+}
+
+/**
+ * Read a bounded, private descriptor. It cannot name arbitrary arguments or environment.
+ *
+ * @returns Validated launch descriptor.
+ * @throws {Error} When the descriptor is missing, oversized or invalid.
+ */
+function descriptor(): ReturnType<typeof terminalLaunchSchema.parse> {
+  const file = process.argv[2];
+  if (file === undefined) {
+    throw new Error('Missing terminal descriptor.');
+  }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only the owning wrapper selects this private metadata file.
+  const { size } = statSync(file);
+  if (size > DESCRIPTOR_BYTES) {
+    throw new Error('Oversized terminal descriptor.');
+  }
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Size was bounded before reading the owning wrapper's descriptor.
+  return terminalLaunchSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+}
+
+/** Run exactly one PTY, never a shell or a managed assignment. */
+async function main(): Promise<void> {
+  const launch = descriptor();
+  let native: typeof NativePty;
+  try {
+    native = await import('node-pty');
+  } catch {
+    send({ type: 'error', code: 'unsupported_platform', message: 'Native terminal support is unavailable.' });
+    process.exitCode = 1;
+    return;
+  }
+  const isFixture = process.argv[3] === '--fixture';
+  let terminal: IPty;
+  try {
+    terminal = native.spawn(
+      isFixture ? process.execPath : launch.file,
+      isFixture ? [FIXTURE] : terminalArguments(launch),
+      {
+        name: 'xterm-256color',
+        cols: launch.columns,
+        rows: launch.rows,
+        cwd: launch.cwd,
+        env: terminalEnvironment(process.env),
+        useConptyDll: false,
+      },
+    );
+  } catch {
+    send({ type: 'error', code: 'unsupported_platform', message: 'Native terminal could not start.' });
+    process.exitCode = 1;
+    return;
+  }
+  // ConPTY connects asynchronously: its public PID is zero until the socket is ready.
+  let isAnnounced = false;
+  const announce = (): void => {
+    if (isAnnounced || terminal.pid <= 0) {
+      return;
+    }
+
+    isAnnounced = true;
+    send({ type: 'started', pid: terminal.pid });
+  };
+  announce();
+  let isEnded = false;
+  const decoder = new FrameDecoder();
+  const close = (): void => {
+    terminal.kill();
+    process.stdin.pause();
+  };
+  const fail = (): void => {
+    send({ type: 'error', code: 'protocol_error', message: 'Terminal channel rejected a frame.' });
+    close();
+  };
+  terminal.onData((text) => {
+    if (isEnded) {
+      return;
+    }
+    announce();
+    const bytes = Buffer.from(text);
+    if (bytes.length > MAX_FRAME_BODY) {
+      fail();
+      return;
+    }
+    send({ type: 'data', data: bytes }, terminal);
+  });
+  terminal.onExit((event) => {
+    if (isEnded) {
+      return;
+    }
+    isEnded = true;
+    send({ type: 'exit', code: event.exitCode, signal: event.signal === undefined ? null : String(event.signal) });
+    if (process.platform === 'win32') {
+      terminal.kill();
+    }
+    process.stdin.destroy();
+    process.stdin.unref();
+  });
+  const apply = (frame: Frame): void => {
+    switch (frame.type) {
+      case 'input': {
+        terminal.write(Buffer.from(frame.data).toString('utf8'));
+        break;
+      }
+      case 'resize': {
+        terminal.resize(frame.columns, frame.rows);
+        break;
+      }
+      case 'close': {
+        close();
+        break;
+      }
+      case 'data':
+      case 'error':
+      case 'exit':
+      case 'started': {
+        fail();
+        break;
+      }
+    }
+  };
+  process.stdin.on('data', (chunk: Buffer) => {
+    try {
+      const frames = decoder.push(chunk);
+      for (const frame of frames) {
+        apply(frame);
+      }
+    } catch {
+      fail();
+    }
+  });
+  process.stdin.once('end', close);
+  process.once('SIGTERM', close);
+  process.stdout.once('error', close);
+}
+
+try {
+  await main();
+} catch {
+  send({ type: 'error', code: 'invalid_launch', message: 'Terminal launch descriptor was rejected.' });
+  process.exitCode = 1;
+}

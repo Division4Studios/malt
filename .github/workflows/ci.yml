@@ -84,6 +84,9 @@ jobs:
           cache: npm
       - if: needs.changes.outputs.docs_only != 'true'
         run: npm ci --ignore-scripts
+      - name: Verify isolated native PTY addon availability
+        if: needs.changes.outputs.docs_only != 'true'
+        run: node --input-type=module -e "await import('node-pty')"
       - if: needs.changes.outputs.docs_only != 'true'
         run: npm run check
   docker:

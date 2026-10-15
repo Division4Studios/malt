@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "node-pty": "1.2.0-beta.15",
     "zod": "4.6.7"
   },
   "devDependencies": {

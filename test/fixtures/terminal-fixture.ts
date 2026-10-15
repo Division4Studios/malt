@@ -64,6 +64,9 @@ function grandchild(): void {
  * Serve the documented command protocol without any provider dependency.
  */
 async function interactive(): Promise<void> {
+  if (process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+  }
   let columns = process.stdout.isTTY ? process.stdout.columns : 80;
   let rows = process.stdout.isTTY ? process.stdout.rows : 24;
   let child: ChildProcess | undefined;
@@ -149,6 +152,10 @@ async function interactive(): Promise<void> {
     }
   } finally {
     input.close();
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.unref();
+    }
     process.stdin.destroy();
     await stop(child);
   }
