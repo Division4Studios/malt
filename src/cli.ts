@@ -56,6 +56,7 @@ Usage: node src/cli.ts <command> [options]
   factory-request --body TEXT  Queue an objective for product owner and lead
   factory-queue --file FILE    Reorder unfinished objectives and set dispatch focus
   factory-retry --file FILE    Resume a resolved blocked task or feature
+  factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
   agents                       List registered agents and presence

@@ -664,6 +664,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead only: queue a product objective for product-owner refinement and independent team-lead atomic delivery planning.',
   factory_queue:
     'Designated lead/operator only: reorder objectives and focus new dispatch on one objective without clearing blockers or cancelling running work.',
+  factory_reorder_objective:
+    'Designated lead only: atomically reorder unfinished objectives using an expected project order revision.',
   factory_retry: 'Designated lead only: resume a blocked delivery or product objective after its blocker is resolved.',
   factory_enqueue:
     'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',

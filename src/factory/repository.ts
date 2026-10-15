@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
 import { ObjectiveQueue } from './objective-queue.ts';
 import { windowFreshness } from './quota-windows.ts';
 import { RecommendationLedger } from './recommendations.ts';
@@ -111,6 +112,7 @@ export class FactoryRepository {
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
     this.expandWorkKeys();
+    initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
     this.objectiveQueue = new ObjectiveQueue(store);
     this.recommendations = new RecommendationLedger(store);
@@ -344,6 +346,7 @@ export class FactoryRepository {
   public saveFeature(feature: Feature): void {
     const value = featureSchema.parse(feature);
     this.store.transaction(() => {
+      value.rank = rankForFeatureSave(this.store, value.id);
       run(
         this.store.db,
         'INSERT INTO factory_features VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
@@ -777,7 +780,7 @@ export class FactoryRepository {
    * @returns Whether its scope is still eligible.
    */
   private scopeEligible(job: FactoryJob): boolean {
-    const focus = this.objectiveQueue.read(this.features()).focusedFeatureId;
+    const focus = this.objectiveQueue.read().focusedFeatureId;
     return (
       (focus === null || job.featureId === focus) &&
       (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)

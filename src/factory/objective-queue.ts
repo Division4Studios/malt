@@ -8,11 +8,11 @@ import { z } from 'zod';
 import { run, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { objectiveOrder } from './objective-order.ts';
 import { objectiveQueueSchema, queueControlSchema } from './objective-queue-schema.ts';
 
 import type { Store } from '../store.ts';
 import type { ObjectiveQueueState } from './objective-queue-schema.ts';
-import type { Feature } from './schema.ts';
 
 /** One selected project's queue. */
 export class ObjectiveQueue {
@@ -29,53 +29,76 @@ export class ObjectiveQueue {
     store.db.exec(
       'CREATE TABLE IF NOT EXISTS factory_objective_queue (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL)',
     );
+    store.transaction(() => {
+      if (
+        selectOne(
+          store.db,
+          z.object({ value: z.string() }),
+          "SELECT value FROM metadata WHERE key='factory_queue_ranks_v1'",
+        ) !== undefined
+      ) {
+        return;
+      }
+      const saved = this.saved();
+      if (saved !== null) {
+        const snapshot = objectiveOrder(store);
+        const ids = new Set(snapshot.features.map((feature) => feature.id));
+        const order = [...new Set(saved.order.filter((id) => ids.has(id)))];
+        const known = new Set(order);
+        for (const feature of snapshot.features) {
+          if (!known.has(feature.id)) {
+            order.push(feature.id);
+          }
+        }
+        this.writeRanks(order, Math.max(saved.revision, snapshot.orderRevision) + 1);
+      }
+      run(store.db, "INSERT INTO metadata(key,value) VALUES('factory_queue_ranks_v1','1')");
+    });
   }
 
   /**
-   * Append newly created objectives after the saved order.
+   * Inspect the current unfinished order and focus without write locks or file refreshes.
    *
-   * @param features - Actual project features, including archived ones.
    * @returns Validated effective order and focus.
    */
-  public read(features: readonly Feature[]): ObjectiveQueueState {
-    const row = selectOne(
-      this.store.db,
-      z.object({ data: z.string() }),
-      'SELECT data FROM factory_objective_queue WHERE id=1',
-    );
-    const saved =
-      row === undefined
-        ? { revision: 0, order: [], focusedFeatureId: null }
-        : objectiveQueueSchema.parse(JSON.parse(row.data));
-    const unfinished = features.filter((feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined);
-    const ids = new Set(unfinished.map((feature) => feature.id));
-    const order = saved.order.filter((id) => ids.has(id));
-    const known = new Set(order);
-    order.push(...unfinished.filter((feature) => !known.has(feature.id)).map((feature) => feature.id));
-    const focus = features.find((feature) => feature.id === saved.focusedFeatureId);
-    return {
-      ...saved,
-      order,
-      focusedFeatureId:
-        focus === undefined || focus.phase === 'done' || focus.scopeReplacement !== undefined ? null : focus.id,
-    };
+  public read(): ObjectiveQueueState {
+    return this.snapshot().objectiveQueue;
+  }
+
+  /**
+   * Read ranks, revision and focus in one deferred read-only SQLite snapshot.
+   *
+   * @returns Consistent status projection backed by the shared rank ledger.
+   */
+  public snapshot(): ReturnType<typeof objectiveOrder> & { objectiveQueue: ObjectiveQueueState } {
+    const isNested = this.store.db.isTransaction;
+    if (!isNested) {
+      this.store.db.exec('BEGIN');
+    }
+    try {
+      return this.project();
+    } finally {
+      if (!isNested) {
+        this.store.db.exec('ROLLBACK');
+      }
+    }
   }
 
   /**
    * Save one complete order atomically; stale tabs must refresh before retrying.
    *
-   * @param features - Current authoritative objective identities.
    * @param input - Untrusted operator control.
    * @returns Committed queue snapshot.
    * @throws {MeshError} For stale, foreign, duplicate or incomplete objective lists.
    */
-  public update(features: readonly Feature[], input: unknown): ObjectiveQueueState {
+  public update(input: unknown): ObjectiveQueueState {
     const value = queueControlSchema.parse(input);
     return this.store.transaction(() => {
+      const { features } = objectiveOrder(this.store);
       const unfinished = features.filter(
         (feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined,
       );
-      const prior = this.read(features);
+      const prior = this.read();
       const ids = new Set(value.order);
       const focus = features.find((feature) => feature.id === value.focusedFeatureId);
       if (
@@ -93,6 +116,10 @@ export class ObjectiveQueue {
         throw new MeshError('INVALID_INPUT', 'Focus requires an unfinished objective in this project.');
       }
       const next = { revision: prior.revision + 1, order: value.order, focusedFeatureId: value.focusedFeatureId };
+      this.writeRanks(
+        [...value.order, ...features.filter((feature) => !ids.has(feature.id)).map((feature) => feature.id)],
+        next.revision,
+      );
       run(
         this.store.db,
         'INSERT INTO factory_objective_queue VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
@@ -101,5 +128,54 @@ export class ObjectiveQueue {
       this.store.event('FACTORY_QUEUE_UPDATED', null, next);
       return next;
     });
+  }
+
+  /**
+   * Read the shared order and focus inside the caller's SQLite snapshot.
+   *
+   * @returns Consistent operator state.
+   */
+  private project(): ReturnType<typeof objectiveOrder> & { objectiveQueue: ObjectiveQueueState } {
+    const order = objectiveOrder(this.store);
+    const saved = this.saved();
+    const unfinished = order.features.filter(
+      (feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined,
+    );
+    const focusedFeatureId = saved?.focusedFeatureId ?? null;
+    return {
+      ...order,
+      objectiveQueue: {
+        revision: order.orderRevision,
+        order: unfinished.toSorted((a, b) => (a.rank ?? 0) - (b.rank ?? 0)).map((feature) => feature.id),
+        focusedFeatureId: unfinished.some((feature) => feature.id === focusedFeatureId) ? focusedFeatureId : null,
+      },
+    };
+  }
+
+  /**
+   * Read retained focus and pre-migration order; ranks remain authoritative after migration.
+   *
+   * @returns Saved operator intent when present.
+   */
+  private saved(): ObjectiveQueueState | null {
+    const row = selectOne(
+      this.store.db,
+      z.object({ data: z.string() }),
+      'SELECT data FROM factory_objective_queue WHERE id=1',
+    );
+    return row === undefined ? null : objectiveQueueSchema.parse(JSON.parse(row.data));
+  }
+
+  /**
+   * Update the same authoritative ranks and revision used by relative moves.
+   *
+   * @param order - Complete validated project order.
+   * @param revision - Next shared revision inside the caller's write transaction.
+   */
+  private writeRanks(order: readonly string[], revision: number): void {
+    for (const [rank, id] of order.entries()) {
+      run(this.store.db, "UPDATE factory_features SET data=json_set(data,'$.rank',?) WHERE id=?", rank, id);
+    }
+    run(this.store.db, 'UPDATE factory_objective_order SET revision=? WHERE id=1', revision);
   }
 }

@@ -25,6 +25,7 @@ import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { reorderObjective } from './objective-order.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
@@ -296,9 +297,10 @@ export class FactoryService {
         return this.status();
       },
       factory_request: () => queueObjective(this.repository, parsed),
-      factory_queue: () => this.repository.objectiveQueue.update(this.repository.features(), parsed),
+      factory_queue: () => this.repository.objectiveQueue.update(parsed),
       factory_capacity: () => this.controlCapacity(parsed),
       factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
       factory_retry: () => this.controlRetry(parsed),
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
     };
@@ -366,7 +368,7 @@ export class FactoryService {
       config: context.settings,
       tasks: this.repository.tasks(),
       features: this.repository.features(),
-      objectiveQueue: this.repository.objectiveQueue.read(this.repository.features()),
+      objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
       now,
@@ -375,8 +377,7 @@ export class FactoryService {
     await this.refreshQuota(context, intents.length);
     if (
       !this.canDispatch() ||
-      JSON.stringify(scheduling.objectiveQueue) !==
-        JSON.stringify(this.repository.objectiveQueue.read(this.repository.features()))
+      JSON.stringify(scheduling.objectiveQueue) !== JSON.stringify(this.repository.objectiveQueue.read())
     ) {
       return;
     }

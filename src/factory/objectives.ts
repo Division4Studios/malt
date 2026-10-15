@@ -23,25 +23,25 @@ import type { FactoryRepository } from './repository.ts';
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
   const { objective, requestId } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
-  const features = repository.features();
-  const prior = features.find((feature) => feature.id === id);
-  if (prior !== undefined) {
-    if (prior.objective !== objective) {
-      throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope.');
+  return repository.store.transaction(() => {
+    const features = repository.features();
+    const prior = features.find((feature) => feature.id === id);
+    if (prior !== undefined) {
+      if (prior.objective !== objective) {
+        throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope.');
+      }
+      return { featureId: id };
     }
-    return { featureId: id };
-  }
-  if (
-    features.filter((feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined).length >=
-    MAX_OBJECTIVES
-  ) {
-    throw new MeshError(
-      'FACTORY_GATED',
-      'This project has 5,000 unfinished objectives. Complete or supersede existing work before adding more.',
-    );
-  }
-  const now = repository.store.now();
-  repository.store.transaction(() => {
+    if (
+      features.filter((feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined).length >=
+      MAX_OBJECTIVES
+    ) {
+      throw new MeshError(
+        'FACTORY_GATED',
+        'This project has 5,000 unfinished objectives. Complete or supersede existing work before adding more.',
+      );
+    }
+    const now = repository.store.now();
     repository.saveFeature({
       id,
       objective,
@@ -54,6 +54,6 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       updatedAt: now,
     });
     repository.notify(`Product objective queued: ${objective}`);
+    return { featureId: id };
   });
-  return { featureId: id };
 }

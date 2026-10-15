@@ -363,3 +363,32 @@ await test('operator order selects newer repair planning first and focus holds u
   assert.ok(parked.every((intent) => intent.role !== 'developer-1'));
   assert.equal(busy.state, 'running');
 });
+
+await test('objective priority preserves verification/review precedence and development round-robin', () => {
+  const a = feature(1);
+  const b = feature(2);
+  const c = feature(3);
+  const work = [task(a), task(a), task(b), task(b), task(c)];
+  const verify = task(c, { phase: 'verifying' });
+  const review = task(b, { phase: 'review' });
+  const result = jobIntents({
+    config,
+    features: [a, b, c],
+    tasks: [...work, verify, review],
+    jobs: [],
+    skillRequests: [],
+    now,
+    objectiveQueue: { order: [a.id, b.id, c.id], focusedFeatureId: null },
+  });
+  assert.deepEqual(
+    result.slice(0, 3).map((intent) => intent.kind),
+    ['verify', 'review', 'review'],
+  );
+  assert.deepEqual(
+    result
+      .filter((intent) => intent.kind === 'develop')
+      .slice(0, 3)
+      .map((intent) => intent.featureId),
+    [a.id, b.id, c.id],
+  );
+});

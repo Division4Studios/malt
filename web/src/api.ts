@@ -225,3 +225,70 @@ export async function request(route: string, input?: unknown): Promise<unknown> 
 export function scoped(project: string, route: string): string {
   return `${route}?project=${encodeURIComponent(project)}`;
 }
+
+/** Controller callbacks keep mutation state independent of DOM rendering. */
+export interface ControlHooks {
+  /** Current project and connectivity, sampled before each explicit control. */
+  scope: () => { project: string; isReady: boolean };
+  /** Explicit project selection. */
+  openProject: (workspace: string) => Promise<void>;
+  /** Read authoritative state without replaying a mutation. */
+  refresh: () => Promise<void>;
+  /** Accessible operator feedback, scoped to the initiating project. */
+  notice: (message: string, isSuccess?: boolean) => void;
+}
+
+/**
+ * Create one single-flight controller; offline and late-project controls never replay.
+ *
+ * @param hooks - Current controller state and read-only refresh callbacks.
+ * @returns An explicit validated-backend control sender.
+ */
+export function createOperatorControl(hooks: ControlHooks): (operation: string, input: unknown) => Promise<void> {
+  const pending = new Set<string>();
+  return async (operation, input) => {
+    const { project, isReady } = hooks.scope();
+    if (!isReady || pending.size > 0) {
+      return;
+    }
+    pending.add(operation);
+    try {
+      await applyOperatorControl(hooks, project, operation, input);
+    } catch (error) {
+      if (project === hooks.scope().project) {
+        hooks.notice(error instanceof Error ? error.message : 'The control could not be applied.');
+        if (operation === 'factory_queue') {
+          await hooks.refresh();
+        }
+      }
+    } finally {
+      pending.delete(operation);
+    }
+  };
+}
+
+/**
+ * Apply one captured project mutation and fence its eventual feedback.
+ *
+ * @param hooks - Operator state callbacks.
+ * @param project - Initiating public project ID.
+ * @param operation - Explicit backend operation.
+ * @param input - Untrusted payload validated by the server.
+ */
+async function applyOperatorControl(
+  hooks: ControlHooks,
+  project: string,
+  operation: string,
+  input: unknown,
+): Promise<void> {
+  if (operation === 'open-project' && typeof input === 'string') {
+    await hooks.openProject(input);
+    return;
+  }
+  await request(scoped(project, '/api/control'), { operation, input });
+  if (project !== hooks.scope().project) {
+    return;
+  }
+  hooks.notice('Saved to project memory. The factory will coordinate the next safe step.', true);
+  await hooks.refresh();
+}
