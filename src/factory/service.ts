@@ -281,7 +281,7 @@ export class FactoryService {
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_recover: () => recoverObjective(this.repository, parsed),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
-      factory_triage: () => triage.decideTriage(this.repository, parsed),
+      factory_triage: () => triage.decideTriage(this.repository, parsed, actorId),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(
@@ -650,7 +650,7 @@ export class FactoryService {
       if (task.scopeReplacement !== undefined) {
         return;
       }
-      if (task.phase === 'publishing') {
+      if (task.phase === 'publishing' || (task.phase === 'blocked' && task.publicationGate !== undefined)) {
         this.repository.editTask(task.id, (current) => ({ ...current, error: reason }));
       } else {
         await rejectDelivery(this.configured(), task, reason);

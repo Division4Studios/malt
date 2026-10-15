@@ -18,6 +18,7 @@ import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
+import { assertPublicationSize } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -305,13 +306,14 @@ export class WorkspaceManager {
         lines += Number.isFinite(parsed) ? parsed : 0;
       }
     }
-    if (entries.length === 0 || entries.length > this.config.maxFiles || lines > this.config.maxDiffLines) {
+    if (entries.length === 0) {
       throw new MeshError(
         'FACTORY_GATED',
-        "The delivery is empty or exceeds this project's atomic diff limits. Refine the scope before review.",
+        'The delivery diff is empty. Reconcile already-delivered work before implementation.',
       );
     }
     await beforePush({ head, base });
+    assertPublicationSize({ head, base, files: entries.length, lines }, this.config, task.sizeApproval);
     await this.git(['push', '--set-upstream', this.config.remote, record.branch], directory);
     return { head, base, diff };
   }

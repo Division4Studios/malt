@@ -342,8 +342,17 @@ export const reviewSchema = z.object({
   summary: textSchema,
   jobId: z.string().uuid(),
 });
+/** Exact source and size measured after successful delivery validation. */
+const publicationSizeSchema = z.object({
+  head: z.string().min(1),
+  base: z.string().min(1),
+  files: z.number().int().positive(),
+  lines: z.number().int().nonnegative(),
+});
 /** Durable delivery and PR lifecycle. */
 export const taskSchema = z.object({
+  publicationGate: publicationSizeSchema.optional(),
+  sizeApproval: publicationSizeSchema.extend({ reason: z.string().min(1), at: z.number() }).optional(),
   id: z.string().uuid(),
   scopeReplacement: z.string().uuid().optional(),
   featureId: z.string().uuid().nullable(),
@@ -523,7 +532,7 @@ export const factorySchemas = {
       requestId: z.string().uuid(),
       taskId: z.string().uuid(),
       expectedVersion: z.number().int().nonnegative(),
-      action: z.enum(['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait']),
+      action: z.enum(['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait', 'approve_size']),
       note: z.string().trim().max(TRIAGE_NOTE_MAX).default(''),
     })
     .strict(),

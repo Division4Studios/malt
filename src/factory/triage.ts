@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { approvePublicationSize } from './publication-size.ts';
 import { factorySchemas } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -81,11 +82,19 @@ export function pendingTriage(repository: FactoryRepository, focus: string | nul
  *
  * @param repository - Project ledger.
  * @param input - Untrusted control.
+ * @param actorId - Attached agent identity; null denotes the operator or supervisor.
  * @returns Durable receipt.
  * @throws {MeshError} When the request is stale, changed or not actionable.
  */
-export function decideTriage(repository: FactoryRepository, input: unknown): TriageDecision {
+export function decideTriage(
+  repository: FactoryRepository,
+  input: unknown,
+  actorId: string | null = null,
+): TriageDecision {
   const value = factorySchemas.factory_triage.parse(input);
+  if (actorId !== null && value.action === 'approve_size') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may approve a publication size exception.');
+  }
   return repository.store.transaction(() => {
     const prior = selectOne(
       repository.store.db,
@@ -119,6 +128,11 @@ export function decideTriage(repository: FactoryRepository, input: unknown): Tri
       summary: '',
       createdAt: repository.store.now(),
     };
+    if (value.action === 'approve_size') {
+      approvePublicationSize(repository, task, value.note);
+      decision.state = 'applied';
+      decision.version = repository.task(task.id).version;
+    }
     if (['repair', 'review', 'verify', 'wait'].includes(value.action)) {
       applyDisposition(repository, value);
       decision.state = value.action === 'wait' ? 'awaiting_operator' : 'applied';
@@ -159,11 +173,19 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
   if (input.action === 'repair' && task.merge !== null) {
     throw new MeshError('FACTORY_GATED', 'Merged work requires verification or a traceable new repair.');
   }
-  if (input.action === 'acknowledge' || input.action === 'investigate') {
+  const phase = {
+    repair: 'development',
+    review: 'review',
+    verify: 'verifying',
+    wait: 'blocked',
+    acknowledge: null,
+    investigate: null,
+    approve_size: null,
+  } as const;
+  const nextPhase = phase[input.action];
+  if (nextPhase === null) {
     return;
   }
-  const phase = { repair: 'development', review: 'review', verify: 'verifying', wait: 'blocked' } as const;
-  const nextPhase = phase[input.action];
   const note = input.note === '' ? (task.error ?? 'Explicit triage decision.') : input.note;
   repository.editTask(task.id, (current) => {
     return {
