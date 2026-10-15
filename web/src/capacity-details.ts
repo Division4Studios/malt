@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { child, number, records, text } from './api.js';
+import { child, number, records, text, firstText } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -41,11 +41,22 @@ export function appendQuotaWindows(target: HTMLElement, capacity: Data): void {
     const deadline = typeof reset === 'number' ? localTime(reset) : 'unknown';
     const percent = String(number(window, 'usedPercent'));
     target.append(element('p', 'capacity-details', `${label}: ${percent}% used · resets ${deadline}`));
+    target.append(element('p', 'subtle', quotaWindowObservation(window)));
   }
-  const observed = capacity['updatedAt'];
-  if (typeof observed === 'number') {
-    target.append(element('p', 'subtle', `Observed ${localTime(observed)} · ${text(capacity, 'telemetrySource')}`));
-  }
+}
+
+/**
+ * Report the quota sample's own provenance, never unrelated accounting writes.
+ *
+ * @param window - One backend-observed subscription window.
+ * @returns Per-window timestamp, freshness and source with honest unknowns.
+ */
+export function quotaWindowObservation(window: Data): string {
+  const observed = window['observedAt'];
+  const at = typeof observed === 'number' ? localTime(observed) : 'unknown';
+  const freshness = firstText(text(window, 'freshness'), 'freshness unknown');
+  const source = firstText(text(window, 'source'), 'source unknown');
+  return `Observed ${at} | ${freshness} | ${source}`;
 }
 
 /**

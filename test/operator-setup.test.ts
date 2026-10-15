@@ -112,3 +112,27 @@ await test('quiet coordinator explains a local budget gate independently of subs
   const expired = dispatch.dispatchSummary({ active: true, settings, capacities: [{ ...capacity, resetAt: 1 }] });
   assert.ok(expired.every((message) => !message.includes('budget exhausted')));
 });
+
+await test('quota labels preserve independent window observation ages rather than accounting timestamps', async () => {
+  const moduleUrl = new URL(['..', 'web', 'dist', 'capacity-details.js'].join('/'), import.meta.url);
+  const capacity = z
+    .object({ quotaWindowObservation: z.function().args(dataSchema).returns(z.string()) })
+    .parse(await import(moduleUrl.href));
+  const old = 1000;
+  const current = 2000;
+  const oldDate = new Date(old);
+  const currentDate = new Date(current);
+  const stale = capacity.quotaWindowObservation({
+    observedAt: old,
+    freshness: 'stale',
+    source: 'codex-app-server',
+    updatedAt: current,
+  });
+  assert.ok(stale.includes(oldDate.toLocaleString()));
+  assert.ok(stale.includes('stale'));
+  assert.ok(!stale.includes(currentDate.toLocaleString()));
+  const fresh = capacity.quotaWindowObservation({ observedAt: current, freshness: 'current', source: 'claude-stream' });
+  assert.ok(fresh.includes(currentDate.toLocaleString()));
+  assert.ok(fresh.includes('current'));
+  assert.ok(capacity.quotaWindowObservation({ updatedAt: current }).includes('Observed unknown'));
+});

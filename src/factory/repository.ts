@@ -16,6 +16,8 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { broadcastFactoryNotice } from './notifications.ts';
+import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
 import { ObjectiveQueue } from './objective-queue.ts';
 import { windowFreshness } from './quota-windows.ts';
 import { RecommendationLedger } from './recommendations.ts';
@@ -30,6 +32,7 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { isCurrentTriage } from './triage.ts';
 
 import type { Store } from '../store.ts';
 import type { HandoffEvidence } from './handoffs.ts';
@@ -112,6 +115,7 @@ export class FactoryRepository {
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
     this.expandWorkKeys();
+    initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
     this.objectiveQueue = new ObjectiveQueue(store);
     this.recommendations = new RecommendationLedger(store);
@@ -345,6 +349,7 @@ export class FactoryRepository {
   public saveFeature(feature: Feature): void {
     const value = featureSchema.parse(feature);
     this.store.transaction(() => {
+      value.rank = rankForFeatureSave(this.store, value.id);
       run(
         this.store.db,
         'INSERT INTO factory_features VALUES(?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
@@ -778,8 +783,9 @@ export class FactoryRepository {
    * @returns Whether its scope is still eligible.
    */
   private scopeEligible(job: FactoryJob): boolean {
-    const focus = this.objectiveQueue.read(this.features()).focusedFeatureId;
+    const focus = this.objectiveQueue.read().focusedFeatureId;
     return (
+      (job.kind !== 'triage' || isCurrentTriage(this, job)) &&
       (focus === null || job.featureId === focus) &&
       (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
     );
@@ -863,19 +869,6 @@ export class FactoryRepository {
    * @param body - Public decision or rejection reason.
    */
   private notifyInside(body: string): void {
-    if (this.sender === null) {
-      return;
-    }
-    // Direct store.send keeps task transition and inbox wake state atomic.
-    const agents = selectAll(
-      this.store.db,
-      z.object({ id: z.string() }),
-      "SELECT id FROM agents WHERE lifetime != 'ended'",
-    );
-    for (const agent of agents) {
-      if (agent.id !== this.sender) {
-        this.store.send(this.sender, agent.id, { body, type: 'broadcast' });
-      }
-    }
+    broadcastFactoryNotice(this.store, this.sender, body);
   }
 }

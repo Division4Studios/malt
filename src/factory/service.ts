@@ -19,12 +19,14 @@ import {
   recoverUnownedClaims,
   recordScopeFeedback,
   recordCapacity,
+  refundUnpaidAttempt,
 } from './controls.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { reorderObjective } from './objective-order.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
@@ -42,7 +44,7 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
-import { pendingTriage, decideTriage, isCurrentTriage, completeTriage, queueBlockerInvestigations } from './triage.ts';
+import * as triage from './triage.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -275,7 +277,7 @@ export class FactoryService {
     const parsed = factorySchemas[operation].parse(input);
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
-      factory_triage: () => decideTriage(this.repository, parsed),
+      factory_triage: () => triage.decideTriage(this.repository, parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(
@@ -298,9 +300,10 @@ export class FactoryService {
         return this.status();
       },
       factory_request: () => queueObjective(this.repository, parsed),
-      factory_queue: () => this.repository.objectiveQueue.update(this.repository.features(), parsed),
+      factory_queue: () => this.repository.objectiveQueue.update(parsed),
       factory_capacity: () => this.controlCapacity(parsed),
       factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
       factory_retry: () => this.controlRetry(parsed),
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
     };
@@ -354,7 +357,7 @@ export class FactoryService {
         this.connected = true;
       }
       await reconcile(context);
-      queueBlockerInvestigations(this.repository);
+      triage.queueBlockerInvestigations(this.repository);
       this.error = null;
     }
     if (!this.connected || this.stopped || !this.repository.active()) {
@@ -369,21 +372,17 @@ export class FactoryService {
       config: context.settings,
       tasks: this.repository.tasks(),
       features: this.repository.features(),
-      objectiveQueue: this.repository.objectiveQueue.read(this.repository.features()),
+      objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
-      triage: pendingTriage(
-        this.repository,
-        this.repository.objectiveQueue.read(this.repository.features()).focusedFeatureId,
-      ),
+      triage: triage.pendingTriage(this.repository, this.repository.objectiveQueue.read().focusedFeatureId),
       now,
     };
     const intents = jobIntents(scheduling);
     await this.refreshQuota(context, intents.length);
     if (
       !this.canDispatch() ||
-      JSON.stringify(scheduling.objectiveQueue) !==
-        JSON.stringify(this.repository.objectiveQueue.read(this.repository.features()))
+      JSON.stringify(scheduling.objectiveQueue) !== JSON.stringify(this.repository.objectiveQueue.read())
     ) {
       return;
     }
@@ -445,7 +444,7 @@ export class FactoryService {
       }
       const task = this.repository.task(job.taskId);
       if (job.kind === 'triage') {
-        if (!isCurrentTriage(this.repository, job)) {
+        if (!triage.isCurrentTriage(this.repository, job)) {
           this.running.get(job.id)?.controller.abort();
         }
         continue;
@@ -615,18 +614,18 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
-    if (job.kind === 'triage' && attempt.state !== 'succeeded') {
-      completeTriage(this.repository, job, null);
-    }
-    this.repository.finishJob(
+    triage.settleTriage(this.repository, job, attempt.state);
+    const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
       settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    if (attempt.state === 'interrupted' && job.kind === 'develop' && job.taskId !== null) {
-      this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
-    }
+    refundUnpaidAttempt(this.repository, job, {
+      hasSettled,
+      isUnpaidGate: attempt.execution?.completion === null && attempt.execution.waiting !== null,
+      state: attempt.state,
+    });
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
   }
 
@@ -639,7 +638,7 @@ export class FactoryService {
   private async failure(job: FactoryJob, reason: string): Promise<void> {
     this.error = reason;
     if (job.kind === 'triage') {
-      completeTriage(this.repository, job, null);
+      triage.completeTriage(this.repository, job, null);
       return;
     }
     if (job.taskId !== null) {

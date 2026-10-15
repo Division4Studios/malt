@@ -102,6 +102,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   let isMerged = false;
   let isReturned = false;
   let writes = 0;
+  let trackingFailures = 0;
   let creations = 0;
   let isLostResponse = false;
   let isParentClosureRetried = false;
@@ -155,6 +156,11 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       return task.head;
     },
     effect: async (effect) => {
+      if (effect.id.startsWith('project-tracking:') && effect.value === 'Development' && trackingFailures < 6) {
+        trackingFailures += 1;
+        assert.equal(writes, 0, 'An unavailable Project must not start paid implementation.');
+        throw new Error('Fixture transient Project outage before inference.');
+      }
       if (effect.kind === 'comment' && effect.value.includes('implementation prepared.')) {
         completionUpdates.push(effect.value);
       }
@@ -245,6 +251,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
+      maxAttempts: 3,
       maxDiffLines: 123,
       maxFiles: 7,
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
@@ -262,6 +269,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.ok(task !== undefined);
     assert.equal(task.phase, 'done', JSON.stringify(await factory.status()));
     assert.equal(task.attempts, 2);
+    assert.equal(trackingFailures, 6, 'Unpaid outages must recover beyond the development attempt ceiling.');
     assert.equal(writes, 2, 'Push and ambiguous PR failures must not repeat successful paid implementation.');
     assert.equal(
       completionUpdates.length,

@@ -318,6 +318,7 @@ export const resultSchema = z
 export type AgentResult = z.output<typeof resultSchema>;
 /** Product objectives persist independently of model sessions. */
 export const featureSchema = z.object({
+  rank: z.number().int().nonnegative().optional(),
   id: z.string().uuid(),
   scopeReplacement: z.string().uuid().optional(),
   scopeCleanup: z.object({ at: z.number(), note: z.string() }).optional(),
@@ -498,6 +499,15 @@ export const factorySchemas = {
   factory_pause: z.object({}).strict(),
   factory_request: z.object({ objective: textSchema, requestId: z.string().uuid().optional() }).strict(),
   factory_queue: queueControlSchema,
+  factory_reorder_objective: z
+    .object({
+      featureId: z.string().uuid(),
+      beforeFeatureId: z.string().uuid().optional(),
+      afterFeatureId: z.string().uuid().optional(),
+      expectedRevision: z.number().int().nonnegative(),
+      requestId: z.string().uuid().optional(),
+    })
+    .strict(),
   factory_retry: z.object({ taskId: z.string().uuid().optional(), featureId: z.string().uuid().optional() }).strict(),
   factory_triage: z
     .object({
@@ -544,6 +554,7 @@ export const FACTORY_OPERATIONS = [
   'factory_retry',
   'factory_queue',
   'factory_triage',
+  'factory_reorder_objective',
   'factory_enqueue',
   'factory_capacity',
   'factory_cancel_job',

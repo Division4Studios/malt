@@ -4,6 +4,7 @@
  * @file
  */
 import { child, hasFlag, number, records, text } from './api.js';
+import { dispatchSummary } from './brand-ui.js';
 import { renderReport } from './report-ui.js';
 import { element } from './worker-ui.js';
 
@@ -193,6 +194,10 @@ export function triagePanel(state: Snapshot, actions: Actions): HTMLElement {
     ? 'Supervisor enabled. Existing PR reviews, repairs and verification take priority. Roles spin down while decisions wait.'
     : 'Factory paused. Decisions are saved; jobs start after you resume.';
   panel.append(header, element('p', 'subtle', description));
+  const admission = dispatchSummary({ ...state.factory, tasks: [], error: '' }).slice(1);
+  for (const message of admission) {
+    panel.append(element('p', 'notice', message));
+  }
   const error = text(state.factory, 'error');
   if (error !== '') {
     const report = element('details', 'triage-evidence');
@@ -228,7 +233,6 @@ export function triageDialog(
   description: { title: string; explanation: string; initial: string };
   action: { operation: string; input: (body: string) => unknown };
 } {
-  const requestId = crypto.randomUUID();
   return {
     description: {
       title: `${TRIAGE_ACTIONS[action][0]} · issue #${String(number(task, 'issue'))}`,
@@ -239,7 +243,7 @@ export function triageDialog(
       operation: 'factory_triage',
       input: (note) => {
         return {
-          requestId,
+          requestId: decisionIdentity(task, action, note),
           taskId: text(task, 'id'),
           expectedVersion: number(task, 'version'),
           action,
@@ -248,4 +252,34 @@ export function triageDialog(
       },
     },
   };
+}
+
+/** Exact retry identities survive closing/reopening an uncertain editor, bounded in memory only. */
+const decisionIds = new Map<string, string>();
+/** Maximum explicit recent intents retained per browser session. */
+const DECISION_LIMIT = 100;
+
+/**
+ * A changed payload is a new intent; an unchanged retry reuses its durable receipt identity.
+ *
+ * @param task - Exact delivery revision.
+ * @param action - Explicit operator disposition.
+ * @param note - Reviewed payload.
+ * @returns Stable identity for this exact intent.
+ */
+function decisionIdentity(task: Data, action: TriageAction, note: string): string {
+  const key = JSON.stringify([text(task, 'id'), number(task, 'version'), action, note]);
+  const known = decisionIds.get(key);
+  if (known !== undefined) {
+    return known;
+  }
+  const id = crypto.randomUUID();
+  decisionIds.set(key, id);
+  if (decisionIds.size > DECISION_LIMIT) {
+    const oldest = decisionIds.keys().next().value;
+    if (oldest !== undefined) {
+      decisionIds.delete(oldest);
+    }
+  }
+  return id;
 }

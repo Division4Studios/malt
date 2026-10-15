@@ -8,7 +8,7 @@ import { MeshError } from '../protocol.ts';
 
 import { hasCriticalMemoryPressure } from './resources.ts';
 import { factorySchemas } from './schema.ts';
-import { isCurrentTriage } from './triage.ts';
+import { isCurrentTriage, cancelTriage } from './triage.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -115,15 +115,20 @@ export function shouldParkForMemory(
 export function recordCancellation(repository: FactoryRepository, job: FactoryJob): void {
   const error = 'Operator cancelled this attempt; explicit retry required.';
   if (job.taskId !== null) {
-    repository.editTask(job.taskId, (task) => {
-      return {
-        ...task,
-        phase: 'blocked',
-        error,
-        reviews: [],
-        finalReview: null,
-        verifiedMain: null,
-      };
+    repository.store.transaction(() => {
+      repository.editTask(job.taskId ?? '', (task) => {
+        return {
+          ...task,
+          phase: 'blocked',
+          error,
+          reviews: [],
+          finalReview: null,
+          verifiedMain: null,
+        };
+      });
+      if (job.kind === 'triage') {
+        cancelTriage(repository, job);
+      }
     });
     return;
   }
@@ -181,4 +186,26 @@ export function canApplyInstructionStage(context: FactoryContext, job: FactoryJo
   return (
     task.phase === stages[job.kind] && (job.kind === 'develop' || (task.head === job.head && task.base === job.base))
   );
+}
+
+/**
+ * A local gate or interrupted attempt must not consume an implementation retry.
+ *
+ * @param repository - Current project ledger.
+ * @param job - Settled original assignment.
+ * @param outcome - Fenced settlement and whether inference was skipped.
+ */
+export function refundUnpaidAttempt(
+  repository: FactoryRepository,
+  job: FactoryJob,
+  outcome: { hasSettled: boolean; isUnpaidGate: boolean; state: string },
+): void {
+  if (
+    outcome.hasSettled &&
+    job.kind === 'develop' &&
+    job.taskId !== null &&
+    (outcome.isUnpaidGate || outcome.state === 'interrupted')
+  ) {
+    repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
+  }
 }

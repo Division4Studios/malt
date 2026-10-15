@@ -45,17 +45,25 @@ export class SecretRedactor {
    */
   public write(chunk: string): string {
     this.pending += chunk;
-    let boundary = Math.max(0, this.pending.length - this.overlap);
-    for (const secret of this.secrets) {
-      boundary = this.safeBoundary(secret, boundary);
+    const boundary = Math.max(0, this.pending.length - this.overlap);
+    const output: string[] = [];
+    let offset = 0;
+    while (offset < boundary) {
+      const position = offset;
+      const match = this.secrets.find((value) => this.pending.startsWith(value, position));
+      if (match === undefined) {
+        const point = this.pending.codePointAt(offset);
+        const length = point !== undefined && point > MAX_SINGLE_UNIT_POINT ? 2 : 1;
+        output.push(this.pending.slice(offset, offset + length));
+        offset += length;
+      } else {
+        // Consume the complete match; emitting its prefix can reconstruct an overlapping credential later.
+        output.push('[REDACTED]');
+        offset += match.length;
+      }
     }
-    const crossing = this.pending.codePointAt(boundary - 1);
-    if (crossing !== undefined && crossing > MAX_SINGLE_UNIT_POINT) {
-      boundary -= 1;
-    }
-    const committed = this.pending.slice(0, boundary);
-    this.pending = this.pending.slice(boundary);
-    return this.redact(committed);
+    this.pending = this.pending.slice(offset);
+    return output.join('');
   }
 
   /**
@@ -81,23 +89,5 @@ export class SecretRedactor {
       output = output.replaceAll(secret, '[REDACTED]');
     }
     return output;
-  }
-
-  /**
-   * Keep a complete secret together when the emission boundary crosses it.
-   *
-   * @param secret - Known literal credential.
-   * @param boundary - Proposed safe prefix length.
-   * @returns Prefix length excluding any split credential.
-   */
-  private safeBoundary(secret: string, boundary: number): number {
-    let start = this.pending.indexOf(secret);
-    while (start >= 0 && start < boundary) {
-      if (start + secret.length > boundary) {
-        return start;
-      }
-      start = this.pending.indexOf(secret, start + 1);
-    }
-    return boundary;
   }
 }

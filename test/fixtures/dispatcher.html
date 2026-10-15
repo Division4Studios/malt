@@ -25,7 +25,22 @@
     };
     const state = {
       project: { id: 'fixture' },
-      factory: { active: false, tasks: [task], jobs: [], triage: [] },
+      factory: {
+        active: true,
+        tasks: [task],
+        jobs: [],
+        triage: [],
+        settings: { providers: { codex: { budgetTokens: 1, reservationTokens: 1 } } },
+        capacities: [
+          {
+            provider: 'codex',
+            usedTokens: 2,
+            reservedTokens: 0,
+            resetAt: Date.now() + 60000,
+            cooldownUntil: Date.now() + 60000,
+          },
+        ],
+      },
       github: { connection: { repository: 'fixture/app' } },
     };
     let selected;
@@ -56,6 +71,15 @@
       request.expectedVersion === 7 && request.action === 'repair' && request.taskId === task.id,
       'fenced editor request',
     );
+    check(
+      content.textContent.includes('scheduling budget exhausted') && content.textContent.includes('provider cooldown'),
+      'dispatch admission diagnostics retained',
+    );
+    check(
+      triageDialog(task, 'repair').action.input('Fix the cause').requestId === request.requestId,
+      'uncertain retry keeps identity',
+    );
+    check(editor.action.input('Different intent').requestId !== request.requestId, 'changed payload gets new identity');
     const report = content.querySelector('.triage-evidence');
     report.open = true;
     check(

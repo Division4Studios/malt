@@ -24,6 +24,7 @@ const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), wo
 const triageRecordSchema = z.record(z.unknown());
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
+  orderRevision: z.number().int().nonnegative(),
   settings: factoryConfigSchema.nullable(),
   pendingEffects: z.array(effectSchema),
   skillRequests: z.array(skillRequestSchema),
@@ -51,6 +52,7 @@ export const controlSchema = z
       'factory_retry',
       'factory_queue',
       'factory_triage',
+      'factory_reorder_objective',
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',

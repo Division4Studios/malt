@@ -5,6 +5,7 @@
  */
 import {
   LocalRequestError,
+  createOperatorControl,
   child,
   data,
   records,
@@ -147,7 +148,12 @@ const files = new Map<string, string>();
 /** Durable byte cursor per captured output. */
 const cursors = new Map<string, number>();
 /** Explicit mutations run one at a time and are never automatically retried. */
-const pendingControls = new Set<string>();
+const control = createOperatorControl({
+  scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
+  openProject,
+  refresh,
+  notice,
+});
 /** Prevent overlapping reads from duplicating a captured output chunk. */
 const pendingLogs = new Set<string>();
 /** Durable event sequence deduplication for the currently selected project. */
@@ -194,31 +200,6 @@ function editor(
   node('editor', HTMLDialogElement).showModal();
 }
 
-/**
- * Submit one explicit broker operation; errors never trigger automatic mutation retries.
- *
- * @param operation - Allowed control name.
- * @param input - Operator-reviewed input.
- */
-async function control(operation: string, input: unknown): Promise<void> {
-  if (pendingControls.size > 0 || state.current === null) {
-    return;
-  }
-  pendingControls.add(operation);
-  try {
-    if (operation === 'open-project' && typeof input === 'string') {
-      await openProject(input);
-      return;
-    }
-    await request(scoped(state.project, '/api/control'), { operation, input });
-    notice('Saved to project memory. The factory will coordinate the next safe step.', true);
-    await refresh();
-  } catch (error) {
-    notice(error instanceof Error ? error.message : 'The control could not be applied.');
-  } finally {
-    pendingControls.delete(operation);
-  }
-}
 /** Role and ticket interactions feed the durable server control path. */
 const actions: Actions = {
   triage: (task, action) => {
@@ -589,6 +570,27 @@ function objective(): void {
     { operation: 'factory_request', input: (body) => ({ objective: body, requestId }) },
   );
 }
+/** Submit once; uncertain outcomes keep the exact editor intent available for explicit retry. */
+async function submitEdit(): Promise<void> {
+  if (state.edit === null) {
+    return;
+  }
+  try {
+    const input = state.edit.input(node('editor-body', HTMLTextAreaElement).value);
+    const { operation } = state.edit;
+    const { edit } = state;
+    const isApplied = await control(operation, input);
+    if (!isApplied || state.edit !== edit) {
+      return;
+    }
+    node('editor', HTMLDialogElement).close();
+    state.edit = null;
+  } catch (error) {
+    node('editor-error', HTMLParagraphElement).textContent =
+      error instanceof Error ? error.message : 'Invalid control input.';
+  }
+}
+
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
   restoreLayout();
@@ -609,18 +611,7 @@ async function start(): Promise<void> {
   });
   node('editor-form', HTMLFormElement).addEventListener('submit', (event) => {
     event.preventDefault();
-    if (state.edit === null) {
-      return;
-    }
-    try {
-      const input = state.edit.input(node('editor-body', HTMLTextAreaElement).value);
-      const { operation } = state.edit;
-      node('editor', HTMLDialogElement).close();
-      void control(operation, input);
-    } catch (error) {
-      node('editor-error', HTMLParagraphElement).textContent =
-        error instanceof Error ? error.message : 'Invalid control input.';
-    }
+    void submitEdit();
   });
   node('project', HTMLSelectElement).addEventListener('change', () => {
     state.project = node('project', HTMLSelectElement).value;

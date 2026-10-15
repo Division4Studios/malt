@@ -27,6 +27,7 @@ export async function factoryStatus(
   telemetry: { connected: boolean; error: string | null; resources: ResourceSnapshot; admission: AdmissionEvidence },
 ): Promise<unknown> {
   const settings = repository.config();
+  const processUsage = await ownedProcessUsage(repository.jobs());
   return {
     configured: settings !== null,
     active: repository.active(),
@@ -34,10 +35,9 @@ export async function factoryStatus(
     error: telemetry.error,
     resources: telemetry.resources,
     admission: telemetry.admission,
-    processUsage: await ownedProcessUsage(repository.jobs()),
+    processUsage,
     settings,
-    features: repository.features(),
-    objectiveQueue: repository.objectiveQueue.read(repository.features()),
+    ...repository.objectiveQueue.snapshot(),
     tasks: repository.tasks(),
     triage: triageStatus(repository),
     jobs: repository.jobs(),
