@@ -41,6 +41,7 @@ export function appendQuotaWindows(target: HTMLElement, capacity: Data): void {
     const deadline = typeof reset === 'number' ? localTime(reset) : 'unknown';
     const percent = String(number(window, 'usedPercent'));
     target.append(element('p', 'capacity-details', `${label}: ${percent}% used · resets ${deadline}`));
+    target.append(element('p', 'subtle', quotaWindowObservation(window)));
   }
 }
 
@@ -55,7 +56,7 @@ export function quotaWindowObservation(window: Data): string {
   const at = typeof observed === 'number' ? localTime(observed) : 'unknown';
   const freshness = firstText(text(window, 'freshness'), 'freshness unknown');
   const source = firstText(text(window, 'source'), 'source unknown');
-  return `Observed ${at} ? ${freshness} ? ${source}`;
+  return `Observed ${at} | ${freshness} | ${source}`;
 }
 
 /**
