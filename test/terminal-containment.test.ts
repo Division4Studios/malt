@@ -39,6 +39,7 @@ for (const mode of ['close', 'disconnect'] as const) {
       const artifact = path.join(project.directory, 'terminal');
       let text = '';
       let cliPid = 0;
+      let failure = '';
       const terminal = startTerminalProcess({
         launch: { provider: 'codex', file: 'codex', cwd: project.root, columns: 80, rows: 24 },
         artifact,
@@ -46,6 +47,10 @@ for (const mode of ['close', 'disconnect'] as const) {
         cpuPercent: 50,
         fixture: true,
         onFrame(frame) {
+          if (frame.type === 'error') {
+            failure = frame.code;
+            return;
+          }
           if (frame.type === 'started') {
             cliPid = frame.pid;
           } else if (frame.type === 'data') {
@@ -54,7 +59,8 @@ for (const mode of ['close', 'disconnect'] as const) {
         },
       });
       defer(async () => terminal.stop());
-      await until(() => text.includes('SIZE 80 24'), 10_000);
+      await until(() => text.includes('SIZE 80 24') || failure !== '', 10_000);
+      assert.equal(failure, '', 'The contained host must start successfully.');
       terminal.send({ type: 'input', data: Buffer.from('spawn\rignore-term\r') });
       await until(() => text.includes('GRANDCHILD ') && text.includes('IGNORING SIGTERM'), 10_000);
       const match = /GRANDCHILD (?<pid>\d+)/v.exec(text);

@@ -100,6 +100,15 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
     completion.resolve(undefined);
   };
   child.once('close', finish);
+  child.once('exit', () => {
+    if (stopping === null) {
+      return;
+    }
+
+    input.destroy();
+    output.destroy();
+    finish();
+  });
   child.once('error', finish);
   const stop = async (): Promise<void> => {
     stopping ??= (async (): Promise<void> => {
@@ -110,6 +119,11 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
         child.disconnect();
       }
       input.destroy();
+      if (child.exitCode !== null || child.signalCode !== null) {
+        output.destroy();
+        finish();
+        return;
+      }
       timer = setTimeout(() => {
         if (isSettled || child.pid === undefined) {
           return;
