@@ -52,7 +52,9 @@ export async function hasParkedPRUpdate(context: FactoryContext, task: FactoryTa
     }
     return true;
   }
-  if (pr.headRefOid !== task.head) {
+  // Publication may have committed a new local head before its remote PR catches up.
+  // retryPublication uses ordinary fast-forward pushes; divergent remote work still rejects safely.
+  if (task.phase !== 'publishing' && pr.headRefOid !== task.head) {
     context.repository.editTask(task.id, (value) => {
       return {
         ...value,

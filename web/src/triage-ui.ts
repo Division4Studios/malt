@@ -113,8 +113,10 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   const summary = element('summary');
   summary.dataset['queueFocus'] = `triage:${id}`;
   const issue = String(number(task, 'issue'));
+  const signal = element('span', 'triage-signal', '\u{203A}');
+  signal.setAttribute('aria-hidden', 'true');
   summary.append(
-    element('span', 'triage-signal', '◇'),
+    signal,
     element('span', 'triage-title', `#${issue} ${text(task, 'title')}`),
     element('span', 'pill', triageLabel(task, decisions)),
   );

@@ -52,6 +52,7 @@
     const content = document.querySelector('#content');
     content.append(triagePanel(state, actions));
     const card = content.querySelector('.triage-card');
+    check(card.querySelector('.triage-signal').textContent === '\u{203A}', 'asymmetric open/closed disclosure signal');
     card.open = true;
     check(content.querySelectorAll('.triage-action').length === 6, 'six explicit actions');
     check(
