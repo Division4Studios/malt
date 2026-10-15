@@ -20,7 +20,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { loadConfig, loadIdentity } from '../src/config.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';

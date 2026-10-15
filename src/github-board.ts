@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode, readJsonFile } from './config.ts';
 import { MeshError } from './protocol.ts';

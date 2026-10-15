@@ -12,7 +12,7 @@ import { MeshError } from './protocol.ts';
 
 import type { OperationInput } from './protocol.ts';
 import type { DatabaseSync } from 'node:sqlite';
-import type { z } from 'zod';
+import type { z } from 'zod/v3';
 
 /** One durable event, with its data payload decoded. */
 export interface MeshEvent extends Omit<z.output<typeof eventRowSchema>, 'data'> {

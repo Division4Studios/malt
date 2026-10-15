@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { loadConfig } from '../src/config.ts';
 import { selectCount } from '../src/database.ts';

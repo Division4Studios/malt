@@ -5,7 +5,7 @@
  */
 import { stripVTControlCharacters } from 'node:util';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { FACTORY_ROLES, capacitySchema, featureSchema, publicJobSchema, taskSchema } from './factory/schema.ts';
 /** Named pane gap bound. */

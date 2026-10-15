@@ -9,7 +9,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { recoverUnownedClaims } from '../src/factory/controls.ts';
 import { HANDOFF_SUMMARY_MAX, handoffSchema } from '../src/factory/handoffs.ts';

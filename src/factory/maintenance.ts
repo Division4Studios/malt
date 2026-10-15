@@ -9,7 +9,7 @@ import { mkdirSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { openTeamConfig, rpc } from '../client.ts';
 import { loadConfig, readJsonFile, writeIfAbsent } from '../config.ts';

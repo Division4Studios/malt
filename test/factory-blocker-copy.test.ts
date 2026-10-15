@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Compiled browser module, checked without installing browser dependencies. */
 const moduleUrl = new URL(['..', 'web', 'dist', 'brand-ui.js'].join('/'), import.meta.url);

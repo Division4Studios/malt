@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';

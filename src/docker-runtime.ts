@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { startBroker } from './broker.ts';
 import { loadConfig, saveBrokerDiscovery } from './config.ts';

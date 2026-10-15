@@ -6,7 +6,7 @@
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';

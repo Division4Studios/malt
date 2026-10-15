@@ -10,7 +10,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
 import { rpc, AgentClient } from '../src/client.ts';

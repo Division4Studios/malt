@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { selectAll } from '../src/database.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';

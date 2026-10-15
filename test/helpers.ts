@@ -22,7 +22,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { loadConfig } from '../src/config.ts';
 

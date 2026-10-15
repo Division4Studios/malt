@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { writeAtomic } from '../summary.ts';
 

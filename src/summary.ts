@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { parseConnection } from './connector.ts';
 import { selectAll, selectCount, selectOne } from './database.ts';

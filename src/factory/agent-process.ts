@@ -10,7 +10,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { subscriptionEnvironment } from './authentication.ts';
 import { terminateTree } from './commands.ts';

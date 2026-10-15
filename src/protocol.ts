@@ -19,7 +19,7 @@
  * @file
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
 

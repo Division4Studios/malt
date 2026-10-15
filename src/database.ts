@@ -17,7 +17,7 @@
  * @file
  */
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { AGENT_LIFETIMES, AGENT_STATES, COORDINATION_PHASES, STORED_MESSAGE_TYPES } from './protocol.ts';
 

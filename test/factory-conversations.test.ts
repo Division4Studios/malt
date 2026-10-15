@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';

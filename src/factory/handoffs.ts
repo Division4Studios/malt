@@ -4,7 +4,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import type { ExecutedJob } from './context.ts';
 import type { Feature, FactoryJob, FactoryTask } from './schema.ts';

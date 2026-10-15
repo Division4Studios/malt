@@ -6,7 +6,7 @@
  */
 import { createHash } from 'node:crypto';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 /** Bound reusable types independently of live process admission. */
 const MAX_TYPES = 32;

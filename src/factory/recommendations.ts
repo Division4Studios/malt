@@ -1,7 +1,7 @@
 /** @file Project-scoped recommendation revisions and transactional state fences. */
 import { createHash } from 'node:crypto';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { run, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';

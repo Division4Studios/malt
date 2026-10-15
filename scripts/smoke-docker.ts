@@ -31,7 +31,7 @@ import { promisify } from 'node:util';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 const exec = promisify(execFile);
 

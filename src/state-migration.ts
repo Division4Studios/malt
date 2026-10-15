@@ -18,7 +18,7 @@ import {
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { hasErrorCode } from './errors.ts';
 import { writeAtomic } from './summary.ts';

@@ -33,7 +33,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { once } from 'node:events';
 import http from 'node:http';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { FactoryService } from './factory/service.ts';
 import { ProjectGitHub } from './github.ts';

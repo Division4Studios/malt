@@ -26,7 +26,7 @@ import { mkdirSync, statSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import {
   STATE_DIRECTORY_NAME,

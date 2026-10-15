@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { z } from 'zod';
+import { z } from 'zod/v3';
 
 import { run, selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
