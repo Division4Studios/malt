@@ -1,6 +1,6 @@
 # Interactive terminals: feasibility and binding decisions
 
-Status: decision record for the interactive-terminal feature (parent issue #101, this record #102). No terminal code exists yet. Worker panes in the operator console show real logs and durable messages; they are not terminals.
+Status: decision record for the interactive-terminal feature (parent issue #101, this record #102). The operator-to-PTY session path is not implemented by this record. The deterministic terminal fixture and bounded output buffer already exist as supporting components. Worker panes in the operator console show real logs and durable messages; they are not terminals.
 
 This record binds the later terminal children so they do not have to guess. A child that needs to depart from a decision here must update this record in the same delivery and say why. Decisions that need a human are marked **human decision**.
 
@@ -67,7 +67,7 @@ codex --sandbox workspace-write --ask-for-approval on-request --cd <scratch-work
 claude --restricted --strict-mcp-config --permission-mode manual
 ```
 
-The binding launch environment sets `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1`. The working directory is the scratch worktree, which is the PTY `cwd`. Under `--restricted`, file tools are confined to the working directory and Bash is unavailable, so the CLI cannot `git push` or run arbitrary programs. A later human decision may relax this (for example `--tools` naming Bash). That would be a separate reviewed change to this record.
+The future descriptor builder must set `CLAUDE_CODE_SKIP_PROMPT_HISTORY=1` after constructing the allowlisted environment, overriding any inherited value. Its launch-contract regression must supply a conflicting caller value and assert that the effective child value is `1`. This is a binding requirement for the later terminal host, not a claim that this documentation PR launches interactive Claude sessions. The working directory is the scratch worktree, which is the PTY `cwd`. Under `--restricted`, file tools are confined to the working directory and Bash is unavailable, so the CLI cannot `git push` or run arbitrary programs. A later human decision may relax this (for example `--tools` naming Bash). That would be a separate reviewed change to this record.
 
 ### Subscription authentication
 
@@ -190,7 +190,7 @@ Reconnect consequences:
 
 ## 7. Platform and provider support matrix
 
-Every cell is **unverified** for MALT terminals: no terminal code exists, and no real provider CLI ran under a PTY for this record. The executed node-pty probe above shows the dependency loads and relays keystrokes and resizes on win32-x64 and linux-x64 for a Node fixture only. It does not verify any cell below.
+Every cell is **unverified** for integrated MALT terminals: supporting fixture and output-buffer code exists, but no real provider CLI ran through the complete MALT PTY/session path for this record. The executed node-pty probe above shows the dependency loads and relays keystrokes and resizes on win32-x64 and linux-x64 for a Node fixture only. It does not verify any cell below.
 
 | Platform                             | PTY host plus fixture | Codex interactive | Claude interactive | Descendant cleanup |
 | ------------------------------------ | --------------------- | ----------------- | ------------------ | ------------------ |
