@@ -128,15 +128,16 @@ export function encodeFrame(frame: Frame): Buffer {
 }
 
 /**
- * Parse a JSON control body.
+ * Parse a JSON control body without repairing malformed UTF-8 or stripping a BOM.
  *
  * @param body - Frame body.
  * @returns Parsed value.
- * @throws {TerminalProtocolError} When the body is not JSON.
+ * @throws {TerminalProtocolError} When the body is not valid UTF-8 JSON.
  */
 function parseJson(body: Buffer): unknown {
   try {
-    return JSON.parse(body.toString('utf8')) as unknown;
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    return JSON.parse(decoder.decode(body)) as unknown;
   } catch (error) {
     throw new TerminalProtocolError('malformed', { cause: error });
   }
@@ -160,6 +161,9 @@ function decodeBody(typeByte: number, body: Buffer): Frame {
     candidate = { type, data: new Uint8Array(body) };
   } else {
     const json = parseJson(body);
+    if (typeof json === 'object' && json !== null && Object.hasOwn(json, 'type')) {
+      throw new TerminalProtocolError('invalid_frame');
+    }
     candidate = typeof json === 'object' && json !== null && !Array.isArray(json) ? { ...json, type } : json;
   }
   const parsed = frameSchema.safeParse(candidate);

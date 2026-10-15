@@ -146,3 +146,35 @@ void test('a failed decoder stays failed and never resynchronizes', () => {
   assert.equal(decoder.idle, false);
   rejects(() => decoder.push(encodeFrame({ type: 'close' })), 'after_error');
 });
+
+void test('control bodies reject every embedded type and poison the stream', () => {
+  for (const type of ['close', 'resize', null, 3]) {
+    const decoder = new FrameDecoder();
+    const bytes = raw(TYPE_RESIZE, JSON.stringify({ type, columns: 80, rows: 24 }));
+    rejects(() => decoder.push(bytes), 'invalid_frame');
+    rejects(() => decoder.push(encodeFrame({ type: 'close' })), 'after_error');
+  }
+});
+
+void test('malformed UTF-8 in a valid-shaped JSON string poisons the decoder', () => {
+  const prefix = Buffer.from('{"code":0,"signal":"');
+  const suffix = Buffer.from('"}');
+  for (const invalid of [[0xc3, 0x28], [0xff], [0xe2, 0x82], [0xc0, 0xaf], [0xed, 0xa0, 0x80]]) {
+    const body = Buffer.concat([prefix, Buffer.from(invalid), suffix]);
+    const bytes = Buffer.concat([Buffer.from([0, 0, 0, body.length + 1, TYPE_EXIT]), body]);
+    const decoder = new FrameDecoder();
+    rejects(() => decoder.push(bytes), 'malformed');
+    rejects(() => decoder.push(encodeFrame({ type: 'close' })), 'after_error');
+  }
+});
+
+void test('valid multibyte control text survives every split and BOM-prefixed JSON is rejected', () => {
+  const frame: Frame = { type: 'error', code: 'fixture', message: '\u{E9}\u{6F22}\u{1F33E}' };
+  const bytes = encodeFrame(frame);
+  for (let split = 0; split <= bytes.length; split += 1) {
+    const decoder = new FrameDecoder();
+    assert.deepEqual([...decoder.push(bytes.subarray(0, split)), ...decoder.push(bytes.subarray(split))], [frame]);
+    assert.equal(decoder.idle, true);
+  }
+  rejects(() => decode(raw(TYPE_CLOSE, '\u{FEFF}{}')), 'malformed');
+});
