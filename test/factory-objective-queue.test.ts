@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 
+import { objectiveQueueSchema, MAX_OBJECTIVES } from '../src/factory/objective-queue-schema.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { Store } from '../src/store.ts';
@@ -63,4 +64,50 @@ await test('objective order and focus survive restart and reject stale, foreign 
   assert.ok(current !== undefined);
   repository.saveFeature({ ...current, phase: 'done' });
   assert.equal(repository.objectiveQueue.read(repository.features()).focusedFeatureId, null);
+});
+
+await test('archived history does not overflow the queue and creation cannot exceed its unfinished limit', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const requestId = randomUUID();
+  queueObjective(repository, { objective: 'Pending', requestId });
+  const pending = repository.features()[0];
+  assert.ok(pending !== undefined);
+  const archived = Array.from({ length: MAX_OBJECTIVES + 1 }, () => {
+    return {
+      ...pending,
+      id: randomUUID(),
+      phase: 'done' as const,
+    };
+  });
+  const features = [...archived, pending];
+  const queue = repository.objectiveQueue.read(features);
+  assert.deepEqual(objectiveQueueSchema.parse(queue).order, [pending.id]);
+  assert.equal(
+    repository.objectiveQueue.update(features, {
+      expectedRevision: 0,
+      order: [pending.id],
+      focusedFeatureId: pending.id,
+    }).revision,
+    1,
+  );
+  store.transaction(() => {
+    const insert = store.db.prepare('INSERT INTO factory_features VALUES(?,?)');
+    for (let index = 1; index < MAX_OBJECTIVES; index += 1) {
+      const value = { ...pending, id: randomUUID() };
+      insert.run(value.id, JSON.stringify(value));
+    }
+  });
+  assert.throws(() => queueObjective(repository, { objective: 'Would overflow' }), /5,000 unfinished/v);
+  assert.deepEqual(
+    queueObjective(repository, { objective: 'Pending', requestId }),
+    { featureId: requestId },
+    'An exact retry remains idempotent at capacity.',
+  );
+  assert.equal(repository.objectiveQueue.read(repository.features()).order.length, MAX_OBJECTIVES);
 });

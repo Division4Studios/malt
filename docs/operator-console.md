@@ -194,4 +194,4 @@ The equivalent operator command is `node src/cli.ts factory-queue --file queue.j
 }
 ```
 
-Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` must contain **every** current objective ID exactly once, including archived ones. Use `null` for `focusedFeatureId` to release focus. The same validated `factory_queue` operation serves MCP, CLI and paired browser controls. Reordering is limited to 5,000 objectives per request by the local request-size boundary.
+Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` must contain **every unfinished** current objective ID exactly once; completed and superseded objectives are excluded. Use `null` for `focusedFeatureId` to release focus. The same validated `factory_queue` operation serves MCP, CLI and paired browser controls. A project can have at most 5,000 unfinished objectives, matching the request-size boundary. Completed and superseded objectives remain in history without consuming queue positions.

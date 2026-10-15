@@ -47,10 +47,11 @@ export class ObjectiveQueue {
       row === undefined
         ? { revision: 0, order: [], focusedFeatureId: null }
         : objectiveQueueSchema.parse(JSON.parse(row.data));
-    const ids = new Set(features.map((feature) => feature.id));
+    const unfinished = features.filter((feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined);
+    const ids = new Set(unfinished.map((feature) => feature.id));
     const order = saved.order.filter((id) => ids.has(id));
     const known = new Set(order);
-    order.push(...features.filter((feature) => !known.has(feature.id)).map((feature) => feature.id));
+    order.push(...unfinished.filter((feature) => !known.has(feature.id)).map((feature) => feature.id));
     const focus = features.find((feature) => feature.id === saved.focusedFeatureId);
     return {
       ...saved,
@@ -71,14 +72,17 @@ export class ObjectiveQueue {
   public update(features: readonly Feature[], input: unknown): ObjectiveQueueState {
     const value = queueControlSchema.parse(input);
     return this.store.transaction(() => {
+      const unfinished = features.filter(
+        (feature) => feature.phase !== 'done' && feature.scopeReplacement === undefined,
+      );
       const prior = this.read(features);
       const ids = new Set(value.order);
       const focus = features.find((feature) => feature.id === value.focusedFeatureId);
       if (
         value.expectedRevision !== prior.revision ||
         ids.size !== value.order.length ||
-        ids.size !== features.length ||
-        features.some((feature) => !ids.has(feature.id))
+        ids.size !== unfinished.length ||
+        unfinished.some((feature) => !ids.has(feature.id))
       ) {
         throw new MeshError('INVALID_INPUT', 'The objective queue changed. Refresh and apply your order again.');
       }
