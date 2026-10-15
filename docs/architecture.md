@@ -2,6 +2,8 @@
 
 The managed supervisor and PWA extend the cooperative messaging core. [Operator console architecture](operator-console.md) describes the browser boundary, routing and human-gated local overrides. Managed roles exit after bounded assignments; attached roles retain their existing check-in/wait contract.
 
+For a dated implementation map and the unfinished integration boundaries, see [current capabilities](current-status.md) and the [95-issue audit](issue-audit-2026-10-15.md).
+
 ## Current milestone
 
 The current service combines durable communication with orchestrator-controlled check-in and cooperative wait/resume. The core contains no Claude/Codex execution semantics and makes no inference API calls. See the [README](../README.md), [workflow](workflow.md), and [API reference](api.md).
@@ -85,6 +87,8 @@ All RPCs require the addressed team's bearer secret and project ID; one team's t
 The local OS account and users with Docker access are trusted administrators: they can read project/identity files and inspect the database. This is not tenant isolation or a hostile-agent sandbox. Local broker credentials live in the project .malt folders; GitHub authentication stays with gh or the container environment. The broker invokes gh using argument arrays and structured stdin without a shell. It never executes downloaded research scripts or blanket-kills provider processes. Managed assignments use explicit provider permissions and terminate only their owned process trees; cooperative attached sessions retain their host permissions. Bind to loopback outside Docker; container port publication is loopback-only. Remote hosting and TLS are outside this milestone.
 
 ## Factory execution and verification boundaries
+
+Objective ordering, focus/clearance and blocker decisions share the durable repository/supervisor authority. Model tier/effort routing is implemented, but a revisioned allowed-combination policy is not. Connector v2 records, the capability policy store, recommendation storage/classification and terminal frames/buffers are separate foundations; their presence does not grant connector authority, execute a consolidation or start a PTY.
 
 Transactional task claims, dependency validation, original-owner rework, independent head/base reviews, owned worktrees, native provider launch policies and an unpaid supervisor now implement the managed lifecycle. The native terminal dashboard and installable PWA inspect and control the same durable backend; neither is a separate scheduler. Frontend production dependencies are absent; MCP SDK and Zod remain backend dependencies.
 

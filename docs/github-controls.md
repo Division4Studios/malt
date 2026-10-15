@@ -2,7 +2,9 @@
 
 **Temporary solo-maintainer exception (owner authorized 2026-10-14; review by 2026-10-28):** GitHub approval count is zero, code-owner approval and latest-push approval are not enforced because no independent collaborator is available. PRs, fresh required checks, CodeQL merge protection, conversation resolution, linear history and administrator enforcement remain active. Factory deliveries still require two independent local QA results and final verification. Restore two authenticated approvals, code-owner review and latest-push approval when trusted collaborators join. This is an explicit exception, not proof of independent GitHub review.
 
-This inventory records the public MIT repository's intended controls and the verified settings on 2026-10-14. GitHub features, availability and permissions change. Read back the live setting after an update; an unchecked setup checklist is not evidence of protection.
+This inventory records the public MIT repository's intended controls and the verified settings on 2026-10-15. GitHub features, availability and permissions change. Read back the live setting after an update; an unchecked setup checklist is not evidence of protection.
+
+Readback during the issue audit found the aggregate quality/security checks were not required. The required-check list now contains all three platform checks, Docker, Quality gate and Security gate. The CodeQL ruleset and temporary authenticated-review exception are unchanged.
 
 ## Code and review
 
@@ -27,14 +29,14 @@ Require actual `check (ubuntu-latest)`, `check (windows-latest)`, `check (macos-
 
 | Control                         | Decision and evidence boundary                                                                                                                                                                                                     |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Private vulnerability reporting | Enabled; [report privately](https://github.com/Division4Studios/malt/security/advisories/new). Root `SECURITY.md` becomes the detected policy after it lands on main.                                                              |
+| Private vulnerability reporting | Enabled; [report privately](https://github.com/Division4Studios/malt/security/advisories/new). Root `SECURITY.md` is on main and private-reporting API readback is enabled.                                                        |
 | Dependency graph / alerts       | Enabled. npm's committed lockfile supplies the dependency graph; automatic build dependency submission adds no needed npm coverage here.                                                                                           |
 | Malware alerts                  | Enabled. Review findings; do not automatically dismiss low severity or development dependencies.                                                                                                                                   |
-| Security updates                | Enabled. Version updates for npm, Actions and Docker are defined in `.github/dependabot.yml` when merged. No automatic dependency PR approval/merge.                                                                               |
+| Security updates                | Enabled. Version updates for npm, Actions and Docker are defined in the merged `.github/dependabot.yml`. No automatic dependency PR approval/merge.                                                                                |
 | CodeQL                          | GitHub-managed default setup with the extended suite for JavaScript/TypeScript and Actions. Verify completed analyses and tool coverage; configured is not equivalent to scanned. Do not add a competing advanced CodeQL workflow. |
 | Secret scanning                 | Enabled, including push protection for supported patterns. Generic non-provider patterns and validity checks are not verified enabled for this account.                                                                            |
-| History scanning                | Prepared CI runs pinned, checksum-verified Gitleaks with redacted output. The only exception is one exact deterministic test fixture at its exact path.                                                                            |
-| Dependency review               | Prepared PR gate rejects newly introduced known vulnerabilities at low severity or above; full audit also checks existing dependencies.                                                                                            |
+| History scanning                | CI runs pinned, checksum-verified Gitleaks with redacted output. The only exception is one exact deterministic test fixture at its exact path.                                                                                     |
+| Dependency review               | The PR gate rejects newly introduced known vulnerabilities at low severity or above; full audit also checks existing dependencies.                                                                                                 |
 | Actions                         | Selected official actions, mandatory full SHA pins, read-only default token, no workflow-authored review approvals.                                                                                                                |
 | Fork contributions              | No secrets or write token for untrusted PR code. Do not run a fork checkout in `pull_request_target` or privileged `workflow_run`. Require approval of outside-contributor workflows.                                              |
 | Runners                         | GitHub-hosted isolated runners. Do not attach a public fork workflow to the operator's workstation or a trusted self-hosted agent host.                                                                                            |
@@ -67,7 +69,7 @@ The local broker holds GitHub and provider authority. Keep `.malt/`, legacy stat
 
 ## Community and optional services
 
-Issues, Discussions, Projects, collaborator-edited Wiki and repository archive preservation are enabled. Public users may open issues and PRs. Templates route support to Q&A and vulnerabilities to private reporting; they become default behavior after merge. Use labels and milestones for actual work rather than inventing release commitments. Duplicate consolidation remains human-reviewed.
+Issues, Discussions, Projects, collaborator-edited Wiki and repository archive preservation are enabled. Public users may open issues and PRs. Templates route support to Q&A and vulnerabilities to private reporting; they are present on the default branch. Use labels and milestones for actual work rather than inventing release commitments. Duplicate consolidation remains human-reviewed.
 
 The Sponsors destination is the owner's existing public listing. Account identity, taxes, payouts and benefits require owner administration. No new financial or support promises are made by a funding link.
 

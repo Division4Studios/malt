@@ -12,8 +12,11 @@ preserved. Project membership and board grouping are separate: an issue can
 belong to a Project while its displayed Status is empty. No saved view is
 configured by this connection form.
 
-The following broader console is requested and queued for managed factory
-delivery; it is not represented as already implemented.
+## Implemented foundations and remaining integration
+
+Merged slices include [tracker/source records](connection-records.md) (#73 / PR #122), the [capability policy store](capability-policy.md) (#74 / PR #123), additive provider-typed work keys (#75 / PR #124), and connection-bound issue recovery (#82 / PR #122). Existing numeric readers remain in use. A stored capability mode is not yet an enforced permission boundary.
+
+Read-only discovery, opaque connector handles, universal ProjectGitHub capability checks, per-step verification and the matrix UI remain queued. So do label/milestone/view management and real Jira discovery. See [#72](https://github.com/Division4Studios/malt/issues/72), the [complete audit](issue-audit-2026-10-15.md) and [current capabilities](current-status.md). The requirements below describe remaining integration, not completed behavior.
 
 ## Independent work-tracker and source-control connections
 
