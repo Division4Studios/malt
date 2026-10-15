@@ -77,7 +77,7 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
   );
   const child = spawn(process.execPath, [path.join(import.meta.dirname, 'agent-process.ts'), wrapperFile], {
     windowsHide: true,
-    stdio: ['pipe', 'pipe', 'ignore', 'ipc'],
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
   const input = child.stdin;
   const output = child.stdout;
@@ -88,6 +88,7 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
     throw new Error('Terminal wrapper requires owned pipes.');
   }
   let isSettled = false;
+  let diagnostic = '';
   let stopping: Promise<void> | null = null;
   let timer: NodeJS.Timeout | null = null;
   const completion = Promise.withResolvers<undefined>();
@@ -101,6 +102,13 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
   };
   child.once('close', finish);
   child.once('exit', () => {
+    if (diagnostic !== '') {
+      spec.onFrame({
+        type: 'error',
+        code: 'host_setup_failed',
+        message: spec.fixture === true ? diagnostic.slice(0, 500) : 'The native host wrapper failed during startup.',
+      });
+    }
     if (stopping === null) {
       return;
     }
@@ -110,6 +118,9 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
     finish();
   });
   child.once('error', finish);
+  child.stderr?.on('data', (bytes: Uint8Array) => {
+    diagnostic = (diagnostic + Buffer.from(bytes).toString('utf8')).slice(0, 500);
+  });
   const stop = async (): Promise<void> => {
     stopping ??= (async (): Promise<void> => {
       if (isSettled) {
