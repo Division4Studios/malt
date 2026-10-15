@@ -102,6 +102,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   let isMerged = false;
   let isReturned = false;
   let writes = 0;
+  let trackingFailures = 0;
   let creations = 0;
   let isLostResponse = false;
   let isParentClosureRetried = false;
@@ -155,6 +156,11 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       return task.head;
     },
     effect: async (effect) => {
+      if (effect.id.startsWith('project-tracking:') && effect.value === 'Development' && trackingFailures < 6) {
+        trackingFailures += 1;
+        assert.equal(writes, 0, 'An unavailable Project must not start paid implementation.');
+        throw new Error('Fixture transient Project outage before inference.');
+      }
       if (effect.kind === 'comment' && effect.value.includes('implementation prepared.')) {
         completionUpdates.push(effect.value);
       }
@@ -183,6 +189,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.ok(request.prompt.includes('factory-session'));
     assert.ok(request.prompt.includes('Adapted from'));
     if (request.job.kind === 'plan' || request.job.kind === 'refine') {
+      assert.match(request.prompt, /"deliveryLimits":\s*\{\s*"maxDiffLines": 123,\s*"maxFiles": 7\s*\}/v);
       return completion({
         ...success,
         deliveries: [
@@ -244,6 +251,9 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
+      maxAttempts: 3,
+      maxDiffLines: 123,
+      maxFiles: 7,
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
       endToEndCommands: [{ file: process.execPath, args: ['check.mjs'] }],
     });
@@ -257,8 +267,9 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     });
     const task = factory.repository.tasks()[0];
     assert.ok(task !== undefined);
-    assert.equal(task.phase, 'done', JSON.stringify(factory.status()));
+    assert.equal(task.phase, 'done', JSON.stringify(await factory.status()));
     assert.equal(task.attempts, 2);
+    assert.equal(trackingFailures, 6, 'Unpaid outages must recover beyond the development attempt ceiling.');
     assert.equal(writes, 2, 'Push and ambiguous PR failures must not repeat successful paid implementation.');
     assert.equal(
       completionUpdates.length,
@@ -271,6 +282,8 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Confirm that the disposable remote actually rejected a publication push once.
     assert.ok(existsSync(path.join(root, 'origin.git', 'hooks', 'failed-once')));
     assert.ok(isReturned);
+    assert.ok(stages.includes('plan'));
+    assert.ok(stages.includes('refine'));
     assert.ok(stages.includes('final'));
     assert.ok(stages.includes('verify'));
     assert.ok(closed.has(1));
@@ -291,7 +304,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect the fixed baseline file in disposable project memory.
     assert.ok(existsSync(path.join(mesh.directory, 'skills', 'builtin', 'factory-review', 'SKILL.md')));
     assert.equal(await command('git', ['show', 'origin/main:value.mjs'], source), 'export const value = 3;');
-    const dashboard = dashboardSchema.parse(factory.status());
+    const dashboard = dashboardSchema.parse(await factory.status());
     assert.ok(
       renderDashboard(dashboard, { tab: 0, row: 0, scroll: 0 }, { width: 120, height: 30 }, '').includes(
         'SOFTWARE FACTORY',

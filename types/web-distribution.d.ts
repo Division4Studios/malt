@@ -7,14 +7,12 @@
 
 declare module '*/web/dist/brand-ui.js' {
   /**
-   * Select pending objectives (bounded) followed by the most recent completed ones.
+   * Group every objective without truncation.
    *
    * @param objectives - Product objectives in original order.
-   * @param completedLimit - Completed objectives to keep.
-   * @returns Selected objectives.
+   * @returns Complete labelled phase groups.
    */
-  export function objectivePreview(
+  export function objectiveGroups(
     objectives: Record<string, unknown>[],
-    completedLimit: number,
-  ): Record<string, unknown>[];
+  ): { title: string; items: Record<string, unknown>[] }[];
 }

@@ -277,6 +277,32 @@ await test('GitHub can reuse a named existing workflow field and refuses a missi
   });
 });
 
+await test('factory reconnect preserves the selected Status field and accepts only stable-identity repository aliases', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  remote.hasField = true;
+  remote.statusFieldName = 'Status';
+  const github = new ProjectGitHub(config, remote.run);
+  await github.execute('github_connect', { ...connection, statusFieldName: 'Status' });
+  const runner: GitHubRunner = async (args, input) => {
+    if (args.includes('id,nameWithOwner')) {
+      return { id: args[2]?.includes('different') === true ? 'R_other' : 'R_same', nameWithOwner: 'example/app' };
+    }
+    return remote.run(args, input);
+  };
+  const adapter = new GitHubDelivery(config, github, runner);
+  await adapter.verify('https://github.com/example/old-name.git');
+  const statusField = z.object({ name: z.string() });
+  const savedConnection = z.object({ statusField });
+  const status = z.object({ connection: savedConnection });
+  const saved = status.parse(await github.execute('github_status', {}));
+  assert.equal(saved.connection.statusField.name, 'Status');
+  await assert.rejects(adapter.verify('https://github.com/example/different.git'), { code: 'WRONG_PROJECT' });
+  await assert.rejects(adapter.verify('https://github.com.attacker.invalid/example/app.git'), {
+    code: 'WRONG_PROJECT',
+  });
+});
+
 await test('GitHub connection is explicit, project-local and preserves existing fields', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
@@ -414,14 +440,14 @@ await test('the actual factory delivery adapter provisions a valid native featur
         key: 'first',
         title: 'First slice',
         description: 'Independently observable first result.',
-        acceptanceCriteria: ['First result passes.'],
+        acceptanceCriteria: Array.from({ length: 16 }, (_, index) => `First result case ${String(index)} passes.`),
         dependencies: [],
       },
       {
         key: 'second',
         title: 'Second slice',
         description: 'One result using the first slice.',
-        acceptanceCriteria: ['Second result passes.'],
+        acceptanceCriteria: Array.from({ length: 16 }, (_, index) => `Second result case ${String(index)} passes.`),
         dependencies: ['first'],
       },
     ],
@@ -468,7 +494,11 @@ await test('feature parents and atomic children are retryable and linked nativel
   assert.equal(child.phase, 'complete');
   assert.deepEqual(remote.children.get(String(parent.issue.number)), [child.issue.id]);
   const restarted = new ProjectGitHub(config, remote.run);
+  await github.execute('github_set_status', { issue: child.issue.number, status: 'Development' });
+  remote.shouldFailAttachment = true;
+  await assert.rejects(restarted.execute('github_create_issue', childInput), { code: 'GITHUB_UNAVAILABLE' });
   assert.deepEqual(journalResultSchema.parse(await restarted.execute('github_create_issue', childInput)), child);
+  assert.equal(remote.lastStatus?.['o'], 'option-2', 'Reattachment must preserve the current workflow state.');
   assert.equal(remote.creations, 2);
   await assert.rejects(restarted.execute('github_create_issue', { ...feature, title: 'changed' }), {
     code: 'INVALID_INPUT',
@@ -477,7 +507,7 @@ await test('feature parents and atomic children are retryable and linked nativel
     code: 'INVALID_INPUT',
   });
   await github.execute('github_set_status', { issue: child.issue.number, status: 'Development' });
-  assert.equal(remote.lastStatus?.['o'], 'option-2');
+  assert.equal(remote.lastStatus['o'], 'option-2');
 });
 
 await test('lost issue-creation responses are reconciled before retry, without duplicate tickets', async (t) => {

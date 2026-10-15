@@ -11,6 +11,7 @@ import path from 'node:path';
 
 import { z } from 'zod';
 
+import { parseConnection } from './connector.ts';
 import { selectAll, selectCount } from './database.ts';
 import { hasErrorCode } from './errors.ts';
 
@@ -177,9 +178,9 @@ function integrationOverview(config: MeshConfig): string[] {
     `Learning: ${String(artifactCount(path.join(config.directory, 'knowledge', 'lessons')))} lessons, ${String(artifactCount(path.join(config.directory, 'knowledge', 'sources')))} pinned sources, ${String(artifactCount(path.join(config.directory, 'knowledge', 'candidates')))} skill candidates.`,
   ];
   try {
-    const connection = z
-      .object({ repository: z.string(), project: z.object({ url: z.string().url() }) })
-      .parse(readIntegrationFile(path.join(config.directory, 'github', 'connection.json')));
+    const { legacy: connection } = parseConnection(
+      readIntegrationFile(path.join(config.directory, 'github', 'connection.json')),
+    );
     lines.push(`GitHub repository: ${cell(connection.repository)}`, `GitHub Project: ${connection.project.url}`);
   } catch {
     lines.push('GitHub Project: not connected or saved connection needs repair.');

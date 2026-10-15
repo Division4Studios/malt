@@ -15,11 +15,13 @@ import path from 'node:path';
 import { z } from 'zod';
 
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
+import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
 import type { MeshConfig } from './config.ts';
+import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
 /** Factory workflow options in the dedicated MALT Status field. */
@@ -84,16 +86,6 @@ function selectWorkflowField(
 /** Verified project identity returned by the GitHub CLI. */
 const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
 
-/** A saved connection contains no bearer token. */
-const connectionSchema = z.object({
-  version: z.literal(1),
-  repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
-  owner: z.string().regex(/^[\w\-]+$/v),
-  project: projectSchema,
-  statusField: fieldSchema,
-  verifiedAt: z.string().datetime(),
-});
-
 /** Public repository issue details needed for board and parent linking. */
 const issueSchema = z.object({
   id: z.number().int().positive(),
@@ -114,6 +106,24 @@ const journalSchema = z.object({
 
 /** Persisted issue-creation progress. */
 type IssueJournal = z.output<typeof journalSchema>;
+
+/**
+ * Bind an issue intent to its repository identity, Project and exact input.
+ *
+ * @param input - Validated immutable request.
+ * @param connection - Selected Project.
+ * @param repository - Stable node ID, or a legacy repository name.
+ * @returns Content fingerprint.
+ */
+function issueFingerprint(
+  input: OperationInput<'github_create_issue'>,
+  connection: LegacyConnection,
+  repository: string,
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify({ repository, project: connection.project.id, input }))
+    .digest('hex');
+}
 
 /** Explicit Project creation checkpoint, preventing blind duplicate setup. */
 const setupSchema = z.object({
@@ -249,9 +259,10 @@ export class ProjectGitHub {
    * @throws {Error} For damaged saved state.
    */
   private status(): unknown {
-    let connection: z.output<typeof connectionSchema> | null = null;
+    let connection: LegacyConnection | null = null;
+    let connectionV2: ConnectionV2 | null = null;
     try {
-      connection = this.connection();
+      ({ legacy: connection, v2: connectionV2 } = this.savedConnection());
     } catch (error) {
       if (!(error instanceof MeshError) || error.code !== 'GITHUB_NOT_CONNECTED') {
         throw error;
@@ -261,6 +272,7 @@ export class ProjectGitHub {
       workspace: this.config.workspace ?? this.config.root,
       connected: connection !== null,
       connection,
+      connectionV2,
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
     };
   }
@@ -271,9 +283,19 @@ export class ProjectGitHub {
    * @returns Verified connection metadata.
    * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds.
    */
-  private connection(): z.output<typeof connectionSchema> {
+  private connection(): LegacyConnection {
+    return this.savedConnection().legacy;
+  }
+
+  /**
+   * Read the saved record and resolve it to both the flat and separated views.
+   *
+   * @returns Validated connection views.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds.
+   */
+  private savedConnection(): SavedConnection {
     try {
-      return connectionSchema.parse(readJsonFile(path.join(this.directory, 'connection.json')));
+      return parseConnection(readJsonFile(path.join(this.directory, 'connection.json')));
     } catch (error) {
       if (hasErrorCode(error, 'ENOENT')) {
         throw new MeshError(
@@ -330,11 +352,13 @@ export class ProjectGitHub {
     }
     // Repository identity is canonicalized by GitHub, not inferred from the
     // MCP server repository or from a global configuration.
-    const repository = z
-      .object({ nameWithOwner: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v) })
-      .parse(await this.runner(['repo', 'view', input.repository, '--json', 'nameWithOwner'])).nameWithOwner;
+    const identity = z
+      .object({ nameWithOwner: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v), id: z.string().min(1).optional() })
+      .parse(await this.runner(['repo', 'view', input.repository, '--json', 'nameWithOwner,id']));
+    const repository = identity.nameWithOwner;
+    const repositoryId = identity.id ?? null;
     const owner = input.owner ?? repository.split('/', 1)[0] ?? '';
-    this.assertConnectionChange(repository, owner, input.projectNumber);
+    const repositoryAliases = this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
     const project =
       input.projectNumber === undefined
         ? await this.createProject(owner, repository, input.title ?? `${repository} — MALT`)
@@ -391,17 +415,33 @@ export class ProjectGitHub {
         'The selected workflow field lacks required options. Add them before connecting; existing fields are never overwritten.',
       );
     }
-    const connection = connectionSchema.parse({
-      version: 1,
-      repository,
-      owner,
-      project,
-      statusField,
-      verifiedAt: timestamp(),
+    const now = timestamp();
+    const record = connectionV2Schema.parse({
+      version: 2,
+      tracker: {
+        provider: 'github-projects',
+        owner,
+        projectId: project.id,
+        projectNumber: project.number,
+        url: project.url,
+        workflowField: statusField,
+        capabilities: unverifiedCapabilities(),
+        savedAt: now,
+        verifiedAt: now,
+      },
+      source: {
+        provider: 'github',
+        repository,
+        repositoryId,
+        repositoryAliases,
+        capabilities: unverifiedCapabilities(),
+        savedAt: now,
+        verifiedAt: repositoryId === null ? null : now,
+      },
     });
     this.mkdir(this.directory);
-    writeAtomic(path.join(this.directory, 'connection.json'), `${JSON.stringify(connection, null, 2)}\n`);
-    return connection;
+    writeAtomic(path.join(this.directory, 'connection.json'), `${JSON.stringify(record, null, 2)}\n`);
+    return flattenConnection(record);
   }
 
   /**
@@ -450,21 +490,37 @@ export class ProjectGitHub {
    * Prevent pending remote issue intents from being redirected to another board.
    *
    * @param repository - Canonical repository name.
+   * @param repositoryId - Stable repository node ID, when GitHub reported one.
    * @param owner - Requested board account.
    * @param projectNumber - Existing board number, absent when creating one.
+   * @returns Legacy repository names proven to share the stable node ID.
    * @throws {MeshError} When unresolved issue operations belong to another connection.
    */
-  private assertConnectionChange(repository: string, owner: string, projectNumber: number | undefined): void {
-    if (this.journals().every((journal) => journal.phase === 'complete')) {
-      return;
+  private assertConnectionChange(
+    repository: string,
+    repositoryId: string | null,
+    owner: string,
+    projectNumber: number | undefined,
+  ): string[] {
+    const journals = this.journals();
+    if (journals.length === 0) {
+      return [];
     }
-    const current = this.connection();
-    if (current.repository !== repository || current.owner !== owner || current.project.number !== projectNumber) {
+    const { legacy: current, v2 } = this.savedConnection();
+    // A rename keeps the node ID, so the same repository is not a switch.
+    const isSameNode = repositoryId !== null && v2.source.repositoryId === repositoryId;
+    const isSameRepository =
+      repositoryId !== null && v2.source.repositoryId !== null ? isSameNode : current.repository === repository;
+    const isSameConnection = isSameRepository && current.owner === owner && current.project.number === projectNumber;
+    if (!isSameConnection && journals.some((journal) => journal.phase !== 'complete')) {
       throw new MeshError(
         'GITHUB_OPERATION_PENDING',
         "Finish or reconcile this project's pending ticket operations before switching its GitHub connection.",
       );
     }
+    return isSameNode
+      ? [...new Set([...v2.source.repositoryAliases, current.repository])].filter((name) => name !== repository)
+      : [];
   }
 
   /**
@@ -598,7 +654,10 @@ export class ProjectGitHub {
     }
     const { journal: saved, isFresh } = this.loadJournal(input, connection);
     if (saved.phase === 'complete') {
-      return saved;
+      const itemId = await this.addItem(connection, this.requireIssue(saved).node_id);
+      const reconciled = { ...saved, itemId };
+      this.saveJournal(reconciled);
+      return reconciled;
     }
     let journal = saved.issue === undefined ? await this.createRemoteIssue(saved, isFresh, connection) : saved;
     const issue = this.requireIssue(journal);
@@ -627,17 +686,19 @@ export class ProjectGitHub {
    */
   private loadJournal(
     input: OperationInput<'github_create_issue'>,
-    connection: z.output<typeof connectionSchema>,
+    connection: LegacyConnection,
   ): { journal: IssueJournal; isFresh: boolean } {
-    const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ repository: connection.repository, project: connection.project.id, input }))
-      .digest('hex');
+    const { source } = this.savedConnection().v2;
+    const fingerprint = issueFingerprint(input, connection, source.repositoryId ?? connection.repository);
     const file = path.join(this.directory, 'operations', `${input.requestId}.json`);
     this.mkdir(path.dirname(file));
     const isFresh =
       writeIfAbsent(file, `${JSON.stringify({ fingerprint, input, phase: 'creating' }, null, 2)}\n`) === 'created';
     const journal = journalSchema.parse(readJsonFile(file));
-    if (journal.fingerprint !== fingerprint) {
+    const isLegacy = [connection.repository, ...source.repositoryAliases].some(
+      (name) => journal.fingerprint === issueFingerprint(input, connection, name),
+    );
+    if (!isLegacy && journal.fingerprint !== fingerprint) {
       throw new MeshError('INVALID_INPUT', 'This requestId already belongs to a different issue or GitHub connection.');
     }
     return { journal, isFresh };
@@ -655,7 +716,7 @@ export class ProjectGitHub {
   private async createRemoteIssue(
     journal: IssueJournal,
     isFresh: boolean,
-    connection: z.output<typeof connectionSchema>,
+    connection: LegacyConnection,
   ): Promise<IssueJournal> {
     if (!isFresh) {
       throw new MeshError(
@@ -708,7 +769,7 @@ export class ProjectGitHub {
    * @param contentId - Issue node ID.
    * @returns Project item ID.
    */
-  private async addItem(connection: z.output<typeof connectionSchema>, contentId: string): Promise<string> {
+  private async addItem(connection: LegacyConnection, contentId: string): Promise<string> {
     const result = itemAdditionSchema.parse(
       await this.graphql(
         'mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input:{projectId:$p, contentId:$c}) {item{id}}}',
@@ -726,7 +787,7 @@ export class ProjectGitHub {
    * @param issue - Delivery issue.
    */
   private async linkParent(
-    connection: z.output<typeof connectionSchema>,
+    connection: LegacyConnection,
     parent: number,
     issue: z.output<typeof issueSchema>,
   ): Promise<void> {
@@ -779,7 +840,7 @@ export class ProjectGitHub {
    * @param status - Workflow option name.
    */
   private async updateItem(
-    connection: z.output<typeof connectionSchema>,
+    connection: LegacyConnection,
     itemId: string,
     status: (typeof DELIVERY_STATUSES)[number],
   ): Promise<void> {

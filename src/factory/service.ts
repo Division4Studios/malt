@@ -20,13 +20,12 @@ import {
   recordScopeFeedback,
   recordCapacity,
 } from './controls.ts';
-import { conversationWindow } from './conversations.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
-import { objectiveOrder, reorderObjective } from './objective-order.ts';
+import { reorderObjective } from './objective-order.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
@@ -43,7 +42,7 @@ import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
-import { workflowState } from './workflow.ts';
+import { factoryStatus } from './status.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -187,26 +186,13 @@ export class FactoryService {
    *
    * @returns Dashboard and MCP state.
    */
-  public status(): unknown {
-    const settings = this.repository.config();
-    return {
-      configured: settings !== null,
-      active: this.repository.active(),
+  public async status(): Promise<unknown> {
+    return factoryStatus(this.repository, this.mesh, {
       connected: this.connected,
       error: this.error,
       resources: this.sampler.latest,
       admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
-      settings,
-      ...objectiveOrder(this.repository.store),
-      tasks: this.repository.tasks(),
-      jobs: this.repository.jobs(),
-      pendingEffects: this.repository.effects(),
-      skillRequests: this.repository.skillRequests(),
-      instructions: this.repository.instructionLedger.recent(),
-      conversations: conversationWindow(this.repository.store, this.mesh),
-      workflow: workflowState(this.repository),
-      capacities: settings === null ? [] : PROVIDERS.map((name) => this.repository.capacity(name, settings, false)),
-    };
+    });
   }
 
   /** Resume durable requested operation after broker restart. */
@@ -298,9 +284,9 @@ export class FactoryService {
       },
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
-      factory_status: () => this.status(),
+      factory_status: async () => this.status(),
       factory_setup: () => this.controlSetup(parsed),
-      factory_start: () => {
+      factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
         this.begin();
@@ -589,6 +575,7 @@ export class FactoryService {
           ...this.repository.capacity(job.provider, context.settings),
           subscriptionUsedPercent: completion.subscriptionUsedPercent,
           subscriptionResetAt: completion.subscriptionResetAt,
+          subscriptionWindows: [...(completion.subscriptionWindows ?? [])],
           telemetrySource: 'native CLI rate-limit event',
           updatedAt: this.repository.store.now(),
         });
@@ -609,13 +596,19 @@ export class FactoryService {
    * @param attempt - Executed evidence.
    */
   private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
-    this.repository.finishJob(
+    const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
       settlementEvidence(attempt, this.stopped, this.repository.store.now()),
     );
-    if (attempt.state === 'interrupted' && job.kind === 'develop' && job.taskId !== null) {
+    const isUnpaidGate = attempt.execution?.completion === null && attempt.execution.waiting !== null;
+    if (
+      hasSettled &&
+      job.kind === 'develop' &&
+      job.taskId !== null &&
+      (isUnpaidGate || attempt.state === 'interrupted')
+    ) {
       this.repository.editTask(job.taskId, (task) => ({ ...task, attempts: Math.max(0, task.attempts - 1) }));
     }
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);

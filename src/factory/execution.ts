@@ -18,6 +18,7 @@ import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
+import { ensureProjectTracking } from './tracking.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { FactoryJob } from './schema.ts';
@@ -105,6 +106,15 @@ export async function executeJob(
   const skill = repository.skillRequests().find((candidate) => candidate.id === record.target) ?? null;
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Every attempt's artifacts live under its private project-local record directory.
   mkdirSync(record.artifact, { recursive: true, mode: 0o700 });
+  const tracking = await ensureProjectTracking({
+    repository,
+    job: record,
+    sync: async (effect) => context.remote.effect(effect),
+    signal: controls.signal,
+  });
+  if (tracking !== null) {
+    return { completion: null, snapshot: null, checks: [], waiting: tracking };
+  }
   const waiting = await finalGate(context, record);
   if (waiting !== null) {
     return { completion: null, snapshot: null, checks: [], waiting };
@@ -259,6 +269,10 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
   let evidence: unknown = null;
   if (record.kind === 'plan' || record.kind === 'refine') {
     evidence = {
+      deliveryLimits: {
+        maxDiffLines: context.settings.maxDiffLines,
+        maxFiles: context.settings.maxFiles,
+      },
       activeSkills: context.learning
         .skillLibrary()
         .filter((entry) => entry.state === 'active')

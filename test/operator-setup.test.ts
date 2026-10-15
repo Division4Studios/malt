@@ -1,5 +1,5 @@
 /**
- * Exercise the compiled native UI's GitHub connection boundary.
+ * Exercise the compiled native UI's connection and quiet-dispatch boundaries.
  * The standard check builds these browser modules before running regression.
  *
  * @file
@@ -20,8 +20,20 @@ const dataSchema = z.record(z.unknown());
 const connection = z
   .object({
     githubConnectionInput: z.function().args(z.string(), z.string(), z.string()).returns(dataSchema),
+    factoryPolicyInput: z.function().args(z.string(), z.string()).returns(dataSchema),
   })
   .parse(await import(connectionModule.href));
+/** Compiled factual dispatch-message renderer, independent of a DOM. */
+const dispatchModule = new URL(['..', 'web', 'dist', 'brand-ui.js'].join('/'), import.meta.url);
+/** Checked plain text messages from the compiled browser module. */
+const messagesSchema = z.array(z.string());
+/** Checked callable export; no unsafe browser-module cast. */
+const dispatch = z
+  .object({
+    dispatchSummary: z.function().args(dataSchema).returns(messagesSchema),
+  })
+  .parse(await import(dispatchModule.href));
+
 await test('connection form derives the actual owner and Project number from user and organization URLs', () => {
   assert.deepEqual(
     connection.githubConnectionInput(
@@ -47,6 +59,14 @@ await test('connection form derives the actual owner and Project number from use
   );
 });
 
+await test('native PR-size policy preserves resource settings and rejects invalid limits', () => {
+  const policy = { maxDiffLines: 700, resources: { maxActiveJobs: 2 }, providers: { codex: { budgetTokens: null } } };
+  assert.deepEqual(connection.factoryPolicyInput(JSON.stringify(policy), '500'), { ...policy, maxDiffLines: 500 });
+  for (const invalid of ['', '0', '-1', '1.5', 'Infinity', '9007199254740992']) {
+    assert.throws(() => connection.factoryPolicyInput(JSON.stringify(policy), invalid));
+  }
+});
+
 await test('connection form rejects credential-bearing, foreign-host and ambiguous Project URLs', () => {
   const insecure = new URL('https://github.com/users/example/projects/10');
   insecure.protocol = 'http:';
@@ -68,4 +88,51 @@ await test('connection form rejects credential-bearing, foreign-host and ambiguo
   assert.throws(() =>
     connection.githubConnectionInput('owner/target repo', 'https://github.com/users/example/projects/10', 'Status'),
   );
+});
+
+await test('quiet coordinator explains a local budget gate independently of subscription quota and expires it truthfully', () => {
+  const future = Date.now() + 60_000;
+  const capacity = {
+    provider: 'codex',
+    usedTokens: 101,
+    reservedTokens: 0,
+    resetAt: future,
+    subscriptionUsedPercent: 1,
+  };
+  const settings = { providers: { codex: { budgetTokens: 100, reservationTokens: 10 } } };
+  const messages = dispatch.dispatchSummary({
+    active: true,
+    settings,
+    capacities: [capacity],
+    tasks: [{ issue: 13, phase: 'blocked', error: 'spawn EPERM' }],
+  });
+  assert.ok(messages.some((message) => message.includes('configured scheduling budget exhausted')));
+  assert.ok(messages.some((message) => message.includes('separate from subscription quota')));
+  assert.ok(messages.some((message) => message.includes('Issue #13 blocked: spawn EPERM')));
+  const expired = dispatch.dispatchSummary({ active: true, settings, capacities: [{ ...capacity, resetAt: 1 }] });
+  assert.ok(expired.every((message) => !message.includes('budget exhausted')));
+});
+
+await test('quota labels preserve independent window observation ages rather than accounting timestamps', async () => {
+  const moduleUrl = new URL(['..', 'web', 'dist', 'capacity-details.js'].join('/'), import.meta.url);
+  const capacity = z
+    .object({ quotaWindowObservation: z.function().args(dataSchema).returns(z.string()) })
+    .parse(await import(moduleUrl.href));
+  const old = 1000;
+  const current = 2000;
+  const oldDate = new Date(old);
+  const currentDate = new Date(current);
+  const stale = capacity.quotaWindowObservation({
+    observedAt: old,
+    freshness: 'stale',
+    source: 'codex-app-server',
+    updatedAt: current,
+  });
+  assert.ok(stale.includes(oldDate.toLocaleString()));
+  assert.ok(stale.includes('stale'));
+  assert.ok(!stale.includes(currentDate.toLocaleString()));
+  const fresh = capacity.quotaWindowObservation({ observedAt: current, freshness: 'current', source: 'claude-stream' });
+  assert.ok(fresh.includes(currentDate.toLocaleString()));
+  assert.ok(fresh.includes('current'));
+  assert.ok(capacity.quotaWindowObservation({ updatedAt: current }).includes('Observed unknown'));
 });

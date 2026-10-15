@@ -10,6 +10,8 @@ import type { Snapshot, Data } from './api.js';
 
 /** Bound instruction excerpts; the editor retains full validated text. */
 const EXCERPT = 400;
+/** Default publication limit for a newly configured project. */
+const DEFAULT_PR_LINES = 500;
 
 /**
  * Show reusable profiles separately from logical seats and live processes.
@@ -158,6 +160,7 @@ export function githubConnectionDescription(): ReturnType<typeof organizationDia
 export function resetConnectionFields(body: HTMLTextAreaElement): void {
   const textarea = body;
   document.querySelector('[data-github-connection]')?.remove();
+  document.querySelector('[data-factory-policy]')?.remove();
   textarea.hidden = false;
   textarea.required = true;
   const label = document.querySelector('#editor-label');
@@ -242,4 +245,64 @@ export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizat
     },
     action: { operation: 'factory_setup', input: (body) => data(JSON.parse(body)) },
   };
+}
+
+/**
+ * Expose the publication ceiling while preserving the full validated policy.
+ *
+ * @param body - Existing advanced policy editor.
+ * @returns Native field reader used by the same durable setup control.
+ */
+export function mountFactoryPolicyFields(body: HTMLTextAreaElement): ReturnType<typeof organizationDialog>['action'] {
+  const settings = data(JSON.parse(body.value));
+  const panel = element('section', 'connection-fields');
+  panel.dataset['factoryPolicy'] = '';
+  const input = element('input');
+  input.id = 'factory-pr-lines';
+  input.type = 'number';
+  input.min = '1';
+  input.step = '1';
+  input.required = true;
+  const ceiling = settings['maxDiffLines'];
+  input.value = String(typeof ceiling === 'number' ? ceiling : DEFAULT_PR_LINES);
+  const label = element('label', '', 'Maximum changed lines per PR');
+  label.htmlFor = input.id;
+  panel.append(
+    label,
+    input,
+    element(
+      'p',
+      'subtle',
+      'Planning target: 1–500 added/deleted lines, including tests and docs. Larger indivisible scopes require explicit lead justification and must fit this publication ceiling.',
+    ),
+    element('h3', '', 'Required workflow gates'),
+    element(
+      'p',
+      '',
+      'Every factory ticket belongs to the connected Project. Backlog → reviewed Ready → Development → independent QA → verified merge. Duplicate consolidation requires a separate human decision.',
+    ),
+    element(
+      'p',
+      'subtle',
+      'Pause the factory before saving. The advanced policy below retains provider, resource and validation settings; no inferred credentials or model billing changes.',
+    ),
+  );
+  body.before(panel);
+  return { operation: 'factory_setup', input: () => factoryPolicyInput(body.value, input.value) };
+}
+
+/**
+ * Merge a native policy field without discarding advanced configuration.
+ *
+ * @param body - Explicit advanced policy JSON.
+ * @param lines - Operator's publication ceiling.
+ * @returns Backend-validated setup input.
+ * @throws {Error} For an invalid numeric ceiling.
+ */
+export function factoryPolicyInput(body: string, lines: string): Data {
+  const maxDiffLines = Number(lines);
+  if (!Number.isSafeInteger(maxDiffLines) || maxDiffLines < 1) {
+    throw new Error('Maximum changed lines must be a positive safe integer.');
+  }
+  return { ...data(JSON.parse(body)), maxDiffLines };
 }

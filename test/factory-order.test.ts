@@ -4,8 +4,11 @@
  * @file
  */
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
 
 import { z } from 'zod';
 
@@ -17,9 +20,10 @@ import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, featureSchema, jobSchema, resultSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
+import { writeAtomic } from '../src/summary.ts';
 import { startWebConsole } from '../src/web/server.ts';
 
-import { createCleanup, createProject, brokerUrl } from './helpers.ts';
+import { createCleanup, createProject, brokerUrl, CLI_PATH, updateConfig } from './helpers.ts';
 
 /** Ranked feature projection. */
 const rankedFeatureSchema = featureSchema.extend({ rank: z.number() });
@@ -112,6 +116,15 @@ await test('operator moves are atomic, replayable and fenced by the project revi
     [ids[2], ids[0], ids[1]],
   );
   assert.deepEqual(await rpc(connected, 'factory_reorder_objective', input), moved);
+  const file = path.join(config.directory, 'move.json');
+  writeAtomic(file, JSON.stringify(input));
+  updateConfig(config, { url: connected.url });
+  const cli = await promisify(execFile)(
+    process.execPath,
+    [CLI_PATH, 'factory-reorder-objective', '--project', config.root, '--file', file],
+    { timeout: 10_000 },
+  );
+  assert.deepEqual(JSON.parse(cli.stdout), moved, 'The real CLI routes an exact retry to the existing receipt.');
   await assert.rejects(rpc(connected, 'factory_reorder_objective', { ...input, beforeFeatureId: ids[1] }));
   await assert.rejects(rpc(connected, 'factory_reorder_objective', { ...input, requestId: randomUUID() }));
   for (const invalid of [
@@ -263,12 +276,12 @@ await test('order reads use one SQLite snapshot without a write lock or summary 
     reader.close();
   });
   const repository = new FactoryRepository(reader);
+  assert.deepEqual(objectiveOrder(reader), { orderRevision: 0, features: [] });
   queueObjective(repository, { objective: 'Existing objective' });
   const writer = new Store(config);
   defer(() => {
     writer.close();
   });
-  new FactoryRepository(writer);
   const prior = objectiveOrder(reader);
   t.mock.method(reader, 'transaction', () => {
     assert.fail('A read must not enter the write transaction wrapper.');

@@ -152,7 +152,8 @@ Factory state is separate from cooperative check-in state. Project-authenticated
 
 `factory_reorder_objective {featureId, beforeFeatureId?, afterFeatureId?, expectedRevision, requestId?}`
 requires exactly one anchor. Only the operator, designated project lead or authenticated web
-gateway can move objectives; ordinary agents cannot. There is no CLI alias yet. It returns
+gateway can move objectives; ordinary agents cannot. The CLI alias is
+`malt factory-reorder-objective --project <repository> --file move.json`, with the same JSON payload. It returns
 `{features, orderRevision}` with zero-based global `rank` values, also exposed by `factory_status`. Enumeration remains insertion ordered; consumers sort by rank explicitly.
 Legacy objectives receive ranks by `createdAt`, then insertion rowid. New objectives append and
 advance the revision. Moves atomically advance the revision and preserve all other objective and
@@ -161,6 +162,7 @@ revisions fail without mutation. Refresh status after a stale revision; do not b
 An identical `requestId` and payload returns the original committed response, even after later
 moves or restart; changed payloads with that ID are rejected. Fetch status for the latest order.
 This contract does not yet change scheduler selection or provide browser reorder buttons.
+Status reads obtain ranks and revision from one read-only SQLite statement; they do not acquire a write-intent lock or regenerate the project README.
 
 `factory_status.admission` explains local admission without sampling, claiming or acknowledging anything:
 

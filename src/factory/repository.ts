@@ -90,6 +90,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_source_views (job_id TEXT PRIMARY KEY REFERENCES factory_jobs(id), head TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
       CREATE TABLE IF NOT EXISTS factory_operator_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_features (id TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_tasks (id TEXT PRIMARY KEY, issue INTEGER NOT NULL UNIQUE, phase TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL);
@@ -107,6 +108,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_handoffs (instruction_id TEXT PRIMARY KEY REFERENCES factory_instructions(id), job_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
+    this.expandWorkKeys();
     initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
     this.recommendations = new RecommendationLedger(store);
@@ -741,6 +743,35 @@ export class FactoryRepository {
    */
   private rows<T>(sql: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): T[] {
     return selectAll(this.store.db, payloadSchema, sql).map((row) => schema.parse(JSON.parse(row.data)));
+  }
+
+  /**
+   * Record provider-typed work keys in side tables so legacy positional writers keep their column counts.
+   * Triggers key rows written by any code version; the backfill covers rows that predate them.
+   */
+  private expandWorkKeys(): void {
+    this.store.transaction(() => {
+      this.store.db.exec(`
+        CREATE TABLE IF NOT EXISTS factory_task_keys (task_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS factory_effect_keys (effect_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
+        CREATE TRIGGER IF NOT EXISTS factory_task_key_insert AFTER INSERT ON factory_tasks BEGIN
+          INSERT OR IGNORE INTO factory_task_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_task_key_delete AFTER DELETE ON factory_tasks BEGIN
+          DELETE FROM factory_task_keys WHERE task_id=OLD.id;
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_effect_key_insert AFTER INSERT ON factory_effects BEGIN
+          INSERT OR IGNORE INTO factory_effect_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
+        END;
+        CREATE TRIGGER IF NOT EXISTS factory_effect_key_delete AFTER DELETE ON factory_effects BEGIN
+          DELETE FROM factory_effect_keys WHERE effect_id=OLD.id;
+        END;
+        INSERT OR IGNORE INTO factory_task_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_tasks
+          WHERE id NOT IN (SELECT task_id FROM factory_task_keys);
+        INSERT OR IGNORE INTO factory_effect_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_effects
+          WHERE id NOT IN (SELECT effect_id FROM factory_effect_keys);
+      `);
+    });
   }
 
   /**

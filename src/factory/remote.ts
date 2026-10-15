@@ -28,7 +28,14 @@ const ISSUE_TITLE_LIMIT = 200;
 /** Saved workspace connection needed by delivery operations. */
 const remoteProjectSchema = z.object({ number: z.number() });
 /** Identity of the authenticated target repository and board. */
-const remoteConnectionSchema = z.object({ repository: z.string(), owner: z.string(), project: remoteProjectSchema });
+const remoteConnectionSchema = z.object({
+  repository: z.string(),
+  owner: z.string(),
+  project: remoteProjectSchema,
+  statusField: z.object({ name: z.string() }).optional(),
+});
+/** Stable repository identity survives a verified GitHub rename or transfer. */
+const repositoryIdentitySchema = z.object({ id: z.string().min(1), nameWithOwner: z.string().min(1) });
 /** Connected target envelope. */
 const connectionSchema = z.object({
   connected: z.literal(true),
@@ -129,15 +136,13 @@ export class GitHubDelivery implements DeliveryRemote {
       .replace(/\/$/v, '')
       .toLowerCase();
     if (normalized !== `https://github.com/${connection.repository}`.toLowerCase()) {
-      throw new MeshError(
-        'WRONG_PROJECT',
-        "The factory Git remote and this workspace's GitHub connection must refer to the same repository.",
-      );
+      await verifyRepositoryIdentity(this.runner, normalized, connection.repository);
     }
     await this.github.execute('github_connect', {
       repository: connection.repository,
       owner: connection.owner,
       projectNumber: connection.project.number,
+      ...(connection.statusField !== undefined && { statusFieldName: connection.statusField.name }),
     });
   }
 
@@ -159,7 +164,10 @@ export class GitHubDelivery implements DeliveryRemote {
         kind: 'feature',
         title: record.objective.slice(0, ISSUE_TITLE_LIMIT),
         description: record.objective,
-        acceptanceCriteria: record.plan.deliveries.flatMap((delivery) => delivery.acceptanceCriteria),
+        acceptanceCriteria: [
+          'All native child deliveries meet their independently reviewed acceptance criteria.',
+          'Every child is merged, verified on main and reconciled with the selected Project before parent closure.',
+        ],
       }),
     );
     const mappings: DeliveryPlanIssue[] = [];
@@ -454,6 +462,28 @@ export class GitHubDelivery implements DeliveryRemote {
    */
   private async connection(): Promise<z.output<typeof connectionSchema>['connection']> {
     return connectionSchema.parse(await this.github.execute('github_status', {})).connection;
+  }
+}
+
+/**
+ * Allow verified GitHub aliases without accepting another host or repository.
+ *
+ * @param runner - Authenticated native GitHub boundary.
+ * @param origin - Normalized GitHub-only remote.
+ * @param repository - Saved connection's repository name.
+ * @throws {MeshError} When authoritative repository node IDs differ.
+ */
+async function verifyRepositoryIdentity(runner: GitHubRunner, origin: string, repository: string): Promise<void> {
+  const reason = "The factory Git remote and this workspace's GitHub connection must refer to the same repository.";
+  if (!/^https:\/\/github\.com\/[\w\-.]+\/[\w\-.]+$/v.test(origin)) {
+    throw new MeshError('WRONG_PROJECT', reason);
+  }
+  const [actual, expected] = await Promise.all([
+    runner(['repo', 'view', origin, '--json', 'id,nameWithOwner']),
+    runner(['repo', 'view', repository, '--json', 'id,nameWithOwner']),
+  ]);
+  if (repositoryIdentitySchema.parse(actual).id !== repositoryIdentitySchema.parse(expected).id) {
+    throw new MeshError('WRONG_PROJECT', reason);
   }
 }
 

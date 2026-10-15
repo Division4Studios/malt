@@ -12,8 +12,6 @@ import { factorySchemas, featureSchema } from './schema.ts';
 
 import type { Store } from '../store.ts';
 
-/** Raw JSON is retained during migration and rank-only mutations. */
-const rowSchema = z.object({ data: z.string() });
 /** Validated public move response, retained for exact retries. */
 const orderSchema = z.object({ orderRevision: z.number(), features: z.array(featureSchema) });
 
