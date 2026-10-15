@@ -25,6 +25,16 @@ For broad migrations use expand, bounded consumer migrations, then contract; eac
 
 Output a feature parent and small child scopes with stable keys, description, acceptance criteria and dependency keys. The supervisor creates native GitHub issues, links children, and moves board states. Do not publish duplicate tickets from an agent session.
 
+## Intake, board membership and human decisions
+
+Before refining any objective, feature, bug or scope-change request, inspect existing open and relevant closed tickets, local objectives and pending remote operations for duplicates and related work. Match the intended behavior, acceptance, reproduction and affected components; similar titles alone are insufficient. Reuse an exact existing operation identity when recovering an interrupted request. Record related ticket links and concrete overlap evidence in planning findings rather than creating competing work blindly.
+
+Every factory-managed feature parent, child and bug belongs to the selected target Project. Backlog means received but not yet sufficiently refined; Ready means a reviewed actionable scope whose dependencies permit dispatch. Development and later states describe actual progress. An issue is the ticket itself, not a separate pre-board workflow state. Verify attachment and synchronize the selected workflow field; never equate successful issue creation with successful Project attachment. Surface remote synchronization failures and retain durable retry progress.
+
+Consolidating or closing distinct existing tickets as duplicates, changing their scope, or altering reusable guidance requires a separate human decision. Propose the exact ticket IDs, overlap evidence, proposed survivor, transferred acceptance/dependencies and effects on active work. Do not close, merge away or silently supersede those tickets while approval is pending. Unaffected work continues; park only work that genuinely depends on that decision. Preserve comments, source edits and history.
+
+A project-management approval queue must persist recommendations and approve/reject outcomes without keeping a model session alive. Approved actions need stable identities, current-state checks, scoped authorization and retry reconciliation before execution. Rejecting a recommendation preserves its rationale and causes no proposed mutation. Approval of a ticket action does not approve a skill edit: a reusable skill change requires an independently reviewed exact revision and its separate human decision, followed by normal project-local override/version and notification rules. Until a dedicated panel exists, report the recommendation through existing durable handoffs; do not claim a panel or approved action exists.
+
 Operator scope changes are durable planning inputs. Explain which existing deliverables remain valid, which must stop and which new scopes are needed. A blocked old task stays blocked until an explicit lead/operator decision resolves its scope; do not silently abandon its edits.
 
 Adapted from Matt Pocock to-tickets, Addy Osmani planning-and-task-breakdown and Pstack sequence-verifiable-units. MALT substitutes independent product/lead review for repeated human continuation prompts.

@@ -4,6 +4,8 @@
  * @file
  */
 
+/** Finite observation deadline; controls are never automatically retried. */
+const READ_TIMEOUT_MS = 15_000;
 /** Validated plain JSON object. */
 export type Data = Record<string, unknown>;
 
@@ -197,7 +199,7 @@ export async function request(route: string, input?: unknown): Promise<unknown> 
   const response = await fetch(
     route,
     input === undefined
-      ? { cache: 'no-store' }
+      ? { cache: 'no-store', signal: AbortSignal.timeout(READ_TIMEOUT_MS) }
       : {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

@@ -4,7 +4,8 @@
  * @file
  */
 import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
-import { overviewMetrics, objectiveQueue } from './brand-ui.js';
+import { overviewMetrics, dispatchPanel, objectiveQueue } from './brand-ui.js';
+import { appendQuotaWindows, appendProcessUsage } from './capacity-details.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import {
@@ -20,6 +21,9 @@ import {
 import type { Data, Snapshot } from './api.js';
 /** Percentage width limit for verified subscription telemetry. */
 const PERCENT_MAX = 100;
+/** Keep diagnostic token counts distinct from provider billing. */
+const CAPACITY_NOTE =
+  'Subscription quota and CPU/memory limits govern dispatch. Reported tokens do not use API credits.';
 /** Compact activity count. */
 const COMPACT_EVENTS = 6;
 /** Full visible activity page. */
@@ -290,19 +294,15 @@ function capacityView(state: Snapshot): HTMLElement {
     meter.append(fill);
     const details = element('div', 'capacity-details');
     details.append(
-      element('span', '', `${numericText(capacity, 'usedTokens')} tokens scheduled`),
-      element('span', '', `${numericText(capacity, 'reservedTokens')} reserved`),
+      element('span', '', `${numericText(capacity, 'usedTokens')} reported tokens · diagnostic only`),
+      element('span', '', `${numericText(capacity, 'reservedTokens')} estimated tokens in flight`),
     );
-    item.append(
-      heading,
-      meter,
-      details,
-      element('p', 'subtle', 'Scheduling budgets are separate from subscription limits.'),
-    );
+    item.append(heading, meter, details, element('p', 'subtle', CAPACITY_NOTE));
+    appendQuotaWindows(item, capacity);
     body.append(item);
   }
   if (capacities.length === 0) {
-    body.append(element('p', 'subtle', 'Configure provider scheduling budgets in Project setup.'));
+    body.append(element('p', 'subtle', 'Configure subscription providers and local resource limits in Project setup.'));
   }
   const readings = element('p', 'subtle', resourceSummary(state.factory));
   readings.dataset['resourceMachine'] = 'true';
@@ -315,6 +315,7 @@ function capacityView(state: Snapshot): HTMLElement {
       'Idle roles consume no model processes. Admission and managed process ceilings protect local resources.',
     ),
   );
+  appendProcessUsage(body, state.factory);
   return body;
 }
 
@@ -367,6 +368,8 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
 export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const node = element('div');
   const metrics = overviewMetrics(state.factory);
+  const dispatch = dispatchPanel(state.factory);
+  node.append(dispatch);
   const grid = element('div', 'grid');
   const left = element('div');
   const team = element('div', 'panel-body');

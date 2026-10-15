@@ -13,6 +13,8 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 const MIN_FREE_PERCENT = 15;
 /** Extra reviewed project skills attached to one stage. */
 const MAX_ASSIGNMENT_SKILLS = 4;
+/** Bound the lead's per-role routing explanation. */
+const ROUTING_REASON_MAX = 1000;
 /** Absolute operator-selected workspace path bound. */
 const WORKSPACE_MAX = 4096;
 /** Maximum explicitly configured descendants in a Windows managed process job. */
@@ -57,7 +59,7 @@ const LEARNING_MS = 21_600_000;
 const MAX_ATTEMPTS = 5;
 /** Maximum source files in one atomic delivery. */
 const MAX_FILES = 20;
-/** Maximum diff lines in one atomic delivery. */
+/** Default publication ceiling; explicit project policies may override it. */
 const MAX_LINES = 500;
 /** Conservative local resource defaults for transient model/test processes. */
 const MEMORY_MB = 2048;
@@ -71,6 +73,20 @@ export const COOLDOWN_MS = 300_000;
 export const LEASE_MS = 30_000;
 /** A safe internal key, used in branch and artifact names. */
 export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
+/** Lead-reviewed role routing carried through a delivery's durable handoff. */
+const assignmentProfilesSchema = z
+  .array(
+    z
+      .object({
+        role: z.enum(FACTORY_ROLES),
+        tier: z.enum(['small', 'standard', 'advanced']),
+        effort: z.enum(['low', 'medium', 'high']),
+        reason: z.string().min(1).max(ROUTING_REASON_MAX),
+      })
+      .strict(),
+  )
+  .max(FACTORY_ROLES.length)
+  .optional();
 /** Bounded text which cannot be empty. */
 export const textSchema = z.string().min(1).max(TEXT_MAX);
 /** Bound each proposal's collections and identifiers independently of text. */
@@ -202,6 +218,7 @@ export const factoryConfigSchema = z
     version: z.literal(1).default(1),
     organization: organizationSchema(FACTORY_ROLES),
     requireBranchProtection: z.boolean().default(true),
+    requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
     remote: keySchema.default('origin'),
     testCommands: z.array(commandSchema).min(1),
@@ -260,6 +277,7 @@ export const deliverySchema = z
     acceptanceCriteria: z.array(textSchema).min(1),
     dependencies: z.array(keySchema),
     capabilityTier: z.enum(['small', 'standard', 'advanced']).nullable().default(null),
+    assignmentProfiles: assignmentProfilesSchema,
     skills: z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS).default([]),
   })
   .strict();
@@ -333,6 +351,7 @@ export const taskSchema = z.object({
   acceptanceCriteria: z.array(textSchema),
   dependencies: z.array(z.string().uuid()),
   capabilityTier: z.enum(['small', 'standard', 'advanced']).nullable().default(null),
+  assignmentProfiles: assignmentProfilesSchema,
   skills: z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS).default([]),
   phase: z.enum([
     'ready',
@@ -377,6 +396,7 @@ export const jobSchema = z.object({
     .object({
       tier: z.enum(['small', 'standard', 'advanced']),
       model: z.string().nullable(),
+      effort: z.enum(['low', 'medium', 'high']).optional(),
       reason: textSchema,
       skillNames: z.array(keySchema),
       organization: frozenOrganizationSchema.optional(),
@@ -557,7 +577,16 @@ export const AGENT_OUTPUT_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['key', 'title', 'description', 'acceptanceCriteria', 'dependencies', 'capabilityTier', 'skills'],
+        required: [
+          'key',
+          'title',
+          'description',
+          'acceptanceCriteria',
+          'dependencies',
+          'capabilityTier',
+          'assignmentProfiles',
+          'skills',
+        ],
         properties: {
           key: { type: 'string' },
           title: { type: 'string' },
@@ -565,6 +594,21 @@ export const AGENT_OUTPUT_SCHEMA = {
           acceptanceCriteria: { type: 'array', items: { type: 'string' } },
           dependencies: { type: 'array', items: { type: 'string' } },
           capabilityTier: { type: ['string', 'null'], enum: ['small', 'standard', 'advanced', null] },
+          assignmentProfiles: {
+            type: 'array',
+            maxItems: FACTORY_ROLES.length,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['role', 'tier', 'effort', 'reason'],
+              properties: {
+                role: { type: 'string', enum: FACTORY_ROLES },
+                tier: { type: 'string', enum: ['small', 'standard', 'advanced'] },
+                effort: { type: 'string', enum: ['low', 'medium', 'high'] },
+                reason: { type: 'string', minLength: 1, maxLength: ROUTING_REASON_MAX },
+              },
+            },
+          },
           skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
         },
       },

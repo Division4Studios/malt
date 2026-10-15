@@ -149,8 +149,8 @@ export class QuotaObserver {
       ...prior,
       subscriptionUsedPercent: reading?.usedPercent ?? null,
       subscriptionResetAt: reading?.resetAt ?? null,
-      telemetrySource: reading === null ? null : 'codex-app-server',
       subscriptionWindows: reading?.windows ?? [],
+      telemetrySource: reading === null ? null : 'codex-app-server',
       cooldownUntil:
         reading?.usedPercent === FULL_PERCENT
           ? Math.max(prior.cooldownUntil, reading.resetAt ?? this.nextAt)
