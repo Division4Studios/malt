@@ -1,5 +1,7 @@
 # Mission control and human skill governance
 
+See [current capabilities](current-status.md) and the [issue-by-issue audit](issue-audit-2026-10-15.md). Source, runtime deployment and live-provider verification are separate states.
+
 The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod and SQLite remain server-side.
 
 To use the already configured source repository as its own delivery project,
@@ -142,9 +144,9 @@ Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api
 
 ## Verification limits
 
-On 2026-10-14, the explicitly selected source repository completed a real subscription-backed private-repository pilot: [PR #11](https://github.com/Division4Studios/multiagent-local-team/pull/11), actual merged-main proof, native child/parent closure and Done board states. The console showed one verified delivery, no blocked work and all eight roles spun down. Its supported Codex account probe returned actual quota metadata without a model turn. Two bounded learning assignments recorded lessons; they did not propose or activate a skill change. Early Codex startup failures were retained and repaired, and Claude completed the original developer's delivery; a fresh real Codex developer command path remains to be validated. No administrator bypass was used. This repository's explicit protection exception does not change the default for other projects.
+On 2026-10-14, the explicitly selected source repository completed a real subscription-backed private-repository pilot: [PR #11](https://github.com/Division4Studios/malt/pull/11), actual merged-main proof, native child/parent closure and Done board states. The console showed one verified delivery, no blocked work and all eight roles spun down. Its supported Codex account probe returned actual quota metadata without a model turn. Two bounded learning assignments recorded lessons; they did not propose or activate a skill change. Early Codex startup failures were retained and repaired, and Claude completed the original developer's delivery; a fresh real Codex developer command path remains to be validated. No administrator bypass was used. That historical pilot did not establish live protected-branch review enforcement; current public-repository settings and the temporary solo-maintainer review exception are documented in [maintainer operations](maintainer-operations.md).
 
-Remaining product work includes arbitrary additional managed specialist seats and full local history pagination. The pilot PR did not publish the factory implementation; it subsequently reached remote main at `d9b2984`, after commit `5711e3a`. The console can now schedule development against that foundation. See the [operator handoff](operating-malt-on-itself.md) for the prepared first objective and restart/deployment distinction.
+Remaining work includes client-side Activity paging, the unified handoff feed, revisioned model policy, the full connector and ticket-recommendation consoles, real PTY workers and the installed-window/accessibility audit. The backward event API is already merged. The [capability map](current-status.md) identifies each boundary; the [operator guide](operating-malt-on-itself.md) assumes no prepared objective or current daemon state.
 
 Superseded feature parents wait for their local children to be delivered or safely retired, for pending child effects to settle, and for actual GitHub native children to close. The parent is then closed as `not_planned` through durable receipts; it never becomes a delivered outcome. Dirty child source remains preserved. Parent closure receipts survive a database restart.
 
@@ -178,7 +180,7 @@ Use Tab to reach summaries and Retry buttons, and Enter or Space to open details
 
 ## Objective priority and repair focus
 
-On the mission overview, **Product queue ? Dispatch priority** lists every unfinished objective in dispatch order, with its actual lifecycle state. Use **Move first**, **Move up**, or **Move down** with mouse or keyboard. The saved order applies to planning and delivery assignments and survives broker restart in the selected project's `.malt` SQLite ledger. Completed and superseded objectives remain in the collapsed archive.
+On the mission overview, **Product queue · Dispatch priority** lists every unfinished objective in dispatch order, with its actual lifecycle state. Use **Move first**, **Move up**, or **Move down** with mouse or keyboard. The saved order applies to planning and delivery assignments and survives broker restart in the selected project's `.malt` SQLite ledger. Completed and superseded objectives remain in the collapsed archive.
 
 Use **Focus only this objective** on a repair objective to hold new assignments for unrelated objectives. Existing jobs finish without losing edits; unpaid GitHub reconciliation continues. **Resume all objectives** releases focus. Completing or superseding the focused objective releases it automatically. Focus does not override dependencies, exclusive owners, resource limits, review gates, or blocked status. Inspect the blocker, resolve its cause, and explicitly retry the affected objective or delivery. A focused objective with unresolved dependencies may wait; move or release focus to work on its prerequisites.
 

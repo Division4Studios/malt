@@ -136,6 +136,8 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 ## Managed factory controls
 
+See [current capabilities](current-status.md) before integrating a planned operation. Terminal sessions, general recommendation decisions and connector capability enforcement are not supplied by the frame codec, recommendation store or policy store alone.
+
 Factory state is separate from cooperative check-in state. Project-authenticated CLI/PWA controls use the broker's durable supervisor; a designated cooperative lead may coordinate permitted controls. Human skill decisions reject all agent credentials. Managed role bridges expose only read/communication tools, plus research/proposal tools for the learning steward; they do not offer check-in/wait, scheduler mutations, ticket creation or skill activation.
 
 | RPC operation                    | Input                                                                                           | Behavior                                                                                                               |
@@ -177,7 +179,7 @@ See [Mission control](operator-console.md) for exact startup and JSON-file CLI e
 
 Structured provider outcomes contain `outcome`, `summary`, `findings`, `deliveries`, `skillActions` and `instructionReceipts`. Each planned delivery carries a key, description, acceptance, dependency keys, nullable `capabilityTier` and up to four approved project skill names. Each receipt carries the supplied instruction UUID, `acknowledged`, `applied` and evidence. An applied receipt requires acknowledgement and a current assignment/source; it is an agent report, not independent acceptance proof. Missing receipts never imply acknowledgement.
 
-`factory_export_maintenance` is human-only and accepts `{requestId,workspace}`. The request must identify an independently reviewed, human-approved project skill revision. The absolute workspace must be the MALT source Git root with package identity `agentmesh`. A durable handoff journal fences the destination/revision and queues an idempotent source objective using the proposal UUID. Source setup, scheduling, validation and review remain independent; this operation never creates a GitHub Project or enables dispatch. See [source maintenance](operator-console.md#model-and-skill-routing).
+`factory_export_maintenance` is human-only and accepts `{requestId,workspace}`. The request must identify an independently reviewed, human-approved project skill revision. The absolute workspace must be the MALT source Git root with package identity `malt` (or the supported legacy `agentmesh` identity). A durable handoff journal fences the destination/revision and queues an idempotent source objective using the proposal UUID. Source setup, scheduling, validation and review remain independent; this operation never creates a GitHub Project or enables dispatch. See [source maintenance](operator-console.md#model-and-skill-routing).
 
 ## Internal HTTP boundary
 

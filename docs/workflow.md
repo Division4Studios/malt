@@ -159,7 +159,7 @@ After replacement, old idle approvals are revoked, pending requests are routed t
 
 ## Managed factory scheduling
 
-The managed factory offers verification, final integration and independent review before development or planning. Eligible development tasks are interleaved round-robin across objectives, ordered by feature creation time (stable input order for ties). Within an objective, repository insertion order preserves task creation order; later task updates do not move a task forward. Standalone deliveries and deliveries without a known feature follow known objectives in insertion order.
+The managed factory offers verification, final integration and independent review before development or planning. Eligible development tasks are interleaved round-robin across objectives, ordered by the durable effective objective rank (creation/insertion order is the legacy fallback). Within an objective, repository insertion order preserves task creation order; later task updates do not move a task forward. Standalone deliveries and deliveries without a known feature follow known objectives in insertion order.
 
 The first development candidate is followed by queued product-owner planning and team-lead refinement, before the remaining development candidates. A running development job already occupies that first position, so while one developer works, planning is offered before any further development; a staggered refill of the free slot cannot starve planning. Each planning role is offered at most once per pass, so planning can compete for the second slot at the default cap of two. Development candidates prefer alternating available developer roles; alternative roles remain later in the list for transactional admission. Occupied roles and active feature planning claims stay excluded.
 
@@ -167,6 +167,8 @@ Flexible development tasks leave roles reserved for later fixed-owner repairs av
 
 This orders candidates only: transactional claims, resource/provider ceilings, original-developer rework ownership, completed-dependency gates, attempt limits, failure cooldowns and scope-replacement exclusions still apply. It adds no slots or preemption and does not estimate which tasks are cheap. Running work can occupy both slots until it finishes.
 
-## What still requires a provider adapter
+## Attached and managed session boundaries
 
-This protocol is cooperative. It cannot force an agent that chooses to end its turn to reopen a tool, restart a killed CLI, or inject an unsolicited model turn. Managed provider sessions and their native resume/steering APIs are a separate layer. The persistent state and messages already provide the information such a layer would need.
+Attached MCP sessions are cooperative: a bridge cannot force a model that ended its turn to reopen a tool. The implemented managed supervisor separately launches and retires bounded subscription CLI assignments. Idle logical roles keep no model process. A native interactive terminal/steering surface is still a separate unfinished feature, not something provided by cooperative wait/resume.
+
+Operator focus and existing-delivery clearance affect future reservations, preserve active work and never override dependency or review gates. See [mission recovery](operator-console.md#recover-a-stopped-objective) and [current capabilities](current-status.md).

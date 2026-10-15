@@ -1,106 +1,67 @@
 # Run MALT's development from mission control
 
-MALT's source repository is explicitly authorized as a delivery project, using
-[GitHub Project 10](https://github.com/users/Division4Studios/projects/10).
-The factory foundation is now on remote `main`; owned worktrees can see it.
-The historical Git-ignore pilot is complete and must not be repeated.
+The source repository can be a delivery target when explicitly selected. This repository uses [Division4Studios/malt](https://github.com/Division4Studios/malt) and [Project 10](https://github.com/users/Division4Studios/projects/10). Other target projects require their own verified connection; they do not inherit this board.
 
-## Start the prepared mission
+Read [current capabilities](current-status.md) and the [issue audit](issue-audit-2026-10-15.md) before queueing work. Search existing open and relevant closed issues. Reconcile merged work instead of reimplementing it because an old local attempt is blocked. Preserve source edits, histories and native relationships.
 
-1. Open <http://127.0.0.1:4318/>. Select `multiagent-local-team` and confirm
-   **LOCAL CONSOLE CONNECTED**. Its memory location must end in this repository's
-   `.malt`, not a temporary preview folder.
-2. Open **Mission → Overview**. The prepared activity-history objective is
-   queued. The factory is deliberately paused for this operator handoff.
-3. Click **Start factory**. This starts actual subscription sessions as stages
-   become eligible. No additional chat session or manually opened model window
-   is required.
-4. Follow **Workflow → Deliveries** for issues, PRs and delivery stages;
-   **Workers** for actual assignment output and evidence; and **Mission →
-   Activity** for persisted coordination events.
+## Start and pair
 
-The first objective adds bounded older-event browsing to Mission Activity.
-It requires a PO/lead plan of one to three small deliveries, meaningful tests,
-two independent QA reviews, final integration, merge and actual-main proof.
-It does not claim to finish all remaining factory features at once.
-The objective appears under **Product queue**. The **Next in queue** counter
-counts eligible delivery tasks; it can remain zero before planning creates them.
-
-The configured supervisor admits at most **one live assignment** at a time to
-keep resource usage bounded. Both developer seats and QA roles remain available
-as logical team members; they do not each keep a model process running. Provider
-budgets/cooldowns may park eligible work. Reported scheduling tokens are policy
-accounting, not purchased API credits or subscription entitlements.
-
-## Give the team more work or change direction
-
-Use **New objective** for a new outcome, including observable acceptance and
-exclusions. Prefer one feature outcome over a list of unrelated improvements.
-The PO and lead inspect it, create native parent/child issues in the existing
-Project, and dispatch eligible deliveries. Normal QA returns and subsequent
-work are scheduled without asking the operator to continue each stage.
-
-Use a role's **Send instruction** for durable guidance. Use a delivery's
-**Change scope** when acceptance changes; that routes replanning through the PO
-and lead and fences affected work. An instruction is not an interactive shell
-or a guarantee that an idle model is immediately running. Delivery and explicit
-acknowledgement/application receipts are shown separately.
-
-For example:
-
-> Add a reusable accessibility specialist that the lead can schedule when a
-> delivery changes keyboard interaction. Define its ownership, triggers,
-> skills, evidence and resource limits. Deliver it in small reviewed slices;
-> preserve the independent QA and final merge gates.
-
-Use **Pause factory** to drain/stop owned assignments while preserving state.
-Inspect a genuine blocker before using **Retry**. Human approval of exact skill
-revisions remains an explicit decision under **Project → Learning & skills**.
-
-## Native runtime and restart
-
-The current native broker and console already run on ports 4319 and 4318.
-Do not start another copy against the same `.malt`. After deliberately stopping
-them, restart from the repository root in two terminals:
+From the intended MALT source revision, after inspecting the checkout:
 
 ```powershell
+npm ci --ignore-scripts
 npm run build:web
-node src/cli.ts start --project "C:\work\malt" --port 4319
+node src/cli.ts start --project '<absolute-target-path>' --port 4317
 ```
+
+In another terminal from the same source folder:
 
 ```powershell
-node src/cli.ts ui --project "C:\work\malt" --port 4318
+node src/cli.ts ui --project '<absolute-target-path>' --port 4318
 ```
 
-Pair with the code printed by the UI process. Restarting the UI invalidates its
-old browser session. Keep both native processes running; closing this chat or
-the browser is separate from stopping the daemon. Sleep/shutdown interrupts
-execution, and recovery waits for stale leases before scheduling replacements.
-The PWA installation does not install a Windows service.
+Replace the placeholder with the intended Git root in both commands. Open <http://127.0.0.1:4318/> and use the code printed by the owning UI process. Restarting the UI invalidates the old pairing session. Do not publish codes or private logs.
 
-Merged server changes do **not** hot-reload the running broker. Finish and drain
-active work, inspect the primary checkout, update it without overwriting edits,
-install locked dependencies if needed, rebuild the browser shell, and restart
-the native processes to deploy a new server revision. Preserve `.malt`. Agents
-must not force-reset the operator checkout or kill unrelated processes to
-deploy themselves. An explicit deployment handoff may still need the operator.
+If another native broker or container owns that target's `.malt`, use it or stop it deliberately first. Closing the browser/chat does not stop the daemon. PWA installation does not install a Windows service.
 
-## Configuration and evidence
+In **Project**, verify repository/remote identity, the intended Project URL and workflow field, subscription CLI authentication, validation commands and resource policy. Memory must be the target's `.malt`, not a preview directory. This guide assumes no prepared objective, paused state or fixed live job count.
 
-The source factory policy is saved privately in
-`.malt/factory/operator-policy.json`; the previous pilot policy is retained
-beside it. The broker's validated durable settings are authoritative.
-Assignments install locked dependencies with lifecycle scripts disabled, run
-`npm run check`, and use the real local web-console/factory-lifecycle integration
-tests for final checks. Each delivery is limited to eight files and 700 diff
-lines. Larger features must be decomposed rather than weakening those limits.
+## Direct the queue
 
-Only this repository uses the approved private-repository branch-protection
-exception. Two local QA reviews, final verification, current commit fencing and
-actual GitHub restrictions still apply; no administrator bypass is allowed.
+1. Inspect **Product queue** and related tickets before **New objective**. Supply an observable outcome, exclusions and relevant issue links.
+2. Use **Move first**, **Move up** or **Move down** for durable priority of future planning/development reservations. Existing assignments retain edits and ownership.
+3. **Focus only this objective** holds unrelated new assignments. **Work existing deliveries** prioritizes retained tickets while holding new objective work. Neither bypasses dependencies or gates.
+4. Inspect **Mission recovery** ("Choose the next safe step.") and **Clear the path** before retrying. Acknowledge records visibility; it does not fix anything. Ask the lead for bounded diagnosis, route a repair, request review/verification or record a precise wait reason.
+5. Start dispatch after setup is verified. Roles run short-lived eligible assignments and exit; routine continuation needs no repeated operator prompt.
 
-Current gaps include arbitrary additional managed specialist seats, full
-history browsing, the installed-window/accessibility audit and fresh real
-Codex developer command-path validation. The handoff begins with history
-browsing. Existing provider failures and lessons remain available; a missing
-capability is a concrete blocker, never a reason to invent successful evidence.
+**Unstarted deliveries** counts delivery tasks; **Pending objectives** counts unfinished product outcomes. Neither promises an immediate launch. Resource/provider policy, dependencies, fixed rework ownership and gates determine eligibility.
+
+Token counts are diagnostic by default. Observed subscription limits/cooldowns and local CPU/memory/process/concurrency policy govern admission. Previously saved numeric token caps remain optional explicit policy until changed. Inspect actual settings rather than assuming a cap of one or two.
+
+## Instructions, scope and review
+
+**Send instruction** supplies durable role/task guidance. Idle roles receive relevant guidance on a later assignment; delivered, acknowledged and applied remain distinct. **Change scope** routes changed acceptance through PO/lead replanning and fences affected work. Worker panes show actual logs/messages and evidence, not an interactive terminal.
+
+Prefer 1–500 changed text lines per PR including meaningful tests/docs, independently useful slices and real dependencies. Configured file/line publication ceilings remain authoritative. An exact human-approved one-delivery size exception is available when splitting is unsuitable; it never waives checks, ownership, independent QA or merge gates.
+
+QA reports defects to the responsible developer. The final gate verifies integration and actual merged main. Local model QA is separate from GitHub's authenticated-review requirements. Inspect live target protections; the source project's documented temporary solo-maintainer exception is not a global bypass.
+
+Native stacked PRs are ordered dependencies. When all layers are ready, merge the complete stack from its top PR. Merging an intermediate layer independently can require restacking the remainder. A stack never excuses unresolved conversations or stale checks.
+
+## Deploy deliberately
+
+```mermaid
+flowchart LR
+  Inspect[Inspect active work and source] --> Settle[Finish or pause and preserve edits]
+  Settle --> Stop[Stop only owned broker and UI]
+  Stop --> Update[Update source without resetting edits]
+  Update --> Build[Install locked dependencies and build]
+  Build --> Start[Restart matching broker and UI]
+  Start --> Verify[Pair and verify target and retained state]
+```
+
+Pause before changing policy. Pause stops owned attempts and preserves their edits; it does not certify they finished successfully. Inspect resulting cancellations/blockers before resuming. Settle work, stop the specific owning processes through their terminals, update the intended checkout without overwriting edits, install the lockfile, rebuild and restart both services. Never force-reset the primary checkout or blanket-kill PowerShell/Node/provider processes.
+
+For Docker, follow [container startup/authentication](operator-console.md#docker-startup-and-provider-authentication), rebuild with `docker compose up -d --build --wait`, and verify which runtime owns the project. Never run native and container brokers against one database. Preserve project `.malt` and the separate provider credential volume.
+
+Merged source does not hot-reload a broker. A completed issue, refreshed browser, Docker smoke or published wiki is not deployment evidence. Confirm the running revision and retained project state after restart.
