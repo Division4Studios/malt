@@ -136,6 +136,14 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 ## Managed factory controls
 
+### Read-only issue corpus foundation
+
+`ProjectGitHub.issues()` and `GitHubDelivery.issueCorpus` / `observedIssue` expose internal read capabilities for the selected connection's verified repository node. Legacy or unverified source identity requires reconnecting first. This foundation adds no ticket mutation, detector, work queue or public operator control.
+
+Corpus pages contain at most ten open issues, then recently closed issues (30-day default). Continue using the returned repository/phase/cutoff cursor and retain every page; the final `complete` flag describes that traversal, not a frozen GitHub snapshot. Native repository issue connections exclude PRs. Labels and child identities are bounded to 100 each and carry explicit incomplete coverage; an incomplete observation cannot establish a complete dependency graph. The native CLI independently enforces response bytes/timeouts. Fresh single-issue reads return a SHA-256 revision over canonical retained content, state, labels, parent/children and update timestamps; label/child ordering alone does not change it. Missing, transferred or inaccessible issues fail with a bounded error. Re-read relevant issue revisions before approving later effects.
+
+The reader follows GitHub's [cursor pagination contract](https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api) and native [Issue fields](https://docs.github.com/en/graphql/reference/issues#issue). Fixture transports exercise these contracts without creating live issues or spending model turns.
+
 See [current capabilities](current-status.md) before integrating a planned operation. Terminal sessions, general recommendation decisions and connector capability enforcement are not supplied by the frame codec, recommendation store or policy store alone.
 
 Factory state is separate from cooperative check-in state. Project-authenticated CLI/PWA controls use the broker's durable supervisor; a designated cooperative lead may coordinate permitted controls. Human skill decisions reject all agent credentials. Managed role bridges expose only read/communication tools, plus research/proposal tools for the learning steward; they do not offer check-in/wait, scheduler mutations, ticket creation or skill activation.

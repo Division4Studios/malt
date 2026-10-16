@@ -17,6 +17,7 @@ import { reconcileDependencies } from './dependencies.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
 import type { GitHubRunner, ProjectGitHub } from '../github.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
@@ -98,6 +99,10 @@ export interface IssueState {
 }
 /** Injectable external delivery boundary, including fixture GitHub merges. */
 export interface DeliveryRemote {
+  /** Bounded selected-repository observations; absent fixture capability is never complete coverage. */
+  readonly issueCorpus?: (input: unknown) => Promise<IssueCorpusPage>;
+  /** Current issue identity/content revision for exact reviewed decisions. */
+  readonly observedIssue?: (number: number) => Promise<ObservedIssue>;
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
@@ -138,6 +143,26 @@ export class GitHubDelivery implements DeliveryRemote {
     this.mesh = mesh;
     this.github = github;
     this.runner = runner;
+  }
+
+  /**
+   * Inspect selected-repository issues without creating or classifying work.
+   *
+   * @param input - Bounded corpus page and continuation.
+   * @returns Observations with explicit incomplete coverage.
+   */
+  public async issueCorpus(input: unknown): Promise<IssueCorpusPage> {
+    return await this.github.issues().page(input);
+  }
+
+  /**
+   * Refresh one native issue revision before a later human-approved action.
+   *
+   * @param number - Repository-local issue number.
+   * @returns Current bounded observation.
+   */
+  public async observedIssue(number: number): Promise<ObservedIssue> {
+    return await this.github.issues().get(number);
   }
 
   /**
