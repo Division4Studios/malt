@@ -9,6 +9,7 @@ import { z } from 'zod/v3';
 
 import { cloudPolicySchema } from './cloud-schema.ts';
 import { localControlSchema } from './local-schema.ts';
+import { managerPolicySchema } from './manager-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -277,6 +278,8 @@ export const factoryConfigSchema = z
     terminals: terminalPolicySchema.default({}),
     /** Developer assignments routed to Codex Cloud on the operator's subscription. */
     cloud: cloudPolicySchema.default({}),
+    /** Persistent delivery manager session (#211); off until the operator starts it. */
+    manager: managerPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
