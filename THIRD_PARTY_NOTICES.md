@@ -14,6 +14,12 @@ The chosen Pstack source is specifically `backnotprop/pstack`; it is not a claim
 
 ## Dependencies and executables
 
-The browser and service worker have no production npm dependencies. The backend uses `@modelcontextprotocol/sdk` and `zod`; their transitive packages retain their distributed licenses in `node_modules`. The lockfile pins resolved versions/integrity. Generate an inventory for the exact checkout with `npm sbom --omit=dev --sbom-format=cyclonedx` and audit with `npm audit`. Development tooling and GitHub Actions have their own licenses; full inventories are version-specific, not a permanent blanket MIT claim.
+The browser and service worker have no production npm dependencies. The backend uses `@modelcontextprotocol/sdk`, `zod` and the exact pinned `node-pty@1.2.0-beta.15`; their transitive packages retain their distributed licenses in `node_modules`. The lockfile pins resolved versions/integrity. Generate an inventory for the exact checkout with `npm sbom --omit=dev --sbom-format=cyclonedx` and audit with `npm audit`. Development tooling and GitHub Actions have their own licenses; full inventories are version-specific, not a permanent blanket MIT claim.
+
+### Native terminal dependency
+
+`node-pty` is backend-only and loaded exclusively by the contained terminal host. The package retains the MIT license, copyright 2012–2015 Christopher Jeffrey, in `node_modules/node-pty/LICENSE`; [upstream source and license](https://github.com/microsoft/node-pty) and [exact package metadata](https://registry.npmjs.org/node-pty/1.2.0-beta.15) identify the distribution. Its `node-addon-api` runtime dependency retains the MIT license, copyright 2017 Node.js API collaborators, in `node_modules/node-addon-api/LICENSE.md`. Redistributed packages/prebuilds must retain their accompanying notices; this paragraph does not replace them.
+
+Locked native installation and containers use `npm ci --ignore-scripts`; MALT uses packaged prebuilds and system ConPTY rather than downloading or compiling replacement binaries at runtime. See the [terminal support and maintenance contract](docs/interactive-terminals.md#dependency-and-platform-maintenance) before changing the pinned beta or platform assumptions. No terminal parser, renderer or native library is vendored into the browser.
 
 Native Git, GitHub CLI, Codex CLI, Claude Code, Node.js and Docker are separate products with their own terms and authentication. The container's pinned provider executables do not grant subscription access or inference API credits. No vendor logos, proprietary fonts or copied BridgeMind/RuView artwork are included in MALT's original social card.
