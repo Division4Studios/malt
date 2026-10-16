@@ -11,6 +11,22 @@ import { terminalEnvironment } from './terminal-launch.ts';
 
 import type { TerminalInput } from './terminal-input.ts';
 
+/** Only these helper bootstrap variables need a separate target environment. */
+const MODULE_KEYS = ['PSModulePath', 'PSModuleAnalysisCachePath', 'PSDisableModuleAnalysisCacheCleanup'] as const;
+/** Windows environment values cannot contain NUL separators. */
+const moduleValue = z
+  .string()
+  .refine((value) => !value.includes('\0'))
+  .nullable();
+/** No arbitrary environment keys can cross this bootstrap-only restoration boundary. */
+const moduleEnvironmentSchema = z
+  .object({
+    PSModulePath: moduleValue,
+    PSModuleAnalysisCachePath: moduleValue,
+    PSDisableModuleAnalysisCacheCleanup: moduleValue,
+  })
+  .strict();
+
 /** Private contract remains compatible with existing one-shot assignments. */
 export const ownedLaunchSchema = z.object({
   file: z.string(),
@@ -22,9 +38,37 @@ export const ownedLaunchSchema = z.object({
   cpuPercent: z.number(),
   processLimit: z.number().int().positive(),
   interactive: z.boolean().default(false),
+  moduleEnvironment: moduleEnvironmentSchema.optional(),
 });
 /** Validated descriptor. */
 type OwnedLaunch = z.output<typeof ownedLaunchSchema>;
+
+/**
+ * Write private target metadata while keeping bootstrap variables out of the target.
+ *
+ * @param file - Existing private wrapper descriptor.
+ * @param launch - Validated native launch.
+ * @param pipe - Optional private interactive input channel.
+ * @returns New native Job descriptor path.
+ */
+function nativeDescriptor(file: string, launch: OwnedLaunch, pipe: TerminalInput | null): string {
+  const descriptor = path.join(path.dirname(file), launch.interactive ? 'pty-job.json' : 'native-job.json');
+  const original: Record<string, string | null> = {};
+  for (const key of MODULE_KEYS) {
+    const lookup = (environment: NodeJS.ProcessEnv): string | undefined =>
+      Object.entries(environment).find(([name]) => name.toLowerCase() === key.toLowerCase())?.[1];
+    original[key] = launch.interactive ? null : (lookup(launch.env) ?? lookup(process.env) ?? null);
+  }
+  writeAtomic(
+    descriptor,
+    JSON.stringify({
+      ...launch,
+      args: pipe === null ? launch.args : [...launch.args, '--input-pipe', pipe.name],
+      moduleEnvironment: moduleEnvironmentSchema.parse(original),
+    }),
+  );
+  return descriptor;
+}
 
 /**
  * Separate interactive input from PowerShell bootstrap stdin.
@@ -38,16 +82,15 @@ export async function prepareOwnedInput(
   file: string,
   launch: OwnedLaunch,
 ): Promise<{ descriptor: string; pipe: TerminalInput | null }> {
-  if (!launch.interactive || process.platform !== 'win32') {
+  if (process.platform !== 'win32') {
     return { descriptor: file, pipe: null };
   }
-  const pipe = await createTerminalInput(process.stdin);
+  const pipe = launch.interactive ? await createTerminalInput(process.stdin) : null;
   try {
-    const descriptor = path.join(path.dirname(file), 'pty-job.json');
-    writeAtomic(descriptor, JSON.stringify({ ...launch, args: [...launch.args, '--input-pipe', pipe.name] }));
+    const descriptor = nativeDescriptor(file, launch, pipe);
     return { descriptor, pipe };
   } catch (error) {
-    await pipe.close();
+    await pipe?.close();
     throw error;
   }
 }
@@ -106,10 +149,15 @@ export function ownedEnvironment(launch: OwnedLaunch): NodeJS.ProcessEnv {
   if (process.platform !== 'win32') {
     return environment;
   }
+  const helper = Object.fromEntries(
+    Object.entries(environment).filter(([key]) =>
+      MODULE_KEYS.every((name) => name.toLowerCase() !== key.toLowerCase()),
+    ),
+  );
   // Only Microsoft's built-in cmdlets are needed by the fixed Job helper.
   // Avoid discovering user/runner modules or sharing their analysis-cache lock.
   return {
-    ...environment,
+    ...helper,
     PSModulePath: path.join(
       process.env['SystemRoot'] ?? 'C:/Windows',
       'System32',
