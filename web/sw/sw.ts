@@ -10,6 +10,7 @@ const SHELL = [
   '/',
   '/app.js',
   '/history.js',
+  '/activity-ui.js',
   '/api.js',
   '/views.js',
   '/worker-ui.js',

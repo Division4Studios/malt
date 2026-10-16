@@ -18,6 +18,7 @@ const FILES = [
   'icon-512.png',
   'dist/app.js',
   'dist/history.js',
+  'dist/activity-ui.js',
   'dist/api.js',
   'dist/views.js',
   'dist/worker-ui.js',

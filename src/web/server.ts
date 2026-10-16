@@ -27,6 +27,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['dist/app.js', 'text/javascript; charset=utf-8']],
   ['/history.js', ['dist/history.js', 'text/javascript; charset=utf-8']],
+  ['/activity-ui.js', ['dist/activity-ui.js', 'text/javascript; charset=utf-8']],
   ['/views.js', ['dist/views.js', 'text/javascript; charset=utf-8']],
   ['/worker-ui.js', ['dist/worker-ui.js', 'text/javascript; charset=utf-8']],
   ['/learning-ui.js', ['dist/learning-ui.js', 'text/javascript; charset=utf-8']],
