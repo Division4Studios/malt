@@ -53,6 +53,10 @@ await test('paired external-merge adoption is fenced, durable and does not start
   const web = await startWebConsole({ ...initial, url: brokerUrl(broker.port) }, 0);
   defer(async () => web.close());
   const headers = await pairBrowser(web.url, web.pairingCode);
+  const historyAsset = await fetch(`${web.url}/history.js`);
+  assert.equal(historyAsset.status, 200, 'The compiled history module is actually served by the console.');
+  assert.match(historyAsset.headers.get('Content-Type') ?? '', /text\/javascript/v);
+  assert.ok((await historyAsset.text()).length > 0);
   const repository = new FactoryRepository(broker.store);
   const task = taskSchema.parse({
     id: randomUUID(),

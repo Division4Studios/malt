@@ -9,6 +9,7 @@ const CACHE = 'malt-public-shell-v1';
 const SHELL = [
   '/',
   '/app.js',
+  '/history.js',
   '/api.js',
   '/views.js',
   '/worker-ui.js',
