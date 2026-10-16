@@ -145,7 +145,10 @@ export class LocalHub {
   public async verify(url: string, requiresProtection: boolean): Promise<void> {
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hub path under the selected project's private state.
     if (!existsSync(path.join(this.directory, 'HEAD'))) {
-      throw new MeshError('FACTORY_GATED', 'The local delivery hub does not exist. Run `malt hub init` first.');
+      throw new MeshError(
+        'FACTORY_GATED',
+        'The local delivery hub does not exist. Pause the factory and apply a policy with "delivery": "local" (factory-setup or Project setup) to create it.',
+      );
     }
     if (!(await this.isHub(url))) {
       throw new MeshError('WRONG_PROJECT', 'The factory remote must point at this project’s local delivery hub.');
@@ -159,7 +162,7 @@ export class LocalHub {
     if (requiresProtection && !(await this.isProtected())) {
       throw new MeshError(
         'FACTORY_GATED',
-        `The local hub ${this.base} branch protection hook is missing or modified. Run \`malt hub init\` to restore it.`,
+        `The local hub ${this.base} branch protection hook is missing, modified or not executable. Pause the factory and re-apply its policy (factory-setup or Project setup) to restore it.`,
       );
     }
   }
