@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { TerminalGrid } from '../web/src/terminal-grid.ts';
+import { TerminalParser } from '../web/src/terminal-parser.ts';
 import { DEFAULT_TERMINAL_STYLE, terminalStyle } from '../web/src/terminal-style.ts';
 
 await test('grid allocation, scrollback and cursor remain bounded during floods and hostile resize', () => {
@@ -57,4 +58,25 @@ await test('SGR colors are numeric/palette values and flags reset independently'
   assert.equal(terminalStyle(styled, [39]).foreground, null);
   assert.equal(terminalStyle(styled, [38, 2]).foreground, null);
   assert.deepEqual(terminalStyle(styled, [9999]), styled);
+});
+
+await test('colon true-color groups preserve optional color space and following SGR boundaries', () => {
+  const parser = new TerminalParser();
+  const colors = [
+    [38, 2, '', 255, 0, 0],
+    [38, 2, 0, 255, 0, 0],
+    [38, 2, 255, 0, 0],
+  ];
+  for (const group of colors) {
+    const color = group.join(':');
+    const [action] = parser.feed(`\u{1B}[${color};1m`);
+    assert.ok(action?.type === 'csi');
+    const style = terminalStyle(DEFAULT_TERMINAL_STYLE, action.params, action.subparameters);
+    assert.equal(style.foreground, 'rgb(255 0 0)');
+    assert.equal(style.bold, true);
+  }
+  const prior = terminalStyle(DEFAULT_TERMINAL_STYLE, [31, 1]);
+  const [unsupported] = parser.feed('\u{1B}[38:2:1:255:0:0;4:3m');
+  assert.ok(unsupported?.type === 'csi');
+  assert.deepEqual(terminalStyle(prior, unsupported.params, unsupported.subparameters), { ...prior, underline: true });
 });
