@@ -205,6 +205,22 @@ export class ProjectGateway {
   }
 
   /**
+   * Read or acknowledge current-project recommendations through the existing broker.
+   *
+   * @param id - Explicit authenticated operator selection.
+   * @param input - Bounded inspection or exact read receipt.
+   * @param shouldMarkRead - Explicit read acknowledgement, never a decision.
+   * @returns The project's durable inspection or minimal receipt.
+   */
+  public async recommendations(id: string, input: unknown, shouldMarkRead = false): Promise<unknown> {
+    return await rpc(
+      this.config(id),
+      shouldMarkRead ? 'factory_recommendation_read' : 'factory_recommendations',
+      input,
+    );
+  }
+
+  /**
    * Inspect metadata only; viewing a project never creates a terminal.
    *
    * @param id - Explicitly selected operator scope.

@@ -1,11 +1,18 @@
 /** @file Project-scoped recommendation revisions and transactional state fences. */
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
-import { run, selectOne } from '../database.ts';
+import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import {
+  RECOMMENDATION_DETAIL_MAX,
+  recommendationDetailInput,
+  recommendationListInput,
+  recommendationReadSchemas,
+} from './recommendation-read-schema.ts';
 import { recommendationBodySchema, recommendationSchema, recommendationTransitionSchema } from './schema.ts';
 
 import type { Recommendation, RecommendationBody, RecommendationState } from './schema.ts';
@@ -25,6 +32,19 @@ const TRANSITIONS: Record<RecommendationState, readonly RecommendationState[]> =
 };
 /** Only undecided or invalidated content may be superseded. */
 const REPLACEABLE = new Set<RecommendationState>(['proposed', 'awaiting_human', 'stale', 'rejected']);
+/** Bounded summaries keep list reads independent of full proposal histories. */
+const SUMMARY_MAX = 1000;
+/** Only recent audit entries are sent inline; full history stays durable. */
+const AUDIT_MAX = 25;
+/** One list card exposes bounded evidence with full detail available separately. */
+const EVIDENCE_MAX = 3;
+/** Aggregated current-project counters never include historical superseded revisions. */
+const countsSchema = z.object({
+  total: z.number().int().nonnegative(),
+  unread: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  awaitingHuman: z.number().int().nonnegative(),
+});
 
 /**
  * Hash schema-ordered content, independent of caller object-key order.
@@ -34,6 +54,32 @@ const REPLACEABLE = new Set<RecommendationState>(['proposed', 'awaiting_human', 
  */
 function digest(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+/**
+ * Project a bounded card, retaining exact observed revisions and a full-detail identity.
+ *
+ * @param record - Current immutable proposal revision and volatile state.
+ * @returns Explicit summary; it is never sufficient authority for a decision.
+ */
+function summary(record: Recommendation): Record<string, unknown> {
+  const { body } = record;
+  return {
+    id: record.id,
+    revision: record.revision,
+    state: record.state,
+    unread: record.unread,
+    isSummary: true,
+    body: {
+      kind: body.kind,
+      tickets: body.tickets,
+      observedIssues: body.observedIssues,
+      action: body.action.slice(0, SUMMARY_MAX),
+      evidence: body.evidence.slice(0, EVIDENCE_MAX).map((item) => item.slice(0, SUMMARY_MAX)),
+      preview: { before: body.preview.before.slice(0, SUMMARY_MAX), after: body.preview.after.slice(0, SUMMARY_MAX) },
+    },
+    auditTotal: record.audit.length,
+  };
 }
 
 /** Repository-owned access, scoped to the store's verified project metadata. */
@@ -53,6 +99,57 @@ export class RecommendationLedger {
     const rowSchema = z.object({ value: z.string() });
     const row = selectOne(store.db, rowSchema, "SELECT value FROM metadata WHERE key = 'project_id'");
     this.project = rowSchema.parse(row).value;
+  }
+
+  /**
+   * Inspect bounded current pages or one exact revision without acknowledging it.
+   *
+   * @param input - Explicit list/get request from the authenticated project boundary.
+   * @returns Stable content revision, state and bounded evidence; counters stay separate.
+   * @throws {MeshError} For unknown/foreign records or an oversized inline proposal.
+   */
+  public inspect(input: unknown): unknown {
+    const request = recommendationReadSchemas.factory_recommendations.parse(input);
+    if (request.kind === 'get') {
+      const detail = recommendationDetailInput.parse(request);
+      const record = this.get(detail.id, detail.revision ?? null);
+      if (record === null) {
+        throw new MeshError('NOT_FOUND', 'The recommendation revision is not available in this project.');
+      }
+      const recommendation = { ...record, audit: record.audit.slice(-AUDIT_MAX), auditTotal: record.audit.length };
+      const response = { recommendation, contentRevision: record.revision };
+      if (Buffer.byteLength(JSON.stringify(response)) > RECOMMENDATION_DETAIL_MAX) {
+        throw new MeshError(
+          'FACTORY_GATED',
+          'This preserved proposal exceeds the inline review limit. Request a smaller revised proposal before reviewing it.',
+        );
+      }
+      return response;
+    }
+    const page = recommendationListInput.parse(request);
+    const rows = selectAll(
+      this.store.db,
+      z.object({ data: z.string() }),
+      `SELECT r.data FROM factory_recommendations c JOIN factory_recommendation_revisions r ON r.project=c.project AND r.id=c.id AND r.revision=c.revision WHERE c.project=? AND c.id>? ORDER BY c.id LIMIT ?`,
+      this.project,
+      page.after ?? '',
+      page.limit + 1,
+    );
+    const records = rows.slice(0, page.limit).map((row) => recommendationSchema.parse(JSON.parse(row.data)));
+    const counts = countsSchema.parse(
+      selectOne(
+        this.store.db,
+        countsSchema,
+        `SELECT count(*) AS total, COALESCE(sum(json_extract(r.data,'$.unread')=1),0) AS unread, COALESCE(sum(json_extract(r.data,'$.state') IN ('proposed','awaiting_human','approved','applying','reconciling')),0) AS pending, COALESCE(sum(json_extract(r.data,'$.state')='awaiting_human'),0) AS awaitingHuman FROM factory_recommendations c JOIN factory_recommendation_revisions r ON r.project=c.project AND r.id=c.id AND r.revision=c.revision WHERE c.project=?`,
+        this.project,
+      ),
+    );
+    return {
+      items: records.map((record) => summary(record)),
+      counts,
+      nextCursor: rows.length > page.limit ? (records.at(-1)?.id ?? null) : null,
+      contentRevision: digest(records.map(({ id, revision, state }) => ({ id, revision, state }))),
+    };
   }
 
   /**
@@ -151,15 +248,30 @@ export class RecommendationLedger {
   /**
    * Mark only the revision actually read; repeated reads have no audit side effect.
    *
-   * @param id - Recommendation identity.
-   * @param revision - Exact current content address.
-   * @returns Updated record.
+   * @param input - Exact current identity/revision receipt.
+   * @returns Minimal acknowledgement without duplicating a private proposal body.
+   */
+  public readReceipt(input: unknown): { id: string; revision: string; unread: boolean } {
+    const value = recommendationReadSchemas.factory_recommendation_read.parse(input);
+    const { id, revision, unread } = this.markRead(value.id, value.revision);
+    return { id, revision, unread };
+  }
+
+  /**
+   * Record one exact read without approving or replacing its content.
+   *
+   * @param id - Current recommendation identity.
+   * @param revision - Exact body revision.
+   * @returns Current durable record with the unread bit cleared.
    */
   public markRead(id: string, revision: string): Recommendation {
     return this.store.transaction(() => {
       const current = this.get(id);
       if (current?.revision !== revision) {
         throw new MeshError('FACTORY_GATED', 'Recommendation revision refused.');
+      }
+      if (!current.unread) {
+        return current;
       }
       current.unread = false;
       this.save(current);

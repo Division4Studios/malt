@@ -136,6 +136,14 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 ## Managed factory controls
 
+### Recommendation inspection and read receipts
+
+Authenticated `GET /api/recommendations?project=ID&limit=20&after=HASH` lists current-project summaries, exact content revisions, states, observed issue revisions, preview/evidence excerpts and separate `total`, `pending`, `awaitingHuman` and `unread` counts. Pending includes proposed, awaiting-human, approved, applying and reconciling records. Lists are bounded to 20 and use stable identity cursors. `contentRevision` excludes read counters and timestamps; reading never acknowledges a proposal.
+
+`GET /api/recommendation?project=ID&id=HASH&revision=HASH` inspects current or explicit historical detail. Inline details retain at most 25 recent audit entries, report the durable audit total and have a 256 KiB response ceiling; oversized historical proposals remain preserved and need a smaller revised proposal for inline review. List summaries are not decision authority. Responses are `no-store` and are never service-worker cached.
+
+Only an explicit paired operator `POST /api/recommendation/read?project=ID` with `{ "id": "HASH", "revision": "HASH" }` marks the exact current revision read. This is idempotent and neither approves nor executes it. Missing/foreign IDs, stale receipts, duplicate/unrelated query fields and unauthorized origins/projects fail without mutation. The underlying MCP operations are `mesh_factory_recommendations` (`kind: "list"` or `"get"`) and human-only `mesh_factory_recommendation_read`; agent credentials cannot change human read receipts. The existing broker ledger is authoritative across restart. Decision and execution controls remain separate deliveries.
+
 ### Read-only issue corpus foundation
 
 `ProjectGitHub.issues()` and `GitHubDelivery.issueCorpus` / `observedIssue` expose internal read capabilities for the selected connection's verified repository node. Legacy or unverified source identity requires reconnecting first. This foundation adds no ticket mutation, detector, work queue or public operator control.
@@ -143,6 +151,8 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 Corpus pages contain at most ten open issues, then recently closed issues (30-day default). Continue using the returned repository/phase/cutoff cursor and retain every page; the final `complete` flag describes that traversal, not a frozen GitHub snapshot. Native repository issue connections exclude PRs. Labels and child identities are bounded to 100 each and carry explicit incomplete coverage; an incomplete observation cannot establish a complete dependency graph. The native CLI independently enforces response bytes/timeouts. Fresh single-issue reads return a SHA-256 revision over canonical retained content, state, labels, parent/children and update timestamps; label/child ordering alone does not change it. Missing, transferred or inaccessible issues fail with a bounded error. Re-read relevant issue revisions before approving later effects.
 
 The reader follows GitHub's [cursor pagination contract](https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api) and native [Issue fields](https://docs.github.com/en/graphql/reference/issues#issue). Fixture transports exercise these contracts without creating live issues or spending model turns.
+
+### Common factory controls and authority
 
 See [current capabilities](current-status.md) before integrating a planned operation. Terminal sessions, general recommendation decisions and connector capability enforcement are not supplied by the frame codec, recommendation store or policy store alone.
 

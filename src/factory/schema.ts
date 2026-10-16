@@ -18,6 +18,7 @@ import {
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
+import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 
 /** Bound operator triage context independently of model transcripts. */
@@ -497,6 +498,7 @@ export const skillRequestSchema = skillActionSchema.extend({
 export type SkillRequest = z.output<typeof skillRequestSchema>;
 /** MCP/CLI operations exposed by the factory. */
 export const factorySchemas = {
+  ...recommendationReadSchemas,
   factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
@@ -592,6 +594,8 @@ export const factorySchemas = {
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_recommendations',
+  'factory_recommendation_read',
   'factory_model_policy',
   'factory_progress',
   'factory_read_source',

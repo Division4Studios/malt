@@ -15,6 +15,7 @@ import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
+import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
@@ -449,6 +450,60 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
+ * Dispatch authenticated inspection routes without mixing their cases with mutations.
+ *
+ * @param url - Validated local request URL.
+ * @param request - Authenticated incoming request.
+ * @param response - Owned local response.
+ * @param context - Same scoped gateway, sessions and stream authority as controls.
+ */
+async function inspectApi(
+  url: URL,
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: { sessions: OperatorSessions; gateway: ProjectGateway; streams: Streams },
+): Promise<void> {
+  const { sessions, gateway, streams } = context;
+  const project = url.searchParams.get('project') ?? 'home';
+  switch (url.pathname) {
+    case '/api/projects': {
+      json(response, HTTP.ok, await gateway.list());
+      return;
+    }
+    case '/api/snapshot': {
+      json(response, HTTP.ok, await gateway.snapshot(project));
+      return;
+    }
+    case '/api/recommendations':
+    case '/api/recommendation': {
+      const query = recommendationQuery(url, url.pathname === '/api/recommendations' ? 'list' : 'get');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, query.input));
+      return;
+    }
+    case '/api/skill': {
+      json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
+      return;
+    }
+    case '/api/history': {
+      const query = historyQuery(url);
+      json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
+      return;
+    }
+    case '/api/stream': {
+      await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/artifact': {
+      json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
+      return;
+    }
+    default: {
+      json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
+    }
+  }
+}
+
+/**
  * Dispatch operator API routes through existing broker controls.
  *
  * @param url - Parsed local URL.
@@ -469,43 +524,19 @@ async function api(
     return;
   }
   if (request.method === 'GET') {
-    switch (url.pathname) {
-      case '/api/projects': {
-        json(response, HTTP.ok, await gateway.list());
-        return;
-      }
-      case '/api/snapshot': {
-        json(response, HTTP.ok, await gateway.snapshot(project));
-        return;
-      }
-      case '/api/skill': {
-        json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
-        return;
-      }
-      case '/api/history': {
-        const query = historyQuery(url);
-        json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
-        return;
-      }
-      case '/api/stream': {
-        await streams.open(gateway, project, { request, response, sessions });
-        return;
-      }
-      case '/api/artifact': {
-        json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
-        return;
-      }
-      default: {
-        json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
-        return;
-      }
-    }
+    await inspectApi(url, request, response, context);
+    return;
   }
   if (request.method !== 'POST') {
     json(response, HTTP.methodNotAllowed, { error: 'Method not allowed.' });
     return;
   }
   switch (url.pathname) {
+    case '/api/recommendation/read': {
+      const query = recommendationQuery(url, 'read');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, await body(request), true));
+      return;
+    }
     case '/api/projects': {
       const input = z
         .object({ workspace: z.string().min(1).max(PATH_MAX) })
