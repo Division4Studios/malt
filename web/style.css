@@ -1673,3 +1673,74 @@ summary {
     justify-self: start;
   }
 }
+/* Local pull requests, issue board and diff review. */
+.diff {
+  display: grid;
+  gap: 12px;
+}
+.diff-file {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.diff-file-head {
+  display: flex;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--raised);
+  cursor: pointer;
+  font-family: var(--font-terminal);
+}
+.diff-path {
+  margin-right: auto;
+  overflow-wrap: anywhere;
+}
+.diff-added {
+  color: var(--green);
+}
+.diff-removed {
+  color: var(--red);
+}
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12.5px/1.5 var(--font-terminal);
+  display: block;
+  overflow-x: auto;
+}
+.diff-table td {
+  padding: 0 8px;
+  vertical-align: top;
+}
+.diff-number {
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+  opacity: 0.7;
+}
+.diff-marker {
+  width: 1.5em;
+  user-select: none;
+}
+.diff-text {
+  white-space: pre;
+  width: 100%;
+}
+.diff-add {
+  background: rgb(126 217 155 / 0.12);
+}
+.diff-add .diff-marker {
+  color: var(--green);
+}
+.diff-del {
+  background: rgb(255 100 120 / 0.12);
+}
+.diff-del .diff-marker {
+  color: var(--red);
+}
+.diff-hunk {
+  background: rgb(232 166 52 / 0.08);
+  color: var(--muted);
+}
