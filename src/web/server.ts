@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
 import { OperatorSessions } from './security.ts';
+import { telemetryRoute } from './telemetry-routes.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -492,7 +493,8 @@ async function api(
         return;
       }
       default: {
-        json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
+        // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
+        json(response, HTTP.ok, await telemetryRoute(url, gateway));
         return;
       }
     }
