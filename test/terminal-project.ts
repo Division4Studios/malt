@@ -28,7 +28,7 @@ export async function terminalProject(t: TestContext): Promise<{
   defer: Defer;
 }> {
   const defer = createCleanup(t);
-  const mesh = createProject(defer);
+  const mesh = createProject(defer, 'malt-token-free-terminal-');
   const settings = factoryConfigSchema.parse({
     testCommands: [{ file: 'node' }],
     endToEndCommands: [{ file: 'node' }],
