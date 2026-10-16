@@ -383,3 +383,51 @@ await test('only deliveries about to be dispatched have their issue read', async
     assert.equal(untouched.error, null);
   }
 });
+
+await test('one successful issue read cannot hide another postponed delivery', async (t) => {
+  const fixture = await build(t);
+  seed(fixture, { issue: 201 });
+  seed(fixture, { issue: 202 });
+  fixture.behavior.read = async (issue) => {
+    await delay(0);
+    if (issue === 201) {
+      throw new Error('Fixture temporary GitHub failure.');
+    }
+    return { state: 'closed', stateReason: 'completed' };
+  };
+  await pass(fixture);
+  assert.deepEqual(fixture.reads, [201, 202]);
+  assert.match(statusSchema.parse(await fixture.factory.execute('factory_status', {})).error, /issue #201/v);
+  fixture.behavior.read = async () => delay(0, { state: 'closed', stateReason: 'completed' });
+  await pass(fixture);
+  assert.ok(!JSON.stringify(await fixture.factory.execute('factory_status', {})).includes('Waiting to confirm issue'));
+});
+
+await test('two projects awaiting GitHub cannot overclaim the same broker slot', { timeout: 30_000 }, async (t) => {
+  const first = await build(t);
+  const second = await build(t);
+  const entered = Promise.withResolvers<undefined>();
+  const verdict = Promise.withResolvers<IssueState>();
+  let reads = 0;
+  const constrained = factoryConfigSchema.parse({
+    ...settings,
+    resources: { ...settings.resources, maxActiveJobs: 1 },
+  });
+  const read = async (): Promise<IssueState> => {
+    reads += 1;
+    if (reads === 2) {
+      entered.resolve(undefined);
+    }
+    return await verdict.promise;
+  };
+  for (const fixture of [first, second]) {
+    fixture.repository.configure(constrained);
+    seed(fixture, { issue: 203 });
+    fixture.behavior.read = read;
+  }
+  const passes = Promise.all([pass(first), pass(second)]);
+  await entered.promise;
+  verdict.resolve({ state: 'open', stateReason: null });
+  await passes;
+  assert.equal(developJobs(first).length + developJobs(second).length, 1);
+});
