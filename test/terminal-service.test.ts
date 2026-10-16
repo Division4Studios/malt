@@ -20,6 +20,20 @@ import type { TerminalProcess } from '../src/factory/terminal-process.ts';
 const request = { provider: 'codex' as const, columns: 80, rows: 24 };
 const healthy = { freeMemoryMb: 20_000, totalMemoryMb: 32_000, cpuPercent: 0 };
 
+/**
+ * Reassemble safe native output independently of arbitrary PTY/redaction chunking.
+ *
+ * @param service - The actual fixture-backed terminal service.
+ * @param id - This test's owned session.
+ * @returns Bounded replay text, not assumed line-shaped transport frames.
+ */
+function replayedText(service: TerminalService, id: string): string {
+  return (service.buffer(id)?.readAfter(0) ?? [])
+    .filter((frame) => frame.type === 'data')
+    .map((frame) => frame.text)
+    .join('');
+}
+
 await test('terminal service refuses resource/provider/cap gates before any native spawn', async (t) => {
   const defer = createCleanup(t);
   const mesh = createProject(defer);
@@ -133,24 +147,10 @@ await test('operator terminal uses a fetched owned scratch tree and releases bro
   await until(() => repository.terminals.get(session.id)?.state === 'running', 30_000);
   const text = `${'hello'.repeat(100)}\r`;
   await service.control('terminal_input', { id: session.id, text });
-  await until(() => {
-    return (
-      service
-        .buffer(session.id)
-        ?.readAfter(0)
-        .some((frame) => frame.type === 'data' && frame.text.includes('ECHO')) === true
-    );
-  }, 10_000);
+  await until(() => replayedText(service, session.id).includes('ECHO'), 10_000);
   await service.control('terminal_resize', { id: session.id, columns: 100, rows: 30 });
   await service.control('terminal_input', { id: session.id, text: `size\r${' '.repeat(600)}\r` });
-  await until(() => {
-    return (
-      service
-        .buffer(session.id)
-        ?.readAfter(0)
-        .some((frame) => frame.type === 'data' && frame.text.includes('SIZE 100 30')) === true
-    );
-  }, 10_000);
+  await until(() => replayedText(service, session.id).includes('SIZE 100 30'), 10_000);
   await assert.rejects(service.control('terminal_input', { id: session.id, text: 'x'.repeat(16_385) }));
   await assert.rejects(service.control('terminal_input', { id: session.id, text: '日'.repeat(6000) }), {
     code: 'TOO_LARGE',
