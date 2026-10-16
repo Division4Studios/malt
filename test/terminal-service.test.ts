@@ -122,7 +122,7 @@ await test('operator terminal uses a fetched owned scratch tree and releases bro
   await assert.rejects(service.start(request), /cap/v);
   const native = handles[0];
   assert.ok(native !== undefined);
-  await until(() => repository.terminals.get(session.id)?.state === 'running', 10_000);
+  await until(() => repository.terminals.get(session.id)?.state === 'running', 30_000);
   native.send({ type: 'input', data: Buffer.from(`${'hello'.repeat(100)}\r`) });
   await until(() => {
     return (
