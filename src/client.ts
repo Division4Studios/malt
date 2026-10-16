@@ -95,6 +95,7 @@ const waitTimeoutSchema = z.object({ timeoutMs: z.number() }).partial();
  */
 function deadlineFor(operation: Operation, input: unknown): number {
   if (
+    operation === 'open_team' ||
     operation.startsWith('github_') ||
     operation.startsWith('learning_') ||
     operation.startsWith('factory_') ||
