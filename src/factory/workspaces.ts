@@ -105,7 +105,15 @@ export class WorkspaceManager {
 
   /** Pin retained scratch reflog ancestry before publication or owned retirement. */
   public async retainTerminalHistory(): Promise<void> {
-    await retainTerminalHistory(async (args) => this.git(args));
+    const trees = this.terminalTrees().filter((record) => {
+      this.assertOwnedPath(record.directory);
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only registry-owned scratch paths within the private worktree root.
+      return existsSync(record.directory);
+    });
+    await retainTerminalHistory(
+      async (args, cwd) => this.git(args, cwd),
+      trees.map((record) => record.directory),
+    );
   }
 
   /**
@@ -380,6 +388,9 @@ export class WorkspaceManager {
     const record = records.find((entry) => entry.directory === directory && !entry.removed);
     if (record === undefined) {
       throw new MeshError('INVALID_INPUT', 'Cleanup requires an owned worktree record.');
+    }
+    if (record.id.startsWith('terminal-')) {
+      await this.retainTerminalHistory();
     }
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Verified absolute path under this project's owned worktree root.
     if (existsSync(directory)) {

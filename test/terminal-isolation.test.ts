@@ -110,10 +110,27 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
   );
   const preserved = await workspaces.git(['rev-parse', `refs/malt/archive/terminal-history-${head}`]);
   assert.equal(preserved, head);
+  await workspaces.git(['switch', '--detach', base], scratch);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Commit only in this test-owned detached scratch checkout.
+  writeFileSync(file, 'Detached operator source.');
+  await workspaces.git(['add', 'operator.txt'], scratch);
+  await workspaces.git(['commit', '-m', 'Detached operator commit'], scratch);
+  const detachedHead = await workspaces.git(['rev-parse', 'HEAD'], scratch);
+  await workspaces.git(['switch', branch], scratch);
+  const detachedBranch = `malt/detached-${id}`;
+  const detachedDeveloper = await workspaces.create(`${id}-detached-dev`, detachedHead, detachedBranch);
+  await assert.rejects(
+    workspaces.publish({ ...task, branch: detachedBranch, worktree: detachedDeveloper }, async () => {
+      await Promise.resolve();
+      assert.fail('Detached operator ancestry cannot create delivery evidence.');
+    }),
+    /terminal-only/v,
+  );
+  assert.equal(await workspaces.remove(scratch), true);
+  await workspaces.git(['update-ref', '-d', `refs/heads/${branch}`]);
   await workspaces.git(['reflog', 'expire', '--expire=now', '--all']);
   // Once pinned, source isolation survives normal branch/reflog retirement.
   await workspaces.git(['update-ref', `refs/malt/archive/terminal-${id}`, terminalTip]);
-  await workspaces.git(['update-ref', '-d', `refs/heads/${branch}`]);
   await assert.rejects(
     workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
       await Promise.resolve();
