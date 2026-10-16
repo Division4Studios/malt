@@ -81,6 +81,8 @@ export class TerminalPane {
   private stream: TerminalStream | null = null;
   /** Connection status is distinct from the actual process state. */
   private phase: TerminalConnectionState = 'disconnected';
+  /** Retained SQLite state is not proof of a live runtime after replay loss/restart. */
+  private isReplayUnavailable = false;
   /** Lifecycle writes are single-flight and never retried automatically. */
   private isBusy = false;
   /** Visible connection/process text. */
@@ -239,9 +241,10 @@ export class TerminalPane {
     this.reconnectButton.disabled = !this.options.isReady() || this.isBusy;
     this.paneRemoval.disabled = ACTIVE.has(this.current.state) || this.isBusy;
     const reason = this.current.reason === '' ? '' : ` · ${this.current.reason}`;
+    const processState = this.isReplayUnavailable ? `Recorded ${this.current.state}` : this.current.state;
     this.status.textContent = this.isBusy
       ? 'Closing requested. Waiting for owned process cleanup…'
-      : `${this.current.state} · output ${this.phase}${reason}`;
+      : `${processState} · output ${this.phase}${reason}`;
     this.root.dataset['terminalState'] = this.current.state;
     this.input.update();
   }
@@ -293,11 +296,12 @@ export class TerminalPane {
       this.screen.resize(page.session.columns, page.session.rows);
     }
     this.current = page.session;
+    this.isReplayUnavailable = page.unavailable;
     this.options.changed(this.current);
     this.updateControls();
     if (page.unavailable) {
       this.showWarning(
-        'Replay is unavailable after a backend restart or retention limit. Session metadata is preserved.',
+        'Replay is unavailable after a backend restart or retention limit. Retained metadata does not verify a live native process. Input stays disabled.',
       );
     }
     for (const chunk of page.output) {

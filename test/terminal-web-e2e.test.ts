@@ -60,6 +60,7 @@ await test(
       headers: { ...headers, Origin: 'https://hostile.invalid' },
       body: JSON.stringify({ operation: 'terminal_close', input: { id: session.id } }),
     });
+
     assert.equal(hostile.status, 403);
     assert.ok(isAlive(cli));
     const agent = await fetch(new URL('/rpc', mesh.url), {
