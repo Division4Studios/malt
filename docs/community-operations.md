@@ -59,7 +59,7 @@ Q&A keeps a focused question and what was tried; mark an answer only when it ans
 
 See [verified controls](github-controls.md), [security policy](../SECURITY.md), [governance](../GOVERNANCE.md) and [funding](../SPONSORING.md). Financial onboarding, a private conduct contact, another trusted maintainer and restoring distinct authenticated reviews remain account-owner work.
 
-The actual Sponsors profile editor requires owner reauthentication; repository funding copy does not update that account profile. Three existing CodeQL findings remain visible, with independent evidence-backed triage tracked in [#245](https://github.com/Division4Studios/malt/issues/245). No alert is dismissed or suppressed merely to make this audit green.
+Following owner reauthentication on 2026-10-16, the actual Sponsors short bio, introduction, funding priorities and featured MALT repository were saved and verified through an unauthenticated public-page fetch. This is separate from publishing repository funding copy. Tax, payout readiness and financial terms remain account-owned and unverified. Three existing CodeQL findings remain visible, with independent evidence-backed triage tracked in [#245](https://github.com/Division4Studios/malt/issues/245). No alert is dismissed or suppressed merely to make this audit green.
 
 ## Primary references
 
