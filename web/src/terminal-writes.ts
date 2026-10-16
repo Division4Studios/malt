@@ -5,7 +5,7 @@ const MAX_BYTES = 16_384;
 const encoder = new TextEncoder();
 /** Native UI callbacks freeze project/session scope before queue construction. */
 export interface TerminalWriteHooks {
-  /** Fresh connectivity, focus and exact project/session ownership gate. */
+  /** Fresh connectivity and exact project/session ownership gate. */
   readonly isReady: () => boolean;
   /** Send once through the authenticated native terminal boundary. */
   readonly send: (text: string) => Promise<void>;
@@ -13,7 +13,7 @@ export interface TerminalWriteHooks {
   readonly failed: () => void;
 }
 
-/** One capture lifetime owns one queue; a fresh human capture creates a new one. */
+/** One pane/session lifetime owns a queue; focus changes do not discard admitted keys. */
 export class TerminalWrites {
   /** Queued keystrokes stay transient and bounded. */
   private pending = '';

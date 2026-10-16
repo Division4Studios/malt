@@ -63,8 +63,10 @@ export class TerminalInput {
   private readonly height = element('select');
   /** Only this view's pending network mutations are abortable. */
   private lifetime = new AbortController();
-  /** One human capture owns one transient bounded queue. */
+  /** Pane/session ownership outlives focus changes for already-authorized keys. */
   private writes: TerminalWrites | null = null;
+  /** Only explicit capture admits new keyboard/clipboard events. */
+  private isCaptured = false;
   /** Optional native observer has no polling timer. */
   private readonly observer: ResizeObserver;
   /** One pending debounce, cleared on every suspension. */
@@ -100,15 +102,15 @@ export class TerminalInput {
     this.keyboard.setAttribute('aria-label', 'Captured terminal keyboard input');
     this.keyboard.placeholder = 'Capture keyboard to send native input. Escape releases; Tab moves focus.';
     this.capture.addEventListener('pointerdown', (event) => {
-      if (this.writes !== null) {
+      if (this.isCaptured) {
         event.preventDefault();
       }
     });
     this.capture.addEventListener('click', () => {
-      if (this.writes === null) {
-        this.captureKeys();
-      } else {
+      if (this.isCaptured) {
         this.release();
+      } else {
+        this.captureKeys();
       }
       this.update();
     });
@@ -117,7 +119,7 @@ export class TerminalInput {
     });
     this.keyboard.addEventListener('paste', (event) => {
       event.preventDefault();
-      if (this.writes !== null) {
+      if (this.isCaptured) {
         this.paste(event.clipboardData?.getData('text/plain') ?? '');
       }
     });
@@ -166,9 +168,9 @@ export class TerminalInput {
       this.lifetime = new AbortController();
     }
     this.capture.disabled = !isReady;
-    this.capture.textContent = this.writes === null ? 'Capture keyboard' : 'Release keyboard';
-    this.capture.setAttribute('aria-pressed', String(this.writes !== null));
-    this.keyboard.disabled = !isReady || this.writes === null;
+    this.capture.textContent = this.isCaptured ? 'Release keyboard' : 'Capture keyboard';
+    this.capture.setAttribute('aria-pressed', String(this.isCaptured));
+    this.keyboard.disabled = !isReady || !this.isCaptured;
     this.tab.disabled = !isReady;
     this.escape.disabled = !isReady;
     this.resizeButton.disabled = !isReady || this.isResizing;
@@ -184,6 +186,8 @@ export class TerminalInput {
   /** Cancel reads/mutations owned by this view and drop every unsent keystroke. */
   public suspend(): void {
     this.release();
+    this.writes?.close();
+    this.writes = null;
     this.lifetime.abort();
     this.observer.disconnect();
     this.isObserving = false;
@@ -206,7 +210,17 @@ export class TerminalInput {
     if (!this.options.isReady()) {
       return;
     }
-    this.release();
+    this.ensureQueue();
+    this.isCaptured = true;
+    this.update();
+    this.keyboard.focus();
+  }
+
+  /** Keep explicit controls ordered behind already admitted keys across blur. */
+  private ensureQueue(): void {
+    if (this.writes !== null || !this.options.isReady()) {
+      return;
+    }
     const { signal } = this.lifetime;
     this.writes = new TerminalWrites({
       isReady: () => !signal.aborted && this.options.isReady(),
@@ -214,6 +228,7 @@ export class TerminalInput {
         await this.post('terminal_input', { text }, signal);
       },
       failed: () => {
+        this.writes = null;
         this.release();
         this.options.warn(
           'Input was not confirmed. Unsent keys were discarded. Inspect the CLI before capturing again; nothing was retried.',
@@ -221,14 +236,11 @@ export class TerminalInput {
         this.update();
       },
     });
-    this.update();
-    this.keyboard.focus();
   }
 
   /** Release capture without sending the browser's focus escape to the CLI. */
   private release(): void {
-    this.writes?.close();
-    this.writes = null;
+    this.isCaptured = false;
     this.keyboard.value = '';
     this.isComposing = false;
   }
@@ -239,7 +251,7 @@ export class TerminalInput {
    * @param event - Native focused key event.
    */
   private keydown(event: KeyboardEvent): void {
-    if (this.writes === null || !this.options.isReady()) {
+    if (!this.isCaptured || !this.options.isReady()) {
       return;
     }
     if (event.key === 'Escape' || event.key === 'Tab') {
@@ -299,7 +311,7 @@ export class TerminalInput {
    * @param text - Fixed native control byte.
    */
   private sendExplicit(text: string): void {
-    this.captureKeys();
+    this.ensureQueue();
     this.enqueue(text);
   }
 
