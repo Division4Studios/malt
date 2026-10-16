@@ -1,7 +1,7 @@
 /** @file Terminal admission and scratch ownership with real Git and token-free native fixtures. */
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
@@ -131,7 +131,8 @@ await test('operator terminal uses a fetched owned scratch tree and releases bro
   const native = handles[0];
   assert.ok(native !== undefined);
   await until(() => repository.terminals.get(session.id)?.state === 'running', 30_000);
-  native.send({ type: 'input', data: Buffer.from(`${'hello'.repeat(100)}\r`) });
+  const text = `${'hello'.repeat(100)}\r`;
+  await service.control('terminal_input', { id: session.id, text });
   await until(() => {
     return (
       service
@@ -140,13 +141,54 @@ await test('operator terminal uses a fetched owned scratch tree and releases bro
         .some((frame) => frame.type === 'data' && frame.text.includes('ECHO')) === true
     );
   }, 10_000);
+  await service.control('terminal_resize', { id: session.id, columns: 100, rows: 30 });
+  await service.control('terminal_input', { id: session.id, text: `size\r${' '.repeat(600)}\r` });
+  await until(() => {
+    return (
+      service
+        .buffer(session.id)
+        ?.readAfter(0)
+        .some((frame) => frame.type === 'data' && frame.text.includes('SIZE 100 30')) === true
+    );
+  }, 10_000);
+  await assert.rejects(service.control('terminal_input', { id: session.id, text: 'x'.repeat(16_385) }));
+  await assert.rejects(service.control('terminal_input', { id: session.id, text: '日'.repeat(6000) }), {
+    code: 'TOO_LARGE',
+  });
+  await assert.rejects(service.control('terminal_resize', { id: session.id, columns: 501, rows: 30 }));
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Deliberate operator edit in this test-owned scratch worktree.
   writeFileSync(path.join(session.worktree, 'retained.txt'), 'Keep this edit.');
   const closed = await service.close(session.id);
   assert.equal(closed.state, 'exited');
   assert.equal(closed.reason, 'operator closed');
+  assert.ok(closed.inputBytes >= Buffer.byteLength(text));
+  assert.equal(closed.columns, 100);
+  assert.equal(closed.rows, 30);
+  await assert.rejects(service.control('terminal_input', { id: session.id, text: 'after close' }), {
+    code: 'FACTORY_GATED',
+  });
   assert.ok(closed.outputBytes > 0);
   assert.equal(pool.size, 0);
+  const artifacts = ['terminal-launch.json', 'owned-launch.json'];
+  if (process.platform === 'win32') {
+    artifacts.push('pty-job.json', 'resources.json');
+  }
+  const files = [
+    mesh.database,
+    `${mesh.database}-wal`,
+    ...artifacts.map((file) => path.join(mesh.directory, 'terminals', session.id, file)),
+  ];
+  const marker = Buffer.from(text.trim());
+  for (const file of files) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only this test's database and fixed owned metadata filenames.
+    if (!existsSync(file)) {
+      continue;
+    }
+
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Raw operator input must never enter these test-owned durable artifacts.
+    const durable = readFileSync(file);
+    assert.ok(!durable.includes(marker));
+  }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The test-created edit must survive owned-process retirement.
   assert.equal(existsSync(path.join(session.worktree, 'retained.txt')), true);
   assert.equal(await workspaces.git(['status', '--porcelain']), '');

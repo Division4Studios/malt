@@ -41,13 +41,20 @@ await test('terminal controls are operator-only, project-fenced and absent from 
     'Content-Type': 'application/json',
   };
   const request = { provider: 'codex', columns: 80, rows: 24 };
+  const inputs = {
+    terminal_start: request,
+    terminal_close: { id: randomUUID() },
+    terminal_list: {},
+    terminal_read: { id: randomUUID() },
+    terminal_input: { id: randomUUID(), text: 'not sent' },
+    terminal_resize: { id: randomUUID(), columns: 80, rows: 24 },
+  };
   const lead = new AgentClient(mesh, { name: 'terminal-lead', role: 'lead' });
   await lead.connect();
   defer(async () => lead.close());
   for (const operation of TERMINAL_OPERATIONS) {
     assert.ok(TOOL_OPERATIONS.every((tool: string) => tool !== operation));
-    const closeInput = operation === 'terminal_close' || operation === 'terminal_read' ? { id: randomUUID() } : {};
-    const input = operation === 'terminal_start' ? request : closeInput;
+    const input = inputs[operation];
     const response = await fetch(new URL('/rpc', mesh.url), {
       method: 'POST',
       headers: {

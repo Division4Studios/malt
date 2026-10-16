@@ -4,6 +4,8 @@ import { z } from 'zod/v3';
 import { MAX_COLUMNS, MAX_ROWS, MIN_COLUMNS, MIN_ROWS } from './terminal-frames.ts';
 /** Broker polls are bounded independently of transport deadlines. */
 const READ_WAIT_MS = 25_000;
+/** Text code-unit ceiling; the native input gate separately checks UTF-8 bytes. */
+const INPUT_LENGTH = 16_384;
 
 /** A provider selection never accepts arbitrary executables, arguments or paths. */
 export const terminalStartSchema = z
@@ -17,6 +19,8 @@ export const terminalStartSchema = z
 export const terminalSchemas = {
   terminal_start: terminalStartSchema,
   terminal_close: z.object({ id: z.string().uuid() }).strict(),
+  terminal_input: z.object({ id: z.string().uuid(), text: z.string().min(1).max(INPUT_LENGTH) }).strict(),
+  terminal_resize: terminalStartSchema.omit({ provider: true }).extend({ id: z.string().uuid() }).strict(),
   terminal_list: z.object({}).strict(),
   terminal_read: z
     .object({
@@ -34,6 +38,8 @@ export const TERMINAL_OPERATIONS = [
   'terminal_close',
   'terminal_list',
   'terminal_read',
+  'terminal_input',
+  'terminal_resize',
 ] as const satisfies readonly TerminalOperation[];
 
 /**

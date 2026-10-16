@@ -64,6 +64,8 @@ export const controlSchema = z
       'github_connect',
       'terminal_start',
       'terminal_close',
+      'terminal_input',
+      'terminal_resize',
     ]),
     input: z.unknown(),
   })
@@ -233,7 +235,7 @@ export class ProjectGateway {
   public async control(id: string, input: unknown): Promise<unknown> {
     const control = controlSchema.parse(input);
     const result = await rpc(this.config(id), control.operation satisfies Operation, control.input);
-    if (control.operation === 'terminal_start' || control.operation === 'terminal_close') {
+    if (control.operation.startsWith('terminal_')) {
       return terminalSessionSchema.parse(result);
     }
     const status = z.object({ jobs: z.array(z.unknown()) }).safeParse(result);
