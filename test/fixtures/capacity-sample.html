@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capacity sampling focus regression</title>
+  <div id="content"></div>
+  <pre id="result">PENDING</pre>
+  <script type="module">
+    import { fillProcessUsage, refreshCapacitySamples, stableFactory } from '../../web/dist/capacity-details.js';
+    const check = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const target = document.querySelector('#content');
+    let key = '';
+    const render = (factory) => {
+      refreshCapacitySamples(factory);
+      const next = JSON.stringify(stableFactory(factory));
+      if (next === key) return;
+      key = next;
+      const editor = document.createElement('details');
+      editor.open = true;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Operator instruction';
+      const input = document.createElement('textarea');
+      input.setAttribute('aria-label', 'Instruction');
+      editor.append(summary, input);
+      const scroll = document.createElement('div');
+      scroll.style.cssText = 'height:60px;overflow:auto';
+      const tall = document.createElement('div');
+      tall.style.height = '600px';
+      scroll.append(tall);
+      const samples = document.createElement('div');
+      samples.dataset.processUsage = 'true';
+      fillProcessUsage(samples, factory);
+      target.replaceChildren(editor, scroll, samples);
+    };
+    const factory = (cpu, cap = 2) => ({
+      resources: { cpuPercent: cpu },
+      processUsage: [
+        { role: '<img src=x onerror=alert(1)>', sample: { processes: [{ pid: 7, memoryMb: 90, cpuPercent: cpu }] } },
+      ],
+      admission: { sample: { observedAt: cpu }, limits: { maxActiveJobs: cap }, blocker: 'none' },
+    });
+    try {
+      render(factory(10));
+      const editor = target.querySelector('details');
+      const input = target.querySelector('textarea');
+      const scroll = target.children[1];
+      input.value = 'Preserve this pending instruction';
+      input.focus();
+      scroll.scrollTop = 200;
+      render(factory(90));
+      check(target.querySelector('textarea') === input, 'sample-only update preserves content node identity');
+      check(document.activeElement === input, 'sample-only update preserves actual keyboard focus');
+      check(input.value === 'Preserve this pending instruction' && editor.open, 'editor state survives');
+      check(scroll.scrollTop === 200, 'sample-only update preserves scroll');
+      check(
+        target.querySelector('[data-process-usage]').textContent.includes('90.0%'),
+        'latest process sample renders',
+      );
+      check(target.querySelector('img') === null, 'hostile role stays literal text');
+      render(factory(90, 3));
+      check(target.querySelector('textarea') !== input, 'changed admission limit invalidates content');
+      document.querySelector('#result').textContent =
+        'PASS: node identity, focus, editor, scroll, fresh sample, hostile text and real admission change';
+    } catch (error) {
+      document.querySelector('#result').textContent = `FAIL: ${String(error)}`;
+      throw error;
+    }
+  </script>
+</html>

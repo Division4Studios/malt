@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { child, number, records, text, firstText } from './api.js';
+import { child, number, records, text, firstText, resourceSummary } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -60,15 +60,66 @@ export function quotaWindowObservation(window: Data): string {
 }
 
 /**
- * Show current owned PIDs; limits are not substituted for measurements.
+ * Drop the volatile sampling cycle so a sample-only change never rebuilds the view.
+ * Machine resources, per-process usage and the admission sample refresh in place.
  *
- * @param target - Machine capacity panel.
+ * @param factory - Current authenticated factory snapshot.
+ * @returns Factory state that excludes every sample-derived field.
+ */
+export function stableFactory(factory: Data): Data {
+  const stable = Object.fromEntries(
+    Object.entries(factory).filter(([key]) => key !== 'resources' && key !== 'processUsage'),
+  );
+  if (stable['admission'] !== null && typeof stable['admission'] === 'object') {
+    stable['admission'] = Object.fromEntries(
+      Object.entries(child(stable, 'admission')).filter(([key]) => key !== 'sample'),
+    );
+  }
+  return stable;
+}
+
+/**
+ * Flatten owned process measurements into displayed table cells.
+ *
+ * @param factory - Current authenticated factory snapshot.
+ * @returns Process rows and roles without any measured process.
+ */
+export function processUsageRows(factory: Data): { rows: string[][]; unavailable: string[] } {
+  const rows: string[][] = [];
+  const unavailable: string[] = [];
+  const usage = records(factory['processUsage']);
+  for (const item of usage) {
+    const processes = records(child(item, 'sample')['processes']);
+    if (processes.length === 0) {
+      unavailable.push(text(item, 'role'));
+    }
+    for (const process of processes) {
+      const cpu = process['cpuPercent'];
+      rows.push([
+        text(item, 'role'),
+        String(number(process, 'pid')),
+        number(process, 'memoryMb').toFixed(1),
+        typeof cpu === 'number' ? `${cpu.toFixed(1)}%` : 'sampling',
+      ]);
+    }
+  }
+  return { rows, unavailable };
+}
+
+/**
+ * Rebuild only the process sample container, leaving the rest of the view untouched.
+ *
+ * @param target - Existing process usage container.
  * @param factory - Current authenticated factory snapshot.
  */
-export function appendProcessUsage(target: HTMLElement, factory: Data): void {
-  const usage = records(factory['processUsage']);
-  if (usage.length === 0) {
+export function fillProcessUsage(target: HTMLElement, factory: Data): void {
+  const { rows, unavailable } = processUsageRows(factory);
+  target.replaceChildren();
+  if (records(factory['processUsage']).length === 0) {
     return;
+  }
+  for (const role of unavailable) {
+    target.append(element('p', 'subtle', `${role}: process usage unavailable or stale.`));
   }
   const table = element('table');
   table.append(element('caption', '', 'Owned processes · CPU is percentage of the whole machine'));
@@ -81,24 +132,12 @@ export function appendProcessUsage(target: HTMLElement, factory: Data): void {
   const head = element('thead');
   head.append(header);
   const body = element('tbody');
-  for (const item of usage) {
-    const processes = records(child(item, 'sample')['processes']);
-    if (processes.length === 0) {
-      target.append(element('p', 'subtle', `${text(item, 'role')}: process usage unavailable or stale.`));
+  for (const values of rows) {
+    const row = element('tr');
+    for (const value of values) {
+      row.append(element('td', '', value));
     }
-    for (const process of processes) {
-      const row = element('tr');
-      const cpu = process['cpuPercent'];
-      for (const value of [
-        text(item, 'role'),
-        String(number(process, 'pid')),
-        number(process, 'memoryMb').toFixed(1),
-        typeof cpu === 'number' ? `${cpu.toFixed(1)}%` : 'sampling',
-      ]) {
-        row.append(element('td', '', value));
-      }
-      body.append(row);
-    }
+    body.append(row);
   }
   table.append(head, body);
   const scroll = element('div', 'process-usage');
@@ -111,4 +150,33 @@ export function appendProcessUsage(target: HTMLElement, factory: Data): void {
       'Windows samples come from owned Job Objects. Resident memory can include shared pages. Unavailable measurements stay unknown.',
     ),
   );
+}
+
+/**
+ * Show current owned PIDs; limits are not substituted for measurements.
+ *
+ * @param target - Machine capacity panel.
+ * @param factory - Current authenticated factory snapshot.
+ */
+export function appendProcessUsage(target: HTMLElement, factory: Data): void {
+  const container = element('div');
+  container.dataset['processUsage'] = 'true';
+  fillProcessUsage(container, factory);
+  target.append(container);
+}
+
+/**
+ * Refresh measured values without replacing the operator's current view.
+ *
+ * @param factory - Latest project-scoped snapshot.
+ */
+export function refreshCapacitySamples(factory: Data): void {
+  const resources = document.querySelector('[data-resource-machine]');
+  if (resources !== null) {
+    resources.textContent = resourceSummary(factory);
+  }
+  const usage = document.querySelector<HTMLElement>('[data-process-usage]');
+  if (usage !== null) {
+    fillProcessUsage(usage, factory);
+  }
 }

@@ -16,3 +16,21 @@ declare module '*/web/dist/brand-ui.js' {
     objectives: Record<string, unknown>[],
   ): { title: string; items: Record<string, unknown>[] }[];
 }
+
+declare module '*/web/dist/capacity-details.js' {
+  /**
+   * Remove every sample-derived field from factory state.
+   *
+   * @param factory - Factory snapshot.
+   * @returns Factory state that is stable across sampling cycles.
+   */
+  export function stableFactory(factory: Record<string, unknown>): Record<string, unknown>;
+
+  /**
+   * Flatten owned process measurements into displayed cells.
+   *
+   * @param factory - Factory snapshot.
+   * @returns Process rows and roles without a measured process.
+   */
+  export function processUsageRows(factory: Record<string, unknown>): { rows: string[][]; unavailable: string[] };
+}
