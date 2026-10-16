@@ -13,6 +13,7 @@ const ROOT_DOCUMENTS = new Set([
   'CODE_OF_CONDUCT.md',
   'CHANGELOG.md',
   'SUPPORT.md',
+  'SPONSORING.md',
   'THIRD_PARTY_NOTICES.md',
 ]);
 
