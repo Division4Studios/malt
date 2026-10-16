@@ -142,8 +142,10 @@ export function recordProviderReadiness(
   context: Pick<FactoryContext, 'mesh' | 'repository' | 'providerVersions'>,
   providers: readonly ProviderReadiness[],
 ): void {
-  const versions = context.providerVersions;
-  if (versions !== undefined && versions !== 'fixture') {
+  const current = context;
+  current.providerVersions ??= {};
+  const versions = current.providerVersions;
+  if (versions !== 'fixture') {
     delete versions.codex;
     delete versions.claude;
     for (const provider of providers) {

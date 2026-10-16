@@ -98,6 +98,27 @@ await test('readiness replacement removes failed providers and async context cha
       },
     },
   };
+  const fresh: Parameters<typeof isPolicyContextVerified>[0] = { ...context };
+  delete fresh.providerVersions;
+  assert.equal(
+    await isPolicyContextVerified(
+      fresh,
+      () => true,
+      async () => {
+        await Promise.resolve();
+        return [{ provider: 'claude', version: 'fixture-1', authentication: 'claude.ai' }];
+      },
+    ),
+    true,
+  );
+  const routing = routeAssignment({
+    intent,
+    provider: 'claude',
+    settings,
+    task: null,
+    versions: fresh.providerVersions,
+  });
+  assert.equal(routing.selection?.observedVersion, 'fixture-1');
   assert.equal(
     await isPolicyContextVerified(
       context,

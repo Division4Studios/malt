@@ -24,7 +24,7 @@ export interface FactoryContext {
   /** Delivery gates and resource policy. */
   readonly settings: FactoryConfig;
   /** Verified startup versions; fixture mode exists only with an injected in-process agent. */
-  readonly providerVersions?: Partial<Record<'codex' | 'claude', string>> | 'fixture';
+  providerVersions?: Partial<Record<'codex' | 'claude', string>> | 'fixture';
   /** Target GitHub integration. */
   readonly remote: DeliveryRemote;
   /** Durable project learning. */
