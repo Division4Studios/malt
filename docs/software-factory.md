@@ -8,6 +8,22 @@ MALT is an MCP server used by independent Claude and Codex sessions. Its own sou
 
 ## What is implemented
 
+The prepared capacity/model-policy/intake batch is in [Stack #251](https://github.com/Division4Studios/malt/stack/251), pending operator merge and matching deployment. Unpaid intake inspects native/local behavioral overlap before new planning/provisioning, reuses interrupted operation identities, and parks only scopes that need human disposition. Exact human decisions use the paired owner capability; agents can propose but cannot decide. Approval is an inert intent until the separately tracked executors exist.
+
+```mermaid
+flowchart TD
+  O[Durable objective] --> I[Unpaid bounded overlap intake]
+  I -->|No overlap or exact operation replay| P[Product and lead planning]
+  I -->|Evidence-backed overlap| H[Exact human recommendation]
+  H -->|Reject: keep separate| P
+  H -->|Approve| A[Inert durable intent]
+  A -.-> E[Executors and full decision UI: separate pending deliveries]
+  P --> D[Tracked atomic deliveries and existing QA gates]
+  U[Unrelated eligible delivery] --> D
+```
+
+The intake queue does not close tickets or modify skills. Native/local revisions are checked again at human decision time; a changed scope becomes stale. Running assignments retain frozen context, fresh relevant assignments receive at most ten compact durable notices, and full private corpus/history stays in `.malt`. See the [API contract and remaining boundaries](api.md#supervisor-overlap-intake).
+
 - Durable workspace-local conversations, identities, assignments and event history, with a generated `.malt/README.md`.
 - Workspace-scoped MCP tools for connecting GitHub Projects, creating native parent/sub-issues, setting delivery statuses and caching board snapshots.
 - Durable lessons, GitHub discovery and commit-pinned source snapshots.
