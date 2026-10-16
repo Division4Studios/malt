@@ -1,6 +1,7 @@
 /** @file One real scratch terminal view; read-only replay and explicit lifecycle controls. */
 import { request, scoped } from './api.ts';
 import { terminalView } from './terminal-contract.ts';
+import { TerminalInput } from './terminal-input.ts';
 import { TerminalParser } from './terminal-parser.ts';
 import { TerminalRenderer, terminalSurface } from './terminal-render.ts';
 import { TerminalScreen } from './terminal-screen.ts';
@@ -74,6 +75,8 @@ export class TerminalPane {
   private parser = new TerminalParser();
   /** Bounded dirty-row/native DOM rendering. */
   private readonly renderer: TerminalRenderer;
+  /** Explicit native keyboard capture and geometry, distinct from managed instructions. */
+  private readonly input: TerminalInput;
   /** Current owned read loop, absent while the pane is hidden. */
   private stream: TerminalStream | null = null;
   /** Connection status is distinct from the actual process state. */
@@ -104,6 +107,23 @@ export class TerminalPane {
     this.screen = new TerminalScreen(this.current.columns, this.current.rows);
     const liveRegion = element('p');
     this.renderer = new TerminalRenderer(terminalSurface(this.display, liveRegion));
+    this.input = new TerminalInput({
+      project: options.project,
+      id: this.current.id,
+      screen: this.screen,
+      display: this.display,
+      isReady: () => this.canInteract,
+      warn: (message) => {
+        this.showWarning(message);
+      },
+      resized: async (session, signal) => {
+        this.current = session;
+        this.screen.resize(session.columns, session.rows);
+        this.options.changed(session);
+        this.updateControls();
+        await this.paint(signal);
+      },
+    });
     this.root.setAttribute('aria-label', `${this.current.provider} scratch terminal`);
     const heading = element('header', 'panel-heading');
     heading.append(
@@ -140,7 +160,17 @@ export class TerminalPane {
       }
     });
     const location = element('p', 'subtle terminal-location', this.current.worktree);
-    this.root.append(heading, tools, this.status, this.warning, this.display, liveRegion, details, location);
+    this.root.append(
+      heading,
+      tools,
+      this.status,
+      this.warning,
+      this.display,
+      liveRegion,
+      this.input.root,
+      details,
+      location,
+    );
     this.updateControls();
   }
 
@@ -211,11 +241,13 @@ export class TerminalPane {
       ? 'Closing requested. Waiting for owned process cleanup…'
       : `${this.current.state} · output ${this.phase}${reason}`;
     this.root.dataset['terminalState'] = this.current.state;
+    this.input.update();
   }
 
   /** Dispose transient view state without claiming a native close succeeded. */
   public dispose(): void {
     this.suspend();
+    this.input.dispose();
     this.root.remove();
   }
 
@@ -277,6 +309,15 @@ export class TerminalPane {
         await this.applyText(chunk.text, signal);
       }
     }
+    await this.paint(signal);
+  }
+
+  /**
+   * Render bounded dirty rows after either native output or confirmed geometry.
+   *
+   * @param signal - Exact owned view/control lifetime.
+   */
+  private async paint(signal: AbortSignal): Promise<void> {
     while (this.hasPendingPaint(signal)) {
       // eslint-disable-next-line no-await-in-loop -- Dirty rows are limited per paint frame, never queued without a bound.
       await nextFrame(signal);
