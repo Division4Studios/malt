@@ -19,12 +19,15 @@ await test('terminal MCP isolation disables exactly discovered server names with
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Node treats this fixed test-owned CLI fixture as its mcp entry point.
   writeFileSync(
     script,
-    'process.stdout.write(JSON.stringify([{name:"agentmesh",args:["fake-config-secret"]},{name:"malt"},{name:"read-only"}]))',
+    'import assert from "node:assert/strict"; assert.deepEqual(process.argv.slice(2),["list","--json","--disable","plugins","--disable","apps","--disable","multi_agent"]); process.stdout.write(JSON.stringify([{name:"agentmesh",args:["fake-config-secret"]},{name:"malt"},{name:"read-only"}]))',
   );
   const names = await terminalMcpServers(process.execPath, mesh.root);
   assert.deepEqual(names, ['agentmesh', 'malt', 'read-only']);
   const descriptor = { provider: 'codex' as const, file: 'codex', cwd: mesh.root, columns: 80, rows: 24 };
   const args = terminalArguments({ ...descriptor, mcpServers: names });
+  for (const feature of ['plugins', 'apps', 'multi_agent']) {
+    assert.ok(args.some((value, index) => value === feature && args[index - 1] === '--disable'));
+  }
   for (const name of names) {
     assert.ok(args.includes(`mcp_servers.${name}.enabled=false`));
   }

@@ -22,6 +22,8 @@ const execute = promisify(execFile);
 const MCP_NAME_MAX = 200;
 /** Maximum configured MCP server count for one isolated terminal. */
 const MCP_SERVERS_MAX = 100;
+/** Exclude virtual plugin/app MCP entries and unbounded nested model sessions. */
+const CODEX_ISOLATION = ['--disable', 'plugins', '--disable', 'apps', '--disable', 'multi_agent'];
 /** Validated override-path component. */
 const mcpNameSchema = z
   .string()
@@ -104,6 +106,7 @@ export function terminalArguments(input: z.input<typeof terminalLaunchSchema>): 
         '--cd',
         launch.cwd,
         '--no-daemon',
+        ...CODEX_ISOLATION,
         '-c',
         'forced_login_method="chatgpt"',
         '-c',
@@ -124,7 +127,7 @@ export function terminalArguments(input: z.input<typeof terminalLaunchSchema>): 
  */
 export async function terminalMcpServers(file: string, cwd: string): Promise<string[]> {
   try {
-    const response = await execute(file, ['mcp', 'list', '--json'], {
+    const response = await execute(file, ['mcp', 'list', '--json', ...CODEX_ISOLATION], {
       cwd,
       env: terminalEnvironment(process.env),
       windowsHide: true,

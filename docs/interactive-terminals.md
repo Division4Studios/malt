@@ -44,12 +44,13 @@ Assignments are one-shot. `src/factory/providers.ts` runs `codex exec --json --e
 
 ```text
 codex --sandbox workspace-write --ask-for-approval on-request --cd <scratch-worktree> --no-daemon
+      --disable plugins --disable apps --disable multi_agent
       -c forced_login_method="chatgpt" -c model_provider="openai"
       -c history.persistence="none"
 ```
 
 - `--no-daemon` keeps the TUI and its server inside the contained process tree. A shared daemon could outlive the Job or process group.
-- Before launch, unpaid `codex mcp list --json` inspection runs in the exact scratch context. Only validated simple server names survive; command arguments, URLs and headers are discarded. The broker adds literal `-c mcp_servers.<name>.enabled=false` overrides for every discovered server. It fails closed if inspection or name validation fails. Codex 0.162.1 rejects an override for an absent server, so no phantom `agentmesh` or `malt` entry is added. The frozen descriptor disables actual configured names, including either MALT name, rather than assuming a global spelling. Fixture tests verify empty, multiple and invalid server lists without invoking a provider.
+- Before launch, unpaid `codex mcp list --json --disable plugins --disable apps --disable multi_agent` inspection runs in the exact scratch context. The same fixed feature flags apply to the interactive launch. Plugin servers are virtual entries, so turning their names into root `mcp_servers` overrides can create invalid transport tables; plugin/app discovery is disabled before inspecting ordinary configured servers. Nested model-agent tools are also disabled for this bounded operator session. Only validated simple server names survive; command arguments, URLs and headers are discarded. Literal `-c mcp_servers.<name>.enabled=false` overrides disable the remaining configured servers. Inspection or name validation failure gates startup. The operator's global configuration and provider credentials are not copied or modified. The installed Codex 0.162.1 feature list and unpaid MCP inspection verify these flags, consistent with the official [feature-flag CLI contract](https://learn.chatgpt.com/docs/developer-commands) and [configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference). Fixtures verify the exact isolation flags, multiple names and invalid names without inference.
 - An optional model choice comes only from the project's existing provider settings, never from the browser.
 
 ### Claude Code (help, 2.1.296)
