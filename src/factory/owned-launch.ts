@@ -58,12 +58,14 @@ export async function prepareOwnedInput(
  * @param descriptor - Private launch metadata.
  * @param launch - Validated native program.
  * @param cancellation - Unique owned control marker.
+ * @param ownerPipe - OS-lifetime capability of the exact wrapper, never a PID lookup.
  * @returns Executable and arguments.
  */
 export function ownedInvocation(
   descriptor: string,
   launch: OwnedLaunch,
   cancellation: string,
+  ownerPipe: string,
 ): { file: string; args: string[] } {
   return process.platform === 'win32'
     ? {
@@ -84,6 +86,8 @@ export function ownedInvocation(
           descriptor,
           '-CancelFile',
           cancellation,
+          '-OwnerPipe',
+          ownerPipe,
         ],
       }
     : { file: launch.file, args: launch.args };

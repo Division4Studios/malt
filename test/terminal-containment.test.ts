@@ -13,6 +13,7 @@ import { createCleanup, createProject, until } from './helpers.ts';
 
 const pidSchema = z.number().int().positive();
 const processesSchema = z.object({ processes: z.array(z.object({ pid: pidSchema })) });
+const helperSchema = z.object({ helperPid: pidSchema });
 
 /**
  * Inspect only a PID reported by our test's native fixture.
@@ -29,7 +30,7 @@ function isAlive(pid: number): boolean {
   }
 }
 
-for (const mode of ['close', 'disconnect'] as const) {
+for (const mode of ['close', 'disconnect', 'wrapper-crash'] as const) {
   await test(
     `owned PTY ${mode} retires a SIGTERM-resistant CLI and its grandchildren`,
     { timeout: 75_000 },
@@ -39,6 +40,7 @@ for (const mode of ['close', 'disconnect'] as const) {
       const artifact = path.join(project.directory, 'terminal');
       let text = '';
       let cliPid = 0;
+      let wrapperPid = 0;
       let failure = '';
       const terminal = startTerminalProcess({
         launch: { provider: 'codex', file: 'codex', cwd: project.root, columns: 80, rows: 24 },
@@ -46,6 +48,9 @@ for (const mode of ['close', 'disconnect'] as const) {
         memoryMb: 512,
         cpuPercent: 50,
         fixture: true,
+        onWrapperSpawn(pid) {
+          wrapperPid = pid;
+        },
         onFrame(frame) {
           if (frame.type === 'error') {
             failure = `${frame.code}: ${frame.message}`;
@@ -89,7 +94,12 @@ for (const mode of ['close', 'disconnect'] as const) {
       assert.ok(Number.isSafeInteger(grandchild) && grandchild > 0, text);
       assert.ok(isAlive(cliPid));
       assert.ok(isAlive(grandchild));
+      let helperPid = 0;
       if (process.platform === 'win32') {
+        const helperFile = path.join(artifact, 'wrapper-status.json');
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- Read the exact helper PID recorded by this fixture's owned wrapper, never a browser-supplied process.
+        const helperContent = readFileSync(helperFile, 'utf8');
+        helperPid = helperSchema.parse(JSON.parse(helperContent)).helperPid;
         const telemetry = path.join(artifact, 'resources.json');
         await until(() => {
           try {
@@ -106,10 +116,17 @@ for (const mode of ['close', 'disconnect'] as const) {
       if (mode === 'close') {
         terminal.send({ type: 'close' });
         await terminal.closed;
+      } else if (mode === 'wrapper-crash') {
+        assert.ok(wrapperPid > 0 && isAlive(wrapperPid));
+        process.kill(wrapperPid, 'SIGKILL');
+        await terminal.closed;
       } else {
         await terminal.stop();
       }
       await until(() => !isAlive(cliPid) && !isAlive(grandchild), 10_000);
+      if (helperPid !== 0) {
+        await until(() => !isAlive(helperPid), 10_000);
+      }
       await terminal.stop();
       await terminal.stop();
       assert.throws(() => {

@@ -46,6 +46,8 @@ export interface TerminalProcessSpec {
   readonly processLimit?: number;
   /** Test-only deterministic CLI; never selected by a route or provider configuration. */
   readonly fixture?: boolean;
+  /** Test-only observation of the exact owned wrapper, never accepted from a browser. */
+  readonly onWrapperSpawn?: (pid: number) => void;
   /** Receive validated native frames in memory. */
   readonly onFrame: (frame: Frame) => void;
 }
@@ -87,6 +89,14 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
   const input = child.stdin;
+  if (spec.fixture === true) {
+    child.once('spawn', () => {
+      const { pid } = child;
+      if (pid !== undefined) {
+        spec.onWrapperSpawn?.(pid);
+      }
+    });
+  }
   const output = child.stdout;
   if (input === null || output === null) {
     if (child.pid !== undefined) {
