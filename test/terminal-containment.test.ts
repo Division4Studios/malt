@@ -30,6 +30,44 @@ function isAlive(pid: number): boolean {
   }
 }
 
+await test(
+  'native spawn failure releases wrapper IPC and input pipes without operator stop',
+  { timeout: 15_000 },
+  async (t) => {
+    const defer = createCleanup(t);
+    const project = createProject(defer);
+    let wrapperPid = 0;
+    let failure = '';
+    const terminal = startTerminalProcess({
+      launch: {
+        provider: 'codex',
+        file: 'codex',
+        cwd: path.join(project.root, 'missing-worktree'),
+        columns: 80,
+        rows: 24,
+      },
+      artifact: path.join(project.directory, 'failed-terminal'),
+      memoryMb: 512,
+      cpuPercent: 50,
+      fixture: true,
+      onWrapperSpawn(pid) {
+        wrapperPid = pid;
+      },
+      onFrame(frame) {
+        if (frame.type === 'error') {
+          failure = frame.message;
+        }
+      },
+    });
+    defer(async () => terminal.stop());
+    await terminal.closed;
+    assert.ok(wrapperPid > 0);
+    assert.equal(isAlive(wrapperPid), false);
+    assert.match(failure, /ENOENT/v);
+    await terminal.stop();
+  },
+);
+
 for (const mode of ['close', 'disconnect', 'wrapper-crash'] as const) {
   await test(
     `owned PTY ${mode} retires a SIGTERM-resistant CLI and its grandchildren`,
