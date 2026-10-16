@@ -200,3 +200,47 @@ export function tabTarget(current: number, key: string, count: number): number |
   };
   return Object.hasOwn(moves, key) ? (moves[key] ?? null) : null;
 }
+
+/** One operator lifecycle control and the request it sends. */
+export interface LifecycleControl {
+  /** Button label. */
+  readonly label: string;
+  /** Operation sent through the operator control path. */
+  readonly operation: 'factory_hold' | 'factory_archive';
+  /** Request input. */
+  readonly input: { readonly taskIds: readonly string[]; readonly hold?: boolean; readonly archive?: boolean };
+}
+
+/**
+ * The lifecycle control a delivery offers: hold or resume while unfinished,
+ * archive once finished.
+ *
+ * @param delivery - Delivery on the board.
+ * @returns Label and request.
+ */
+export function lifecycleControl(delivery: Delivery): LifecycleControl {
+  const taskIds = [delivery.taskId];
+  if (delivery.phase === 'done') {
+    return { label: 'Archive', operation: 'factory_archive', input: { taskIds, archive: true } };
+  }
+  return delivery.held === null
+    ? { label: 'Hold', operation: 'factory_hold', input: { taskIds, hold: true } }
+    : { label: 'Resume', operation: 'factory_hold', input: { taskIds, hold: false } };
+}
+
+/**
+ * Deliveries a bulk action applies to among the cards shown, so filters
+ * scope bulk actions exactly as they scope the board.
+ *
+ * @param groups - Cards currently shown.
+ * @returns Unfinished deliveries to hold, and held ones to resume.
+ */
+export function bulkTargets(groups: BoardGroups): { hold: string[]; resume: string[] } {
+  const shown = Object.values(groups.columns)
+    .flat()
+    .flatMap((card) => (card.type === 'delivery' && card.delivery.phase !== 'done' ? [card.delivery] : []));
+  return {
+    hold: shown.filter((delivery) => delivery.held === null).map((delivery) => delivery.taskId),
+    resume: shown.filter((delivery) => delivery.held !== null).map((delivery) => delivery.taskId),
+  };
+}

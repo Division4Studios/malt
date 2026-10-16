@@ -186,8 +186,11 @@ export interface ConsoleView {
   readonly deliveries: readonly DeliveryView[];
   /** Objective cards while planning. */
   readonly objectives: readonly ObjectiveView[];
-  /** Finished deliveries archived off the board. */
-  readonly archived: number;
+  /** Finished deliveries archived off the board: how many, and the latest to restore from. */
+  readonly archived: {
+    readonly total: number;
+    readonly recent: readonly { readonly taskId: string; readonly issue: number; readonly title: string }[];
+  };
   /** Human decisions. */
   readonly inbox: { readonly open: readonly InboxItem[]; readonly answered: readonly AnsweredItem[] };
 }
@@ -592,7 +595,13 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   return {
     deliveries: shown.map((task) => deliveryView(task, { tasks, features, live })),
     objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
-    archived: archived.length,
+    archived: {
+      total: archived.length,
+      recent: archived
+        .slice(-DONE_ON_BOARD)
+        .toReversed()
+        .map((task) => ({ taskId: task.id, issue: task.issue, title: task.title })),
+    },
     inbox: { open: openItems(repository, tasks, features), answered: answeredItems(tasks, features) },
   };
 }

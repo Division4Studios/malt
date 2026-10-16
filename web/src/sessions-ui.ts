@@ -31,7 +31,7 @@ const PROVIDERS = ['claude', 'codex'];
 /** Filterable lifecycle states. */
 const STATES = ['running', 'succeeded', 'failed', 'interrupted'];
 /** Filter names sent to `/api/attempts`. */
-const FILTERS = ['role', 'kind', 'provider', 'state', 'query'] as const;
+const FILTERS = ['role', 'kind', 'provider', 'state', 'query', 'taskId'] as const;
 
 /** Callbacks and options supplied by the console controller. */
 export interface SessionsHooks {
@@ -49,6 +49,8 @@ export interface SessionsHandle {
   readonly element: HTMLElement;
   /** Reload the first page (keeping filters and expanded rows) and grow a live transcript. */
   readonly refresh: () => Promise<void>;
+  /** Show only one delivery's attempts, labelled for the operator; `null` shows all. */
+  readonly focusDelivery: (taskId: string | null, label: string) => void;
 }
 
 /**
@@ -138,6 +140,10 @@ class SessionsView {
   private readonly form = element('form', 'sessions-filters');
   /** Polite status line. */
   private readonly status = element('p', 'subtle');
+  /** Hidden delivery filter set from a delivery page. */
+  private readonly delivery = element('input');
+  /** Visible delivery filter with its clear control. */
+  private readonly deliveryChip = element('p', 'sessions-delivery');
   /** Day-grouped attempt list. */
   private readonly list = element('div', 'sessions-list');
   /** Next page control. */
@@ -177,7 +183,11 @@ class SessionsView {
     const apply = element('button', 'button secondary', 'Apply filters');
     apply.type = 'submit';
     this.form.setAttribute('aria-label', 'Filter attempts');
+    this.delivery.type = 'hidden';
+    this.delivery.name = 'taskId';
+    this.deliveryChip.hidden = true;
     this.form.append(
+      this.delivery,
       filterSelect('role', 'Role', ROLES),
       filterSelect('kind', 'Kind', KINDS),
       filterSelect('provider', 'Provider', PROVIDERS),
@@ -198,18 +208,45 @@ class SessionsView {
     const listColumn = element('div', 'panel sessions-column');
     listColumn.append(this.list, this.more);
     layout.append(listColumn, this.transcript.element);
-    this.root.append(this.form, this.status, layout);
+    this.root.append(this.form, this.deliveryChip, this.status, layout);
+  }
+
+  /**
+   * Show only one delivery's attempts, or all of them again.
+   *
+   * @param taskId - Delivery id, or `null` to clear the filter.
+   * @param label - Operator-facing delivery name.
+   */
+  public focusDelivery(taskId: string | null, label: string): void {
+    this.syncProject();
+    this.delivery.value = taskId ?? '';
+    this.deliveryChip.hidden = taskId === null;
+    const clear = element('button', 'small-button', 'Show all attempts');
+    clear.type = 'button';
+    clear.addEventListener('click', () => {
+      this.focusDelivery(null, '');
+    });
+    this.deliveryChip.replaceChildren(`Attempts for ${label} `, clear);
+    void this.load(false);
   }
 
   /** Reload the first page and grow an open live transcript. */
   public async refresh(): Promise<void> {
-    const project = this.hooks.project();
-    if (project !== this.project) {
-      this.project = project;
-      this.expanded.clear();
-      this.transcript.close();
-    }
+    this.syncProject();
     await Promise.all([this.load(false), this.transcript.refresh()]);
+  }
+
+  /** Forget filters, expanded rows and the open transcript when the project changes. */
+  private syncProject(): void {
+    const project = this.hooks.project();
+    if (project === this.project) {
+      return;
+    }
+    this.project = project;
+    this.delivery.value = '';
+    this.deliveryChip.hidden = true;
+    this.expanded.clear();
+    this.transcript.close();
   }
 
   /**
@@ -350,5 +387,11 @@ class SessionsView {
  */
 export function createSessionsView(hooks: SessionsHooks): SessionsHandle {
   const view = new SessionsView(hooks);
-  return { element: view.root, refresh: async () => view.refresh() };
+  return {
+    element: view.root,
+    refresh: async () => view.refresh(),
+    focusDelivery: (taskId, label) => {
+      view.focusDelivery(taskId, label);
+    },
+  };
 }

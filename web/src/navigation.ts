@@ -6,7 +6,9 @@
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
   mission: ['overview', 'activity'],
-  workflow: ['workflow', 'team', 'deliveries'],
+  inbox: ['inbox'],
+  board: ['board', 'delivery', 'deliveries'],
+  workflow: ['workflow', 'team', 'workflows'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
   project: ['setup', 'learning'],
@@ -53,6 +55,10 @@ export function updateNavigation(view: string): void {
 /** View routes remain local UI state, not a competing delivery ledger. */
 export type View =
   | 'overview'
+  | 'inbox'
+  | 'board'
+  | 'delivery'
+  | 'workflows'
   | 'team'
   | 'workflow'
   | 'deliveries'
@@ -66,9 +72,13 @@ export type View =
 /** UI navigation descriptions. */
 export const HEADINGS: Record<View, readonly [string, string]> = {
   overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
+  inbox: ['Inbox.', 'Every decision waiting on you, oldest first, with what you already answered.'],
+  board: ['Delivery board.', 'Each delivery placed by what it needs next, with its whole pipeline at a glance.'],
+  delivery: ['Delivery.', 'Its pipeline, findings, rulings and source, step by step.'],
+  workflows: ['Workflow library.', 'How objectives become verified deliveries: steps, seats, gates and reviews.'],
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
-  deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],
+  deliveries: ['Pipeline list.', 'Small scopes, independent reviews, verified outcomes.'],
   workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
   sessions: ['Attempts and transcripts.', 'Every bounded attempt: what it read, ran, changed and cost.'],
   costs: ['Costs.', 'Spend and tokens from recorded usage, by role, model and delivery.'],

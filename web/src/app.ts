@@ -24,6 +24,7 @@ import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
+import { LogTails } from './log-tails.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import {
@@ -68,8 +69,6 @@ import type { EditorDescription, InstallEvent } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
-/** Captured output histories retained in memory only. */
-const MAX_LOGS = 8;
 /** HTTP status requiring a fresh local pairing. */
 const UNAUTHORIZED = 401;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
@@ -77,8 +76,6 @@ const MAX_RECONNECTS = 5;
 
 /** Only public layout choices may persist in browser storage. */
 const layoutKey = 'malt-worker-layout-v1';
-/** Bounded read-only stdout cache, never persisted in browser storage. */
-const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
@@ -128,23 +125,30 @@ function syncTerminals(): void {
   node('content', HTMLDivElement).hidden = isVisible && terminalWorkspace.selected;
 }
 
-/** Read-only log tails for selected panes. */
-const logs = new Map<string, string>();
+/** Read-only log tails for selected panes, held in memory only. */
+const tails = new LogTails();
 /** Public artifact tab choices; captured contents remain memory-only. */
 const files = new Map<string, string>();
-/** Durable byte cursor per captured output. */
-const cursors = new Map<string, number>();
 /** Explicit mutations run one at a time and are never automatically retried. */
 const control = createOperatorControl({
   scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
   openProject,
   refresh,
-  notice,
+  notice: controlNotice,
 });
-/** Stable self-refreshing views that survive snapshot pushes. */
-const owned = new ConsoleViews({ project: () => state.project, control });
-/** Prevent overlapping reads from duplicating a captured output chunk. */
-const pendingLogs = new Set<string>();
+/** Stable views that survive snapshot pushes; their hooks reuse the shell's dialogs. */
+const owned = new ConsoleViews({
+  project: () => state.project,
+  control,
+  select: go,
+  triage: investigate,
+  recover: () => {
+    go('overview');
+  },
+  skill: () => {
+    go('learning');
+  },
+});
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
@@ -283,6 +287,7 @@ function render(): void {
     return;
   }
   const observed = state.current;
+  owned.update(observed);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
@@ -306,13 +311,13 @@ function render(): void {
   node('view-title', HTMLHeadingElement).textContent = HEADINGS[state.view][0];
   node('view-description', HTMLParagraphElement).textContent = HEADINGS[state.view][1];
   updateNavigation(state.view);
+  const panes = { roles: state.panes, logs: tails.logs, files, actions };
   const builders: Record<View, () => HTMLElement> = {
     overview: () => overviewView(observed, actions),
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
-    workers: () =>
-      terminalWorkspace.selected ? element('div') : workerView(observed, { roles: state.panes, logs, files, actions }),
+    workers: () => (terminalWorkspace.selected ? element('div') : workerView(observed, panes)),
     activity: () => {
       return activityPanel(
         observed,
@@ -327,6 +332,10 @@ function render(): void {
         }),
       );
     },
+    inbox: () => owned.element('inbox'),
+    board: () => owned.element('board'),
+    delivery: () => owned.element('delivery'),
+    workflows: () => owned.element('workflows'),
     sessions: () => owned.element('sessions'),
     costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
@@ -473,69 +482,9 @@ async function readLogs(): Promise<void> {
   const artifacts = state.panes
     .map((role) => ({ id: text(roleJob(observed, role), 'id'), file: files.get(role) ?? 'stdout.log' }))
     .filter((entry) => entry.id !== '');
-  await Promise.all(artifacts.map(async (entry) => readLog(projectId, entry)));
-  while (logs.size > MAX_LOGS) {
-    const first = logs.keys().next().value;
-    if (first === undefined) {
-      continue;
-    }
-
-    logs.delete(first);
-    cursors.delete(first);
-  }
+  await tails.read(projectId, artifacts, () => state.project);
 }
 
-/**
- * Fetch one owned log tail with a single-flight cursor and a project fence.
- *
- * @param projectId - Scope captured before the read.
- * @param entry - Actual owned job identity and allowlisted artifact.
- */
-async function readLog(projectId: string, entry: { id: string; file: string }): Promise<void> {
-  const artifactKey = `${entry.id}:${entry.file}`;
-  const key = `${projectId}:${artifactKey}`;
-  if (pendingLogs.has(key)) {
-    return;
-  }
-  pendingLogs.add(key);
-  const after = entry.file.endsWith('.log') ? (cursors.get(artifactKey) ?? 0) : 0;
-  const route = `${scoped(projectId, '/api/artifact')}&job=${encodeURIComponent(entry.id)}&file=${encodeURIComponent(entry.file)}&after=${String(after)}`;
-  try {
-    const response = await request(route);
-    if (state.project !== projectId) {
-      return;
-    }
-    applyLog(artifactKey, data(response));
-  } catch {
-    /* A log may not yet exist; the last observed tail remains available. */
-  } finally {
-    pendingLogs.delete(key);
-  }
-}
-
-/**
- * Apply actual captured output once, rendering project text through textContent.
- *
- * @param id - Owned job and allowlisted artifact cache key.
- * @param value - Validated log response.
- * @throws {TypeError} When the captured output cursor is invalid.
- */
-function applyLog(id: string, value: ReturnType<typeof data>): void {
-  const cursor = value['nextCursor'];
-  if (typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0) {
-    throw new TypeError('Invalid captured output cursor.');
-  }
-  cursors.set(id, cursor);
-  const file = text(value, 'file');
-  const prior = file.endsWith('.log') ? (logs.get(id) ?? '') : '';
-  const tail = `${prior}${text(value, 'text')}`.slice(-LOG_LIMIT);
-  logs.set(id, tail);
-  for (const pre of document.querySelectorAll<HTMLPreElement>('pre[data-job]')) {
-    if (`${pre.dataset['job'] ?? ''}:${pre.dataset['file'] ?? ''}` === id) {
-      pre.textContent = tail === '' ? 'This artifact has not emitted data yet.' : tail;
-    }
-  }
-}
 /** Queue an explicit product objective with its chosen workflow. */
 function objective(): void {
   editor(...objectiveEditor(() => state.current?.factory ?? null));
@@ -561,18 +510,48 @@ async function submitEdit(): Promise<void> {
   }
 }
 
+/**
+ * Show a control outcome in the console and beside a workflow draft.
+ *
+ * @param message - Notice text.
+ * @param isSuccess - Whether the control succeeded.
+ */
+function controlNotice(message: string, isSuccess?: boolean): void {
+  notice(message, isSuccess);
+  owned.notice(message, isSuccess);
+}
+
+/**
+ * Open the investigation dialog for a blocked delivery from the Inbox.
+ *
+ * @param taskId - Delivery to investigate.
+ */
+function investigate(taskId: string): void {
+  const task = records(state.current?.factory['tasks']).find((candidate) => text(candidate, 'id') === taskId);
+  if (task !== undefined) {
+    actions.triage(task, 'investigate');
+  }
+}
+
+/**
+ * Route to a local view; unknown names are ignored.
+ *
+ * @param selected - Requested view from navigation or a view hook.
+ */
+function go(selected: string): void {
+  if (!isView(selected)) {
+    return;
+  }
+  state.view = selected;
+  owned.reset();
+  render();
+  void readLogs();
+}
+
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
-  bindNavigation((selected) => {
-    if (!isView(selected)) {
-      return;
-    }
-    state.view = selected;
-    owned.reset();
-    render();
-    void readLogs();
-  });
+  bindNavigation(go);
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
@@ -589,8 +568,7 @@ async function start(): Promise<void> {
     state.project = node('project', HTMLSelectElement).value;
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     void refresh();
     subscribe();
@@ -679,8 +657,7 @@ async function openProject(workspace: string): Promise<void> {
     state.project = text(value, 'id');
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     await projects();
     await refresh();
@@ -694,8 +671,7 @@ async function signout(): Promise<void> {
   await request('/api/logout', {});
   state.stream?.close();
   state.current = null;
-  logs.clear();
-  cursors.clear();
+  tails.clear();
   connection(false);
   history.reset();
   node('pairing', HTMLDialogElement).showModal();
