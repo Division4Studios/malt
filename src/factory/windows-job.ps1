@@ -3,10 +3,11 @@
 # Arguments are encoded for CreateProcessW; no cmd.exe shell is involved.
 param([Parameter(Mandatory=$true)][string]$Descriptor, [string]$CancelFile = '')
 $ErrorActionPreference = 'Stop'
-$launch = Get-Content -LiteralPath $Descriptor -Raw | ConvertFrom-Json
-$startup = Join-Path (Split-Path -LiteralPath $Descriptor) 'job-status.json'
+$startup = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'job-status.json')
+[System.IO.File]::WriteAllText($startup, '{"stage":"reading-descriptor"}')
+$launch = [System.IO.File]::ReadAllText($Descriptor) | Microsoft.PowerShell.Utility\ConvertFrom-Json
 [System.IO.File]::WriteAllText($startup, '{"stage":"compiling-helper"}')
-Add-Type -TypeDefinition @'
+Microsoft.PowerShell.Utility\Add-Type -TypeDefinition @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -114,6 +115,6 @@ public static class MltWindowsJob {
   }
 }
 '@
-$telemetry = Join-Path (Split-Path -LiteralPath $Descriptor) 'resources.json'
+$telemetry = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'resources.json')
 [System.IO.File]::WriteAllText($startup, '{"stage":"entering-native-job"}')
 exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile)
