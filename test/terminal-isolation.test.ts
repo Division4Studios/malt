@@ -89,6 +89,15 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
   );
   const developerBranch = `malt/isolation-${id}`;
   const developer = await workspaces.create(`${id}-dev`, head, developerBranch);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Test-owned delivery descended from an operator commit.
+  writeFileSync(path.join(developer, 'delivery.txt'), 'A descendant must not launder operator history.');
+  await workspaces.git(['add', 'delivery.txt'], developer);
+  await workspaces.git(['commit', '-m', 'Delivery descendant'], developer);
+  // Advance the operator branch independently: checking only its current tip is insufficient.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Second explicit edit in the same test-owned scratch worktree.
+  writeFileSync(file, 'Newer operator source.');
+  await workspaces.git(['add', 'operator.txt'], scratch);
+  await workspaces.git(['commit', '-m', 'Advance scratch branch'], scratch);
   await assert.rejects(
     workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
       await Promise.resolve();
@@ -96,6 +105,28 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
     }),
     /terminal-only/v,
   );
+  const terminalTip = await workspaces.git(['rev-parse', 'HEAD'], scratch);
+  await workspaces.git(['update-ref', `refs/malt/archive/terminal-${id}`, terminalTip]);
+  await workspaces.git(['update-ref', '-d', `refs/heads/${branch}`]);
+  await assert.rejects(
+    workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
+      await Promise.resolve();
+      assert.fail('Archived terminal ancestry cannot create delivery evidence.');
+    }),
+    /terminal-only/v,
+  );
+  const independentBranch = `malt/independent-${id}`;
+  const independent = await workspaces.create(`${id}-independent`, base, independentBranch);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Independent test-owned managed source shares only the already-approved base.
+  writeFileSync(path.join(independent, 'independent.txt'), 'Ordinary independently reviewed delivery.');
+  await workspaces.git(['add', 'independent.txt'], independent);
+  await workspaces.git(['commit', '-m', 'Independent managed source'], independent);
+  let checkpoints = 0;
+  await workspaces.publish({ ...task, branch: independentBranch, worktree: independent }, async () => {
+    checkpoints += 1;
+    await Promise.resolve();
+  });
+  assert.equal(checkpoints, 1, 'Shared approved base ancestry must not blacklist unrelated deliveries.');
   const invalidBase = new WorkspaceManager(mesh, { ...settings, baseBranch: branch });
   await assert.rejects(invalidBase.base(), /terminal scratch branch/v);
   assert.deepEqual(repository.tasks(), []);
