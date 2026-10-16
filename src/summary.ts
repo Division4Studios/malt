@@ -219,7 +219,7 @@ export function summarize(database: DatabaseSync, lead: string | null): SummaryS
     "SELECT name, role, status FROM agents WHERE lifetime != 'ended' ORDER BY name",
   );
   return {
-    factory: factoryOverview(database),
+    factory: [...factoryOverview(database), ...terminalOverview(database)],
     agents,
     lead,
     revision: selectCount(database, 'SELECT COALESCE(MAX(seq), 0) AS count FROM events'),
@@ -266,6 +266,34 @@ function factoryOverview(database: DatabaseSync): string[] {
     ...objectiveQueueOverview(database),
     'Factory policy, attempts, handoffs and check logs: `factory/`. Owned branches and snapshots: `worktrees/`. Bundled role skills and pinned provenance: `skills/builtin/`.',
     'Human-authorized reusable learning handoffs and source objective receipts: `factory/maintenance/`.',
+  ];
+}
+
+/**
+ * Describe committed terminal metadata without loading any transcript or native log.
+ *
+ * @param database - Actual selected project's durable ledger.
+ * @returns Public counts and the separate transient-text boundary.
+ */
+function terminalOverview(database: DatabaseSync): string[] {
+  const exists = selectCount(
+    database,
+    "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='terminal_sessions'",
+  );
+  if (exists === 0) {
+    return [];
+  }
+  const total = selectCount(
+    database,
+    "SELECT COUNT(*) AS count FROM terminal_sessions WHERE project=(SELECT value FROM metadata WHERE key='project_id')",
+  );
+  const active = selectCount(
+    database,
+    "SELECT COUNT(*) AS count FROM terminal_sessions WHERE project=(SELECT value FROM metadata WHERE key='project_id') AND state IN ('requested','starting','running','closing')",
+  );
+  return [
+    `Operator scratch terminals: active ${String(active)}; retained metadata records ${String(total)}.`,
+    'Terminal lifecycle and byte counters are durable in SQLite. `terminals/` contains owned native metadata only. PTY input is not saved; redacted output replay is bounded and memory-only, separate from managed logs and durable instructions.',
   ];
 }
 
