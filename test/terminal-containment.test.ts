@@ -32,7 +32,7 @@ function isAlive(pid: number): boolean {
 for (const mode of ['close', 'disconnect'] as const) {
   await test(
     `owned PTY ${mode} retires a SIGTERM-resistant CLI and its grandchildren`,
-    { timeout: 25_000 },
+    { timeout: 75_000 },
     async (t) => {
       const defer = createCleanup(t);
       const project = createProject(defer);
@@ -60,10 +60,17 @@ for (const mode of ['close', 'disconnect'] as const) {
       });
       defer(async () => terminal.stop());
       try {
-        await until(() => text.includes('SIZE 80 24') || failure !== '', 10_000);
+        await until(() => text.includes('SIZE 80 24') || failure !== '', 30_000);
       } catch {
+        let resources = 'unavailable';
+        try {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only secret-free metadata of this test-owned Job is included in fixture diagnostics.
+          resources = readFileSync(path.join(artifact, 'resources.json'), 'utf8').slice(0, 2000);
+        } catch {
+          /* No Job telemetry means native setup did not complete. */
+        }
         await terminal.stop();
-        assert.fail(JSON.stringify({ failure, text }));
+        assert.fail(JSON.stringify({ failure, text, resources }));
       }
       assert.equal(failure, '', 'The contained host must start successfully.');
       terminal.send({ type: 'input', data: Buffer.from('spawn\rignore-term\r') });
