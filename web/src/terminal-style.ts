@@ -86,6 +86,7 @@ const SGR = {
   maximum: 255,
   indexed: 5,
   rgb: 2,
+  colorSpaceComponents: 5,
 } as const;
 
 /**
@@ -141,6 +142,33 @@ function extended(parameters: readonly number[], offset: number): { color: strin
 }
 
 /**
+ * Decode one colon-delimited color group without interpreting its members as SGR.
+ *
+ * @param parameters - Complete bounded parameter list.
+ * @param offset - Group introducer index.
+ * @param subparameters - Indices continuing the preceding colon group.
+ * @returns Color and consumed group length; unsupported spaces preserve styling.
+ */
+function colonColor(
+  parameters: readonly number[],
+  offset: number,
+  subparameters: readonly number[],
+): { color: string | null; consumed: number } {
+  let end = offset + 1;
+  while (subparameters.includes(end)) {
+    end += 1;
+  }
+  const group = parameters.slice(offset + 1, end);
+  const [mode, space] = group;
+  const hasSpace = mode === SGR.rgb && group.length === SGR.colorSpaceComponents;
+  if (hasSpace && space !== -1 && space !== 0) {
+    return { color: null, consumed: group.length };
+  }
+  const components = hasSpace ? group.slice(2) : group.slice(1);
+  return { ...extended([0, mode ?? -1, ...components], 0), consumed: group.length };
+}
+
+/**
  * Apply one non-color SGR code; unknown codes preserve styling.
  *
  * @param style - Current immutable rendition.
@@ -189,20 +217,45 @@ function basicColor(style: TerminalStyle, code: number): TerminalStyle {
 }
 
 /**
+ * Update only a valid extended color; unsupported colon spaces preserve state.
+ *
+ * @param style - Existing rendition.
+ * @param code - Foreground or background introducer.
+ * @param color - Decoded value.
+ * @param isColon - Whether the sequence is a grouped extended color.
+ * @returns Immutable rendition.
+ */
+function applyColor(style: TerminalStyle, code: number, color: string | null, isColon: boolean): TerminalStyle {
+  if (color === null && isColon) {
+    return style;
+  }
+  return code === SGR.color ? { ...style, foreground: color } : { ...style, background: color };
+}
+
+/**
  * Apply SGR with bounded numeric palette/true-color support.
  *
  * @param current - Prior cell rendition.
  * @param parameters - Parser-bounded numeric parameters.
+ * @param subparameters - Colon-group continuation indices, absent for legacy CSI.
  * @returns Updated rendition without DOM or external dependencies.
  */
-export function terminalStyle(current: TerminalStyle, parameters: readonly number[]): TerminalStyle {
+export function terminalStyle(
+  current: TerminalStyle,
+  parameters: readonly number[],
+  subparameters: readonly number[] = [],
+): TerminalStyle {
   let style = current;
   const values = parameters.length === 0 ? [SGR.reset] : parameters;
   for (let index = 0; index < values.length; index += 1) {
     const code = values[index] ?? SGR.reset;
+    if (subparameters.includes(index)) {
+      continue;
+    }
     if (code === SGR.color || code === SGR.fill) {
-      const result = extended(values, index);
-      style = code === SGR.color ? { ...style, foreground: result.color } : { ...style, background: result.color };
+      const isColon = subparameters.includes(index + 1);
+      const result = isColon ? colonColor(values, index, subparameters) : extended(values, index);
+      style = applyColor(style, code, result.color, isColon);
       index += result.consumed;
     } else {
       style = basicColor(style, code);

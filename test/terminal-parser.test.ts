@@ -98,6 +98,34 @@ await test('excess intermediates are ignored without emitting a sequence', () =>
   assert.deepEqual(parser.feed('\u{1B}   cX'), [{ type: 'print', text: 'X' }]);
 });
 
+await test('string payloads discard C1 and DEL, and text flushes unfinished UTF-8 first', () => {
+  const parser = new TerminalParser();
+  assert.deepEqual(parser.feed('\u{1B}]0;a\u{9B}\u{7F}b\u{7}\u{1B}Pqc\u{9D}d\u{1B}\\'), [
+    { type: 'osc', data: '0;ab', truncated: false },
+    { type: 'dcs', prefix: '', params: [], intermediates: '', final: 'q', data: 'cd', truncated: false },
+  ]);
+  assert.deepEqual(parser.feed(Uint8Array.of(0xe2)), []);
+  assert.deepEqual(parser.feed('A'), [{ type: 'print', text: '\u{FFFD}A' }]);
+  assert.deepEqual(parser.feed(Uint8Array.of(0x82, 0xac)), [{ type: 'print', text: '\u{FFFD}\u{FFFD}' }]);
+});
+
+await test('colon grouping survives tokenization and is bounded with numeric parameters', () => {
+  const parser = new TerminalParser();
+  assert.deepEqual(parser.feed('\u{1B}[38:2::255:0:0;1m'), [
+    {
+      type: 'csi',
+      prefix: '',
+      params: [38, 2, -1, 255, 0, 0, 1],
+      subparameters: [1, 2, 3, 4, 5],
+      intermediates: '',
+      final: 'm',
+    },
+  ]);
+  const [action] = parser.feed(`\u{1B}[${':'.repeat(10_000)}m`);
+  assert.ok(action?.type === 'csi');
+  assert.ok((action.subparameters?.length ?? 0) < MAX_PARAMS);
+});
+
 /**
  * Check retained fields against their independent parser ceilings.
  *

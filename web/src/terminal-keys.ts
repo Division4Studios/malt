@@ -134,7 +134,11 @@ function printableKey(event: TerminalKey): string | null {
   }
   let text = textKey;
   if (ctrlKey && !altKey) {
-    const point = key.toUpperCase().codePointAt(0) ?? 0;
+    const upper = key.toUpperCase();
+    if (upper.length !== 1) {
+      return null;
+    }
+    const point = upper.codePointAt(0) ?? 0;
     if (point === KEY.space) {
       text = '\0';
     } else if (point >= KEY.controlBase && point <= KEY.controlLast) {
@@ -155,15 +159,21 @@ function printableKey(event: TerminalKey): string | null {
  * @throws {RangeError} When a paste exceeds the native payload ceiling.
  */
 export function terminalPaste(value: string, isBracketed: boolean): string {
-  if (value.length > MAX_BYTES) {
-    throw new RangeError('Paste exceeds 16 KiB. Split it into smaller explicit pastes.');
-  }
   const normalized = value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
   let safe = '';
   for (const character of normalized) {
     const point = character.codePointAt(0) ?? 0;
-    if (character === '\t' || character === '\n' || (point >= KEY.space && (point < KEY.del || point > KEY.c1Last))) {
-      safe += character;
+    if (!(
+      character === '\t' ||
+      character === '\n' ||
+      (point >= KEY.space && (point < KEY.del || point > KEY.c1Last))
+    )) {
+      continue;
+    }
+
+    safe += character;
+    if (safe.length > MAX_BYTES) {
+      throw new RangeError('Paste exceeds 16 KiB. Split it into smaller explicit pastes.');
     }
   }
   const framed = isBracketed && safe !== '' ? `${KEY.escape}[200~${safe}${KEY.escape}[201~` : safe;

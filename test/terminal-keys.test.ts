@@ -20,6 +20,7 @@ await test('keyboard uses negotiated cursor modes, modifiers and real VT control
   assert.equal(terminalKey({ ...plain, key: 'Enter', ctrlKey: true }, false), '\r');
   assert.equal(terminalKey({ ...plain, key: 'Backspace' }, false), '\u{7F}');
   assert.equal(terminalKey({ ...plain, key: 'c', ctrlKey: true }, false), '\u{3}');
+  assert.equal(terminalKey({ ...plain, key: '\u{DF}', ctrlKey: true }, false), null);
   assert.equal(terminalKey({ ...plain, key: 'x', altKey: true }, false), '\u{1B}x');
   assert.equal(terminalKey({ ...plain, key: '日' }, false), '日');
 });
@@ -42,4 +43,6 @@ await test('paste strips embedded escape/control injection and bounds actual Uni
   assert.throws(() => terminalPaste('日'.repeat(6000), false), RangeError);
   assert.throws(() => terminalPaste('x'.repeat(16_384), true), RangeError);
   assert.equal(terminalPaste('x'.repeat(16_384), false).length, 16_384);
+  assert.equal(terminalPaste('\r\n'.repeat(8193), true), `\u{1B}[200~${'\n'.repeat(8193)}\u{1B}[201~`);
+  assert.equal(terminalPaste('\0'.repeat(20_000), true), '');
 });

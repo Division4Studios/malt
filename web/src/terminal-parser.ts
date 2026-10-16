@@ -2,7 +2,7 @@
  * Chunk-safe VT escape-sequence tokenizer. Pure state machine: no DOM, no screen
  * state. Bytes or strings may be split anywhere; results are identical once adjacent
  * `print` actions are concatenated. Every buffer is capped, so hostile input cannot
- * grow memory. Colon sub-parameters are treated as `;` separators; C1 controls and
+ * grow memory. Colon sub-parameter boundaries are retained; C1 controls and
  * SOS/PM/APC strings are discarded.
  *
  * @file
@@ -48,7 +48,7 @@ export type TerminalAction =
   | { type: 'print'; text: string }
   | { type: 'execute'; code: number }
   | { type: 'esc'; intermediates: string; final: string }
-  | { type: 'csi'; prefix: string; params: number[]; intermediates: string; final: string }
+  | { type: 'csi'; prefix: string; params: number[]; subparameters?: number[]; intermediates: string; final: string }
   | { type: 'osc'; data: string; truncated: boolean }
   | {
       type: 'dcs';
@@ -97,6 +97,8 @@ export class TerminalParser {
   private intermediates = '';
   /** Bounded numeric parameter list. */
   private params: number[] = [];
+  /** Indices belonging to a colon group, bounded by the parameter ceiling. */
+  private subparameters: number[] = [];
   /** Current clamped numeric parameter, or omitted sentinel. */
   private current = -1;
   /** Bounded OSC/DCS payload. */
@@ -116,7 +118,9 @@ export class TerminalParser {
    */
   public feed(chunk: Uint8Array | string): TerminalAction[] {
     let text =
-      typeof chunk === 'string' ? this.carry + chunk : this.carry + this.decoder.decode(chunk, { stream: true });
+      typeof chunk === 'string'
+        ? this.carry + this.decoder.decode() + chunk
+        : this.carry + this.decoder.decode(chunk, { stream: true });
     this.carry = '';
     const last = text.codePointAt(text.length - 1) ?? 0;
     if (last >= VT.highSurrogateFirst && last <= VT.highSurrogateLast) {
@@ -147,6 +151,7 @@ export class TerminalParser {
     this.prefix = '';
     this.intermediates = '';
     this.params = [];
+    this.subparameters = [];
     this.current = -1;
     this.data = '';
     this.truncated = false;
@@ -218,15 +223,15 @@ export class TerminalParser {
       this.state = 'escape';
       return;
     }
+    if (code === VT.delete || (code >= VT.c1First && code <= VT.c1Last)) {
+      return;
+    }
     if (isInString) {
       this.stringChar(ch, code, out);
       return;
     }
     if (code < VT.space) {
       out.push({ type: 'execute', code });
-      return;
-    }
-    if (code === VT.delete || (code >= VT.c1First && code <= VT.c1Last)) {
       return;
     }
     this.dispatch(ch, code, isSwallow, out);
@@ -367,6 +372,9 @@ export class TerminalParser {
     }
     if (ch === ';' || ch === ':') {
       this.pushParam();
+      if (ch === ':' && this.params.length < MAX_PARAMS) {
+        this.subparameters.push(this.params.length);
+      }
       return true;
     }
     return false;
@@ -408,6 +416,7 @@ export class TerminalParser {
         type: 'csi',
         prefix: this.prefix,
         params: this.finishParams(),
+        ...(this.subparameters.length > 0 && { subparameters: this.subparameters }),
         intermediates: this.intermediates,
         final: ch,
       });

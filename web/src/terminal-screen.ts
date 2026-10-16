@@ -420,7 +420,7 @@ export class TerminalScreen {
         this.escape('8');
       },
       m: () => {
-        this.style = terminalStyle(this.style, action.params);
+        this.style = terminalStyle(this.style, action.params, action.subparameters);
       },
     };
     handlers[action.final]?.();
