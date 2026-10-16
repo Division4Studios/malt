@@ -694,3 +694,61 @@ await test('MCP clients keep GitHub and learning state isolated and only the lea
     { code: 'NOT_ORCHESTRATOR' },
   );
 });
+
+await test('the issue-state read is limited to the connected repository issues endpoint', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const github = new ProjectGitHub(config, remote.run);
+  await github.execute('github_connect', connection);
+  const calls: string[][] = [];
+  let response: unknown = {};
+  const runner: GitHubRunner = async (args, input) => {
+    if (input === undefined && args[0] === 'api' && args[1]?.includes('/issues/') === true) {
+      calls.push([...args]);
+      await delay(0);
+      return response;
+    }
+    return remote.run(args, input);
+  };
+  const adapter = new GitHubDelivery(config, github, runner);
+  const repository = 'https://api.github.com/repos/example/app';
+  response = { state: 'closed', state_reason: 'completed', repository_url: repository };
+  assert.deepEqual(await adapter.issueState(7), { state: 'closed', stateReason: 'completed' });
+  assert.deepEqual(calls, [['api', 'repos/example/app/issues/7']]);
+  response = { state: 'closed', state_reason: 'not_planned' };
+  assert.deepEqual(await adapter.issueState(8), { state: 'closed', stateReason: 'not_planned' });
+  response = { state: 'open', state_reason: null, repository_url: repository };
+  assert.deepEqual(await adapter.issueState(9), { state: 'open', stateReason: null });
+  response = { state: 'open', pull_request: { url: `${repository}/pulls/10` } };
+  await assert.rejects(adapter.issueState(10), { code: 'INVALID_INPUT' });
+  response = { state: 'open', repository_url: 'https://api.github.com/repos/other/app' };
+  await assert.rejects(adapter.issueState(11), { code: 'WRONG_PROJECT' });
+  response = { state: 'open', repository_url: 'https://untrusted.example/repos/example/app' };
+  await assert.rejects(adapter.issueState(11), { code: 'WRONG_PROJECT' });
+  response = { state: 'closed', state_reason: 'x'.repeat(65) };
+  await assert.rejects(adapter.issueState(11), z.ZodError);
+  response = { state: 'merged' };
+  await assert.rejects(adapter.issueState(12), z.ZodError);
+  response = 'not json object';
+  await assert.rejects(adapter.issueState(13), z.ZodError);
+  const before = calls.length;
+  for (const invalid of [0, -1, 1.5, NaN]) {
+    await assert.rejects(adapter.issueState(invalid), { code: 'INVALID_INPUT' });
+  }
+  assert.equal(calls.length, before, 'Invalid numbers never reach GitHub.');
+});
+
+await test('the issue-state read is refused for an unconnected workspace', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const github = new ProjectGitHub(config, remote.run);
+  let isCalled = false;
+  const runner: GitHubRunner = async () => {
+    isCalled = true;
+    await delay(0);
+    return { state: 'closed' };
+  };
+  const adapter = new GitHubDelivery(config, github, runner);
+  await assert.rejects(adapter.issueState(5), z.ZodError);
+  assert.equal(isCalled, false);
+});

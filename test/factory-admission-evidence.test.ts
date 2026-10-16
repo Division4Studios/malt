@@ -63,6 +63,7 @@ const remote: DeliveryRemote = {
   merge: offline,
   effect: offline,
   readyIssues: offline,
+  issueState: offline,
   parentComplete: offline,
 };
 

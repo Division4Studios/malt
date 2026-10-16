@@ -134,6 +134,7 @@ async function fixture(t: TestContext): Promise<{ context: FactoryContext; task:
       effect: async () => {
         await delay(0);
       },
+      issueState: async () => await delay(0, { state: 'open', stateReason: null }),
       parentComplete: async () => await delay(0, false),
       pullRequest: async () => {
         await delay(0);
