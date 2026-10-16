@@ -374,6 +374,10 @@ export class GitHubDelivery implements DeliveryRemote {
     }
     const endpoint = `repos/${connection.repository}/issues/${String(record.issue)}`;
     if (record.kind === 'close' || record.kind === 'close_not_planned') {
+      const current = await this.issueState(record.issue);
+      if (current.state === 'closed') {
+        return;
+      }
       await this.runner(['api', endpoint, '--method', 'PATCH', '--input', '-'], {
         state: 'closed',
         state_reason: record.kind === 'close' ? 'completed' : 'not_planned',

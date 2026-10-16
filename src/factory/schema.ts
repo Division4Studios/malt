@@ -534,8 +534,21 @@ export const factorySchemas = {
       requestId: z.string().uuid(),
       taskId: z.string().uuid(),
       expectedVersion: z.number().int().nonnegative(),
-      action: z.enum(['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait', 'approve_size']),
+      action: z.enum([
+        'acknowledge',
+        'investigate',
+        'repair',
+        'review',
+        'verify',
+        'wait',
+        'approve_size',
+        'adopt_merge',
+      ]),
       note: z.string().trim().max(TRIAGE_NOTE_MAX).default(''),
+      mergeCommit: z
+        .string()
+        .regex(/^[\da-f]{40}$/v, 'Expected a full 40-character lowercase hexadecimal commit.')
+        .optional(),
     })
     .strict(),
   factory_enqueue: z
