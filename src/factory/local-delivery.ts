@@ -20,7 +20,7 @@ import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import type { MeshConfig } from '../config.ts';
 import type { HubGit } from './local-hub.ts';
 import type { LocalPull } from './local-tracker.ts';
-import type { DeliveryRemote, PullRequest } from './remote.ts';
+import type { DeliveryRemote, IssueState, PullRequest } from './remote.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
 
@@ -291,6 +291,28 @@ export class LocalDelivery implements DeliveryRemote {
       }
     }
     return ready;
+  }
+
+  /**
+   * Read one delivery issue's open/closed state without mutating it.
+   *
+   * @param issue - Local issue number.
+   * @returns State and closure reason.
+   * @throws {MeshError} For an invalid number, a pull request or an unknown issue.
+   */
+  public async issueState(issue: number): Promise<IssueState> {
+    if (!Number.isSafeInteger(issue) || issue <= 0) {
+      throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
+    }
+    const ledger = await this.tracker.load();
+    if (ledger.pulls.some((pull) => pull.number === issue)) {
+      throw new MeshError('INVALID_INPUT', `#${String(issue)} is a pull request, not a delivery issue.`);
+    }
+    const found = ledger.issues.find((entry) => entry.number === issue);
+    if (found === undefined) {
+      throw new MeshError('NOT_FOUND', `Local issue #${String(issue)} does not exist.`);
+    }
+    return { state: found.state, stateReason: found.stateReason };
   }
 
   /**

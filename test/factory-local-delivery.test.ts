@@ -346,6 +346,12 @@ await test('local controls create Ready deliveries for import and reject disable
   assert.deepEqual(imported.acceptanceCriteria, ['The picker lists saved addresses.']);
   await assert.rejects(localControl(mesh, settings, { action: 'issue' }), { code: 'INVALID_INPUT' });
   await assert.rejects(localControl(mesh, settings, { action: 'pull', number: 99 }), { code: 'NOT_FOUND' });
+  assert.deepEqual(await delivery.issueState(imported.issue), { state: 'open', stateReason: null });
+  const effect = { id: 'close-select', issue: imported.issue, value: '', attempts: 0, retryAt: 0, error: null };
+  await delivery.effect({ ...effect, kind: 'close_not_planned' });
+  assert.deepEqual(await delivery.issueState(imported.issue), { state: 'closed', stateReason: 'not_planned' });
+  await assert.rejects(delivery.issueState(0), { code: 'INVALID_INPUT' });
+  await assert.rejects(delivery.issueState(404), { code: 'NOT_FOUND' });
   const synced = await localControl(mesh, settings, { action: 'sync' });
   assert.ok(typeof synced === 'object' && synced !== null && 'updated' in synced && synced.updated === false);
 });

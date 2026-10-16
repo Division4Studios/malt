@@ -8,6 +8,7 @@
 import { z } from 'zod/v3';
 
 import { cloudPolicySchema } from './cloud-schema.ts';
+import { localControlSchema } from './local-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -580,20 +581,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
-  factory_local: z
-    .object({
-      action: z.enum(['summary', 'issue', 'pull', 'create_issue', 'set_status', 'comment', 'sync']),
-      number: z.number().int().positive().optional(),
-      requestId: keySchema.optional(),
-      kind: z.enum(['feature', 'delivery']).optional(),
-      title: z.string().min(1).max(TITLE_MAX).optional(),
-      description: textSchema.optional(),
-      acceptanceCriteria: z.array(textSchema).max(PLAN_MAX).optional(),
-      parent: z.number().int().positive().optional(),
-      status: z.string().min(1).max(TITLE_MAX).optional(),
-      body: textSchema.optional(),
-    })
-    .strict(),
+  factory_local: localControlSchema,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
