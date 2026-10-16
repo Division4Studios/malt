@@ -10,35 +10,22 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
+import { completeFixStage } from './fix-stage.ts';
 import { automaticWorkflow } from './objectives.ts';
-import { isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
+import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
+import { CODE_JOB_KINDS, JOB_PHASE } from './seats.ts';
 import { completeTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
 
-/**
- * Persist a deterministic outbox effect tied to a particular delivery revision.
- *
- * @param context - Workspace ledger.
- * @param task - Current delivery revision.
- * @param value - Public finding or completion evidence.
- */
-function queueComment(context: FactoryContext, task: FactoryTask, value: string): void {
-  context.repository.enqueueEffect({
-    id: `${task.id}:${String(task.version)}:comment`,
-    kind: 'comment',
-    issue: task.issue,
-    value,
-    attempts: 0,
-    retryAt: 0,
-    error: null,
-  });
-}
+/** Steps completed by the fix-stage module. */
+const FIX_STAGE_KINDS: ReadonlySet<string> = new Set(['adjudicate', 'document', 'regress']);
 
 /**
  * Publish validated developer completion without claiming merged acceptance.
@@ -207,7 +194,7 @@ async function applyOutcome(
  */
 async function applyDelivery(
   context: FactoryContext,
-  job: FactoryJob & { kind: 'develop' | 'review' | 'final' | 'verify' },
+  job: FactoryJob & { kind: 'develop' | 'review' | 'adjudicate' | 'document' | 'regress' | 'final' | 'verify' },
   evidence: { result: AgentResult; execution: ExecutedJob; signal: AbortSignal },
 ): Promise<void> {
   const record = job;
@@ -216,24 +203,14 @@ async function applyDelivery(
     throw new MeshError('FACTORY_GATED', 'A delivery record must name its task.');
   }
   const task = context.repository.task(record.taskId);
-  const stages = {
-    develop: 'development',
-    review: 'review',
-    final: 'merge_ready',
-    verify: 'verifying',
-    plan: '',
-    refine: '',
-    learn: '',
-    skill: '',
-    triage: '',
-  } as const;
-  if (task.phase !== stages[record.kind]) {
+  if (!isCurrentStage(task, record)) {
     return;
   }
-  if (record.kind !== 'develop' && (task.head !== record.head || task.base !== record.base)) {
+  if (FIX_STAGE_KINDS.has(record.kind)) {
+    await completeFixStage(context, record, task, { result, signal });
     return;
   }
-  if (result.outcome !== 'success') {
+  if (result.outcome !== 'success' && !isRuledByFixer(context, record, task, result)) {
     await rejectDelivery(context, task, [result.summary, ...result.findings].join('\n'));
     return;
   }
@@ -252,6 +229,12 @@ async function applyDelivery(
     }
     case 'verify': {
       completeVerification(context, record, task, { execution, result });
+      break;
+    }
+    case 'adjudicate':
+    case 'document':
+    case 'regress': {
+      // Completed by the fix-stage module above.
       break;
     }
   }
@@ -337,6 +320,7 @@ async function completeDevelopment(
             head: source.head,
             base: source.base,
             reviews: [],
+            implementation: { head: source.head, base: source.base, at: context.repository.store.now() },
             finalReview: null,
             error: null,
           };
@@ -392,6 +376,7 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
     return;
   }
   const { role } = job;
+  const outcome: 'success' | 'changes_requested' = result.outcome === 'success' ? 'success' : 'changes_requested';
   const reviewed = context.repository.editTask(record.id, (current) => {
     const updated = {
       ...current,
@@ -402,8 +387,9 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
           stepId: step.id,
           head: job.head ?? '',
           base: job.base ?? '',
-          outcome: 'success' as const,
+          outcome,
           summary: result.summary,
+          findings: result.findings,
           jobId: job.id,
         },
       ],
@@ -411,11 +397,46 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
     };
     return { ...updated, phase: hasApprovals(updated, workflow) ? 'merge_ready' : 'review' };
   });
+  const verdict = outcome === 'success' ? 'approved' : 'reported findings for the fixer on';
   queueComment(
     context,
     reviewed,
-    `${step.title} (${role}) approved head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
+    `${step.title} (${role}) ${verdict} head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
   );
+}
+
+/**
+ * Whether an attempt's result still applies: the delivery is in its stage and,
+ * for read-only steps, still at the exact source the attempt judged. Code-writing
+ * steps refresh main into their worktree, so their recorded base may lag.
+ *
+ * @param task - Delivery now.
+ * @param job - Completed attempt.
+ * @returns True when the result may be applied.
+ */
+function isCurrentStage(task: FactoryTask, job: FactoryJob): boolean {
+  return (
+    task.phase === JOB_PHASE[job.kind] &&
+    (CODE_JOB_KINDS.has(job.kind) || (task.head === job.head && task.base === job.base))
+  );
+}
+
+/**
+ * Whether a review requesting changes goes to a fixer rather than back to the developer.
+ *
+ * @param context - Project ledger.
+ * @param job - Completed attempt.
+ * @param task - Its delivery.
+ * @param result - Structured result.
+ * @returns True when a downstream adjudicate step rules on this review's findings.
+ */
+function isRuledByFixer(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): boolean {
+  if (job.kind !== 'review' || result.outcome !== 'changes_requested') {
+    return false;
+  }
+  const workflow = taskWorkflow(task, context.repository.features());
+  const step = reviewStepOf(workflow, job);
+  return step !== undefined && isAdjudicated(workflow, step);
 }
 
 /**

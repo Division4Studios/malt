@@ -4,6 +4,7 @@
  * @file
  */
 import { organizationRevision } from './organization.ts';
+import { STAGE_SKILLS } from './seats.ts';
 
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryConfig, FactoryJob, FactoryTask, Provider } from './schema.ts';
@@ -17,18 +18,6 @@ const HIGH_RISK =
 const SIMPLE_SCOPE = /\b(?:copy|label|rename|spelling|typo)\b/iv;
 /** Common bounded guidance shared by all roles. */
 const SHARED_SKILL = 'factory-session';
-/** Relevant baseline only, rather than the complete upstream library. */
-const STAGE_SKILLS = {
-  plan: 'factory-product',
-  refine: 'factory-product',
-  develop: 'factory-development',
-  review: 'factory-review',
-  final: 'factory-release',
-  verify: 'factory-release',
-  learn: 'factory-learning',
-  skill: 'factory-learning',
-  triage: 'factory-product',
-} as const;
 
 /**
  * Choose a capability tier before reserving or starting a model process.

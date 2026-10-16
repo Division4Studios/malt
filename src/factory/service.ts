@@ -54,6 +54,7 @@ import {
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
+import { CODE_JOB_KINDS, JOB_PHASE } from './seats.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
@@ -485,7 +486,7 @@ export class FactoryService {
       .jobs()
       .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
     for (const job of candidates3) {
-      if (job.taskId === null || job.kind === 'develop') {
+      if (job.taskId === null || CODE_JOB_KINDS.has(job.kind)) {
         continue;
       }
       const task = this.repository.task(job.taskId);
@@ -495,18 +496,7 @@ export class FactoryService {
         }
         continue;
       }
-      const phases = {
-        review: 'review',
-        final: 'merge_ready',
-        verify: 'verifying',
-        plan: '',
-        refine: '',
-        develop: '',
-        learn: '',
-        skill: '',
-        triage: '',
-      } as const;
-      if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
+      if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
         this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
       }
     }

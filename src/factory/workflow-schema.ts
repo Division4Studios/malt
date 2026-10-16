@@ -523,3 +523,36 @@ export const saveWorkflowRequestSchema = z
   .strict();
 /** Default workflow selection request. */
 export const defaultWorkflowRequestSchema = z.object({ workflowId: keySchema }).strict();
+/** Bound dispositions recorded by one fix. */
+const MAX_DISPOSITIONS = 200;
+/** The fixer's ruling on one review finding, identified as `<reviewStepId>-<n>`. */
+export const dispositionSchema = z
+  .object({
+    id: z.string().min(1).max(TITLE_MAX),
+    decision: z.enum(['adopted', 'rejected', 'merged']),
+    reason: z.string().min(1).max(NOTE_MAX),
+    evidence: z.string().max(NOTE_MAX),
+  })
+  .strict();
+/** One ruling. */
+export type Disposition = z.output<typeof dispositionSchema>;
+/** A bounded disposition ledger. */
+export const dispositionsSchema = z.array(dispositionSchema).max(MAX_DISPOSITIONS);
+/** A fix-stage step result, bound to the source it produced (fix, docs) or judged (regression). */
+export const stepResultSchema = z
+  .object({
+    stepId: keySchema,
+    kind: z.enum(['adjudicate', 'document', 'regress']),
+    role: z.enum(FACTORY_ROLES),
+    jobId: z.string().uuid(),
+    head: z.string(),
+    base: z.string(),
+    outcome: z.enum(['success', 'changes_requested']),
+    summary: z.string(),
+    findings: z.array(z.string()).default([]),
+    dispositions: dispositionsSchema.default([]),
+    at: z.number(),
+  })
+  .strict();
+/** One recorded fix-stage result. */
+export type StepResult = z.output<typeof stepResultSchema>;

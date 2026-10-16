@@ -29,3 +29,50 @@ export const FACTORY_ROLES = [
 export const PROVIDERS = ['codex', 'claude'] as const;
 /** A safe internal key, used in branch and artifact names. */
 export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
+/** Kinds of bounded assignment; fix-stage kinds change or verify code after review. */
+export const JOB_KINDS = [
+  'plan',
+  'refine',
+  'develop',
+  'review',
+  'adjudicate',
+  'document',
+  'regress',
+  'final',
+  'verify',
+  'learn',
+  'skill',
+  'triage',
+] as const;
+/** Assignments that edit a delivery's branch in its owned worktree. */
+export const CODE_JOB_KINDS: ReadonlySet<string> = new Set(['develop', 'adjudicate', 'document']);
+/** The delivery phase in which each assignment kind is valid; planning and research kinds have none. */
+export const JOB_PHASE = {
+  develop: 'development',
+  review: 'review',
+  adjudicate: 'review',
+  document: 'review',
+  regress: 'review',
+  final: 'merge_ready',
+  verify: 'verifying',
+  plan: '',
+  refine: '',
+  learn: '',
+  skill: '',
+  triage: '',
+} as const satisfies Record<(typeof JOB_KINDS)[number], string>;
+/** The baseline lifecycle skill each assignment kind loads. */
+export const STAGE_SKILLS = {
+  plan: 'factory-product',
+  refine: 'factory-product',
+  develop: 'factory-development',
+  review: 'factory-review',
+  adjudicate: 'factory-development',
+  document: 'factory-development',
+  regress: 'factory-review',
+  final: 'factory-release',
+  verify: 'factory-release',
+  learn: 'factory-learning',
+  skill: 'factory-learning',
+  triage: 'factory-product',
+} as const satisfies Record<(typeof JOB_KINDS)[number], string>;

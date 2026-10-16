@@ -12,11 +12,12 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
-import { featureWorkflow, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
+import { featureWorkflow, findingsToRule, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
@@ -137,7 +138,7 @@ export async function executeJob(
   const view = promptView(repository, record, currentTask, feature);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
     `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
@@ -202,7 +203,7 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
   const task = record.taskId === null ? null : context.repository.task(record.taskId);
   const { repository } = context;
   const controls = { signal };
-  if (task !== null && record.kind === 'develop') {
+  if (task !== null && CODE_JOB_KINDS.has(record.kind)) {
     const prepared = await context.workspaces.developer(task);
     const cwd = prepared.directory;
     repository.editTask(task.id, (current) => {
@@ -234,7 +235,7 @@ async function sourceReference(
   job: FactoryJob,
   task: FactoryTask | null,
 ): Promise<string | null> {
-  if (job.kind === 'review' || job.kind === 'final') {
+  if (['review', 'regress', 'final'].includes(job.kind)) {
     return task?.head ?? null;
   }
   return job.kind === 'triage' ? (task?.head ?? (await context.workspaces.base())) : await context.workspaces.base();
@@ -270,7 +271,7 @@ async function prepareSnapshot(context: FactoryContext, job: FactoryJob, signal:
     throw new MeshError('FACTORY_GATED', 'A reviewer snapshot must start clean.');
   }
   const checks = await runChecks(context, record, { cwd, stage: 'prepare', signal: controls.signal });
-  if (record.kind === 'review') {
+  if (record.kind === 'review' || record.kind === 'regress') {
     checks.push(...(await runChecks(context, record, { cwd, stage: 'test', signal: controls.signal })));
   } else if (record.kind === 'final' || record.kind === 'verify') {
     checks.push(...(await runChecks(context, record, { cwd, stage: 'end-to-end', signal: controls.signal })));
@@ -414,19 +415,25 @@ export async function retireSnapshot(context: FactoryContext, snapshot: Executed
  * @param job - Current attempt.
  * @param task - Its delivery, if any.
  * @param feature - Its objective, if any.
- * @returns Prompt-safe task, objective and step.
+ * @returns Prompt-safe task, objective, step and, for a fixer, the findings it must rule on.
  */
 function promptView(
   repository: FactoryContext['repository'],
   job: FactoryJob,
   task: FactoryTask | null,
   feature: Feature | null,
-): { task: FactoryTask | null; feature: Feature | null; step: WorkflowStep | null } {
+): {
+  task: FactoryTask | null;
+  feature: Feature | null;
+  step: WorkflowStep | null;
+  findings: { id: string; step: string; finding: string }[] | null;
+} {
   const workflow = task === null ? featureWorkflow(feature) : taskWorkflow(task, repository.features());
   const step = stepOf(workflow, job);
   return {
     task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined },
     feature: feature === null ? null : { ...feature, workflow: undefined },
     step: step ?? null,
+    findings: task === null || step?.kind !== 'adjudicate' ? null : findingsToRule(task, workflow, step),
   };
 }
