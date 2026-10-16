@@ -96,7 +96,24 @@ export function ownedInvocation(
  * @returns Subscription-only child environment.
  */
 export function ownedEnvironment(launch: OwnedLaunch): NodeJS.ProcessEnv {
-  return launch.interactive
+  const environment = launch.interactive
     ? terminalEnvironment(process.env)
     : subscriptionEnvironment({ ...process.env, ...launch.env });
+  if (process.platform !== 'win32') {
+    return environment;
+  }
+  // Only Microsoft's built-in cmdlets are needed by the fixed Job helper.
+  // Avoid discovering user/runner modules or sharing their analysis-cache lock.
+  return {
+    ...environment,
+    PSModulePath: path.join(
+      process.env['SystemRoot'] ?? 'C:/Windows',
+      'System32',
+      'WindowsPowerShell',
+      'v1.0',
+      'Modules',
+    ),
+    PSModuleAnalysisCachePath: 'NUL',
+    PSDisableModuleAnalysisCacheCleanup: '1',
+  };
 }
