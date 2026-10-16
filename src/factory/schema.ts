@@ -18,7 +18,7 @@ import {
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
-import { recommendationReadSchemas } from './recommendation-read-schema.ts';
+import { observedIssueSchema, recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 
 /** Bound operator triage context independently of model transcripts. */
@@ -112,10 +112,6 @@ export const textSchema = z.string().min(1).max(TEXT_MAX);
 const RECOMMENDATION_ITEMS = 100;
 /** Opaque project, issue revision and assignment identifiers. */
 const recommendationKey = z.string().min(1).max(TITLE_MAX);
-/** One observed issue identifier and freshness token. */
-const observedIssueSchema = z
-  .object({ issue: z.number().int().safe().positive(), revision: recommendationKey })
-  .strict();
 /** Exact, bounded proposal content; no ticket body snapshots are retained. */
 export const recommendationBodySchema = z
   .object({
@@ -498,6 +494,7 @@ export const skillRequestSchema = skillActionSchema.extend({
 export type SkillRequest = z.output<typeof skillRequestSchema>;
 /** MCP/CLI operations exposed by the factory. */
 export const factorySchemas = {
+  factory_recommendation_propose: z.object({ key: keySchema, proposal: recommendationBodySchema }).strict(),
   ...recommendationReadSchemas,
   factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
@@ -594,6 +591,7 @@ export const factorySchemas = {
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_recommendation_propose',
   'factory_recommendations',
   'factory_recommendation_read',
   'factory_model_policy',

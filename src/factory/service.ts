@@ -39,6 +39,7 @@ import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
+import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
 import { recoverObjective, retryBlocked } from './recovery.ts';
 import { GitHubDelivery } from './remote.ts';
@@ -350,8 +351,7 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
-      factory_recommendations: () => this.repository.recommendations.inspect(parsed),
-      factory_recommendation_read: () => this.repository.recommendations.readReceipt(parsed),
+      ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
       factory_setup: () => this.controlSetup(parsed),
       factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
