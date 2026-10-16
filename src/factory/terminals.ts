@@ -521,8 +521,6 @@ export class TerminalService {
       }
       // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only a registry-owned terminal worktree path before any destructive operation.
       if (!existsSync(record.directory)) {
-        // eslint-disable-next-line no-await-in-loop -- A missing tree may still have rewritten branch history worth retaining.
-        await workspaces.retainTerminalHistory();
         // eslint-disable-next-line no-await-in-loop -- Retire only this absent owned creation intent; no filesystem tree is deleted.
         await workspaces.remove(record.directory);
         return;
@@ -533,8 +531,6 @@ export class TerminalService {
         continue;
       }
       // eslint-disable-next-line no-await-in-loop -- Archive source before removing the same verified owned tree.
-      await workspaces.retainTerminalHistory();
-      // eslint-disable-next-line no-await-in-loop -- Preserve the current snapshot as well as rewritten reflog ancestry.
       await workspaces.git(['update-ref', `refs/malt/archive/terminal-${record.id}`, snapshot.head]);
       // eslint-disable-next-line no-await-in-loop -- Removal rechecks the tree's actual status and ownership.
       if (await workspaces.remove(record.directory)) {
