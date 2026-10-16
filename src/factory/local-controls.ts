@@ -122,7 +122,8 @@ export async function localControl(mesh: MeshConfig, settings: FactoryConfig, ra
   switch (input.action) {
     case 'summary': {
       const ledger = await delivery.tracker.load();
-      return { base: settings.baseBranch, tip: await delivery.hub.tip(), issues: ledger.issues, pulls: ledger.pulls };
+      // Reads only the ledger file: cheap enough for every console snapshot.
+      return { base: settings.baseBranch, remote: settings.remote, issues: ledger.issues, pulls: ledger.pulls };
     }
     case 'issue': {
       return delivery.tracker.issue(required(input.number, 'number'));
