@@ -67,7 +67,7 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
     developer: 'developer-1',
     branch,
     worktree: scratch,
-    head,
+    head: null,
     base,
     pr: null,
     prUrl: null,
@@ -108,8 +108,6 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
     }),
     /terminal-only/v,
   );
-  const preserved = await workspaces.git(['rev-parse', `refs/malt/archive/terminal-history-${head}`]);
-  assert.equal(preserved, head);
   await workspaces.git(['switch', '--detach', base], scratch);
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Commit only in this test-owned detached scratch checkout.
   writeFileSync(file, 'Detached operator source.');
@@ -126,10 +124,19 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
     }),
     /terminal-only/v,
   );
+  await workspaces.git(['reflog', 'expire', '--expire=now', '--all']);
+  await workspaces.git(['reset', '--hard', base], scratch);
+  await assert.rejects(
+    workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
+      await Promise.resolve();
+      assert.fail('A nonempty benign reset log cannot grant a delivery receipt.');
+    }),
+    /terminal-only/v,
+  );
   assert.equal(await workspaces.remove(scratch), true);
   await workspaces.git(['update-ref', '-d', `refs/heads/${branch}`]);
   await workspaces.git(['reflog', 'expire', '--expire=now', '--all']);
-  // Once pinned, source isolation survives normal branch/reflog retirement.
+  // Even erased scratch refs/reflogs cannot grant a supervisor delivery receipt.
   await workspaces.git(['update-ref', `refs/malt/archive/terminal-${id}`, terminalTip]);
   await assert.rejects(
     workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
@@ -142,14 +149,21 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
   const independent = await workspaces.create(`${id}-independent`, base, independentBranch);
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Independent test-owned managed source shares only the already-approved base.
   writeFileSync(path.join(independent, 'independent.txt'), 'Ordinary independently reviewed delivery.');
-  await workspaces.git(['add', 'independent.txt'], independent);
-  await workspaces.git(['commit', '-m', 'Independent managed source'], independent);
   let checkpoints = 0;
-  await workspaces.publish({ ...task, branch: independentBranch, worktree: independent }, async () => {
-    checkpoints += 1;
-    await Promise.resolve();
-  });
-  assert.equal(checkpoints, 1, 'Shared approved base ancestry must not blacklist unrelated deliveries.');
+  const publishIndependent = async (): Promise<void> => {
+    await workspaces.publish({ ...task, branch: independentBranch, worktree: independent }, async () => {
+      checkpoints += 1;
+      await Promise.resolve();
+    });
+  };
+  await publishIndependent();
+  const managedHead = await workspaces.git(['rev-parse', 'HEAD'], independent);
+  const observerId = randomUUID();
+  const observer = await workspaces.create(`terminal-${observerId}`, base, `malt/terminal/${observerId}`, false);
+  await workspaces.git(['switch', '--detach', managedHead], observer);
+  await workspaces.git(['switch', '--detach', base], observer);
+  await publishIndependent();
+  assert.equal(checkpoints, 2, 'An operator checkout cannot taint independently receipted managed source.');
   const invalidBase = new WorkspaceManager(mesh, { ...settings, baseBranch: branch });
   await assert.rejects(invalidBase.base(), /terminal scratch branch/v);
   assert.deepEqual(repository.tasks(), []);

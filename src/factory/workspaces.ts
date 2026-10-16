@@ -18,8 +18,8 @@ import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
+import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
 import { assertPublicationSize } from './publication-size.ts';
-import { retainTerminalHistory } from './terminal-history.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -101,19 +101,6 @@ export class WorkspaceManager {
    */
   public async git(args: readonly string[], cwd = this.mesh.root): Promise<string> {
     return command('git', args, cwd);
-  }
-
-  /** Pin retained scratch reflog ancestry before publication or owned retirement. */
-  public async retainTerminalHistory(): Promise<void> {
-    const trees = this.terminalTrees().filter((record) => {
-      this.assertOwnedPath(record.directory);
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only registry-owned scratch paths within the private worktree root.
-      return existsSync(record.directory);
-    });
-    await retainTerminalHistory(
-      async (args, cwd) => this.git(args, cwd),
-      trees.map((record) => record.directory),
-    );
   }
 
   /**
@@ -287,7 +274,7 @@ export class WorkspaceManager {
     const snapshot = await this.snapshot(directory);
     if (snapshot.status === '') {
       try {
-        await this.git(['merge', '--no-edit', base], directory);
+        await this.mergeBase(task, base, directory);
       } catch {
         /* Retain merge conflicts for the responsible developer to resolve. */
       }
@@ -313,17 +300,21 @@ export class WorkspaceManager {
       throw new MeshError('FACTORY_GATED', 'The delivery has no owned developer worktree.');
     }
     const directory = record.worktree;
+    const base = await this.base();
+    const previous = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.assertDeliveryHead(record, previous, base);
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
     if (status !== '') {
       await this.git(['add', '--all'], directory);
       await this.assertPrivateStateUntracked(directory);
       await this.git(['commit', '-m', `Deliver #${String(record.issue)}: ${record.title}`], directory);
+      const committed = await this.git(['rev-parse', 'HEAD'], directory);
+      await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
-    const base = await this.base();
-    await this.git(['merge', '--no-edit', base], directory);
+    await this.mergeBase(record, base, directory);
     await this.assertPrivateStateUntracked(directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
-    await this.assertDeliveryHead(head, base);
+    await this.assertDeliveryHead(record, head, base);
     const diff = await this.git(['diff', '--numstat', `${base}...${head}`], directory);
     const entries = diff === '' ? [] : diff.split('\n');
     let lines = 0;
@@ -362,7 +353,7 @@ export class WorkspaceManager {
     if (source.status !== '' || source.head !== task.head || branch !== task.branch) {
       throw new MeshError('FACTORY_GATED', 'The validated branch changed; preserve it for developer repair.');
     }
-    await this.assertDeliveryHead(source.head, await this.base());
+    await this.assertDeliveryHead(task, source.head, await this.base());
     await this.git(['push', '--set-upstream', this.config.remote, task.branch], task.worktree);
   }
 
@@ -388,9 +379,6 @@ export class WorkspaceManager {
     const record = records.find((entry) => entry.directory === directory && !entry.removed);
     if (record === undefined) {
       throw new MeshError('INVALID_INPUT', 'Cleanup requires an owned worktree record.');
-    }
-    if (record.id.startsWith('terminal-')) {
-      await this.retainTerminalHistory();
     }
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Verified absolute path under this project's owned worktree root.
     if (existsSync(directory)) {
@@ -506,30 +494,38 @@ export class WorkspaceManager {
   }
 
   /**
-   * Reject operator-only commits even when copied onto a developer branch.
+   * Reject commits outside this supervisor's delivery receipts or prior checkpoint.
    *
+   * @param task - Durable delivery, never an agent-supplied checkpoint.
    * @param head - Actual Git head about to be published.
    * @param base - Fresh remote delivery base.
    * @throws {MeshError} For a terminal-exclusive source head.
    */
-  private async assertDeliveryHead(head: string, base: string): Promise<void> {
-    const all = await this.git(['rev-list', '--count', head, `^${base}`]);
-    if (all === '0') {
+  private async assertDeliveryHead(task: FactoryTask, head: string, base: string): Promise<void> {
+    await assertDeliveryHistory(async (args) => this.git(args), { taskId: task.id, head, base, checkpoint: task.head });
+  }
+
+  /**
+   * Refresh main and receipt only a merge the supervisor actually created.
+   *
+   * @param task - Owned delivery.
+   * @param base - Verified fetched main.
+   * @param directory - Owned developer checkout.
+   * @throws {MeshError} If a concurrent source change prevents attributing the merge.
+   */
+  private async mergeBase(task: FactoryTask, base: string, directory: string): Promise<void> {
+    const previous = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.git(['merge', '--no-edit', base], directory);
+    const head = await this.git(['rev-parse', 'HEAD'], directory);
+    if (head === previous || head === base) {
       return;
     }
-    await this.retainTerminalHistory();
-    const independent = await this.git([
-      'rev-list',
-      '--count',
-      head,
-      `^${base}`,
-      '--not',
-      '--branches=malt/terminal/*',
-      '--glob=refs/malt/archive/terminal-*',
-    ]);
-    if (independent !== all) {
-      throw new MeshError('FACTORY_GATED', 'A terminal-only commit cannot satisfy a delivery head.');
+    const ancestry = await this.git(['rev-list', '--parents', '-n', '1', head], directory);
+    const parents = ancestry.split(' ').slice(1);
+    if (parents[0] !== previous || !parents.slice(1).includes(base)) {
+      throw new MeshError('FACTORY_GATED', 'Source changed during the supervisor merge; preserve it for review.');
     }
+    await recordDeliveryCommit(async (args) => this.git(args), task.id, head);
   }
 
   /**
