@@ -466,6 +466,7 @@ export class QueueState {
       this.details.clear();
       this.project = project;
     }
+    pruneHandoffDetails(this.details, next);
     for (const detail of next.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
       detail.open = this.details.get(detail.dataset['queueKey'] ?? '') ?? false;
     }
@@ -475,5 +476,25 @@ export class QueueState {
     }
     const control = target.querySelector<HTMLElement>(`[data-queue-focus="${CSS.escape(focus)}"]`);
     control?.focus({ preventScroll: true });
+  }
+}
+
+/**
+ * Retain at most the displayed feed's disclosure choices, without clearing other view state.
+ *
+ * @param choices - Current project's native disclosure choices.
+ * @param next - New view; unrelated views do not evict the last bounded feed.
+ */
+function pruneHandoffDetails(choices: Map<string, boolean>, next: HTMLElement): void {
+  if (next.querySelector('.handoff-feed') === null && !next.classList.contains('handoff-feed')) {
+    return;
+  }
+  const visible = new Set(
+    Array.from(next.querySelectorAll<HTMLElement>('[data-queue-key]'), (node) => node.dataset['queueKey'] ?? ''),
+  );
+  for (const key of choices.keys()) {
+    if (key.startsWith('handoff:') && !visible.has(key)) {
+      choices.delete(key);
+    }
   }
 }
