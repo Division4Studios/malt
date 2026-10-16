@@ -239,7 +239,9 @@ Each `factory_status.instructions` entry has a `handoff` field. It is `null` for
 
 ## Operator scratch terminals
 
-Terminal RPCs require the selected project's bearer token **without agent credentials**. They are absent from MCP tools, and lead credentials cannot authorize them. Browser clients use the paired console gateway; project credentials remain on the backend. The broker continues to reject browser-origin RPC.
+Terminal operations require the owning broker's **in-process operator capability**, handed directly to its colocated paired console. Every normal broker RPC attempt is rejected, including project-token calls with omitted agent credentials. They are absent from MCP tools, and lead credentials cannot authorize them. No operator capability is serialized into project memory, logs, browser storage or URLs. The broker continues to reject browser-origin RPC.
+
+Start native terminals with `node src/cli.ts ui --with-broker --project <target> --port 4318`, stopping a separately running broker for that target first. This owns both services and their ordered shutdown; it does not attach terminal authority to an already-running external broker. A separate `ui` process can inspect its existing factory but cannot acquire terminal authority from a project token. Docker already owns broker/UI together and passes the same in-process capability.
 
 | Operation        | Input                                            | Result                                                                    |
 | ---------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |

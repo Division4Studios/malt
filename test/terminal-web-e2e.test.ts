@@ -2,7 +2,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { rpc } from '../src/client.ts';
 import { terminalViews } from '../web/src/terminal-contract.ts';
 
 import { until } from './helpers.ts';
@@ -27,7 +26,7 @@ await test(
   'paired terminal input, resize, cursor reconnect, rejection, timeout and cancel retire actual descendants',
   { timeout: 100_000 },
   async (t) => {
-    const { control, read, headers, web, mesh, pool, timers, pids } = await terminalWebFixture(t);
+    const { broker, control, read, headers, web, mesh, pool, timers, pids } = await terminalWebFixture(t);
     const request = { provider: 'codex', columns: 80, rows: 24 };
     const session = await control('terminal_start', request);
     const started = await read(session.id, 0, (_page, text) => text.includes('SIZE 80 24'));
@@ -111,6 +110,6 @@ await test(
     await until(() => !isAlive(nextCli) && !isAlive(nextGrandchild), 10_000);
     assert.equal(pool.size, 0);
     assert.equal(timers.size, 0);
-    assert.equal(terminalViews(await rpc(mesh, 'terminal_list', {})).length, 2);
+    assert.equal(terminalViews(await broker.operatorTerminalControl(mesh, 'terminal_list', {})).length, 2);
   },
 );

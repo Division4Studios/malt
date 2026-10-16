@@ -2,6 +2,9 @@
 import { z } from 'zod/v3';
 
 import { MAX_COLUMNS, MAX_ROWS, MIN_COLUMNS, MIN_ROWS } from './terminal-frames.ts';
+
+import type { MeshConfig } from '../config.ts';
+
 /** Broker polls are bounded independently of transport deadlines. */
 const READ_WAIT_MS = 25_000;
 /** Text code-unit ceiling; the native input gate separately checks UTF-8 bytes. */
@@ -32,6 +35,13 @@ export const terminalSchemas = {
 };
 /** Closed terminal operation vocabulary. */
 export type TerminalOperation = keyof typeof terminalSchemas;
+/** Nonserializable operator capability, handed directly to the owning PWA service. */
+export type TerminalOperator = (
+  config: MeshConfig,
+  operation: TerminalOperation,
+  input: unknown,
+  signal?: AbortSignal,
+) => Promise<unknown>;
 /** Names excluded from the store and all agent-facing tools. */
 export const TERMINAL_OPERATIONS = [
   'terminal_start',

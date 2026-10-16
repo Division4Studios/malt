@@ -222,7 +222,7 @@ export async function terminalWebFixture(t: TestContext, shouldObservePressure =
   };
   project.defer(closeBroker);
   const mesh = { ...project.mesh, url: brokerUrl(broker.port) };
-  const web = await startWebConsole(mesh, 0);
+  const web = await startWebConsole(mesh, 0, undefined, broker.operatorTerminalControl);
   let webClosing: Promise<void> | null = null;
   const closeWeb = async (): Promise<void> => {
     webClosing ??= web.close();

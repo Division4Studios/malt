@@ -46,6 +46,7 @@ Usage: node src/cli.ts <command> [options]
   init                         Initialize .malt and project agent discovery files
   start                        Start the broker (foreground; Ctrl+C to stop)
   ui --port 4318              Serve the installable local PWA; prints a pairing code
+  ui --with-broker             Own broker and console together; enables native terminals
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
@@ -117,6 +118,8 @@ const DEFAULT_PAGE_LIMIT = 50;
 
 /** The parsed command-line options. */
 interface CliOptions {
+  /** Keep native terminal authority in the same process as the paired console. */
+  readonly 'with-broker'?: boolean | undefined;
   /** Broker listen port or local PWA port, depending on the command. */
   readonly port?: string | undefined;
   /** JSON settings/control input file. */
@@ -323,7 +326,9 @@ async function runMessaging(
 async function run(command: Command, options: CliOptions): Promise<void> {
   const record = options;
   // Only `init` and `start` may create a project; see loadConfig.
-  const home = loadConfig(record.project, { create: command === 'init' || command === 'start' });
+  const home = loadConfig(record.project, {
+    create: command === 'init' || command === 'start' || (command === 'ui' && record['with-broker'] === true),
+  });
   if (isTeamCommand(command)) {
     const config =
       record.workspace === undefined ? home : await openTeamConfig(home, absoluteWorkspace(record.workspace));
@@ -347,12 +352,12 @@ async function run(command: Command, options: CliOptions): Promise<void> {
         return;
       }
       case 'ui': {
-        const { startWebConsole } = await import('./web/server.ts');
+        const { startNativeConsole } = await import('./web/native.ts');
         const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
         if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
           throw new Error('Use a valid local UI port.');
         }
-        const console = await startWebConsole(home, port);
+        const console = await startNativeConsole(home, port, record['with-broker'] === true);
         print({
           url: console.url,
           pairingCode: console.pairingCode,
@@ -428,6 +433,7 @@ async function main(): Promise<void> {
     options: {
       project: { type: 'string' },
       port: { type: 'string' },
+      'with-broker': { type: 'boolean' },
       file: { type: 'string' },
       workspace: { type: 'string' },
       name: { type: 'string' },

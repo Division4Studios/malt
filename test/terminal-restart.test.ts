@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { startBroker } from '../src/broker.ts';
-import { rpc } from '../src/client.ts';
 import { startWebConsole } from '../src/web/server.ts';
 import { terminalPage, terminalViews } from '../web/src/terminal-contract.ts';
 
@@ -35,6 +34,9 @@ await test(
     const cli = fixture.pids.get(session.id);
     assert.ok(cli !== undefined && isAlive(cli));
     await fixture.close();
+    await assert.rejects(fixture.broker.operatorTerminalControl(fixture.mesh, 'terminal_list', {}), {
+      code: 'BROKER_UNAVAILABLE',
+    });
     await until(() => !isAlive(cli), 10_000);
     assert.equal(fixture.pool.size, 0);
     assert.equal(fixture.timers.size, 0);
@@ -58,7 +60,7 @@ await test(
     });
     defer(async () => broker.close());
     const mesh = { ...fixture.mesh, url: brokerUrl(broker.port) };
-    const web = await startWebConsole(mesh, 0);
+    const web = await startWebConsole(mesh, 0, undefined, broker.operatorTerminalControl);
     defer(async () => web.close());
     const unpaired = await fetch(`${web.url}/api/terminals`, { headers: { ...fixture.headers, Origin: web.url } });
     assert.equal(unpaired.status, 401, 'The old console session cannot authenticate a new backend instance.');
@@ -78,10 +80,13 @@ await test(
     assert.equal(retained.id, session.id);
     assert.equal(retained.state, 'cancelled');
     assert.equal(retained.reason, 'broker shutdown');
-    const replay = terminalPage(await rpc(mesh, 'terminal_read', { id: session.id, after: 0 }), {
-      id: session.id,
-      after: 0,
-    });
+    const replay = terminalPage(
+      await broker.operatorTerminalControl(mesh, 'terminal_read', { id: session.id, after: 0 }),
+      {
+        id: session.id,
+        after: 0,
+      },
+    );
     assert.equal(replay.unavailable, true);
     assert.deepEqual(replay.output, []);
     assert.equal(starts, 0);

@@ -19,6 +19,7 @@ import { OperatorSessions } from './security.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** Static assets are explicit, preventing arbitrary path traversal. */
@@ -306,12 +307,14 @@ export interface WebConsole {
  * @param config - Broker home scope.
  * @param port - Requested local port, zero for isolated tests.
  * @param binding - Explicit container binding; public Host/Origin remain loopback-only.
+ * @param terminalOperator - Memory-only capability from the colocated owning broker.
  * @returns Running operator console.
  */
 export async function startWebConsole(
   config: MeshConfig,
   port = 4318,
   binding?: { host: '0.0.0.0'; publicPort: number },
+  terminalOperator?: TerminalOperator,
 ): Promise<WebConsole> {
   if (binding !== undefined) {
     z.object({ host: z.literal('0.0.0.0'), publicPort: z.number().int().min(1).max(MAX_PORT) })
@@ -319,7 +322,7 @@ export async function startWebConsole(
       .parse(binding);
   }
   const sessions = new OperatorSessions();
-  const gateway = new ProjectGateway(config);
+  const gateway = new ProjectGateway(config, terminalOperator);
   const streams = new Streams();
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Security-Policy', CSP);

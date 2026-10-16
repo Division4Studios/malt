@@ -13,12 +13,14 @@ import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
 import { terminalPageSchema } from '../factory/terminal-reads.ts';
+import { isTerminalOperation } from '../factory/terminal-schema.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
 import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
+import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
 
 /** Public team routing metadata. */
@@ -72,6 +74,8 @@ export const controlSchema = z
   .strict();
 /** One project gateway proxies the existing broker without another scheduler. */
 export class ProjectGateway {
+  /** Only the colocated owning broker can supply this nonserializable authority. */
+  private readonly terminalOperator: TerminalOperator | undefined;
   /** Home broker authentication remains server-side. */
   private readonly home: MeshConfig;
   /** Explicitly available project scopes. */
@@ -81,9 +85,11 @@ export class ProjectGateway {
    * Initialize the home scope without creating a GitHub board.
    *
    * @param home - Broker home configuration.
+   * @param terminalOperator - Optional memory-only capability from the owning broker.
    */
-  public constructor(home: MeshConfig) {
+  public constructor(home: MeshConfig, terminalOperator?: TerminalOperator) {
     this.home = home;
+    this.terminalOperator = terminalOperator;
     this.projects.set('home', home);
   }
 
@@ -207,7 +213,7 @@ export class ProjectGateway {
     return z
       .array(terminalSessionSchema)
       .max(TERMINAL_HISTORY)
-      .parse(await rpc(this.config(id), 'terminal_list', {}));
+      .parse(await this.terminal(id, 'terminal_list', {}));
   }
 
   /**
@@ -221,7 +227,7 @@ export class ProjectGateway {
    */
   public async terminalRead(project: string, id: string, after: number, signal: AbortSignal): Promise<TerminalPage> {
     return terminalPageSchema.parse(
-      await rpc(this.config(project), 'terminal_read', { id, after, waitMs: 10_000 }, { signal }),
+      await this.terminal(project, 'terminal_read', { id, after, waitMs: 10_000 }, signal),
     );
   }
 
@@ -234,11 +240,37 @@ export class ProjectGateway {
    */
   public async control(id: string, input: unknown): Promise<unknown> {
     const control = controlSchema.parse(input);
-    const result = await rpc(this.config(id), control.operation satisfies Operation, control.input);
-    if (control.operation.startsWith('terminal_')) {
-      return terminalSessionSchema.parse(result);
+    if (isTerminalOperation(control.operation)) {
+      return terminalSessionSchema.parse(await this.terminal(id, control.operation, control.input));
     }
+    const result = await rpc(this.config(id), control.operation satisfies Operation, control.input);
     const status = z.object({ jobs: z.array(z.unknown()) }).safeParse(result);
     return status.success ? factoryViewSchema.parse(result) : result;
+  }
+
+  /**
+   * Invoke only the broker's memory capability after authorizing project selection.
+   *
+   * @param project - Explicit selected scope.
+   * @param operation - Fixed terminal vocabulary.
+   * @param input - Separately validated operation input.
+   * @param signal - Exact browser connection lifetime.
+   * @returns Scoped authoritative terminal result.
+   * @throws {MeshError} When a separate UI process has no operator capability.
+   */
+  private async terminal(
+    project: string,
+    operation: TerminalOperation,
+    input: unknown,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    if (this.terminalOperator === undefined) {
+      throw new MeshError(
+        'HUMAN_CONTROL_REQUIRED',
+        'Start the console with ui --with-broker to authorize native terminals.',
+      );
+    }
+    const config = this.config(project);
+    return this.terminalOperator(config, operation, input, signal);
   }
 }
