@@ -1,0 +1,367 @@
+/**
+ * Delivery detail view: header facts, and the delivery's pipeline grouped by
+ * execution layer with each step's state, roles, badges and latest result
+ * (findings and the fixer's rulings). Steps waiting on the human offer the
+ * shared approval dialog. The root is stable; updates keep focus, expanded
+ * results and an open dialog.
+ *
+ * @file
+ */
+import { ApprovalDialog } from './approval-dialog.js';
+import { targetFromStep } from './approval-model.js';
+import { button, emptyState, externalLink, focusedKey, restoreFocus, stateBadge, tag } from './console-dom.js';
+import { EMPTY_CONSOLE, findingSeverity, layerGroups, readConsole, runningText, shortSha } from './console-model.js';
+import { element } from './worker-ui.js';
+
+import type { ControlSender } from './approval-dialog.js';
+import type { ConsoleViewHandle } from './console-dom.js';
+import type { ConsoleModel, Delivery, Step, StepResult } from './console-model.js';
+
+/** Callbacks supplied by the console shell. */
+export interface DeliveryHooks {
+  /** Operator control sender (`createOperatorControl`); used for `factory_approve`. */
+  readonly control: ControlSender;
+  /** Return to the previous view. */
+  readonly back: () => void;
+  /** Open the attempts (sessions) view filtered to this delivery. */
+  readonly openSessions: (filter: { taskId: string }) => void;
+}
+
+/** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
+const TITLE_KEY = 'delivery-title';
+
+/** A mounted delivery view. */
+export interface DeliveryHandle extends ConsoleViewHandle {
+  /** Show one delivery. */
+  readonly show: (taskId: string) => void;
+}
+
+/**
+ * Append one fact to a description list.
+ *
+ * @param list - Description list.
+ * @param term - Visible term.
+ * @param value - Text or a prepared node.
+ */
+function fact(list: HTMLDListElement, term: string, value: string | HTMLElement): void {
+  const description = element('dd');
+  description.append(value);
+  const wrapper = element('div', 'delivery-fact');
+  wrapper.append(element('dt', '', term), description);
+  list.append(wrapper);
+}
+
+/**
+ * Build the delivery header.
+ *
+ * @param delivery - Delivery shown.
+ * @returns Header element.
+ */
+function header(delivery: Delivery): HTMLElement {
+  const node = element('header', 'delivery-header');
+  const heading = element('h2', 'delivery-title', `#${String(delivery.issue)} ${delivery.title}`);
+  heading.tabIndex = -1;
+  heading.dataset['focusKey'] = TITLE_KEY;
+  const facts = element('dl', 'delivery-facts');
+  fact(facts, 'Phase', delivery.phase === '' ? '—' : delivery.phase);
+  fact(facts, 'Workflow', delivery.workflow.name === '' ? '—' : delivery.workflow.name);
+  fact(facts, 'Developer', delivery.developer ?? '—');
+  fact(facts, 'Attempts', String(delivery.attempts));
+  fact(facts, 'Head', shortSha(delivery.head));
+  fact(facts, 'Base', shortSha(delivery.base));
+  fact(facts, 'Pull request', delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, 'Open pull request'));
+  fact(facts, 'Running now', runningText(delivery) ?? 'Nothing');
+  if (delivery.waitingOn.length > 0) {
+    fact(facts, 'Waiting on', delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
+  }
+  node.append(heading, facts);
+  if (delivery.error !== null) {
+    const error = element('div', 'delivery-error');
+    error.setAttribute('role', 'note');
+    error.append(element('p', 'delivery-error-label', 'Blocker or last error'), element('pre', '', delivery.error));
+    node.append(error);
+  }
+  return node;
+}
+
+/**
+ * Build the findings list of a result.
+ *
+ * @param findings - Severity-tagged findings.
+ * @returns List element.
+ */
+function findingsList(findings: readonly string[]): HTMLElement {
+  const list = element('ul', 'step-findings');
+  for (const finding of findings) {
+    const { severity, text } = findingSeverity(finding);
+    const item = element('li');
+    if (severity !== null) {
+      const badge = tag(severity, 'severity');
+      badge.dataset['severity'] = severity;
+      item.append(badge, ' ');
+    }
+    item.append(text);
+    list.append(item);
+  }
+  return list;
+}
+
+/**
+ * Build the dispositions table of a result.
+ *
+ * @param result - Step result with rulings.
+ * @returns Table element inside a scroll wrapper.
+ */
+function dispositionsTable(result: StepResult): HTMLElement {
+  const table = element('table', 'step-dispositions');
+  table.append(element('caption', '', 'Rulings on findings'));
+  const head = element('tr');
+  for (const column of ['Finding', 'Decision', 'Reason', 'Evidence']) {
+    const cell = element('th', '', column);
+    cell.scope = 'col';
+    head.append(cell);
+  }
+  table.append(head);
+  for (const disposition of result.dispositions) {
+    const row = element('tr');
+    const id = element('th', '', disposition.id);
+    id.scope = 'row';
+    row.append(
+      id,
+      element('td', '', disposition.decision),
+      element('td', '', disposition.reason),
+      element('td', '', disposition.evidence === '' ? '—' : disposition.evidence),
+    );
+    table.append(row);
+  }
+  const wrapper = element('div', 'table-scroll');
+  wrapper.append(table);
+  return wrapper;
+}
+
+/**
+ * Build the body of a step result.
+ *
+ * @param result - Latest result.
+ * @returns Result content.
+ */
+function resultBody(result: StepResult): HTMLElement {
+  const body = element('div', 'step-result-body');
+  if (result.role !== '') {
+    body.append(element('p', 'subtle', `Reported by ${result.role}`));
+  }
+  body.append(element('p', 'step-summary', result.summary === '' ? 'No summary recorded.' : result.summary));
+  if (result.findings.length > 0) {
+    body.append(element('h5', 'step-subheading', 'Findings'), findingsList(result.findings));
+  }
+  if (result.dispositions.length > 0) {
+    body.append(dispositionsTable(result));
+  }
+  return body;
+}
+
+/** Delivery detail controller. */
+class DeliveryView {
+  /** Stable root. */
+  public readonly root = element('div', 'delivery-view');
+  /** Approval dialog. */
+  private readonly dialog: ApprovalDialog;
+  /** Opens the attempts view. */
+  private readonly attempts: HTMLButtonElement;
+  /** Re-rendered content. */
+  private readonly body = element('div', 'delivery-body');
+  /** Result panels the operator expanded, by `taskId:stepId`. */
+  private readonly expanded = new Set<string>();
+  /** Delivery shown. */
+  private taskId = '';
+  /** Latest projection. */
+  private model: ConsoleModel = EMPTY_CONSOLE;
+  /** Last rendered state, to skip identical updates. */
+  private renderKey = '';
+
+  /**
+   * Build the toolbar once.
+   *
+   * @param hooks - Shell callbacks.
+   */
+  public constructor(hooks: DeliveryHooks) {
+    this.dialog = new ApprovalDialog(hooks.control, (key) => {
+      restoreFocus(this.root, key, this.root.querySelector<HTMLElement>('.delivery-title'));
+    });
+    const back = button('← Back', {
+      cssClass: 'button ghost',
+      key: 'back',
+      action: () => {
+        hooks.back();
+      },
+    });
+    this.attempts = button('View attempts', {
+      cssClass: 'button secondary',
+      key: 'attempts',
+      action: () => {
+        hooks.openSessions({ taskId: this.taskId });
+      },
+    });
+    const toolbar = element('div', 'delivery-toolbar');
+    toolbar.append(back, this.attempts);
+    this.root.append(toolbar, this.body);
+  }
+
+  /**
+   * Show a delivery and move focus to its heading.
+   *
+   * @param taskId - Identifier of the delivery to display.
+   */
+  public show(taskId: string): void {
+    if (taskId !== this.taskId) {
+      this.expanded.clear();
+    }
+    this.taskId = taskId;
+    this.renderKey = '';
+    this.render();
+    this.root.querySelector<HTMLElement>('.delivery-title, .console-empty')?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Apply a snapshot.
+   *
+   * @param snapshot - Console snapshot.
+   */
+  public update(snapshot: unknown): void {
+    this.model = readConsole(snapshot);
+    this.dialog.sync(this.model.open);
+    this.render();
+  }
+
+  /** Re-render when the shown delivery or its approvals changed. */
+  private render(): void {
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    const open = this.model.open.filter((item) => item.taskId === this.taskId);
+    const key = JSON.stringify([this.taskId, delivery ?? null, open]);
+    if (key === this.renderKey) {
+      return;
+    }
+    this.renderKey = key;
+    const focused = focusedKey(this.root);
+    this.attempts.disabled = delivery === undefined;
+    if (delivery === undefined) {
+      const empty = emptyState(
+        'This delivery is not on the board',
+        'It may have finished long ago, been replaced by a scope change, or belong to another project. Go back to choose another delivery.',
+      );
+      empty.tabIndex = -1;
+      empty.dataset['focusKey'] = TITLE_KEY;
+      this.body.replaceChildren(empty);
+      restoreFocus(this.root, focused, empty);
+      return;
+    }
+    const pipeline = element('section', 'delivery-pipeline');
+    const title = element('h3', 'delivery-section-title', 'Pipeline');
+    const layers = element('ol', 'pipeline-layers');
+    for (const group of layerGroups(delivery.steps)) {
+      const layer = element('li', 'pipeline-layer');
+      const label =
+        group.steps.length > 1 ? `Stage ${String(group.layer)} · in parallel` : `Stage ${String(group.layer)}`;
+      const steps = element('ul', 'pipeline-steps');
+      steps.append(...group.steps.map((step) => this.stepNode(delivery, step)));
+      layer.append(element('p', 'pipeline-layer-label', label), steps);
+      layers.append(layer);
+    }
+    pipeline.append(title, layers);
+    const top = header(delivery);
+    this.body.replaceChildren(top, pipeline);
+    restoreFocus(this.root, focused, top.querySelector('h2'));
+  }
+
+  /**
+   * Build one step.
+   *
+   * @param delivery - Delivery shown.
+   * @param step - Step to describe.
+   * @returns List item.
+   */
+  private stepNode(delivery: Delivery, step: Step): HTMLLIElement {
+    const item = element('li', 'pipeline-step');
+    item.dataset['state'] = step.state;
+    const head = element('div', 'pipeline-step-head');
+    head.append(element('h4', 'pipeline-step-title', step.title), stateBadge(step.state));
+    const badges = element('div', 'card-badges');
+    badges.append(tag(step.roles.length === 0 ? 'You decide' : step.roles.join(', '), 'tag-roles'));
+    if (step.blind) {
+      badges.append(tag('Blind review'));
+    }
+    if (step.gate) {
+      badges.append(tag('Approval gate'));
+    }
+    if (step.provider !== null) {
+      badges.append(tag(`Prefers ${step.provider}`));
+    }
+    item.append(head, badges);
+    if (step.result !== null) {
+      item.append(this.resultNode(delivery, step, step.result));
+    }
+    if (step.state === 'needs_you') {
+      item.append(this.approvalActions(delivery, step));
+    }
+    return item;
+  }
+
+  /**
+   * Build a collapsible step result that remembers being expanded.
+   *
+   * @param delivery - Delivery shown.
+   * @param step - Step whose result is shown.
+   * @param result - Latest result.
+   * @returns Details element.
+   */
+  private resultNode(delivery: Delivery, step: Step, result: StepResult): HTMLElement {
+    const id = `${delivery.taskId}:${step.id}`;
+    const details = element('details', 'step-result');
+    details.open = this.expanded.has(id);
+    const summary = element('summary', '', `Latest result: ${result.outcome === '' ? 'recorded' : result.outcome}`);
+    summary.dataset['focusKey'] = `result:${id}`;
+    details.append(summary, resultBody(result));
+    details.addEventListener('toggle', () => {
+      if (details.open) {
+        this.expanded.add(id);
+      } else {
+        this.expanded.delete(id);
+      }
+    });
+    return details;
+  }
+
+  /**
+   * Build approve and reject buttons for a step waiting on the human.
+   *
+   * @param delivery - Delivery shown.
+   * @param step - Step waiting on the human.
+   * @returns Action row.
+   */
+  private approvalActions(delivery: Delivery, step: Step): HTMLElement {
+    const target = targetFromStep(delivery, step, this.model.open);
+    const actions = element('div', 'inbox-actions');
+    actions.append(...this.dialog.buttons(target, `step:${step.id}`));
+    return actions;
+  }
+}
+
+/**
+ * Create the delivery detail view. Mount `element` once, call `show(taskId)`
+ * when the operator opens a delivery and `update` with every snapshot.
+ *
+ * @param hooks - Control sender and navigation callbacks.
+ * @returns Stable element, update and show functions.
+ */
+export function createDeliveryView(hooks: DeliveryHooks): DeliveryHandle {
+  const view = new DeliveryView(hooks);
+  return {
+    element: view.root,
+    update: (snapshot) => {
+      view.update(snapshot);
+    },
+    show: (taskId) => {
+      view.show(taskId);
+    },
+  };
+}
