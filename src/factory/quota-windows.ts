@@ -190,9 +190,10 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
   if (!parsed.success) {
     return [];
   }
+  const { utilization, resetsAt } = parsed.data;
+  const hasLegacy = utilization !== undefined && (resetsAt === undefined || resetsAt * SECOND_MS > now);
   const windows = Object.entries(parsed.data.unifiedWindows ?? {})
-    .filter(([id]) => id !== 'legacy-reported' || parsed.data.utilization === undefined)
-    .slice(0, parsed.data.utilization === undefined ? MAX_WINDOWS : MAX_WINDOWS - 1)
+    .filter(([id]) => id !== 'legacy-reported' || !hasLegacy)
     .flatMap(([id, window]) => {
       const minutes = id === 'five_hour' ? FIVE_HOUR_MINUTES : null;
       const observation = subscriptionWindowSchema.safeParse({
@@ -204,9 +205,9 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
         source: 'claude-stream',
       });
       return observation.success && window.resetsAt * SECOND_MS > now ? [observation.data] : [];
-    });
-  const { utilization, resetsAt } = parsed.data;
-  if (utilization !== undefined && (resetsAt === undefined || resetsAt * SECOND_MS > now)) {
+    })
+    .slice(0, hasLegacy ? MAX_WINDOWS - 1 : MAX_WINDOWS);
+  if (hasLegacy) {
     const legacy = subscriptionWindowSchema.safeParse({
       id: 'legacy-reported',
       minutes: null,

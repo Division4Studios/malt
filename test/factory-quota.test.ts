@@ -355,6 +355,15 @@ await test('Claude window validation excludes credits, expired and malformed tel
     ).length,
     16,
   );
+  const expiredScalar = claudeWindows({ unifiedWindows: manyWindows, utilization: 0.2, resetsAt: 1 }, 2000);
+  assert.equal(expiredScalar.length, 16);
+  assert.equal(
+    expiredScalar.some(({ id }) => id === 'legacy-reported'),
+    false,
+  );
+  assert.equal(expiredScalar.at(-1)?.id, 'window_15');
+  const expiredFirst = { old: { utilization: 0.9, resetsAt: 1 }, ...manyWindows };
+  assert.equal(claudeWindows({ unifiedWindows: expiredFirst }, 2000).length, 16);
 });
 
 await test('Codex window durations follow native telemetry rather than a guessed five-hour plan', () => {
