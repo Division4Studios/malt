@@ -1,6 +1,9 @@
 /** @file Real loopback/PTY fixture boundaries, with no provider executable or inference call. */
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+
+import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
 import { brokerAdmission } from '../src/factory/admission.ts';
@@ -26,6 +29,49 @@ const READ_MS = 40_000;
 const TEXT_LIMIT = 65_536;
 /** Bound network iterations independently of text content. */
 const READ_LIMIT = 512;
+/** Distinguish a stable synchronous blocked write from one ordinary frame boundary. */
+const PRESSURE_MS = 500;
+/** Numeric-only marker cannot contain terminal content or credentials. */
+const pressureSchema = z
+  .object({ started: z.number().int(), completed: z.number().int(), isPaused: z.boolean() })
+  .strict();
+
+/**
+ * Observe an actual PTY pause or a stable synchronous write into the stalled native pipe.
+ *
+ * @param marker - Exact test-owned native host metadata file.
+ * @returns Bounded polling predicate; no output content is read.
+ */
+function pressureObserved(marker: string): () => boolean {
+  let sequence = -1;
+  let since = 0;
+  return () => {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed numeric-only marker in the exact fixture-owned host directory.
+    if (!existsSync(marker)) {
+      return false;
+    }
+    let record: unknown;
+    try {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only fixed numeric state from our instrumented native fixture is accepted.
+      record = JSON.parse(readFileSync(marker, 'utf8'));
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return false; // The fixture may be publishing its fixed transient diagnostic record.
+      }
+      throw error;
+    }
+    const state = pressureSchema.parse(record);
+    if (state.isPaused) {
+      return true;
+    }
+    if (sequence !== state.started || state.started === state.completed) {
+      sequence = state.started;
+      since = Date.now();
+      return false;
+    }
+    return Date.now() - since >= PRESSURE_MS;
+  };
+}
 /** Safe bounded SSE evidence. */
 interface Evidence {
   page: TerminalPage;
@@ -43,6 +89,10 @@ export interface TerminalWebFixture {
   readonly headers: Readonly<Record<string, string>>;
   /** Exact fixture PIDs reported by the real owned host. */
   readonly pids: ReadonlyMap<string, number>;
+  /** Bounded fixture-only native failure categories; never provider diagnostics. */
+  readonly failures: ReadonlyMap<string, string>;
+  /** Test-only real output stall and host-observed paused or blocked write evidence. */
+  readonly pressure: ReadonlyMap<string, { stall: () => void; isBackpressured: () => boolean }>;
   /** Actual broker-wide occupancy; fixtures cannot replace its authority. */
   readonly pool: typeof brokerAdmission;
   /** Deterministic idle/absolute native teardown triggers. */
@@ -101,13 +151,16 @@ async function readPages(
  * Bring up the actual broker, web authentication, Git worktree and fixture-native PTY.
  *
  * @param t - Owning cleanup scope.
+ * @param shouldObservePressure - Enable numeric native write instrumentation only for pressure tests.
  * @returns Paired native controls, scoped output reads and exact fixture process metadata.
  */
-export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFixture> {
+export async function terminalWebFixture(t: TestContext, shouldObservePressure = false): Promise<TerminalWebFixture> {
   const project = await terminalProject(t);
   project.repository.configure({ ...project.settings, terminals: { max: 1, idleMs: IDLE_MS, maximumMs: READ_MS } });
   const timers = new Map<() => void, number>();
   const pids = new Map<string, number>();
+  const failures = new Map<string, string>();
+  const pressure = new Map<string, { stall: () => void; isBackpressured: () => boolean }>();
   const pool = brokerAdmission;
   const broker = await startBroker(project.mesh, {
     port: 0,
@@ -138,9 +191,21 @@ export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFix
             return startTerminalProcess({
               ...spec,
               fixture: true,
+              observePressure: shouldObservePressure,
+              onOutput(output) {
+                const marker = path.join(spec.artifact, 'terminal-backpressure.json');
+                pressure.set(path.basename(spec.artifact), {
+                  stall() {
+                    output.pause();
+                  },
+                  isBackpressured: pressureObserved(marker),
+                });
+              },
               onFrame(frame) {
                 if (frame.type === 'started') {
                   pids.set(path.basename(spec.artifact), frame.pid);
+                } else if (frame.type === 'error') {
+                  failures.set(path.basename(spec.artifact), `${frame.code}: ${frame.message}`);
                 }
                 spec.onFrame(frame);
               },
@@ -227,5 +292,5 @@ export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFix
       await closeBroker();
     }
   };
-  return { broker, mesh, web, headers, pids, pool, timers, control, read, close };
+  return { broker, mesh, web, headers, pids, failures, pressure, pool, timers, control, read, close };
 }

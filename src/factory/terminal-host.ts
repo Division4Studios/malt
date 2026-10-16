@@ -18,6 +18,8 @@ import type { IPty } from 'node-pty';
 const DESCRIPTOR_BYTES = 16_384;
 /** Fixture is selected only by the private test host invocation, never an operator route. */
 const FIXTURE = path.resolve(import.meta.dirname, '../../test/fixtures/terminal-fixture.ts');
+/** Numeric observation is installed only by an explicitly instrumented native fixture. */
+const pressure: { record?: (stage: 'start' | 'complete' | 'pause') => void } = {};
 
 /**
  * Write a bounded frame; a slow broker pauses native output until drain.
@@ -26,13 +28,17 @@ const FIXTURE = path.resolve(import.meta.dirname, '../../test/fixtures/terminal-
  * @param terminal - Owned PTY, if started.
  */
 function send(frame: Frame, terminal?: IPty): void {
+  pressure.record?.('start');
   const isAccepted = process.stdout.write(encodeFrame(frame));
+  pressure.record?.('complete');
   if (terminal === undefined || isAccepted) {
     return;
   }
 
   terminal.pause();
+  pressure.record?.('pause');
   process.stdout.once('drain', () => {
+    pressure.record?.('complete');
     terminal.resume();
   });
 }
@@ -85,6 +91,11 @@ async function main(): Promise<void> {
     return;
   }
   const isFixture = process.argv[3] === '--fixture';
+  const file = process.argv[2];
+  if (isFixture && file !== undefined && process.argv.includes('--observe-pressure')) {
+    const { pressureRecorder } = await import('../../test/fixtures/terminal-pressure.ts');
+    pressure.record = pressureRecorder(file);
+  }
   let terminal: IPty;
   try {
     terminal = native.spawn(

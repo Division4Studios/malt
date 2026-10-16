@@ -13,6 +13,7 @@ import { terminalLaunchSchema } from './terminal-launch.ts';
 
 import type { Frame } from './terminal-frames.ts';
 import type { TerminalLaunchInput } from './terminal-launch.ts';
+import type { Readable } from 'node:stream';
 
 /** Grace for the wrapper to release its Job / both Linux process groups. */
 const STOP_MS = 8000;
@@ -46,8 +47,12 @@ export interface TerminalProcessSpec {
   readonly processLimit?: number;
   /** Test-only deterministic CLI; never selected by a route or provider configuration. */
   readonly fixture?: boolean;
+  /** Test-only fixed numeric evidence around actual native output writes. */
+  readonly observePressure?: boolean;
   /** Test-only observation of the exact owned wrapper, never accepted from a browser. */
   readonly onWrapperSpawn?: (pid: number) => void;
+  /** Test-only output flow control, never exposed to an operator or provider launch. */
+  readonly onOutput?: (output: Readable) => void;
   /** Receive validated native frames in memory. */
   readonly onFrame: (frame: Frame) => void;
 }
@@ -74,6 +79,7 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
         path.join(import.meta.dirname, 'terminal-host.ts'),
         hostFile,
         ...(spec.fixture === true ? ['--fixture'] : []),
+        ...(spec.fixture === true && spec.observePressure === true ? ['--observe-pressure'] : []),
       ],
       cwd: launch.cwd,
       input: '',
@@ -149,6 +155,8 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
       if (isSettled) {
         return;
       }
+      // Cancellation must release a stalled consumer before waiting for owned pipe closure.
+      output.resume();
       if (child.connected) {
         child.disconnect();
       }
@@ -196,6 +204,9 @@ export function startTerminalProcess(spec: TerminalProcessSpec): TerminalProcess
       void stop();
     }
   });
+  if (spec.fixture === true) {
+    spec.onOutput?.(output);
+  }
   input.on('error', () => {
     void stop();
   });
