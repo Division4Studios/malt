@@ -237,6 +237,23 @@ Each `factory_status.instructions` entry has a `handoff` field. It is `null` for
 
 `factory_triage({requestId,taskId,expectedVersion,action,note})` records an explicit revision-fenced blocker disposition. Actions are `acknowledge`, `investigate`, `repair`, `review`, `verify`, `wait`, `approve_size`. Identical request IDs replay the receipt; changed intent rejects. Active claims, changed revisions, completed/superseded scopes and missing stage evidence reject unsafe transitions. Acknowledgment is not resolution. `factory_status.triage` exposes bounded recent decision receipts with state and lead findings; full history remains in project SQLite. See [dispatcher decisions](operator-console.md#dispatcher-decisions).
 
+## Operator scratch terminals
+
+Terminal RPCs require the selected project's bearer token **without agent credentials**. They are absent from MCP tools, and lead credentials cannot authorize them. Browser clients use the paired console gateway; project credentials remain on the backend. The broker continues to reject browser-origin RPC.
+
+| Operation        | Input                                            | Result                                                                    |
+| ---------------- | ------------------------------------------------ | ------------------------------------------------------------------------- |
+| `terminal_start` | `{provider: "codex" \| "claude", columns, rows}` | Metadata for a new isolated scratch session                               |
+| `terminal_list`  | `{}`                                             | At most 100 metadata records for this project                             |
+| `terminal_close` | `{id}`                                           | Final metadata after owned descendant cleanup; repeated close is harmless |
+| `terminal_read`  | `{id, after?: 0, waitMs?: 25000}`                | `{session, output, nextCursor, unavailable}`                              |
+
+Columns are 1–500; rows are 1–200. Arbitrary executables, arguments, environment variables, paths and managed job identities are rejected. Starts obey the supervisor lease and shared provider/resource admission. Reading never starts a process. Pause and shutdown retire owned terminals.
+
+`terminal_read` waits at most 25 seconds, caps raw replay at 64 KiB per page and permits two simultaneous waiting readers per session. `output` contains sequenced `data` text or an explicit `truncated` marker. Text is decoded and redacted before replay. Terminal input and output are never persisted. After broker restart, metadata survives while `unavailable: true` explicitly reports that transient replay is gone.
+
+The paired browser uses `GET /api/terminals?project=home` and `POST /api/control` with `terminal_start` or `terminal_close`. `GET /api/terminal-stream?project=home&id=<uuid>&after=0` emits SSE `terminal` events and heartbeat comments. `Last-Event-ID` overrides `after` on reconnect. Duplicate query parameters and invalid cursors are rejected. There are eight console terminal subscribers globally, at most two per selected terminal, a five-second drain timeout and a two-minute connection lifetime. Authorization is rechecked before and after every broker poll. Finished sessions drain their remaining replay and end; disconnected clients cancel their pending broker read. No terminal content is cached by the service worker.
+
 ## Managed developer ticket checkpoints
 
 `mesh_factory_progress({ key, body })` queues a checkpoint on the current managed developer assignment's issue. It accepts no target issue or role override. The backend requires a current unexpired owned development claim and rejects QA, unmanaged callers, changed content for a reused key, and more than twenty checkpoints per job. Stable keys deduplicate retries through the transactional outbox and remote comment marker. Results say `queued` until a confirmed remote receipt exists; temporary GitHub failures do not rerun implementation. The supervisor supplies a start update and a validated completion summary. Keep updates meaningful, concise and free of secrets, private paths or raw transcripts.

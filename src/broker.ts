@@ -408,6 +408,38 @@ function executeOperation(
 }
 
 /**
+ * Reject all agent authority before forwarding an operator-only terminal control.
+ *
+ * @param team - Authenticated project.
+ * @param operation - Validated terminal operation.
+ * @param envelope - Untrusted input and optional presented credentials.
+ * @param response - Owned HTTP response.
+ * @returns Project-fenced terminal result.
+ * @throws {MeshError} For agent-credentialed calls.
+ */
+async function handleTerminal(
+  team: Team,
+  operation: TerminalOperation,
+  envelope: { input?: unknown; credentials?: unknown },
+  response: ServerResponse,
+): Promise<unknown> {
+  const input = envelope.input ?? {};
+  parseInput(operation, input);
+  if (envelope.credentials !== undefined) {
+    throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Terminal controls require an operator, never an agent session.');
+  }
+  response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
+  if (operation !== 'terminal_read') {
+    return team.factory.terminalControl(operation, input);
+  }
+  const controller = new AbortController();
+  response.once('close', () => {
+    controller.abort();
+  });
+  return team.factory.terminals.control(operation, input, controller.signal);
+}
+
+/**
  * Handle one `POST /rpc` request: authenticate its team, then run it.
  *
  * @param context - The broker context.
@@ -442,12 +474,7 @@ async function handleRpc(
     return operation === 'open_team' ? openWorkspaceTeam(context, input) : listTeams(context.home.config);
   }
   if (isTerminalOperation(operation)) {
-    parseInput(operation, input);
-    if (envelope.data.credentials !== undefined) {
-      throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Terminal controls require an operator, never an agent session.');
-    }
-    response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
-    return team.factory.terminalControl(operation, input);
+    return handleTerminal(team, operation, envelope.data, response);
   }
   const credentials = readCredentials(envelope.data.credentials);
 
