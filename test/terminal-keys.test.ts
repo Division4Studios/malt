@@ -45,4 +45,6 @@ await test('paste strips embedded escape/control injection and bounds actual Uni
   assert.equal(terminalPaste('x'.repeat(16_384), false).length, 16_384);
   assert.equal(terminalPaste('\r\n'.repeat(8193), true), `\u{1B}[200~${'\n'.repeat(8193)}\u{1B}[201~`);
   assert.equal(terminalPaste('\0'.repeat(20_000), true), '');
+  assert.throws(() => terminalPaste('\0'.repeat(1_048_577), false), /Raw clipboard/v);
+  assert.equal(terminalPaste('a\r\r\nb', false), 'a\n\nb');
 });

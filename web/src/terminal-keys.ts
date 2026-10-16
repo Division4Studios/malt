@@ -15,6 +15,8 @@ const KEY = {
 } as const;
 /** Transport payload bound, including paste framing. */
 const MAX_BYTES = 16_384;
+/** Bound clipboard scanning even when sanitization removes most characters. */
+const MAX_RAW_CHARACTERS = 1_048_576;
 /** Native UTF-8 byte accounting. */
 const encoder = new TextEncoder();
 /** Navigation final bytes; app cursor mode uses SS3 when unmodified. */
@@ -151,23 +153,23 @@ function printableKey(event: TerminalKey): string | null {
 }
 
 /**
- * Remove pasted terminal control injection and bound the actual UTF-8 frame.
+ * Normalize incrementally without copying the entire untrusted clipboard.
  *
  * @param value - Explicit native clipboard text.
- * @param isBracketed - Actual negotiated CLI paste mode.
- * @returns Sanitized text with optional bracket framing.
+ * @returns Bounded sanitized text before framing.
  * @throws {RangeError} When a paste exceeds the native payload ceiling.
  */
-export function terminalPaste(value: string, isBracketed: boolean): string {
-  const normalized = value.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+function sanitizePaste(value: string): string {
   let safe = '';
-  for (const character of normalized) {
+  let previous = '';
+  for (const raw of value) {
+    const character = raw === '\r' ? '\n' : raw;
     const point = character.codePointAt(0) ?? 0;
-    if (!(
-      character === '\t' ||
-      character === '\n' ||
-      (point >= KEY.space && (point < KEY.del || point > KEY.c1Last))
-    )) {
+    const isAllowed =
+      character === '\t' || character === '\n' || (point >= KEY.space && (point < KEY.del || point > KEY.c1Last));
+    const isPairedLf = raw === '\n' && previous === '\r';
+    previous = raw;
+    if (!isAllowed || isPairedLf) {
       continue;
     }
 
@@ -176,6 +178,22 @@ export function terminalPaste(value: string, isBracketed: boolean): string {
       throw new RangeError('Paste exceeds 16 KiB. Split it into smaller explicit pastes.');
     }
   }
+  return safe;
+}
+
+/**
+ * Encode bounded normalized text and enforce its actual framed UTF-8 size.
+ *
+ * @param value - Native clipboard, bounded before any scanning or allocation.
+ * @param isBracketed - Actual negotiated paste mode.
+ * @returns Sanitized native input, optionally framed.
+ * @throws {RangeError} For oversized raw input or framed output.
+ */
+export function terminalPaste(value: string, isBracketed: boolean): string {
+  if (value.length > MAX_RAW_CHARACTERS) {
+    throw new RangeError('Raw clipboard exceeds the 1 MiB character limit. Split it into smaller explicit pastes.');
+  }
+  const safe = sanitizePaste(value);
   const framed = isBracketed && safe !== '' ? `${KEY.escape}[200~${safe}${KEY.escape}[201~` : safe;
   if (encoder.encode(framed).byteLength > MAX_BYTES) {
     throw new RangeError('Paste exceeds 16 KiB of UTF-8, including its terminal framing.');
