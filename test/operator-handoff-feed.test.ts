@@ -64,14 +64,14 @@ function fixture(t: TestContext): {
     provider: 'fixture',
     runtime: 'test',
   }).id;
-  const report = (summary: string, taskId?: string): string => {
+  const report = (summary: string, taskId: string | null = null): string => {
     const job = jobSchema.parse({
       id: randomUUID(),
       token: randomUUID(),
       role: 'qa-1',
       provider: 'codex',
       kind: 'review',
-      taskId: taskId ?? null,
+      taskId,
       featureId: null,
       head: null,
       base: null,
