@@ -19,6 +19,14 @@ declare module '*/web/dist/brand-ui.js' {
 
 declare module '*/web/dist/capacity-details.js' {
   /**
+   * Format a verified percent, including zero, without inventing unknown values.
+   *
+   * @param value - Untrusted utilization.
+   * @returns Accessible usage or unknown.
+   */
+  export function quotaUsage(value: unknown): string;
+
+  /**
    * Remove every sample-derived field from factory state.
    *
    * @param factory - Factory snapshot.
