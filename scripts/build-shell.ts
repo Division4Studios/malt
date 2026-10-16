@@ -11,6 +11,7 @@ import path from 'node:path';
 const FILES = [
   'index.html',
   'style.css',
+  'terminal.css',
   'manifest.webmanifest',
   'icon.svg',
   'icon-192.png',
@@ -31,6 +32,17 @@ const FILES = [
   'dist/freshness.js',
   'dist/console-clock.js',
   'dist/capacity-details.js',
+  'dist/terminal-parser.js',
+  'dist/terminal-style.js',
+  'dist/terminal-grid.js',
+  'dist/terminal-width.js',
+  'dist/terminal-screen.js',
+  'dist/terminal-render-model.js',
+  'dist/terminal-render.js',
+  'dist/terminal-contract.js',
+  'dist/terminal-stream.js',
+  'dist/terminal-pane.js',
+  'dist/terminal-workspace.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');

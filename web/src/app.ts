@@ -31,6 +31,7 @@ import {
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
+import { TerminalWorkspace } from './terminal-workspace.ts';
 import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
@@ -44,7 +45,14 @@ import {
   teamView,
   workerView,
 } from './views.js';
-import { isWorkerArtifact, isInstallEvent, restoredRoles, persistRoles } from './worker-ui.js';
+import {
+  isWorkerArtifact,
+  isInstallEvent,
+  restoreRoleLayout,
+  persistRoles,
+  shellNode as node,
+  consoleNotice as notice,
+} from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
 import type { Snapshot, Data } from './api.js';
@@ -64,34 +72,6 @@ const MAX_RECONNECTS = 5;
 /** Bounded visible timeline memory; SQLite retains the complete history. */
 const HISTORY_LIMIT = 200;
 
-/**
- * Require an actual typed app-shell node, avoiding unsafe DOM casts.
- *
- * @param id - Fixed shell ID.
- * @param type - Expected DOM constructor.
- * @returns Typed native node.
- * @throws {Error} For an incomplete app shell.
- */
-function node<T extends HTMLElement>(id: string, type: new () => T): T {
-  const value = document.querySelector(`#${CSS.escape(id)}`);
-  if (!(value instanceof type)) {
-    throw new TypeError(`Missing app element: ${id}`);
-  }
-  return value;
-}
-
-/**
- * Display an actionable local status without injecting project HTML.
- *
- * @param message - Plain status text.
- * @param isSuccessful - Whether an explicit mutation completed.
- */
-function notice(message: string, isSuccessful = false): void {
-  const target = node('notice', HTMLDivElement);
-  target.hidden = message === '';
-  target.textContent = message;
-  target.setAttribute('class', isSuccessful ? 'notice success' : 'notice');
-}
 /** Only public layout choices may persist in browser storage. */
 const layoutKey = 'malt-worker-layout-v1';
 /** Bounded read-only stdout cache, never persisted in browser storage. */
@@ -135,6 +115,15 @@ const state: {
 
 /** Project-scoped queue interactions. */
 const queueState = new QueueState();
+/** Permanent terminal DOM is independent of snapshot-driven log view replacement. */
+const terminalWorkspace = new TerminalWorkspace(node('terminal-host', HTMLDivElement), render);
+
+/** Reconcile native views before snapshot render deduplication or connection changes. */
+function syncTerminals(): void {
+  const isVisible = state.view === 'workers' && state.current !== null;
+  terminalWorkspace.sync(state.project, isVisible, state.isConnected && navigator.onLine && !document.hidden);
+  node('content', HTMLDivElement).hidden = isVisible && terminalWorkspace.selected;
+}
 
 /** Read-only log tails for selected panes. */
 const logs = new Map<string, string>();
@@ -157,17 +146,6 @@ const eventHistory = new Map<number, Data>();
 const historyScope = { project: 'home' };
 /** Actual observation time and bounded fallback read admission. */
 const freshness = new Freshness();
-
-/** Restore only harmless role layout state, never private project data. */
-function restoreLayout(): void {
-  try {
-    const saved = localStorage.getItem(layoutKey) ?? localStorage.getItem('mlt-worker-layout-v1');
-    const value: unknown = JSON.parse(saved ?? 'null');
-    state.panes = restoredRoles(value, ROLES, state.panes, MAX_PANES);
-  } catch {
-    /* Storage may be unavailable; the default layout remains usable. */
-  }
-}
 
 /**
  * Open a reviewed explicit operator control in a native accessible dialog.
@@ -296,7 +274,9 @@ async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<v
 }
 /** Render the selected native view without touching an open operator editor. */
 function render(): void {
+  syncTerminals();
   if (state.current === null) {
+    node('content', HTMLDivElement).replaceChildren();
     return;
   }
   const observed = state.current;
@@ -310,6 +290,7 @@ function render(): void {
     factory,
     view: state.view,
     panes: state.panes,
+    terminalMode: terminalWorkspace.selected,
     files: files.entries().toArray(),
     events: observed.events,
     learning: observed.learning,
@@ -328,7 +309,8 @@ function render(): void {
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
-    workers: () => workerView(observed, { roles: state.panes, logs, files, actions }),
+    workers: () =>
+      terminalWorkspace.selected ? element('div') : workerView(observed, { roles: state.panes, logs, files, actions }),
     activity: () => activityView(observed),
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
@@ -351,6 +333,7 @@ function connection(isConnected: boolean): void {
     freshness.observe();
   }
   state.isConnected = isConnected;
+  syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
   node('connection-text', HTMLSpanElement).textContent = isConnected
     ? 'LOCAL CONSOLE CONNECTED'
@@ -482,7 +465,7 @@ async function projects(): Promise<void> {
 }
 /** Inspect captured stdout by bounded byte cursors, retaining only a small tail. */
 async function readLogs(): Promise<void> {
-  if (state.view !== 'workers' || state.current === null || document.hidden) {
+  if (state.view !== 'workers' || state.current === null || document.hidden || terminalWorkspace.selected) {
     return;
   }
   const observed = state.current;
@@ -589,7 +572,7 @@ async function submitEdit(): Promise<void> {
 
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
-  restoreLayout();
+  state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
   bindNavigation((selected) => {
     if (!isView(selected)) {
       return;
@@ -614,6 +597,7 @@ async function start(): Promise<void> {
     state.current = null;
     logs.clear();
     cursors.clear();
+    render();
     void refresh();
     subscribe();
   });
@@ -657,7 +641,9 @@ async function start(): Promise<void> {
   });
   window.addEventListener('pagehide', () => {
     state.stream?.close();
+    terminalWorkspace.suspend();
   });
+  document.addEventListener('visibilitychange', syncTerminals);
   startConsoleClock(freshness, refresh, () => {
     connection(false);
   });
@@ -697,6 +683,10 @@ async function openProject(workspace: string): Promise<void> {
   try {
     const value = data(await request('/api/projects', { workspace }));
     state.project = text(value, 'id');
+    state.current = null;
+    logs.clear();
+    cursors.clear();
+    render();
     await projects();
     await refresh();
     subscribe();
