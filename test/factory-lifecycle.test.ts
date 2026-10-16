@@ -176,6 +176,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
       closed.add(effect.issue);
       return delay(0);
     },
+    issueState: async (issue) => delay(0, { state: closed.has(issue) ? 'closed' : 'open', stateReason: null }),
     parentComplete: async (_parent, children) => {
       return delay(
         0,

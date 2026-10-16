@@ -268,6 +268,8 @@ Input is accepted only while the owned PTY is running: at most 16 KiB UTF-8 per 
 
 ## Managed developer ticket checkpoints
 
+The delivery adapter's read-only `issueState(issue)` contract reads the connected repository's native issue endpoint and returns `state` (`open` or `closed`) and a nullable bounded `stateReason`. Invalid numbers, pull-request numbers, malformed states and foreign repository identities are rejected. Reads do not change tickets, project membership or delivery evidence. Scheduling integration consumes this contract before claiming new development work.
+
 `mesh_factory_progress({ key, body })` queues a checkpoint on the current managed developer assignment's issue. It accepts no target issue or role override. The backend requires a current unexpired owned development claim and rejects QA, unmanaged callers, changed content for a reused key, and more than twenty checkpoints per job. Stable keys deduplicate retries through the transactional outbox and remote comment marker. Results say `queued` until a confirmed remote receipt exists; temporary GitHub failures do not rerun implementation. The supervisor supplies a start update and a validated completion summary. Keep updates meaningful, concise and free of secrets, private paths or raw transcripts.
 
 The validated completion intent commits atomically with the publication checkpoint, before pushing. A rejected or ambiguous push retries publication without losing the completion update or repeating paid implementation.

@@ -49,6 +49,7 @@ await test('workflow projection discovers additional actual peers and distinguis
       pullRequest: rejectSideEffect,
       inspect: rejectSideEffect,
       merge: rejectSideEffect,
+      issueState: rejectSideEffect,
       parentComplete: rejectSideEffect,
       effect: rejectSideEffect,
     },

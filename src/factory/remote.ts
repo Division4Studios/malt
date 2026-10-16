@@ -24,6 +24,8 @@ import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schem
 const REQUEST_HASH_LENGTH = 32;
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
+/** Bound GitHub's machine-readable close reason separately from issue prose. */
+const ISSUE_REASON_LIMIT = 64;
 
 /** Saved workspace connection needed by delivery operations. */
 const remoteProjectSchema = z.object({ number: z.number() });
@@ -49,6 +51,13 @@ const commentPagesSchema = z.array(z.array(commentSchema));
 const nativeChildSchema = z.object({ number: z.number(), state: z.string() });
 /** All native children, preserving pagination. */
 const nativeChildPagesSchema = z.array(z.array(nativeChildSchema));
+/** Issue state fields the dispatch guard reads; a PR number resolves to this endpoint with a pull_request key. */
+const issueStateSchema = z.object({
+  state: z.enum(['open', 'closed']),
+  state_reason: z.string().min(1).max(ISSUE_REASON_LIMIT).nullable().optional(),
+  pull_request: z.unknown().optional(),
+  repository_url: z.string().optional(),
+});
 /** Existing pull request identity. */
 const prIdentitySchema = z.object({ number: z.number().int().positive(), url: z.string().url() });
 /** GitHub check run and legacy commit-status shapes. */
@@ -80,6 +89,13 @@ const prSchema = z.object({
 });
 /** Exact current PR evidence used by merge gates. */
 export type PullRequest = z.output<typeof prSchema>;
+/** Current state of one delivery issue in the connected repository. */
+export interface IssueState {
+  /** Native open/closed state. */
+  readonly state: 'open' | 'closed';
+  /** GitHub close reason such as completed or not_planned; null while open or unspecified. */
+  readonly stateReason: string | null;
+}
 /** Injectable external delivery boundary, including fixture GitHub merges. */
 export interface DeliveryRemote {
   /** Verify connection and remote repository identity before dispatch. */
@@ -96,6 +112,8 @@ export interface DeliveryRemote {
   readonly effect: (effect: FactoryEffect) => Promise<void>;
   /** Refresh externally visible MALT deliveries for reconciliation. */
   readonly readyIssues: () => Promise<ReadyIssue[]>;
+  /** Read one delivery issue's open/closed state without mutating it. */
+  readonly issueState: (issue: number) => Promise<IssueState>;
   /** Confirm every native child is closed before cleaning the parent ticket. */
   readonly parentComplete: (parent: number, children: readonly number[]) => Promise<boolean>;
 }
@@ -429,6 +447,31 @@ export class GitHubDelivery implements DeliveryRemote {
       }
     }
     return entries;
+  }
+
+  /**
+   * Read only the state of one delivery issue in the connected repository.
+   *
+   * @param issue - Repository-local issue number.
+   * @returns Open/closed state and GitHub close reason.
+   * @throws {MeshError} For a PR number, an invalid number or another repository.
+   */
+  public async issueState(issue: number): Promise<IssueState> {
+    if (!Number.isSafeInteger(issue) || issue <= 0) {
+      throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
+    }
+    const { repository } = await this.connection();
+    const parsed = issueStateSchema.parse(await this.runner(['api', `repos/${repository}/issues/${String(issue)}`]));
+    if (parsed.pull_request !== undefined) {
+      throw new MeshError('INVALID_INPUT', `#${String(issue)} is a pull request, not a delivery issue.`);
+    }
+    if (
+      parsed.repository_url !== undefined &&
+      parsed.repository_url.toLowerCase() !== `https://api.github.com/repos/${repository}`.toLowerCase()
+    ) {
+      throw new MeshError('WRONG_PROJECT', `Issue #${String(issue)} does not belong to the connected repository.`);
+    }
+    return { state: parsed.state, stateReason: parsed.state_reason ?? null };
   }
 
   /**
