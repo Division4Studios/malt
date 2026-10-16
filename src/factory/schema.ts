@@ -7,7 +7,13 @@
 
 import { z } from 'zod/v3';
 
-import { modelPolicySchema, modelPolicyUpdateSchema, modelSelectionSchema } from './model-policy.ts';
+import {
+  roleChoiceOutput,
+  modelChoiceSchema,
+  modelPolicySchema,
+  modelPolicyUpdateSchema,
+  modelSelectionSchema,
+} from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -88,10 +94,15 @@ const assignmentProfilesSchema = z
         tier: z.enum(['small', 'standard', 'advanced']),
         effort: z.enum(['low', 'medium', 'high']),
         reason: z.string().min(1).max(ROUTING_REASON_MAX),
+        modelChoice: modelChoiceSchema.nullable().optional(),
       })
       .strict(),
   )
   .max(FACTORY_ROLES.length)
+  .refine((profiles) => {
+    const roles = new Set(profiles.map((profile) => profile.role));
+    return roles.size === profiles.length;
+  }, 'Duplicate role recommendations.')
   .optional();
 /** Bounded text which cannot be empty. */
 export const textSchema = z.string().min(1).max(TEXT_MAX);
@@ -663,17 +674,7 @@ export const AGENT_OUTPUT_SCHEMA = {
           assignmentProfiles: {
             type: 'array',
             maxItems: FACTORY_ROLES.length,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['role', 'tier', 'effort', 'reason'],
-              properties: {
-                role: { type: 'string', enum: FACTORY_ROLES },
-                tier: { type: 'string', enum: ['small', 'standard', 'advanced'] },
-                effort: { type: 'string', enum: ['low', 'medium', 'high'] },
-                reason: { type: 'string', minLength: 1, maxLength: ROUTING_REASON_MAX },
-              },
-            },
+            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
           },
           skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
         },

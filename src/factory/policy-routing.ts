@@ -8,6 +8,7 @@ import { MODEL_TIERS, modelSelectionSchema } from './model-policy.ts';
 
 import type { ProviderReadiness } from './authentication.ts';
 import type { FactoryContext } from './context.ts';
+import type { ModelPolicy } from './model-policy.ts';
 import type { FactoryConfig, FactoryJob, Provider } from './schema.ts';
 /** Ordered supported native efforts; risk floors can raise a configured default. */
 const EFFORTS = ['low', 'medium', 'high'] as const;
@@ -40,17 +41,18 @@ export function resolvePolicy(input: {
   model: string | null;
   effort: Effort;
   versions: FactoryContext['providerVersions'];
+  modelChoice?: { policyRevision: number; entryId: string } | null | undefined;
 }): Pick<Routing, 'model' | 'effort' | 'selection'> {
   const policy = input.settings.modelPolicy;
   if (policy === undefined) {
+    if (input.modelChoice !== undefined && input.modelChoice !== null) {
+      throw new PolicyBlockedError(
+        'The independently reviewed choice requires an explicit model policy. Restore it or request a lead revision.',
+      );
+    }
     return { model: input.model, effort: input.effort };
   }
-  const choices = policy.defaults
-    .filter(
-      (choice) =>
-        choice.provider === input.provider && MODEL_TIERS.indexOf(choice.tier) >= MODEL_TIERS.indexOf(input.tier),
-    )
-    .toSorted((a, b) => MODEL_TIERS.indexOf(a.tier) - MODEL_TIERS.indexOf(b.tier));
+  const choices = policyChoices(policy, input);
   for (const choice of choices) {
     const entry = policy.entries.find((candidate) => candidate.id === choice.entryId);
     if (entry === undefined || entry.effortSupport === 'unknown' || entry.evidence === null) {
@@ -77,6 +79,41 @@ export function resolvePolicy(input: {
   throw new PolicyBlockedError(
     `${input.provider}: no allowed ${input.tier} model/effort combination with matching verified CLI version. Refresh subscription setup/interface evidence or edit the paused policy defaults.`,
   );
+}
+
+/**
+ * Honor a still-current independent choice, otherwise explain why admission is gated.
+ *
+ * @param policy - Current immutable project policy revision.
+ * @param input - Reviewed stage recommendation and enforced floors.
+ * @returns Exact recommended entry or nearest adequate project defaults.
+ * @throws {PolicyBlockedError} For stale, missing, other-provider or inadequate recommendations.
+ */
+function policyChoices(
+  policy: ModelPolicy,
+  input: Parameters<typeof resolvePolicy>[0],
+): { entryId: string; effort: Effort | null }[] {
+  const recommended = input.modelChoice;
+  if (recommended === undefined || recommended === null) {
+    return policy.defaults
+      .filter(
+        (choice) =>
+          choice.provider === input.provider && MODEL_TIERS.indexOf(choice.tier) >= MODEL_TIERS.indexOf(input.tier),
+      )
+      .toSorted((a, b) => MODEL_TIERS.indexOf(a.tier) - MODEL_TIERS.indexOf(b.tier));
+  }
+  if (recommended.policyRevision !== policy.revision) {
+    throw new PolicyBlockedError(
+      'The independently reviewed model choice belongs to an older policy revision. Request a lead revision; no silent replacement was launched.',
+    );
+  }
+  const entry = policy.entries.find((candidate) => candidate.id === recommended.entryId);
+  if (entry?.provider !== input.provider || MODEL_TIERS.indexOf(entry.capability) < MODEL_TIERS.indexOf(input.tier)) {
+    throw new PolicyBlockedError(
+      `${input.provider}: the reviewed model is missing, belongs to another provider or cannot satisfy the current capability floor. Request a lead revision.`,
+    );
+  }
+  return [{ entryId: entry.id, effort: entry.effortSupport === 'none' ? null : input.effort }];
 }
 
 /**
