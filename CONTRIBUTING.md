@@ -27,6 +27,10 @@ Classification executes the classifier from the immutable base commit, never fro
 
 Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. Backend MCP SDK, Zod and Node SQLite remain allowed. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
 
+## Native test resources
+
+`npm test` runs every regression through `scripts/test.ts`. Windows schedules one test file at a time because native Job Object / ConPTY cases include cold PowerShell compilation and resource ceilings; other platforms schedule two files. This bounds cross-file machine contention without removing scenario-level concurrency, cancellation, timeout or descendant-cleanup assertions. Explicit test-runner flags can be supplied with `npm test -- --test-name-pattern=...`.
+
 ## Pull requests
 
 ```mermaid
