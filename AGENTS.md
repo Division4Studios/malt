@@ -4,6 +4,10 @@
 
 This project's durable coordination and learning state is in `.malt/`.
 Before assigned work, read `.malt/README.md` and `.malt/skills/README.md`.
+Before starting any assignment, check active MALT claims and jobs, other
+sessions and worktrees, and fetch the latest main. If the issue is closed,
+already fixed on main, in an open PR or claimed by another session or
+developer, stop and report to the lead or human instead of working.
 The factory baseline is in `.malt/skills/builtin/`; consult
 `.malt/skills/builtin-index.json` for stage-specific routing. Managed
 assignments include only their shared session and relevant lifecycle skill.
