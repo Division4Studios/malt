@@ -7,6 +7,8 @@ import { createHash } from 'node:crypto';
 
 /** Astral Unicode characters require two UTF-16 code units. */
 const MAX_SINGLE_UNIT_POINT = 65_535;
+/** A trailing high surrogate needs the next decoded string before UTF-8 emission. */
+const HIGH_SURROGATE = { first: 0xd8_00, last: 0xdb_ff } as const;
 
 /**
  * Hash a high-entropy identity secret without persisting the raw value.
@@ -22,8 +24,6 @@ export function hashSecret(value: string): string {
 export class SecretRedactor {
   /** Known literal values, excluding empty strings. */
   private readonly secrets: readonly string[];
-  /** Enough trailing input to fence a secret split between native chunks. */
-  private readonly overlap: number;
   /** Bounded not-yet-emitted input, never persisted unredacted. */
   private pending = '';
 
@@ -34,7 +34,6 @@ export class SecretRedactor {
    */
   public constructor(secrets: readonly string[]) {
     this.secrets = secrets.filter((secret) => secret !== '').toSorted((left, right) => right.length - left.length);
-    this.overlap = Math.max(0, ...this.secrets.map((secret) => secret.length - 1));
   }
 
   /**
@@ -45,10 +44,12 @@ export class SecretRedactor {
    */
   public write(chunk: string): string {
     this.pending += chunk;
-    const boundary = Math.max(0, this.pending.length - this.overlap);
     const output: string[] = [];
     let offset = 0;
-    while (offset < boundary) {
+    while (offset < this.pending.length) {
+      if (this.isIncomplete(offset)) {
+        break;
+      }
       const position = offset;
       const match = this.secrets.find((value) => this.pending.startsWith(value, position));
       if (match === undefined) {
@@ -89,5 +90,20 @@ export class SecretRedactor {
       output = output.replaceAll(secret, '[REDACTED]');
     }
     return output;
+  }
+
+  /**
+   * Retain only an actual possible credential or incomplete Unicode suffix.
+   *
+   * @param offset - First not-yet-emitted input position.
+   * @returns Whether another chunk is required before this suffix is safe.
+   */
+  private isIncomplete(offset: number): boolean {
+    const remaining = this.pending.length - offset;
+    const point = this.pending.codePointAt(offset) ?? 0;
+    return (
+      (remaining === 1 && point >= HIGH_SURROGATE.first && point <= HIGH_SURROGATE.last) ||
+      this.secrets.some((secret) => remaining < secret.length && secret.startsWith(this.pending.slice(offset)))
+    );
   }
 }

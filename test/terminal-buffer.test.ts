@@ -112,10 +112,11 @@ await test('environment and explicit credentials are redacted before every repla
 
 await test('finish flushes only once and invalid limits or cursors fail', () => {
   const buffer = new TerminalBuffer(128, {}, ['credential']);
-  buffer.write(Buffer.from('tail'));
+  buffer.write(Buffer.from('cred'));
   assert.deepEqual(buffer.readAfter(0), []);
   buffer.finish();
   const replay = buffer.readAfter(0);
+  assert.deepEqual(replay, [{ type: 'data', sequence: 1, text: 'cred' }]);
   buffer.finish();
   assert.deepEqual(buffer.readAfter(0), replay);
   assert.throws(() => {

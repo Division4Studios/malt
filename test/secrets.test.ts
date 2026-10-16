@@ -36,3 +36,23 @@ await test('redaction never splits a Unicode code point at its retained secret b
     chunks.map((chunk) => Buffer.from(redactor.write(chunk), 'utf8').toString('utf8')).join('') + redactor.finish();
   assert.equal(actual, 'a🌌xyz later [REDACTED]');
 });
+
+await test('ordinary short prompts are emitted immediately while actual credential prefixes stay private', () => {
+  const secret = 'fixture-credential-0123456789abcdef';
+  const redactor = new SecretRedactor([secret]);
+  assert.equal(redactor.write('READY> '), 'READY> ');
+  assert.equal(redactor.write('fixture-cre'), '');
+  assert.equal(redactor.write('dential-0123456789abcdef'), '[REDACTED]');
+  assert.equal(redactor.write('\r\nREADY> '), '\r\nREADY> ');
+  assert.equal(redactor.finish(), '');
+  const overlapping = new SecretRedactor(['abc', 'abcdef']);
+  assert.equal(overlapping.write('abc'), '');
+  assert.equal(overlapping.write('def > '), '[REDACTED] > ');
+});
+
+await test('chunked surrogate pairs are not corrupted by immediate prompt redaction', () => {
+  const redactor = new SecretRedactor([]);
+  assert.equal(redactor.write('ready \u{D83C}'), 'ready ');
+  assert.equal(redactor.write('\u{DF0C}> '), '🌌> ');
+  assert.equal(redactor.finish(), '');
+});
