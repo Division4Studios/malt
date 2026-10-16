@@ -27,12 +27,13 @@
     "lint:fix": "eslint --flag unstable_native_nodejs_ts_config --max-warnings 0 --fix .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test --test-concurrency=2 \"test/**/*.test.ts\"",
+    "test": "node scripts/test.ts",
     "test:docker": "node scripts/smoke-docker.ts",
     "check": "npm run typecheck && npm run lint && npm run format:check && npm run build:web && npm test"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",
+    "node-pty": "1.2.0-beta.15",
     "zod": "4.6.7"
   },
   "devDependencies": {

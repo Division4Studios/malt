@@ -29,7 +29,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certifi
 # Install dependencies first so this layer is cached across source changes.
 # --ignore-scripts: no dependency may run install-time code in the image.
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+RUN npm ci --omit=dev --ignore-scripts \
+    && node --input-type=module -e "await import('node-pty')" \
+    && npm cache clean --force
 
 # These are native provider executables, isolated from the dependency-free PWA.
 # Pin versions; authentication is performed at runtime in a separate credential volume.

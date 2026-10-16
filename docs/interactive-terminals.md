@@ -205,6 +205,22 @@ A cell becomes **supported** only when `terminal-e2e-verification` or a recorded
 
 ## Open items for later children
 
+### Isolated host verification (#107)
+
+`node --test test/terminal-host.test.ts test/terminal-fixture.test.ts test/factory-terminal-frames.test.ts`
+passes on Windows 10 x64 with Node 24.21.0 and the pinned `node-pty@1.2.0-beta.15`
+installed using `--ignore-scripts`. The real fixture receives keystrokes through ConPTY,
+reports a native resize from 80x24 to 120x40 and exits. The fixture uses raw TTY input
+so Windows delivers resize events. The host waits for ConPTY's asynchronous PID and
+explicitly releases the Windows addon worker on exit. A process-local module loader
+fault verifies the typed unavailable-addon response. No model calls occur.
+
+The unpaid installed Codex 0.162.1 command `codex -c mcp_servers.agentmesh.enabled=false mcp list --json`
+accepts the configuration override and reports that server disabled. Its output is
+inspected in memory; no MCP configuration or credential values are retained here.
+This verifies the descriptor setting, not a paid interactive session. Integrated
+containment, operator routes and the end-to-end support matrix remain later children.
+
 - `terminal-frame-protocol`: add the `started { pid }` frame from section 3.
 - `terminal-pty-host`: confirm the Codex `-c mcp_servers.agentmesh.enabled=false` behaviour, run `security.yml` with the pinned beta, and record the executed results here.
 - `terminal-host-containment`: verify Job membership of conhost and the CLI by pid, measure the terminal process count, and prove the Linux two-group kill path.

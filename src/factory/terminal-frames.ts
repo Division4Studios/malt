@@ -35,12 +35,13 @@ const LENGTH_BYTES = 4;
 const HEADER_BYTES = LENGTH_BYTES + 1;
 
 /** Frame kinds; the wire type byte is the one-based position. */
-const FRAME_TYPES = ['data', 'input', 'resize', 'close', 'exit', 'error'] as const;
+const FRAME_TYPES = ['data', 'input', 'resize', 'close', 'exit', 'error', 'started'] as const;
 /** Frame kinds. */
 export type FrameType = (typeof FRAME_TYPES)[number];
 
 /** Every valid frame. Data and input carry raw bytes. */
 export const frameSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('started'), pid: z.number().int().positive().safe() }).strict(),
   z.object({ type: z.literal('data'), data: z.instanceof(Uint8Array) }).strict(),
   z.object({ type: z.literal('input'), data: z.instanceof(Uint8Array) }).strict(),
   z
