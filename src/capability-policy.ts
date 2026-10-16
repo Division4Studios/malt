@@ -2,6 +2,8 @@
  * Private project capability policies. History is the append-only source of
  * truth; initialization and changes commit atomically in the project's SQLite.
  * Callers must supply principals from authenticated context, never request data.
+ * {@link CapabilityPolicyStore.authorize} Is the enforcement decision used by
+ * every connector entry point..
  *
  * @file
  */
@@ -13,6 +15,7 @@ import { hasErrorCode, readJsonFile } from './config.ts';
 import { parseConnection } from './connector.ts';
 import { run, selectAll, selectOne, valueRowSchema } from './database.ts';
 import { FACTORY_ROLES } from './factory/schema.ts';
+import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { Store } from './store.ts';
@@ -45,8 +48,23 @@ const humanSchema = z.object({ kind: z.literal('human'), id: z.string().trim().m
 const emptyRolesSchema = z.array(z.never()).length(0);
 /** Role vocabulary shared with managed launches. */
 const rolesSchema = z.array(z.enum(FACTORY_ROLES)).min(1);
-/** Internal identity reserved for the one-time connection migration. */
-const migrationActorSchema = z.object({ kind: z.literal('migration'), id: z.literal('existing-github-connection') });
+/** Internal identities reserved for one-time initialization grants. */
+const migrationActorSchema = z.object({
+  kind: z.literal('migration'),
+  id: z.enum(['existing-github-connection', 'default-human-setup']),
+});
+
+/**
+ * Who is asking: the human operator, an authenticated agent acting in a
+ * factory role, or the supervisor acting for the role that owns the step.
+ */
+const principalSchema = z.discriminatedUnion('kind', [
+  humanSchema,
+  z.object({ kind: z.literal('agent'), id: z.string().trim().min(1), role: z.enum(FACTORY_ROLES) }).strict(),
+  z.object({ kind: z.literal('supervisor'), role: z.enum(FACTORY_ROLES) }).strict(),
+]);
+/** An authenticated caller of a connector operation. */
+export type CapabilityPrincipal = z.input<typeof principalSchema>;
 /** Explicit role grants cannot be empty or accompany a non-agent mode. */
 const policySchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('disabled'), roles: emptyRolesSchema }).strict(),
@@ -68,8 +86,43 @@ const historySchema = z.object({
 export type CapabilityPolicyChange = z.output<typeof historySchema>;
 /** Stored JSON column. */
 const dataSchema = z.object({ data: z.string() });
-/** The only legacy agent operations retained during migration. */
-const LEGACY_CAPABILITIES = ['issue-create', 'relationships', 'membership', 'transition'] as const;
+
+/**
+ * Operations an existing connection already let its lead perform. Re-verifying
+ * the saved Project is a connect, so the supervisor keeps it for the lead role.
+ */
+const LEGACY_CAPABILITIES = ['project-connect', 'issue-create', 'relationships', 'membership', 'transition'] as const;
+/** Human setup that every project keeps, so first connection needs no prior edit. */
+const HUMAN_SETUP_CAPABILITIES = ['project-create', 'project-connect'] as const;
+
+/**
+ * Decide one capability for one principal. Disabled denies everyone; humans
+ * pass human-only and approved-agent-roles; agents and the supervisor pass
+ * only an explicit grant to their role.
+ *
+ * @param policy - Current policy.
+ * @param principal - Validated caller.
+ * @returns Whether the call may proceed.
+ */
+function isAllowed(policy: CapabilityPolicy, principal: z.output<typeof principalSchema>): boolean {
+  return (
+    policy.mode !== 'disabled' &&
+    (principal.kind === 'human' || (policy.mode === 'approved-agent-roles' && policy.roles.includes(principal.role)))
+  );
+}
+
+/**
+ * Describe a principal for a denial without exposing secrets.
+ *
+ * @param principal - Validated caller.
+ * @returns Short identity text.
+ */
+function describe(principal: z.output<typeof principalSchema>): string {
+  if (principal.kind === 'human') {
+    return `human ${principal.id}`;
+  }
+  return principal.kind === 'agent' ? `agent ${principal.id} as ${principal.role}` : `supervisor for ${principal.role}`;
+}
 
 /** Policy persistence sharing the already project-fenced broker database. */
 export class CapabilityPolicyStore {
@@ -115,6 +168,34 @@ export class CapabilityPolicyStore {
     return this.store.transaction(() => {
       this.initialize();
       return this.current(name);
+    });
+  }
+
+  /**
+   * Allow a connector operation only when every capability it needs permits
+   * the principal. Checked before any remote call or journal write; an
+   * operation needing no capability, such as a read, passes.
+   *
+   * @param principal - Caller derived from authenticated context.
+   * @param capabilities - Every capability the operation would exercise.
+   * @throws {MeshError} CAPABILITY_DENIED naming the capability, mode and principal.
+   */
+  public authorize(principal: unknown, capabilities: readonly Capability[]): void {
+    if (capabilities.length === 0) {
+      return;
+    }
+    const caller = principalSchema.parse(principal);
+    this.store.transaction(() => {
+      this.initialize();
+      for (const capability of capabilities) {
+        const policy = this.current(capabilitySchema.parse(capability));
+        if (!isAllowed(policy, caller)) {
+          throw new MeshError(
+            'CAPABILITY_DENIED',
+            `Capability ${capability} is ${policy.mode} for this project; ${describe(caller)} may not use it. A human can change it with capability-set.`,
+          );
+        }
+      }
     });
   }
 
@@ -220,17 +301,27 @@ export class CapabilityPolicyStore {
         throw error;
       }
     }
-    if (isConnected) {
-      for (const capability of LEGACY_CAPABILITIES) {
-        this.append({
-          capability,
-          kind: 'migration',
-          actor: { kind: 'migration', id: 'existing-github-connection' },
-          previous: { mode: 'disabled', roles: [] },
-          next: { mode: 'approved-agent-roles', roles: ['team-lead'] },
-          time: this.time(),
-        });
-      }
+    const legacy = new Set<Capability>(isConnected ? LEGACY_CAPABILITIES : []);
+    const humanSetup = HUMAN_SETUP_CAPABILITIES.filter((name) => !legacy.has(name));
+    for (const capability of humanSetup) {
+      this.append({
+        capability,
+        kind: 'migration',
+        actor: { kind: 'migration', id: 'default-human-setup' },
+        previous: { mode: 'disabled', roles: [] },
+        next: { mode: 'human-only', roles: [] },
+        time: this.time(),
+      });
+    }
+    for (const capability of legacy) {
+      this.append({
+        capability,
+        kind: 'migration',
+        actor: { kind: 'migration', id: 'existing-github-connection' },
+        previous: { mode: 'disabled', roles: [] },
+        next: { mode: 'approved-agent-roles', roles: ['team-lead'] },
+        time: this.time(),
+      });
     }
     run(this.store.db, 'INSERT INTO capability_policy_initialized(id) VALUES (1)');
   }
