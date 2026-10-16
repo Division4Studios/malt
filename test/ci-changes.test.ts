@@ -14,6 +14,7 @@ import { isDocumentationDiff, isDocumentationOnly } from '../scripts/ci-changes.
 
 await test('only human-facing Markdown qualifies; instructions and mixed changes run all checks', () => {
   assert.equal(isDocumentationOnly(['README.md', 'docs/wiki/Home.md', 'docs/a guide.md']), true);
+  assert.equal(isDocumentationOnly(['SPONSORING.md']), true);
   for (const file of [
     'src/README.md',
     'AGENTS.md',
@@ -23,6 +24,8 @@ await test('only human-facing Markdown qualifies; instructions and mixed changes
     'docs/examples/SKILL.md',
     'resources/factory-skills/shared/SKILL.md',
     '.github/workflows/ci.yml',
+    '.github/copilot-instructions.md',
+    '.github/DISCUSSION_TEMPLATE/ideas.yml',
     'package-lock.json',
     'web/app.ts',
     'docs/image.svg',
