@@ -301,6 +301,7 @@ async function verifyConsole(shouldQueue: boolean): Promise<void> {
 async function main(): Promise<void> {
   process.stdout.write(`Starting disposable Compose project ${project}\n`);
   await command('up', '-d', '--build', '--wait');
+  await verifyNativeTerminal();
   await verifyConsole(true);
   const lead = await connect('claude-lead', 'anthropic');
   const worker = await connect('codex-1', 'openai');
@@ -369,6 +370,71 @@ async function main(): Promise<void> {
   process.stdout.write(
     'PASS: Docker MCP wait/resume, explicit idle approval, messaging, workspace sessions, stable identity and persistence\n',
   );
+}
+
+/** Run the same token-free native loopback regression in an isolated Linux container. */
+async function verifyNativeTerminal(): Promise<void> {
+  const name = `${project}-terminal`;
+  try {
+    const result = await exec(
+      'docker',
+      [
+        'run',
+        '--rm',
+        '--init',
+        '--name',
+        name,
+        '--network',
+        'none',
+        '--read-only',
+        '--pids-limit',
+        '128',
+        '--memory',
+        '768m',
+        '--cpus',
+        '2',
+        '--cap-drop',
+        'ALL',
+        '--security-opt',
+        'no-new-privileges:true',
+        '--tmpfs',
+        '/tmp:rw,nosuid,nodev,size=256m',
+        '--tmpfs',
+        '/home/node:rw,nosuid,nodev,size=32m',
+        '--mount',
+        `type=bind,source=${path.resolve('test')},target=/app/test,readonly`,
+        '--entrypoint',
+        'node',
+        'agentmesh:local',
+        '--test',
+        '--test-concurrency=1',
+        'test/terminal-web-e2e.test.ts',
+      ],
+      { timeout: COMMAND_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
+    );
+    process.stdout.write(result.stdout);
+    process.stdout.write(
+      'PASS: isolated Docker/Linux paired native PTY input, resize, reconnect, timeout and descendant cleanup; no provider or inference call\n',
+    );
+  } finally {
+    await retireNativeTerminal(name);
+  }
+}
+
+/**
+ * Remove only the randomly named test container, including after a CLI timeout.
+ *
+ * @param name - This smoke run's exact owned container name.
+ */
+async function retireNativeTerminal(name: string): Promise<void> {
+  try {
+    await exec('docker', ['rm', '--force', name], { timeout: COMMAND_TIMEOUT_MS, windowsHide: true });
+  } catch (error) {
+    const stderr = Error.isError(error) && 'stderr' in error ? String(error.stderr) : '';
+    if (!stderr.includes('No such container')) {
+      throw error;
+    }
+  }
 }
 
 try {

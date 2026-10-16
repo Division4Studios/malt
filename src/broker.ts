@@ -56,6 +56,7 @@ import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { FactoryOperation } from './factory/schema.ts';
+import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
 import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
@@ -133,6 +134,8 @@ const envelopeSchema = z.object({
 
 /** Options for {@link startBroker}. */
 export interface BrokerOptions {
+  /** In-process native/inference test boundaries; never accepted by RPC or browser configuration. */
+  readonly factoryOptions?: ((config: MeshConfig) => Omit<FactoryOptions, 'home'>) | undefined;
   /** Optional GitHub adapter factory for isolated integration tests. */
   readonly githubRunner?: ((config: MeshConfig) => GitHubRunner) | undefined;
   /** Interface to bind; defaults to loopback. Docker binds `0.0.0.0`. */
@@ -177,6 +180,8 @@ export interface Broker {
 
 /** Everything a request handler needs, created once per broker. */
 interface BrokerContext {
+  /** Per-project in-process boundaries preserve one authoritative supervisor. */
+  readonly factoryOptions: BrokerOptions['factoryOptions'];
   /** Optional injected per-workspace GitHub adapter. */
   readonly githubRunner: ((config: MeshConfig) => GitHubRunner) | undefined;
   /** The home project, addressed by requests without a team header. */
@@ -207,7 +212,12 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     waiters: new Waiters(store),
     github,
     learning,
-    factory: new FactoryService(config, store, { github, learning }, { home: context.home.config.root }),
+    factory: new FactoryService(
+      config,
+      store,
+      { github, learning },
+      { ...context.factoryOptions?.(config), home: context.home.config.root },
+    ),
   };
   context.teams.set(config.team, team);
   team.factory.resume();
@@ -715,11 +725,17 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       waiters,
       github,
       learning,
-      factory: new FactoryService(config, store, { github, learning }, { home: config.root }),
+      factory: new FactoryService(
+        config,
+        store,
+        { github, learning },
+        { ...options.factoryOptions?.(config), home: config.root },
+      ),
     },
     teams: new Map(),
     now: options.now,
     githubRunner: options.githubRunner,
+    factoryOptions: options.factoryOptions,
   };
   const allTeams = (): Team[] => [context.home, ...context.teams.values()];
 
