@@ -7,6 +7,8 @@ import { modelPolicyUpdateSchema } from './model-policy.ts';
 import type { ModelPolicy } from './model-policy.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryConfig } from './schema.ts';
+/** Durable sessions remain live until their owning runtime settles or recovers them. */
+const ACTIVE_TERMINALS: ReadonlySet<string> = new Set(['requested', 'starting', 'running', 'closing']);
 
 /**
  * Preserve unrelated settings while checking the caller's observed revision.
@@ -62,6 +64,12 @@ export function persistModelPolicy(repository: FactoryRepository, next: ModelPol
  */
 export function saveFactorySettings(repository: FactoryRepository, settings: FactoryConfig): void {
   repository.store.transaction(() => {
+    if (repository.terminals.list().some((session) => ACTIVE_TERMINALS.has(session.state))) {
+      throw new MeshError(
+        'FACTORY_GATED',
+        'Pause and settle durable terminal sessions before changing project policies.',
+      );
+    }
     persistModelPolicy(repository, settings.modelPolicy);
     run(
       repository.store.db,

@@ -1,5 +1,8 @@
 /** @file Explicit policy validation, atomic revisions and unpaid compatibility gates. */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, renameSync } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 
 import { z } from 'zod/v3';
@@ -148,7 +151,7 @@ await test('authenticated policy updates preserve settings, reject stale writes 
   );
 });
 
-await test('saved explicit policy cannot dispatch through the legacy route before enforcement', async (t) => {
+await test('committed explicit policy stays gated after a post-commit mirror failure', async (t) => {
   const defer = createCleanup(t);
   const mesh = createProject(defer);
   let launches = 0;
@@ -172,7 +175,13 @@ await test('saved explicit policy cannot dispatch through the legacy route befor
     store.close();
   });
   await factory.execute('factory_setup', settings);
-  await factory.execute('factory_model_policy', { expectedRevision: null, policy });
+  const mirror = path.join(mesh.directory, 'factory', 'config.json');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Preserve the disposable fixture's own settings before replacing its mirror with a directory.
+  renameSync(mirror, `${mirror}.previous`);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Deterministic post-commit rename failure in this isolated project only.
+  mkdirSync(mirror);
+  await assert.rejects(factory.execute('factory_model_policy', { expectedRevision: null, policy }));
+  assert.equal(factory.repository.config()?.modelPolicy?.revision, 1);
   await factory.execute('factory_request', { objective: 'Do not start through a legacy selection.' });
   const { repository } = factory;
   repository.setActive(true);
@@ -182,4 +191,37 @@ await test('saved explicit policy cannot dispatch through the legacy route befor
   assert.deepEqual(repository.jobs(), []);
   const status = z.object({ error: z.string().nullable() }).parse(await factory.status());
   assert.match(status.error ?? '', /Explicit model policy.*No inference launched/v);
+});
+
+await test('durable active terminal metadata fences policy writes without any in-memory handle', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  repository.configure(settings);
+  const session = repository.terminals.create({
+    id: randomUUID(),
+    provider: 'codex',
+    worktree: mesh.root,
+    branch: 'malt/fixture',
+    base: 'a'.repeat(40),
+    baseBranch: 'main',
+    columns: 80,
+    rows: 24,
+  });
+  let previous = session.state;
+  for (const state of ['requested', 'starting', 'running', 'closing'] as const) {
+    repository.terminals.change(session.id, previous, state);
+    previous = state;
+    assert.throws(() => {
+      repository.configure(factoryConfigSchema.parse({ ...settings, modelPolicy: policy }));
+    }, /terminal sessions/v);
+    assert.equal(repository.config()?.modelPolicy, undefined);
+  }
+  repository.terminals.change(session.id, 'closing', 'cancelled');
+  repository.configure(factoryConfigSchema.parse({ ...settings, modelPolicy: policy }));
+  assert.equal(repository.config()?.modelPolicy?.revision, 1);
 });

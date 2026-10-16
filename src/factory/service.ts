@@ -766,8 +766,8 @@ export class FactoryService {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
-    configureProject(this.mesh, this.repository, parsed);
     this.context = null;
+    configureProject(this.mesh, this.repository, parsed);
     return this.status();
   }
 }
