@@ -8,10 +8,11 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { run } from '../src/database.ts';
 import { hasParkedPRUpdate } from '../src/factory/blocked-pr.ts';
 import { recordCancellation } from '../src/factory/controls.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
-import { factoryConfigSchema, taskSchema, jobSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, taskSchema, jobSchema, factorySchemas } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
 import {
   decideTriage,
@@ -486,6 +487,35 @@ await test('adoption rejects malformed commit input, other actions with a commit
   );
   assert.deepEqual(triageStatus(repository), []);
   assert.deepEqual(repository.task(task.id), task, 'Rejected adoption must persist nothing.');
+});
+
+await test('an exact legacy empty-note adoption replays without authorizing another new empty decision', (t) => {
+  const { repository } = fixture(t);
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const input = factorySchemas.factory_triage.parse({
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: task.version,
+    action: 'adopt_merge',
+    mergeCommit: adopted,
+    note: 'Initial fixture receipt.',
+  });
+  const receipt = decideTriage(repository, input);
+  const legacyInput = { ...input, note: '' };
+  const legacyReceipt = { ...receipt, note: '' };
+  run(
+    repository.store.db,
+    'UPDATE factory_triage SET input=?,data=? WHERE id=?',
+    JSON.stringify(legacyInput),
+    JSON.stringify(legacyReceipt),
+    input.requestId,
+  );
+  const { version } = repository.task(task.id);
+  assert.deepEqual(decideTriage(repository, legacyInput), legacyReceipt);
+  assert.equal(repository.task(task.id).version, version);
+  assert.throws(() => decideTriage(repository, { ...legacyInput, note: 'Changed intent.' }), /identity/v);
+  assert.throws(() => decideTriage(repository, { ...legacyInput, requestId: randomUUID() }), /Explain/v);
 });
 
 await test('adoption is gated for recorded merges, completed or superseded scopes, live claims and stale revisions', (t) => {

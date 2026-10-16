@@ -403,6 +403,22 @@ await test('one successful issue read cannot hide another postponed delivery', a
   assert.ok(!JSON.stringify(await fixture.factory.execute('factory_status', {})).includes('Waiting to confirm issue'));
 });
 
+await test('status drops obsolete issue-read failures immediately after operator re-scoping', async (t) => {
+  const fixture = await build(t);
+  const first = seed(fixture, { issue: 301 });
+  const second = seed(fixture, { issue: 302 });
+  fixture.behavior.read = async () => {
+    await delay(0);
+    throw new Error('Fixture unavailable.');
+  };
+  await pass(fixture);
+  assert.match(statusSchema.parse(await fixture.factory.execute('factory_status', {})).error, /#301/v);
+  fixture.repository.editTask(first.id, (task) => ({ ...task, scopeReplacement: randomUUID() }));
+  assert.match(statusSchema.parse(await fixture.factory.execute('factory_status', {})).error, /#302/v);
+  fixture.repository.editTask(second.id, (task) => ({ ...task, phase: 'blocked', error: 'Operator parked.' }));
+  assert.ok(!JSON.stringify(await fixture.factory.execute('factory_status', {})).includes('Waiting to confirm issue'));
+});
+
 await test('two projects awaiting GitHub cannot overclaim the same broker slot', { timeout: 30_000 }, async (t) => {
   const first = await build(t);
   const second = await build(t);
