@@ -85,12 +85,43 @@ export function activityPanel(state: Snapshot, view: HistoryView, controls: Cont
   older.setAttribute('aria-describedby', status.id);
   toolbar.append(older, recent);
   body.append(toolbar, status);
-  if (view.isOlder && view.visible.length === 0) {
-    body.append(element('p', 'notice', 'No earlier events. You have reached the beginning of this project’s history.'));
-  } else {
-    body.append(activityView({ ...state, events: view.visible }));
-  }
+  appendPages(body, state, view);
   return body;
+}
+
+/**
+ * Keep live and historical sections distinct without duplicating observed identities.
+ *
+ * @param body - Current Activity panel.
+ * @param state - Project snapshot.
+ * @param view - Separate retained live and displayed historical events.
+ */
+function appendPages(body: HTMLElement, state: Snapshot, view: HistoryView): void {
+  if (view.isOlder) {
+    const older = element('section', 'history-page');
+    older.setAttribute('aria-label', 'Older history page');
+    older.append(
+      element('h3', '', `Older history page · ${String(view.visible.length)} events`),
+      element('p', 'subtle', 'Only this older page is displayed. Intermediate pages are not a continuous timeline.'),
+    );
+    if (view.visible.length === 0) {
+      older.append(
+        element('p', 'notice', 'No earlier events. You have reached the beginning of this project’s history.'),
+      );
+    } else {
+      older.append(activityView({ ...state, events: view.visible }));
+    }
+    body.append(older);
+  }
+  const identities = new Set(view.isOlder ? view.visible.map((event) => event['seq']) : []);
+  const recent = view.recent.filter((event) => !identities.has(event['seq']));
+  const live = element('section', 'recent-activity');
+  live.setAttribute('aria-label', 'Recent live activity');
+  live.append(
+    element('h3', '', `Recent live activity · ${String(recent.length)} shown / ${String(view.recent.length)} retained`),
+    activityView({ ...state, events: recent }),
+  );
+  body.append(live);
 }
 
 /** Controller callbacks read current authority after asynchronous work. */

@@ -73,8 +73,12 @@
     await pending;
     check(document.activeElement === older(), 'success preserves initiating focus');
     check(
-      reads[0] === 201 && root.querySelectorAll('.event').length === 50,
+      reads[0] === 201 && root.querySelectorAll('.history-page .event').length === 50,
       'first cursor matches oldest visible recent event',
+    );
+    check(
+      root.querySelectorAll('.recent-activity .event').length === 200,
+      'live section keeps updating beside the historical page',
     );
     read = async () => {
       throw new Error('Fixture network failure.');
@@ -86,7 +90,7 @@
       'retry explains failure',
     );
     check(
-      root.querySelectorAll('.event').length === 50 && document.activeElement === older(),
+      root.querySelectorAll('.history-page .event').length === 50 && document.activeElement === older(),
       'failure retains page and focus',
     );
     const outside = document.querySelector('#outside');
@@ -129,6 +133,22 @@
       !history.view().isOlder && root.querySelectorAll('.event').length === 2,
       'late project result cannot replace current events',
     );
+    boundary = Promise.withResolvers();
+    read = async () => await boundary.promise;
+    older().click();
+    history.select('home');
+    history.observe(events(101, 2));
+    render();
+    history.select('other');
+    history.observe(events(1, 2));
+    render();
+    outside.focus();
+    boundary.reject(new Error('Obsolete A-to-B-to-A failure.'));
+    await pending;
+    check(
+      history.view().error === null && document.activeElement === outside,
+      'late same-project-generation failure cannot rerender or steal focus',
+    );
     isConnected = false;
     render();
     older().click();
@@ -136,6 +156,32 @@
     check(
       !root.querySelector('img') && !window.injected && root.textContent.includes('<img'),
       'hostile event text stays plain text',
+    );
+    const overlap = new ActivityHistory();
+    overlap.observe(events(101, 10));
+    await overlap.load(async (project) => ({ project, events: events(51, 50), oldestCursor: 51, hasMore: true }));
+    overlap.observe(events(97, 20));
+    const overlapPanel = activityPanel({ events: [] }, overlap.view(), {
+      isConnected: true,
+      older: async () => {},
+      recent: () => {},
+    });
+    const labels = [...overlapPanel.querySelectorAll('.event p')].map((node) => node.textContent);
+    check(
+      labels.length === 66 && new Set(labels).size === 66,
+      'overlapping reconnect identities render only once across sections',
+    );
+    const emptyHistory = new ActivityHistory();
+    const empty = activityPanel({ events: [] }, emptyHistory.view(), {
+      isConnected: true,
+      older: async () => {},
+      recent: () => {},
+    });
+    check(
+      empty.querySelector('[data-queue-focus="activity-older"]').getAttribute('aria-disabled') === 'true' &&
+        empty.textContent.includes('No activity yet') &&
+        !empty.textContent.includes('Beginning reached'),
+      'initial empty state is not a fabricated end-of-history proof',
     );
     isConnected = true;
     read = async (project, before) => ({ project, events: [], oldestCursor: before, hasMore: false });
