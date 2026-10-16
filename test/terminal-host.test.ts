@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { pathToFileURL } from 'node:url';
 
 import { terminateTree } from '../src/factory/commands.ts';
+import { ownedEnvironment, ownedLaunchSchema } from '../src/factory/owned-launch.ts';
 import { encodeFrame, FrameDecoder } from '../src/factory/terminal-frames.ts';
 import { terminalArguments, terminalEnvironment, terminalLaunchSchema } from '../src/factory/terminal-launch.ts';
 
@@ -31,12 +32,16 @@ await test('terminal launch rejects arguments/env/shell executables and strips c
     GH_TOKEN: 'bad',
     AGENTMESH_TOKEN: 'bad',
     CLAUDE_CODE_SKIP_PROMPT_HISTORY: '0',
+    PSModulePath: 'untrusted-module-directory',
+    PSModuleAnalysisCachePath: 'untrusted-cache',
   });
   assert.equal(env['PATH'], 'safe-path');
   assert.equal(env['CLAUDE_CODE_SKIP_PROMPT_HISTORY'], '1');
   assert.equal(env['OPENAI_API_KEY'], undefined);
   assert.equal(env['GH_TOKEN'], undefined);
   assert.equal(env['AGENTMESH_TOKEN'], undefined);
+  assert.equal(env['PSModulePath'], undefined);
+  assert.equal(env['PSModuleAnalysisCachePath'], undefined);
   assert.deepEqual(terminalArguments({ ...descriptor, provider: 'claude', file: 'claude' }), [
     '--restricted',
     '--strict-mcp-config',
@@ -44,6 +49,32 @@ await test('terminal launch rejects arguments/env/shell executables and strips c
     'manual',
   ]);
   assert.ok(terminalArguments(descriptor).includes('forced_login_method="chatgpt"'));
+});
+
+await test('Windows containment uses only built-in modules without leaking helper settings to the CLI', () => {
+  const launch = ownedLaunchSchema.parse({
+    file: process.execPath,
+    args: [],
+    cwd: process.cwd(),
+    input: '',
+    memoryMb: 512,
+    cpuPercent: 50,
+    processLimit: 32,
+    interactive: true,
+  });
+  const helper = ownedEnvironment(launch);
+  if (process.platform === 'win32') {
+    assert.equal(helper['PSModuleAnalysisCachePath'], 'NUL');
+    assert.equal(helper['PSDisableModuleAnalysisCacheCleanup'], '1');
+    assert.equal(
+      helper['PSModulePath'],
+      path.join(process.env['SystemRoot'] ?? 'C:/Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'Modules'),
+    );
+  }
+  const cli = terminalEnvironment(helper);
+  assert.equal(cli['PSModulePath'], undefined);
+  assert.equal(cli['PSModuleAnalysisCachePath'], undefined);
+  assert.equal(cli['PSDisableModuleAnalysisCacheCleanup'], undefined);
 });
 
 await test('isolated host uses a real PTY for fixture keystrokes and native resize', { timeout: 15_000 }, async (t) => {
