@@ -11,7 +11,7 @@ import { run } from '../src/database.ts';
 import { handoffFeed } from '../src/factory/handoff-feed.ts';
 import { handoffSchema } from '../src/factory/handoffs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -36,7 +36,7 @@ function fixture(t: TestContext): {
   clock: { now: number };
   store: Store;
   repository: FactoryRepository;
-  report: (summary: string) => string;
+  report: (summary: string, taskId?: string) => string;
   message: (body: string) => ReturnType<Store['send']>;
 } {
   const defer = createCleanup(t);
@@ -64,14 +64,14 @@ function fixture(t: TestContext): {
     provider: 'fixture',
     runtime: 'test',
   }).id;
-  const report = (summary: string): string => {
+  const report = (summary: string, taskId?: string): string => {
     const job = jobSchema.parse({
       id: randomUUID(),
       token: randomUUID(),
       role: 'qa-1',
       provider: 'codex',
       kind: 'review',
-      taskId: null,
+      taskId: taskId ?? null,
       featureId: null,
       head: null,
       base: null,
@@ -169,6 +169,55 @@ await test('legacy and malformed metadata expose only factual associations, neve
   }
 });
 
+await test('task-backed reports use the durable source job rather than the team-wide instruction task', (t) => {
+  const f = fixture(t);
+  const taskId = randomUUID();
+  f.repository.addTask(
+    taskSchema.parse({
+      id: taskId,
+      featureId: null,
+      issue: 19,
+      parentIssue: 17,
+      key: 'task-backed-feed',
+      title: 'Real delivery purpose',
+      description: 'Fixture delivery.',
+      acceptanceCriteria: ['Observable behavior.'],
+      dependencies: [],
+      phase: 'review',
+      developer: 'developer-1',
+      branch: null,
+      worktree: null,
+      head: null,
+      base: null,
+      pr: null,
+      prUrl: null,
+      merge: null,
+      reviews: [],
+      feedback: [],
+      attempts: 1,
+      version: 0,
+      error: null,
+      updatedAt: f.clock.now,
+    }),
+  );
+  const jobId = f.report('Task review found a missing assertion.', taskId);
+  const [entry] = handoffFeed(f.store, f.mesh);
+  assert.ok(entry !== undefined);
+  assert.equal(entry.hasOriginEvidence, true);
+  assert.equal(entry.sender, 'qa-1');
+  assert.equal(entry.assignment.taskId, taskId);
+  assert.equal(entry.assignment.issue, 19);
+  assert.equal(entry.assignment.title, 'Real delivery purpose');
+  assert.equal(entry.summary, 'Task review found a missing assertion.');
+  assert.equal(entry.outcome, 'changes_requested');
+  const instruction = f.store.db
+    .prepare(
+      'SELECT task_id FROM factory_instructions WHERE id=(SELECT instruction_id FROM factory_handoffs WHERE job_id=?)',
+    )
+    .get(jobId);
+  assert.equal(instruction?.['task_id'], null, 'Manager reporting remains team-wide.');
+});
+
 await test('the combined window is bounded, deterministically ordered and known secrets are redacted', (t) => {
   const f = fixture(t);
   for (let index = 0; index < 45; index += 1) {
@@ -194,6 +243,7 @@ await test('projection bounds Unicode text and every newly exposed name or conte
   const body = record?.['data'];
   assert.ok(typeof body === 'string');
   const metadata = handoffSchema.parse(JSON.parse(body));
+  run(f.store.db, "UPDATE factory_jobs SET data=json_set(data,'$.taskId',?) WHERE id=?", f.mesh.token, jobId);
   run(
     f.store.db,
     'UPDATE factory_instructions SET task_id=? WHERE id=(SELECT instruction_id FROM factory_handoffs WHERE job_id=?)',

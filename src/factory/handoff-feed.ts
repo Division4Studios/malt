@@ -22,13 +22,15 @@ const TEXT_LIMIT = 4000;
 const METADATA_LIMIT = 64_000;
 /** Largest single-unit Unicode point. */
 const SINGLE_UNIT_MAX = 65_535;
-/** Factual instruction/association columns exist independently of optional metadata. */
+/** Factual instruction and source-job associations exist independently of optional report metadata. */
 const rowSchema = z.object({
   id: z.string(),
   jobId: z.string(),
   body: z.string(),
   recipient: z.string(),
   taskId: z.string().nullable(),
+  sourceJobId: z.string().nullable(),
+  jobTaskId: z.string().nullable(),
   recordedAt: z.number().finite(),
   data: z.string(),
 });
@@ -99,7 +101,7 @@ function sanitizer(
 }
 
 /**
- * Parse only bounded explicit metadata and verify its durable association.
+ * Parse bounded explicit metadata and verify its durable source-job assignment.
  *
  * @param row - Factual instruction/report row.
  * @returns Matching provenance, or null for legacy/malformed records.
@@ -121,7 +123,10 @@ function readReport(row: z.output<typeof rowSchema>): z.output<typeof handoffSch
   const { issue } = parsed.data.context;
   const isIssueValid = issue === null || (Number.isSafeInteger(issue) && issue > 0);
   const isAssociationMatch =
-    parsed.data.jobId === row.jobId && parsed.data.to === row.recipient && parsed.data.context.taskId === row.taskId;
+    parsed.data.jobId === row.jobId &&
+    parsed.data.to === row.recipient &&
+    row.sourceJobId === row.jobId &&
+    parsed.data.context.taskId === row.jobTaskId;
   return isIssueValid && isAssociationMatch ? parsed.data : null;
 }
 
@@ -141,7 +146,7 @@ function reportAssignment(
   const title = report?.context.title ?? report?.context.objective;
   return {
     jobId: safe.text(row.jobId),
-    taskId: safe.optional(report?.context.taskId ?? row.taskId),
+    taskId: safe.optional(row.sourceJobId === row.jobId ? row.jobTaskId : row.taskId),
     issue: report?.context.issue ?? null,
     featureId: safe.optional(report?.context.featureId ?? null),
     title: safe.optional(title?.text ?? null),
@@ -232,8 +237,10 @@ export function handoffFeed(store: Store, mesh: MeshConfig): OperatorHandoff[] {
     store.db,
     rowSchema,
     `SELECT i.id,h.job_id AS jobId,i.body,i.role AS recipient,
-    i.task_id AS taskId,i.created_at AS recordedAt,h.data FROM factory_handoffs h
-    JOIN factory_instructions i ON i.id=h.instruction_id ORDER BY i.created_at DESC,i.id DESC LIMIT ?`,
+    i.task_id AS taskId,j.id AS sourceJobId,json_extract(j.data,'$.taskId') AS jobTaskId,
+    i.created_at AS recordedAt,h.data FROM factory_handoffs h
+    JOIN factory_instructions i ON i.id=h.instruction_id LEFT JOIN factory_jobs j ON j.id=h.job_id
+    ORDER BY i.created_at DESC,i.id DESC LIMIT ?`,
     WINDOW,
   ).map((row) => reportEntry(row, filter));
   return [...messages, ...reports]
