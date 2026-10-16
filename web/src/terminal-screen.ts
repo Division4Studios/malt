@@ -68,9 +68,9 @@ export class TerminalScreen {
   /** DEC autowrap mode. */
   private isAutoWrap = true;
   /** Explicit cursor/rendition save. */
-  private saved: SavedCursor = { x: 0, y: 0, style: DEFAULT_TERMINAL_STYLE };
+  private readonly saved = new WeakMap<TerminalGrid, SavedCursor>();
   /** Independent primary save for 1049 transitions. */
-  private primarySave: SavedCursor = this.saved;
+  private primarySave: SavedCursor = { x: 0, y: 0, style: DEFAULT_TERMINAL_STYLE };
 
   /**
    * Allocate bounded primary and alternate screens.
@@ -132,8 +132,7 @@ export class TerminalScreen {
     this.style = DEFAULT_TERMINAL_STYLE;
     this.link = null;
     this.isWrapPending = false;
-    this.saved = { x: 0, y: 0, style: DEFAULT_TERMINAL_STYLE };
-    this.primarySave = this.saved;
+    this.primarySave = { x: 0, y: 0, style: DEFAULT_TERMINAL_STYLE };
     this.isAutoWrap = true;
     this.isCursorVisible = true;
     this.isBracketedPaste = false;
@@ -276,6 +275,7 @@ export class TerminalScreen {
     if (actualWidth === VT.wide) {
       line[x + 1] = { text: '', width: 0, style: this.style, link: this.link };
     }
+    this.active.lines[y] = normalizeTerminalRow(line);
     this.active.move(x + actualWidth, y);
     this.isWrapPending = x + actualWidth >= this.active.columns;
   }
@@ -319,11 +319,12 @@ export class TerminalScreen {
         this.index(-1);
       },
       '7': () => {
-        this.saved = { ...this.active.cursor, style: this.style };
+        this.saved.set(this.active, { ...this.active.cursor, style: this.style });
       },
       '8': () => {
-        this.move(this.saved.x, this.saved.y);
-        this.style = this.saved.style;
+        const saved = this.saved.get(this.active) ?? { x: 0, y: 0, style: DEFAULT_TERMINAL_STYLE };
+        this.move(saved.x, saved.y);
+        this.style = saved.style;
       },
       c: () => {
         this.reset();
@@ -484,6 +485,9 @@ export class TerminalScreen {
   private fill(row: number, start: number, end: number): void {
     const line = this.active.lines[row];
     line?.fill({ ...BLANK_CELL, style: this.style }, Math.max(0, start), Math.min(end, this.active.columns));
+    if (line !== undefined) {
+      this.active.lines[row] = normalizeTerminalRow(line);
+    }
     this.active.dirty.add(row);
   }
 

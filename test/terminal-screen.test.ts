@@ -50,6 +50,33 @@ await test('cursor addressing, save/restore and erase obey observable boundaries
   assert.equal(rows(screen)[1], 'two     ');
 });
 
+await test('overlapping wide writes and partial EL, ED and ECH never leave orphan halves', () => {
+  const screen = new TerminalScreen(8, 2);
+  feed(screen, 'a\u{65E5}\u{1B}[1;1H\u{65E5}');
+  assert.deepEqual(
+    screen.grid.lines[0]?.slice(0, 4).map((cell) => cell.width),
+    [2, 0, 1, 1],
+  );
+  for (const erase of ['K', '1K', 'J', '1J', 'X']) {
+    screen.reset();
+    feed(screen, `\u{65E5}\u{1B}[1;2H\u{1B}[${erase}`);
+    assert.ok(screen.grid.lines[0].slice(0, 2).every((cell) => cell.width === 1));
+  }
+});
+
+await test('explicit cursor saves are independent across primary and alternate grids', () => {
+  const screen = new TerminalScreen(8, 3);
+  feed(screen, '\u{1B}[2;3H\u{1B}[31m\u{1B}7\u{1B}[?47h\u{1B}[3;5H\u{1B}[32m\u{1B}7\u{1B}[?47l\u{1B}8x');
+  assert.equal(screen.grid.lines[1]?.[2]?.text, 'x');
+  assert.equal(screen.grid.lines[1][2].style.foreground, '#f27386');
+  feed(screen, '\u{1B}[?47h\u{1B}8y');
+  assert.equal(screen.grid.lines[2]?.[4]?.text, 'y');
+  assert.equal(screen.grid.lines[2][4].style.foreground, '#78dca4');
+  screen.reset();
+  feed(screen, '\u{1B}8z');
+  assert.equal(screen.grid.lines[0]?.[0]?.text, 'z');
+});
+
 await test('wide glyphs, combining floods, unsafe OSC links and clipped resize remain data', () => {
   const screen = new TerminalScreen(4, 2);
   feed(screen, 'A日B');
