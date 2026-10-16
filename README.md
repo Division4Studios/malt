@@ -33,13 +33,7 @@ git clone https://github.com/Division4Studios/malt.git
 cd malt
 npm ci --ignore-scripts
 npm run check
-node src/cli.ts start --project /absolute/path/to/your/project --port 4317
-```
-
-In a second terminal, from the MALT source folder:
-
-```sh
-node src/cli.ts ui --project /absolute/path/to/your/project --port 4318
+node src/cli.ts ui --with-broker --project /absolute/path/to/your/project --port 4318
 ```
 
 Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process, and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
@@ -48,7 +42,7 @@ See [complete setup and provider authentication](docs/operator-console.md), [Git
 
 ### Interactive scratch terminals
 
-Start the paired native services together with `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`. When switching from the quick-start's separate processes, stop both the older broker using this store and the UI occupying port 4318 first. Docker already colocates them. A separately launched UI supports factory/log inspection but cannot control terminals.
+The native quick start and Docker colocate broker ownership with the paired console. When switching from older separate processes, stop both the broker using this store and the UI occupying port 4318 first. A separately launched UI supports ordinary durable controls and factory/log inspection; scratch terminals and exact recommendation decisions require the owning broker's memory-only authority.
 
 **Workers → Scratch terminals** provides real subscription-CLI PTYs in separate owned worktrees, with native keyboard input, resize, bounded replay and explicit close. Start is an operator action; idle roles and page refreshes start nothing. Managed worker logs and durable conversations/instructions remain separate channels. Scratch sessions cannot attach to a gated developer/QA assignment or supply its review evidence.
 

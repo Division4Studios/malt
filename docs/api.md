@@ -160,6 +160,22 @@ The project ledger moves new proposals to `awaiting_human` and leaves them unrea
 
 ### Read-only issue corpus foundation
 
+Read-only observations and durable checkpoints support the intake hook below; they do not authorize remote ticket effects.
+
+### Supervisor overlap intake
+
+The existing unpaid supervisor checks new queued/refining/provisioning scopes before their next planning or provisioning stage. It advances one bounded native page per check and processes up to twenty objectives in fair batches. Logical roles are not launched to wait for a decision. A running bounded planner keeps its frozen context and finishes before intake inspects its next stage. Pending cards show observation progress or an exact recommendation requiring human disposition. Native evidence collection does not hold unrelated developer slots.
+
+The deterministic detector uses behavioral/acceptance evidence from scoped native observations and retained local objectives; titles alone do not establish duplication. Exact unresolved parent/child provisioning operations retain their original request identities automatically. Other overlap queues one `related` recommendation, with no invented survivor, native closure, body rewrite or relabel. Automatic proposals include `originObjective`, which must appear in their exact local observations and participates in identity so independent incoming scopes cannot oscillate between superseding revisions.
+
+Only the dependent objective waits. Rejected unchanged advice stays rejected; changed native/local evidence creates a new revision. Rejection or a completed disposition releases that scope. Current repository, semantic scope, exact recommendation revision and completed-evidence freshness fence new planning. Uninspected/partial evidence remains explicit. The live ledger is authoritative across restart; complete corpus blobs and transcripts are not added to each model context. Existing bounded role guidance receives compact relevant notices instead.
+
+Confirmed parent/child creation identities are checkpointed before dependency reconciliation. If native dependency linking fails after creation, these source-scoped receipts survive restart and keep the objective's own tickets out of overlap detection. They do not admit tasks before dependencies reconcile or exclude issue numbers from another repository. The original durable creation requests remain authoritative for retries.
+
+Approval remains an inert follow-up intent in this batch. Remote effects (#59), safe local graph/ownership transfer (#60), recommendation-to-skill adoption (#61), the Project-management pane/decision UI (#62/#63), and their full-loop verification (#64) remain separate unfinished deliveries. Use rejection when deciding that an objective should proceed independently; do not interpret an approved intent as a completed consolidation or skill change.
+
+### Read-only issue observations
+
 The #320 internal intake checkpoint advances at most one ten-issue native page per call, sharing the production reader's limit, and retains at most 1,000 observations in private SQLite metadata. Completed evidence is reused for at most five minutes starting at completion; incomplete same-source checkpoints preserve their cursor beyond that freshness window and across restart. Partial or nested-truncated relationships never become a complete result. The verified current repository node is checked before cache reuse and again after a native read, so reconnection cannot reuse another source's observations. The existing GitHub operation journal supplies unresolved original request IDs; native child IDs retain their historical bytes. This prerequisite alone does not invoke a detector, park work, dispatch a model or change tickets. The separate #57 hook owns that integration. Cache observations are suggestions for intake; human decisions reread current native/local revisions.
 
 `ProjectGitHub.issues()` and `GitHubDelivery.issueCorpus` / `observedIssue` expose internal read capabilities for the selected connection's verified repository node. Legacy or unverified source identity requires reconnecting first. This foundation adds no ticket mutation, detector, work queue or public operator control.

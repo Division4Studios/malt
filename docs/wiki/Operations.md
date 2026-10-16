@@ -51,3 +51,24 @@ The subscription-first panel is prepared in the #21 delivery stack, pending merg
 The editor is under **Project setup → Edit model and effort policy**. Pause and settle owned work before saving. Declare only subscription-available models and retain exact CLI-version/interface evidence; unknown support remains ineligible. A stale save preserves the draft. A model-policy gate preserves a ticket's current reviews, final proof and triage revision: correct the policy and resume to recheck the same stage, rather than resetting completed gates with a generic delivery retry.
 
 Product-owner model choices remain proposals. The independent lead's final role-specific choice is persisted into delivery tasks. Current choices are honored; changed policy or inadequate capability blocks with a reason. Rework, security and organization floors remain binding. Requested CLI model/effort arguments do not prove the provider actually applied them, and unavailable subscription quota remains unknown. Historical assignments retain their original evidence.
+
+## Prepared recommendation intake
+
+[Stack #251](https://github.com/Division4Studios/malt/stack/251) also prepares bounded recommendation reads, managed product/lead proposals, paired human decisions, scoped notices and unpaid overlap intake. These are source awaiting owner review/merge and a matching runtime update. The native `--with-broker` startup and combined Docker runtime provide memory-only human decision authority; an agent or separately attached UI cannot acquire it from a project token.
+
+New planning/provisioning first checks observed native/local behavioral overlap. Exact interrupted operation IDs resume automatically. Other evidence-backed overlap waits on an exact recommendation; unrelated development continues. Pending objective cards explain collection progress or name the recommendation requiring disposition. Cursor progress survives restart; no model session waits on this queue. Existing bounded planners keep frozen context and finish before their next stage is inspected.
+
+Confirmed creation receipts are retained before dependency linking. A failed link can therefore recover after restart without treating the factory's own created issues as external duplicates. Receipts are fenced to the verified repository; tasks remain unadmitted until dependencies reconcile.
+
+Read and explicitly acknowledge the exact recommendation through the [documented API](https://github.com/Division4Studios/malt/blob/main/docs/api.md); the dedicated Project-management pane is still pending. Human decisions reread current native/local scope and become stale when it changed. Reject means keeping the request separate and releases only that objective. Approve persists an inert follow-up intent: remote effects, graph transfer and recommendation-to-skill adoption remain #59–#61, with UI/full-loop delivery in #62–#64. Approval never silently closes a ticket or changes an active skill.
+
+```mermaid
+flowchart LR
+  Agent[Managed product or lead] --> Proposal[Unread proposal]
+  Proposal --> Human[Paired human exact-revision decision]
+  Human --> Fresh{Current native and local scope}
+  Fresh -->|Changed| Stale[Stale: refresh evidence]
+  Fresh -->|Reject| Separate[Keep this objective separate]
+  Fresh -->|Approve| Intent[Inert durable intent]
+  Intent -.-> Pending[Executor integration remains pending]
+```
