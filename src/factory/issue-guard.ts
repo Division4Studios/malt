@@ -41,10 +41,19 @@ function isEligible(task: FactoryTask, intent: JobIntent): boolean {
 
 /** Remembers failed reads so one unreachable GitHub call is not repeated every heartbeat. */
 export class IssueGuard {
-  /** Bounded explanation of the most recent postponed read. */
-  public waitingReason: string | null = null;
+  /** Unresolved observations remain visible when another delivery reads successfully. */
+  private readonly failures = new Map<string, string>();
   /** Earliest retry per delivery after a failed or malformed read. */
   private readonly retryAt = new Map<string, number>();
+
+  /**
+   * Surface one unresolved read without losing other deliveries' explanations.
+   *
+   * @returns Oldest still-unresolved bounded diagnostic.
+   */
+  public get waitingReason(): string | null {
+    return this.failures.values().next().value ?? null;
+  }
 
   /**
    * Start an assignment unless its delivery's issue is closed or cannot be confirmed open.
@@ -83,12 +92,14 @@ export class IssueGuard {
     } catch (error) {
       this.retryAt.set(task.id, repository.store.now() + context.settings.reconcileMs);
       const detail = Error.isError(error) ? error.message : 'unknown failure';
-      this.waitingReason =
-        `Waiting to confirm issue #${String(task.issue)} is open before development: ${detail}`.slice(0, WAITING_LIMIT);
+      this.failures.set(
+        task.id,
+        `Waiting to confirm issue #${String(task.issue)} is open before development: ${detail}`.slice(0, WAITING_LIMIT),
+      );
       return false;
     }
     this.retryAt.delete(task.id);
-    this.waitingReason = null;
+    this.failures.delete(task.id);
     const current = repository.tasks().find((candidate) => candidate.id === task.id);
     if (current?.version !== task.version || !isEligible(current, intent)) {
       return false;

@@ -23,6 +23,7 @@ import {
   latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
+import { admittedProvider } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
@@ -49,8 +50,8 @@ import {
   hasCriticalMemoryPressure,
 } from './resources.ts';
 import { routeAssignment } from './routing.ts';
-import { chooseProvider, jobIntents } from './scheduler.ts';
-import { LEASE_MS, PROVIDERS, factorySchemas } from './schema.ts';
+import { jobIntents } from './scheduler.ts';
+import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
@@ -448,24 +449,11 @@ export class FactoryService {
       return;
     }
     for (const intent of intents) {
-      const policy = LOCAL_JOBS.policy(context.settings);
-      if (resourceBlocker(policy, this.sampler.latest, LOCAL_JOBS.size) !== null) {
-        break;
-      }
-      const provider = chooseProvider({
-        config: policy,
-        capacities: LOCAL_JOBS.capacities(
-          PROVIDERS.map((name) => this.repository.capacity(name, context.settings)),
-          now,
-        ),
-        jobs: LOCAL_JOBS.jobs(),
-        now,
-      });
-      if (provider === null) {
+      if (admittedProvider(context, this.sampler.latest, LOCAL_JOBS) === null) {
         break;
       }
       // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
-      await this.issueGuard.launch(context, intent, this.dispatch.bind(this, intent, provider));
+      await this.issueGuard.launch(context, intent, this.dispatch.bind(this, intent));
     }
   }
 
@@ -523,13 +511,16 @@ export class FactoryService {
    * Atomically claim a role and its provider reservation.
    *
    * @param intent - Eligible assignment.
-   * @param provider - Capacity-selected provider.
    */
-  private dispatch(intent: JobIntent, provider: FactoryJob['provider']): void {
+  private dispatch(intent: JobIntent): void {
     if (!canDispatch(this.repository, this.stopped)) {
       return;
     }
     const context = this.configured();
+    const provider = admittedProvider(context, this.sampler.latest, LOCAL_JOBS);
+    if (provider === null) {
+      return;
+    }
     const id = randomUUID();
     const now = this.repository.store.now();
     const job: FactoryJob = {
