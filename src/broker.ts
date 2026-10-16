@@ -503,11 +503,15 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (credentials === undefined) {
     return;
   }
-  if (['factory_skill_decide', 'factory_export_maintenance', 'factory_recover'].includes(operation)) {
+  if (
+    ['factory_skill_decide', 'factory_export_maintenance', 'factory_recover', 'factory_reconcile_github'].includes(
+      operation,
+    )
+  ) {
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may approve skill changes, objective recovery or cross-project maintenance.',
+      'Only the human operator may approve skill changes, objective recovery, GitHub reconciliation or cross-project maintenance.',
     );
   }
   const actor = team.store.authenticate(credentials);

@@ -39,7 +39,7 @@ Model/GitHub regression boundaries use fixtures. Local Git/worktrees, validation
 
 The later terminal stack separately exercises actual native PTYs, loopback controls, input/resize/reconnect, foreign-origin/project/agent rejection, timeout/cancel, forced wrapper-crash descendant cleanup and restart. Windows local and Docker Linux checks ran without inference; required CI covers Windows/Linux/macOS fixture execution. Real Windows Codex startup/resize/Quit and Claude startup/idle timeout were inspected without trusting the folders or submitting model prompts. These checks do not verify a full provider inference turn. See the [evidence-scoped terminal matrix](interactive-terminals.md#executed-support-evidence) and the stack tip's final check receipt.
 
-The pinned container reports Node **24.22.0** LTS; CI tracks Node 24. TypeScript 6.0.3 matches the lint-tool peer contract. The backend uses MCP SDK 1.32.1 and Zod 4.6.7 through `zod/v3` compatibility. Browser production dependencies remain zero. See [dependency policy](dependency-policy.md).
+The pinned container reports Node **24.22.0** LTS; CI tracks Node 24. TypeScript 6.0.3 matches the lint-tool peer contract. The backend uses MCP SDK 1.32.1, Zod 4.6.7 through `zod/v3` compatibility and the pinned `node-pty@1.2.0-beta.15`; no other runtime packages are permitted. Browser production dependencies remain zero. Since 2026-10-16 the Security gate also rejects runtime packages outside the MIT-compatible license allowlist. See [dependency policy](dependency-policy.md).
 
 ## Reading the board
 

@@ -3,9 +3,9 @@ name: factory-product
 description: Product-owner and team-lead refinement into parent features and independently verifiable atomic deliveries.
 ---
 
-Product owner: express the user outcome, current behavior, proposed behavior, constraints, exclusions and measurable acceptance. Investigate existing project decisions before asking. Escalate only consequential product choices that cannot be inferred. Record assumptions for lead review. Do not implement during planning.
+Product owner: express the user outcome, current behavior, proposed behavior, constraints, exclusions and measurable acceptance. Investigate existing project decisions, issues, open PRs and current main before asking; do not re-plan work that is already done or claimed. Escalate only consequential product choices that cannot be inferred. Record assumptions for lead review. Do not implement during planning.
 
-Team lead: independently inspect feasibility and revise the product plan. Each ticket must deliver one narrow complete behavior, be reviewable in one PR and fit a fresh session. Prefer vertical slices across only the layers needed for that behavior. List explicit blocking edges; reject cycles and invented dependencies. Parallelize only ready independent scopes, with two developer slots.
+Team lead: independently inspect feasibility and revise the product plan. Before assigning, confirm each scope is not closed, already fixed on main, in an open PR or claimed by another session or developer; report duplicates rather than scheduling them. Each ticket must deliver one narrow complete behavior, be reviewable in one PR and fit a fresh session. Prefer vertical slices across only the layers needed for that behavior. List explicit blocking edges; reject cycles and invented dependencies. Parallelize only ready independent scopes, with two developer slots.
 
 ## Reviewable work breakdown
 

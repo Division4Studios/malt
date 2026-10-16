@@ -20,7 +20,7 @@ import { saveFactorySettings } from './model-policy-controls.ts';
 import { broadcastFactoryNotice } from './notifications.ts';
 import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
 import { ObjectiveQueue } from './objective-queue.ts';
-import { windowFreshness } from './quota-windows.ts';
+import { fixedWindowStart, unusedCapacity, windowFreshness } from './quota-windows.ts';
 import { RecommendationLedger } from './recommendations.ts';
 import {
   LEASE_MS,
@@ -516,28 +516,17 @@ export class FactoryRepository {
   public capacity(provider: Provider, config: FactoryConfig, shouldInitialize = true): Capacity {
     const now = this.store.now();
     const row = selectOne(this.store.db, payloadSchema, 'SELECT data FROM factory_capacity WHERE provider=?', provider);
+    const { windowMs } = config.providers[provider];
+    // A window being created starts now; observing a never-used provider must not drift between reads.
+    const start = shouldInitialize ? now : fixedWindowStart(now, windowMs);
     const current =
-      row === undefined
-        ? {
-            provider,
-            usedTokens: 0,
-            reservedTokens: 0,
-            resetAt: now + config.providers[provider].windowMs,
-            cooldownUntil: 0,
-            subscriptionUsedPercent: null,
-            subscriptionResetAt: null,
-            subscriptionWindows: [],
-            telemetrySource: null,
-            updatedAt: now,
-          }
-        : capacitySchema.parse(JSON.parse(row.data));
+      row === undefined ? unusedCapacity(provider, start, windowMs) : capacitySchema.parse(JSON.parse(row.data));
     if (row === undefined && shouldInitialize) {
       this.store.transaction(() => {
         run(this.store.db, 'INSERT OR IGNORE INTO factory_capacity VALUES(?,?)', provider, JSON.stringify(current));
       });
       return this.capacity(provider, config);
     }
-    const { windowMs } = config.providers[provider];
     const nextReset = current.resetAt + (Math.floor((now - current.resetAt) / windowMs) + 1) * windowMs;
     return {
       ...current,

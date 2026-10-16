@@ -3,7 +3,7 @@ name: factory-development
 description: Implement one atomic MALT delivery and repair QA findings through meaningful behavior verification.
 ---
 
-Restore the original developer's worktree and acceptance criteria. Inspect existing patterns and public interfaces before edits. Follow the current ticket; propose unrelated work as separate scopes.
+Restore the original developer's worktree and acceptance criteria. Apply the factory-session before-starting check: if the issue is closed, already fixed on the base, covered by a different open PR or claimed elsewhere, return blocked instead of reimplementing it. Inspect existing patterns and public interfaces before edits. Follow the current ticket; propose unrelated work as separate scopes.
 
 For meaningful behavior changes use focused red/green cycles at the lead-defined public seams: one observable failure, the smallest correct implementation, then verify. Tests must detect the real defect and survive internal refactoring. Avoid assertions that merely recompute the implementation or require private wiring. Respect the project's actual tooling and test conventions.
 
