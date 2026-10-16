@@ -152,6 +152,8 @@ export class TerminalPane {
     this.display.setAttribute('role', 'region');
     this.display.setAttribute('aria-label', `${this.current.provider} terminal output`);
     this.warning.hidden = true;
+    this.status.setAttribute('role', 'status');
+    this.warning.setAttribute('role', 'alert');
     const details = element('details', 'terminal-history-details');
     details.append(element('summary', '', 'Recent scrollback (memory only)'), this.history);
     details.addEventListener('toggle', () => {

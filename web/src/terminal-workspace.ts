@@ -286,7 +286,8 @@ export class TerminalWorkspace {
       }
       this.metadata = [session, ...this.metadata.filter((entry) => entry.id !== session.id)].slice(0, MAX_SESSIONS);
       this.renderSessions();
-      this.status.textContent = `Session ${session.state}${session.reason === '' ? '' : ': '}${session.reason}`;
+      this.sessions.value = session.id;
+      this.status.textContent = 'Session created. Current native process and connection state are shown in its pane.';
       this.open(session);
     } catch (error) {
       if (this.ownsScope(generation)) {
@@ -329,7 +330,11 @@ export class TerminalWorkspace {
         if (!this.ownsScope(generation)) {
           return;
         }
+        const previous = this.metadata.find((entry) => entry.id === updated.id);
         this.metadata = this.metadata.map((entry) => (entry.id === updated.id ? updated : entry));
+        if (previous?.state !== updated.state) {
+          this.renderSessions();
+        }
       },
     });
     this.panes.set(session.id, pane);

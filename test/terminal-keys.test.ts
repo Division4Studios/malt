@@ -15,6 +15,8 @@ await test('keyboard uses negotiated cursor modes, modifiers and real VT control
   assert.equal(terminalKey({ ...plain, key: 'F1' }, false), '\u{1B}OP');
   assert.equal(terminalKey({ ...plain, key: 'F12' }, false), '\u{1B}[24~');
   assert.equal(terminalKey({ ...plain, key: 'Enter' }, false), '\r');
+  assert.equal(terminalKey({ ...plain, key: 'Tab' }, false), '\t');
+  assert.equal(terminalKey({ ...plain, key: 'Tab', shiftKey: true }, false), '\u{1B}[Z');
   assert.equal(terminalKey({ ...plain, key: 'Enter', ctrlKey: true }, false), '\r');
   assert.equal(terminalKey({ ...plain, key: 'Backspace' }, false), '\u{7F}');
   assert.equal(terminalKey({ ...plain, key: 'c', ctrlKey: true }, false), '\u{3}');
@@ -22,8 +24,8 @@ await test('keyboard uses negotiated cursor modes, modifiers and real VT control
   assert.equal(terminalKey({ ...plain, key: '日' }, false), '日');
 });
 
-await test('Escape, Tab, OS/browser shortcuts and composing keys do not trap native focus', () => {
-  for (const key of ['Escape', 'Tab', 'Shift', 'Unidentified']) {
+await test('Escape, OS/browser shortcuts and composing keys retain browser handling', () => {
+  for (const key of ['Escape', 'Shift', 'Unidentified']) {
     assert.equal(terminalKey({ ...plain, key }, false), null);
   }
   assert.equal(terminalKey({ ...plain, key: 'r', ctrlKey: true }, false), null);

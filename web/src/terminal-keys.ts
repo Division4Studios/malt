@@ -72,7 +72,7 @@ export interface TerminalKey {
 }
 
 /**
- * Encode only an explicit captured native key; Escape/Tab retain focus escape.
+ * Encode explicit native keys; the pane intercepts Tab for browser focus escape.
  *
  * @param event - Observed focus-scoped key.
  * @param isAppCursor - Actual negotiated screen mode.
@@ -80,9 +80,14 @@ export interface TerminalKey {
  */
 export function terminalKey(event: TerminalKey, isAppCursor: boolean): string | null {
   const { key, ctrlKey, isComposing, metaKey } = event;
-  const isBrowserKey =
-    isComposing || metaKey || key === 'Escape' || key === 'Tab' || (ctrlKey && BROWSER_KEYS.has(key.toLowerCase()));
-  return isBrowserKey ? null : (navigationKey(event, isAppCursor) ?? printableKey(event));
+  const isBrowserKey = isComposing || metaKey || key === 'Escape' || (ctrlKey && BROWSER_KEYS.has(key.toLowerCase()));
+  if (isBrowserKey) {
+    return null;
+  }
+  if (key === 'Tab') {
+    return event.shiftKey ? `${KEY.escape}[Z` : '\t';
+  }
+  return navigationKey(event, isAppCursor) ?? printableKey(event);
 }
 
 /**
