@@ -8,6 +8,7 @@ import { z } from 'zod/v3';
 
 import { readIntakeMetadata, saveIntakeMetadata } from '../src/factory/intake-corpus.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
+import { retainProvisionedIssues } from '../src/factory/provisioning-identity.ts';
 import { inspectObjective, isIntakeParked, reconcileIntake } from '../src/factory/recommendation-intake.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
@@ -25,6 +26,55 @@ import { createCleanup, createProject } from './helpers.ts';
 const cardSchema = z.object({ id: z.string(), revision: z.string(), state: z.string() });
 /** Existing ledger page projection. */
 const pageSchema = z.object({ items: z.array(cardSchema) });
+
+await test('completed creation receipts exclude own tickets without admitting tasks or hiding foreign overlap', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  const github = new ProjectGitHub(mesh);
+  const remote = new GitHubDelivery(mesh, github);
+  const observed = await readObservation(7);
+  remote.issueRepositoryId = () => observed.repositoryId;
+  const factory = new FactoryService(
+    mesh,
+    store,
+    { github, learning: new ProjectLearning(mesh) },
+    { home: mesh.root, remote },
+  );
+  defer(async () => {
+    await factory.close();
+    store.close();
+  });
+  factory.repository.configure(
+    factoryConfigSchema.parse({
+      testCommands: [{ file: process.execPath }],
+      endToEndCommands: [{ file: process.execPath }],
+    }),
+  );
+  const context = factory.configured();
+  const behavior = 'Session cookie expires immediately after login redirect and users loop back to sign in page.';
+  const queued = queueObjective(context.repository, { objective: behavior });
+  const feature = context.repository.features().find((item) => item.id === queued.featureId);
+  assert.ok(feature !== undefined);
+  const corpus = {
+    repositoryId: observed.repositoryId,
+    items: [{ ...observed, body: behavior }],
+    complete: true,
+    cursor: null,
+    checkedAt: Date.now(),
+  };
+  retainProvisionedIssues(context.repository, feature.id, observed.repositoryId, [
+    { key: 'repair', issue: 7, parentIssue: 8 },
+  ]);
+  inspectObjective(context, feature, corpus, []);
+  assert.equal(isIntakeParked(context, feature), false);
+  assert.equal(pageSchema.parse(context.repository.recommendations.inspect({ kind: 'list' })).items.length, 0);
+  assert.equal(context.repository.tasks().length, 0);
+  remote.issueRepositoryId = () => 'R_foreign_repository';
+  inspectObjective(context, feature, { ...corpus, repositoryId: 'R_foreign_repository' }, []);
+  assert.equal(isIntakeParked(context, feature), true);
+  assert.equal(pageSchema.parse(context.repository.recommendations.inspect({ kind: 'list' })).items.length, 1);
+});
 
 await test('intake queues once across restart, suppresses unchanged rejection and keeps unrelated work eligible', async (t) => {
   const defer = createCleanup(t);

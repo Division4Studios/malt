@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { MeshError } from '../protocol.ts';
 
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
@@ -454,7 +455,9 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
   if (isIntakeParked(context, feature)) {
     return;
   }
-  const mappings = await context.remote.provision(feature);
+  const mappings = await context.remote.provision(feature, (created, repositoryId) => {
+    retainProvisionedIssues(context.repository, feature.id, repositoryId, created);
+  });
   const current = context.repository.features().find((candidate) => candidate.id === feature.id);
   if (current?.phase !== 'provisioning') {
     if (current?.scopeReplacement !== undefined) {

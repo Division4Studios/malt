@@ -13,7 +13,7 @@ import {
   readIntakeMetadata as metadata,
   saveIntakeMetadata as save,
 } from './intake-corpus.ts';
-import { deliveryOperationIdentity } from './provisioning-identity.ts';
+import { deliveryOperationIdentity, provisionedIssues } from './provisioning-identity.ts';
 import { objectiveObservation } from './recommendation-objectives.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -88,6 +88,11 @@ export function inspectObjective(
   );
   if (feature.parentIssue !== null) {
     ownIssues.add(feature.parentIssue);
+  }
+  if (observed.repositoryId !== null) {
+    for (const issue of provisionedIssues(repository, feature.id, observed.repositoryId)) {
+      ownIssues.add(issue);
+    }
   }
   const local = repository
     .features()
