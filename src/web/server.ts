@@ -44,6 +44,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
   ['/capacity-view.js', ['dist/capacity-view.js', 'text/javascript; charset=utf-8']],
   ['/admission-ui.js', ['dist/admission-ui.js', 'text/javascript; charset=utf-8']],
+  ['/model-policy-ui.js', ['dist/model-policy-ui.js', 'text/javascript; charset=utf-8']],
   ['/api.js', ['dist/api.js', 'text/javascript; charset=utf-8']],
   ...[
     'terminal-parser',

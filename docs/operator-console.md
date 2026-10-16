@@ -1,5 +1,9 @@
 # Mission control and human skill governance
 
+In **Project setup → Edit model and effort policy**, inspect and edit this project's allowed native models, declared capability floors, effort interfaces, evidence and provider/tier defaults. Pause the factory and wait for owned assignments and terminals to settle before saving. Unknown support is shown explicitly and cannot launch an explicit-policy assignment; the editor never invents available models or subscription quotas.
+
+Saving uses the observed policy revision and preserves unrelated factory settings. Server validation or revision conflicts retain the draft; inspect the message before refreshing and reopening against current server state. A draft opened for one project cannot be submitted to another selected project. These are requested native arguments, not a claim that the provider applied the effort or certified the model's capability.
+
 See [current capabilities](current-status.md) and the [issue-by-issue audit](issue-audit-2026-10-15.md). Source, runtime deployment and live-provider verification are separate states.
 
 The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod, SQLite and the isolated node-pty host remain server-side.

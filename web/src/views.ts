@@ -74,6 +74,8 @@ export interface Actions {
   ) => void;
   /** Edit validated project configuration or GitHub connection. */
   readonly setup: (isConnection: boolean) => void;
+  /** Edit exact-revision account-local model choices through the same backend. */
+  readonly modelPolicy: () => void;
 }
 
 export { element } from './worker-ui.js';
@@ -657,6 +659,7 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
       },
       'button secondary',
     ),
+    button('Edit model and effort policy', actions.modelPolicy, 'button secondary'),
   );
   const providers = element('section', 'setup-card');
   providers.append(
