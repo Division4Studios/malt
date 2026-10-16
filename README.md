@@ -44,6 +44,8 @@ See [complete setup and provider authentication](docs/operator-console.md), [Git
 
 ### Interactive scratch terminals
 
+Start the paired native services together with `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`; stop any older broker using this store first. Docker already colocates them. A separately launched UI supports factory/log inspection but cannot control terminals.
+
 **Workers → Scratch terminals** provides real subscription-CLI PTYs in separate owned worktrees, with native keyboard input, resize, bounded replay and explicit close. Start is an operator action; idle roles and page refreshes start nothing. Managed worker logs and durable conversations/instructions remain separate channels. Scratch sessions cannot attach to a gated developer/QA assignment or supply its review evidence.
 
 The backend uses an isolated, pinned `node-pty` host; the browser parser/renderer has zero production dependencies. Defaults admit one terminal, five minutes without operator input and thirty minutes total. Broker-wide resource/provider limits still apply. Restart retains metadata, not transcripts or live processes. See [startup, keyboard controls, security and tested support](docs/interactive-terminals.md). Feature #101's stack must be merged and matching services restarted before these controls appear in an older deployment.
