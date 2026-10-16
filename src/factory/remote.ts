@@ -473,7 +473,11 @@ export class GitHubDelivery implements DeliveryRemote {
       parsed.repository_url !== undefined &&
       parsed.repository_url.toLowerCase() !== `https://api.github.com/repos/${repository}`.toLowerCase()
     ) {
-      throw new MeshError('WRONG_PROJECT', `Issue #${String(issue)} does not belong to the connected repository.`);
+      await verifyRepositoryIdentity(
+        this.runner,
+        parsed.repository_url.replace(/^https:\/\/api\.github\.com\/repos\//v, 'https://github.com/'),
+        repository,
+      );
     }
     return { state: parsed.state, stateReason: parsed.state_reason ?? null };
   }

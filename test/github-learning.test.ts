@@ -708,6 +708,13 @@ await test('the issue-state read is limited to the connected repository issues e
       await delay(0);
       return response;
     }
+    if (args[0] === 'repo') {
+      await delay(0);
+      return {
+        id: args[2]?.includes('/other/') === true ? 'another-repository' : 'stable-repository',
+        nameWithOwner: 'example/app',
+      };
+    }
     return remote.run(args, input);
   };
   const adapter = new GitHubDelivery(config, github, runner);
@@ -718,6 +725,8 @@ await test('the issue-state read is limited to the connected repository issues e
   response = { state: 'closed', state_reason: 'not_planned' };
   assert.deepEqual(await adapter.issueState(8), { state: 'closed', stateReason: 'not_planned' });
   response = { state: 'open', state_reason: null, repository_url: repository };
+  assert.deepEqual(await adapter.issueState(9), { state: 'open', stateReason: null });
+  response = { state: 'open', repository_url: 'https://api.github.com/repos/renamed/app' };
   assert.deepEqual(await adapter.issueState(9), { state: 'open', stateReason: null });
   response = { state: 'open', pull_request: { url: `${repository}/pulls/10` } };
   await assert.rejects(adapter.issueState(10), { code: 'INVALID_INPUT' });
