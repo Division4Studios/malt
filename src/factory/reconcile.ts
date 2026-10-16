@@ -62,6 +62,8 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     approvals: [],
     implementation: null,
     stepResults: [],
+    hold: null,
+    archive: null,
     workflow: context.repository.features().find((feature) => feature.id === featureId)?.workflow,
     updatedAt: context.repository.store.now(),
   };

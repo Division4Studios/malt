@@ -4,9 +4,15 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
 import { consoleView } from '../src/factory/console-view.ts';
+import {
+  archiveDeliveries,
+  AUTO_ARCHIVE_MS,
+  holdDeliveries,
+  isClaimEligible,
+} from '../src/factory/delivery-controls.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { builtinWorkflows, workflowDigest, workflowSchema } from '../src/factory/workflows.ts';
 import { Store } from '../src/store.ts';
 
@@ -112,7 +118,7 @@ await test('the board places deliveries by what they need next and the Inbox lis
     ],
   });
   const blocked = delivery(repository, { phase: 'blocked', error: 'Tests fail on main' });
-  const shipped = delivery(repository, { phase: 'done', dependencies: [] });
+  const shipped = delivery(repository, { phase: 'done', dependencies: [], updatedAt: repository.store.now() });
   const dependent = delivery(repository, { dependencies: [ready.id] });
   queueObjective(repository, { objective: '# Billing: retry charges\n\nDetails', workflowId: 'full-assurance' });
 
@@ -154,4 +160,56 @@ await test('the board places deliveries by what they need next and the Inbox lis
       ['blocked_delivery', blocked.id, null, null],
     ],
   );
+});
+
+await test('held deliveries start no new attempts and finished ones leave the board', (t) => {
+  const repository = project(t);
+  const first = delivery(repository, {});
+  const second = delivery(repository, {});
+  const recent = delivery(repository, { phase: 'done', updatedAt: repository.store.now() });
+  const old = delivery(repository, { phase: 'done', updatedAt: repository.store.now() - AUTO_ARCHIVE_MS });
+
+  assert.deepEqual(holdDeliveries(repository, { all: true, hold: true, reason: 'Release freeze' }), {
+    changed: 2,
+    skipped: [],
+  });
+  const held = consoleView(repository).deliveries.find((card) => card.taskId === first.id);
+  assert.equal(held?.held?.reason, 'Release freeze');
+  const claim = jobSchema.parse({
+    id: randomUUID(),
+    role: 'developer-1',
+    provider: 'codex',
+    kind: 'develop',
+    taskId: first.id,
+    featureId: null,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: 2,
+    reservation: 1,
+    usageTokens: null,
+    pid: null,
+    head: null,
+    base: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(isClaimEligible(repository, claim), false, 'A hold also fences a claim scheduled before it.');
+  assert.equal(isClaimEligible(repository, { ...claim, taskId: second.id }), false);
+  assert.deepEqual(holdDeliveries(repository, { taskIds: [second.id, recent.id], hold: false }), {
+    changed: 1,
+    skipped: [{ taskId: recent.id, reason: 'Already finished.' }],
+  });
+  assert.throws(() => holdDeliveries(repository, { taskIds: [first.id], all: true, hold: true }), /exactly one/v);
+
+  const board = (): string[] => consoleView(repository).deliveries.map((card) => card.taskId);
+  assert.ok(board().includes(recent.id));
+  assert.ok(!board().includes(old.id), 'Finished deliveries archive themselves after a week.');
+  assert.equal(consoleView(repository).archived, 1);
+  archiveDeliveries(repository, { taskIds: [old.id], archive: false });
+  archiveDeliveries(repository, { taskIds: [recent.id], archive: true });
+  assert.ok(board().includes(old.id), 'Unarchiving keeps a delivery on the board.');
+  assert.ok(!board().includes(recent.id));
+  assert.equal(archiveDeliveries(repository, { taskIds: [first.id], archive: true }).skipped.length, 1);
 });

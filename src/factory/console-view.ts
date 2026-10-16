@@ -8,6 +8,7 @@
  * @file
  */
 
+import { isArchived } from './delivery-controls.ts';
 import {
   approvalSource,
   awaitingApproval,
@@ -113,6 +114,10 @@ export interface DeliveryView {
   readonly attempts: number;
   /** Blocker or last error. */
   readonly error: string | null;
+  /** Operator hold: no new attempt starts while set. */
+  readonly held: { readonly at: number; readonly reason: string } | null;
+  /** Whether the operator chose to keep it on the board after it finished. */
+  readonly isKept: boolean;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -181,6 +186,8 @@ export interface ConsoleView {
   readonly deliveries: readonly DeliveryView[];
   /** Objective cards while planning. */
   readonly objectives: readonly ObjectiveView[];
+  /** Finished deliveries archived off the board. */
+  readonly archived: number;
   /** Human decisions. */
   readonly inbox: { readonly open: readonly InboxItem[]; readonly answered: readonly AnsweredItem[] };
 }
@@ -351,6 +358,8 @@ function deliveryView(
     waitingOn,
     attempts: task.attempts,
     error: task.error,
+    held: task.hold,
+    isKept: task.archive?.state === 'kept',
     updatedAt: task.updatedAt,
   };
 }
@@ -573,7 +582,9 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const tasks = repository.tasks().filter((task) => task.scopeReplacement === undefined);
   const features = repository.features();
   const live = repository.jobs().filter((job) => job.state === 'running');
-  const done = tasks.filter((task) => task.phase === 'done').slice(-DONE_ON_BOARD);
+  const now = repository.store.now();
+  const archived = tasks.filter((task) => isArchived(task, now));
+  const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const planning = features.filter(
     (feature) => feature.scopeReplacement === undefined && PLANNING_PHASES.has(feature.phase),
@@ -581,6 +592,7 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   return {
     deliveries: shown.map((task) => deliveryView(task, { tasks, features, live })),
     objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
+    archived: archived.length,
     inbox: { open: openItems(repository, tasks, features), answered: answeredItems(tasks, features) },
   };
 }

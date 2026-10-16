@@ -8,6 +8,12 @@
 import { z } from 'zod/v3';
 
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import {
+  archiveMarkSchema,
+  DELIVERY_CONTROL_OPERATIONS,
+  deliveryControlSchemas,
+  holdSchema,
+} from './delivery-control-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -400,6 +406,10 @@ export const taskSchema = z.object({
   stepResults: z.array(stepResultSchema).default([]),
   /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
   workflow: frozenWorkflowSchema.optional(),
+  /** Operator hold: no new attempt starts while set. */
+  hold: holdSchema.nullable().default(null),
+  /** Operator archive choice; absent means finished deliveries archive automatically. */
+  archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -581,6 +591,7 @@ export const factorySchemas = {
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
   ...telemetrySchemas,
+  ...deliveryControlSchemas,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -608,4 +619,5 @@ export const FACTORY_OPERATIONS = [
   'factory_workflow_default',
   'factory_approve',
   ...TELEMETRY_OPERATIONS,
+  ...DELIVERY_CONTROL_OPERATIONS,
 ] as const;
