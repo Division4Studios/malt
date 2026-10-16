@@ -25,8 +25,19 @@ async function main(): Promise<void> {
   }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Descriptor is created inside the owning job's private artifact directory.
   const launch = ownedLaunchSchema.parse(JSON.parse(readFileSync(file, 'utf8')));
+  const checkpoint = (stage: string): void => {
+    if (!launch.interactive) {
+      return;
+    }
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed numeric/category-only startup metadata inside this owned process artifact directory.
+    writeFileSync(path.join(path.dirname(file), 'wrapper-status.json'), JSON.stringify({ stage, at: Date.now() }), {
+      mode: 0o600,
+    });
+  };
+  checkpoint('preparing-input');
   const cancellation = path.join(path.dirname(file), `cancel-${randomUUID()}`);
   const { descriptor: jobFile, pipe: inputPipe } = await prepareOwnedInput(file, launch);
+  checkpoint('input-ready');
   if (!hasOwner()) {
     await inputPipe?.close();
     throw new Error('Factory owner disconnected before native startup.');
@@ -39,6 +50,7 @@ async function main(): Promise<void> {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: ownedEnvironment(launch),
   });
+  checkpoint('native-spawn-requested');
   const completed = new Promise<void>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code: number | null) => {
