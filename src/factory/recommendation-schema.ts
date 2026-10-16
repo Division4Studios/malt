@@ -40,6 +40,7 @@ export const recommendationBodySchema = z
       }, 'Duplicate local objective observation.')
       .transform((items) => items.toSorted((a, b) => a.id.localeCompare(b.id)))
       .optional(),
+    originObjective: z.string().uuid().optional(),
     survivor: z.number().int().safe().positive().nullable(),
     transferredAcceptance: z.array(textSchema).max(RECOMMENDATION_ITEMS),
     transferredDependencies: z.array(z.number().int().safe().positive()).max(RECOMMENDATION_ITEMS),
@@ -50,6 +51,8 @@ export const recommendationBodySchema = z
   .refine(
     (body) => {
       return (
+        (body.originObjective === undefined ||
+          body.observedObjectives?.some((item) => item.id === body.originObjective) === true) &&
         (body.tickets.length > 0 ||
           (['related', 'scope_change'].includes(body.kind) && (body.observedObjectives?.length ?? 0) > 0)) &&
         (body.survivor === null || body.tickets.includes(body.survivor)) &&
