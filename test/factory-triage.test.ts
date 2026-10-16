@@ -461,6 +461,8 @@ await test('adoption rejects malformed commit input, other actions with a commit
   const base = { taskId: task.id, expectedVersion: task.version, note: 'Adopt' };
   const invalid: unknown[] = [
     { ...base, requestId: randomUUID(), action: 'adopt_merge' },
+    { ...base, requestId: randomUUID(), action: 'adopt_merge', mergeCommit: adopted, note: '' },
+    { ...base, requestId: randomUUID(), action: 'adopt_merge', mergeCommit: adopted, note: ' '.repeat(3) },
     { ...base, requestId: randomUUID(), action: 'verify', mergeCommit: adopted },
     { ...base, requestId: randomUUID(), action: 'acknowledge', mergeCommit: adopted },
   ];
@@ -497,6 +499,7 @@ await test('adoption is gated for recorded merges, completed or superseded scope
       expectedVersion,
       action: 'adopt_merge',
       mergeCommit: adopted,
+      note: 'Delivered externally; preserve the stage gate under test.',
     };
   };
   const merged = repository.editTask(task.id, (current) => ({ ...current, merge: 'c'.repeat(40) }));

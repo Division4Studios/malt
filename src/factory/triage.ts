@@ -95,6 +95,9 @@ export function decideTriage(
   if ((value.action === 'adopt_merge') !== (value.mergeCommit !== undefined)) {
     throw new MeshError('INVALID_INPUT', 'mergeCommit is required for adopt_merge and accepted by no other action.');
   }
+  if (value.action === 'adopt_merge' && value.note === '') {
+    throw new MeshError('INVALID_INPUT', 'Explain why this external merge delivers the issue before adoption.');
+  }
   if (actorId !== null && value.action === 'approve_size') {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may approve a publication size exception.');
   }
@@ -228,7 +231,7 @@ function adoptMerge(repository: FactoryRepository, input: Input): void {
     throw new MeshError('FACTORY_GATED', 'This delivery already records a merge. Use verify for its merged main.');
   }
   const commit = input.mergeCommit ?? '';
-  const note = input.note === '' ? 'Explicit triage decision.' : input.note;
+  const { note } = input;
   repository.editTask(task.id, (current) => {
     return {
       ...current,
