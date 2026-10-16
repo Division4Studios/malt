@@ -10,8 +10,10 @@
     <button type="submit">Validate draft</button>
   </form>
   <output id="result" aria-live="polite">PENDING</output>
+  <p id="editor-error"></p>
   <script type="module">
     import { mountModelPolicy } from '../../web/dist/model-policy-ui.js';
+    import { canFinishEdit } from '../../web/dist/worker-ui.js';
     const check = (condition, message) => {
       if (!condition) throw new Error(message);
     };
@@ -31,6 +33,12 @@
       defaults: [{ provider: 'codex', tier: 'small', entryId: 'small', effort: null }],
     };
     const read = mountModelPolicy(document.querySelector('#editor-body'), policy);
+    const oldEdit = {};
+    check(!canFinishEdit(oldEdit, {}, true), 'Late successful save cannot close a replacement editor');
+    check(document.querySelector('#editor-error').textContent === '', 'Replacement editor gets no unrelated failure');
+    check(!canFinishEdit(oldEdit, oldEdit, false), 'Failed current save retains draft');
+    check(document.querySelector('#editor-error').textContent.includes('Not saved'), 'Current failure is actionable');
+    document.querySelector('#editor-error').textContent = '';
     check(read().expectedRevision === 3 && read().policy.revision === 4, 'Exact revision retained');
     check(read().policy.entries[0].effortSupport === 'unknown', 'Unknown support honest');
     check(document.querySelectorAll('input[type=checkbox]:disabled').length === 3, 'Unknown effort not selectable');

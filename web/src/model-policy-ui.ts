@@ -180,6 +180,7 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
   const textarea = body;
   const panel = element('section', 'connection-fields');
   panel.dataset['editorFields'] = '';
+  panel.dataset['modelPolicy'] = '';
   const revision = typeof policy['revision'] === 'number' ? policy['revision'] : null;
   panel.append(
     element(

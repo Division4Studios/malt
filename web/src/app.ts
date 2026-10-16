@@ -49,6 +49,7 @@ import {
   persistRoles,
   shellNode as node,
   consoleNotice as notice,
+  canFinishEdit,
 } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
@@ -554,9 +555,7 @@ async function submitEdit(): Promise<void> {
     const { operation } = state.edit;
     const { edit } = state;
     const isApplied = await control(operation, input);
-    if (!isApplied || state.edit !== edit) {
-      node('editor-error', HTMLParagraphElement).textContent =
-        'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.';
+    if (!canFinishEdit(edit, state.edit, isApplied)) {
       return;
     }
     node('editor', HTMLDialogElement).close();
