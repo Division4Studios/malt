@@ -4,6 +4,8 @@
 param([Parameter(Mandatory=$true)][string]$Descriptor, [string]$CancelFile = '')
 $ErrorActionPreference = 'Stop'
 $launch = Get-Content -LiteralPath $Descriptor -Raw | ConvertFrom-Json
+$startup = Join-Path (Split-Path -LiteralPath $Descriptor) 'job-status.json'
+[System.IO.File]::WriteAllText($startup, '{"stage":"compiling-helper"}')
 Add-Type -TypeDefinition @'
 using System;
 using System.Text;
@@ -33,6 +35,10 @@ public static class MltWindowsJob {
   [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job,uint code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
   static void Check(bool success) { if(!success) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()); }
+  static void Stage(string telemetry,string stage) {
+    string file=Path.Combine(Path.GetDirectoryName(telemetry),"job-status.json");
+    try { File.WriteAllText(file,"{\"stage\":\""+stage+"\"}"); } catch(IOException) {} catch(UnauthorizedAccessException) {}
+  }
   static string Quote(string arg) {
     var result = new StringBuilder("\""); int slashes=0;
     foreach(char c in arg) { if(c=='\\') { slashes++; continue; } if(c=='\"') result.Append('\\',slashes*2+1); else result.Append('\\',slashes); result.Append(c); slashes=0; }
@@ -91,9 +97,11 @@ public static class MltWindowsJob {
       var si=new StartupInfo { cb=(uint)Marshal.SizeOf(typeof(StartupInfo)), dwFlags=0x100, hStdInput=GetStdHandle(-10), hStdOutput=GetStdHandle(-11), hStdError=GetStdHandle(-12) };
       if(cancel.Length>0 && File.Exists(cancel)) return 1;
       var command=new StringBuilder(Quote(file)); foreach(string arg in args) command.Append(' ').Append(Quote(arg));
+      Stage(telemetry,"creating-host");
       Check(CreateProcess(null,command,IntPtr.Zero,IntPtr.Zero,true,0x08000004,IntPtr.Zero,cwd,ref si,out pi));
       try { Check(AssignProcessToJobObject(job,pi.hProcess)); } catch { TerminateProcess(pi.hProcess,1); throw; }
       ResumeThread(pi.hThread);
+      Stage(telemetry,"host-resumed");
       Sample(job,telemetry);
       long nextSample=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()+2000;
       while(WaitForSingleObject(pi.hProcess,100)==258) {
@@ -107,4 +115,5 @@ public static class MltWindowsJob {
 }
 '@
 $telemetry = Join-Path (Split-Path -LiteralPath $Descriptor) 'resources.json'
+[System.IO.File]::WriteAllText($startup, '{"stage":"entering-native-job"}')
 exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile)
