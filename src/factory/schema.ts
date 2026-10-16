@@ -7,6 +7,7 @@
 
 import { z } from 'zod/v3';
 
+import { cloudPolicySchema } from './cloud-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -268,6 +269,8 @@ export const factoryConfigSchema = z
       })
       .default({}),
     terminals: terminalPolicySchema.default({}),
+    /** Developer assignments routed to Codex Cloud on the operator's subscription. */
+    cloud: cloudPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
@@ -572,6 +575,20 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_local: z
+    .object({
+      action: z.enum(['summary', 'issue', 'pull', 'create_issue', 'set_status', 'comment', 'sync']),
+      number: z.number().int().positive().optional(),
+      requestId: keySchema.optional(),
+      kind: z.enum(['feature', 'delivery']).optional(),
+      title: z.string().min(1).max(TITLE_MAX).optional(),
+      description: textSchema.optional(),
+      acceptanceCriteria: z.array(textSchema).max(PLAN_MAX).optional(),
+      parent: z.number().int().positive().optional(),
+      status: z.string().min(1).max(TITLE_MAX).optional(),
+      body: textSchema.optional(),
+    })
+    .strict(),
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -595,6 +612,7 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_local',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {

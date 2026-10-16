@@ -15,12 +15,9 @@ import { MeshError } from '../protocol.ts';
 
 import { LocalHub } from './local-hub.ts';
 import { LocalTracker } from './local-tracker.ts';
-import { GitHubDelivery } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
-import { factoryConfigSchema } from './schema.ts';
 
 import type { MeshConfig } from '../config.ts';
-import type { ProjectGitHub } from '../github.ts';
 import type { HubGit } from './local-hub.ts';
 import type { LocalPull } from './local-tracker.ts';
 import type { DeliveryRemote, PullRequest } from './remote.ts';
@@ -54,7 +51,7 @@ export function localUrl(kind: 'issues' | 'pulls', number: number): string {
  * @param criteria - Acceptance criteria.
  * @returns Markdown body.
  */
-function body(description: string, criteria: readonly string[]): string {
+export function issueBody(description: string, criteria: readonly string[]): string {
   const checklist = criteria.map((criterion) => `- [ ] ${criterion}`).join('\n');
   return `${description}\n\nAcceptance criteria:\n${checklist}`;
 }
@@ -126,7 +123,7 @@ export class LocalDelivery implements DeliveryRemote {
         requestId: `delivery-${identity.slice(0, REQUEST_HASH_LENGTH)}`,
         kind: 'delivery',
         title: delivery.title,
-        body: body(delivery.description, delivery.acceptanceCriteria),
+        body: issueBody(delivery.description, delivery.acceptanceCriteria),
         acceptanceCriteria: delivery.acceptanceCriteria,
         parent: parent.number,
       });
@@ -160,7 +157,7 @@ export class LocalDelivery implements DeliveryRemote {
     const created = await this.tracker.openPull({
       issue: task.issue,
       title: task.title,
-      body: `Delivery for #${String(task.issue)}; parent #${String(task.parentIssue)}.\n\n${body(task.description, task.acceptanceCriteria)}`,
+      body: `Delivery for #${String(task.issue)}; parent #${String(task.parentIssue)}.\n\n${issueBody(task.description, task.acceptanceCriteria)}`,
       head: task.branch,
       base: config.baseBranch,
     });
@@ -337,32 +334,4 @@ export class LocalDelivery implements DeliveryRemote {
       statusCheckRollup: evidence.checks,
     };
   }
-}
-
-/**
- * Select the configured delivery boundary for a project.
- *
- * @param mesh - Target project.
- * @param settings - Factory policy.
- * @param github - Existing project GitHub integration, used only in GitHub mode.
- * @returns The local hub adapter or the GitHub adapter.
- */
-export function deliveryFor(mesh: MeshConfig, settings: FactoryConfig, github: ProjectGitHub): DeliveryRemote {
-  return settings.delivery === 'local' ? new LocalDelivery(mesh, settings) : new GitHubDelivery(mesh, github);
-}
-
-/**
- * Create and protect the local hub before policy is saved.
- *
- * @param mesh - Target project.
- * @param input - Policy being applied.
- * @param isInjected - Tests supplied their own delivery boundary.
- */
-export async function prepareDelivery(mesh: MeshConfig, input: unknown, isInjected: boolean): Promise<void> {
-  const settings = factoryConfigSchema.parse(input);
-  if (isInjected || settings.delivery !== 'local') {
-    return;
-  }
-  const delivery = new LocalDelivery(mesh, settings);
-  await delivery.hub.initialize(mesh.root, settings.remote);
 }
