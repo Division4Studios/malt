@@ -1,4 +1,5 @@
 /** @file Subscription-first native capacity panel, with explicit unknown observations. */
+import { appendAdmission } from './admission-ui.js';
 import { child, numericText, records, text, resourceSummary } from './api.js';
 import { appendQuotaWindows, appendProcessUsage, quotaUsage } from './capacity-details.js';
 import { element } from './worker-ui.js';
@@ -82,5 +83,6 @@ export function capacityView(state: Snapshot): HTMLElement {
     ),
   );
   appendProcessUsage(body, state.factory);
+  appendAdmission(body, state.factory);
   return body;
 }
