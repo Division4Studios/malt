@@ -7,6 +7,7 @@
   <pre id="result">PENDING</pre>
   <script type="module">
     import { fillProcessUsage, refreshCapacitySamples, stableFactory } from '../../web/dist/capacity-details.js';
+    import { appendAdmission } from '../../web/dist/admission-ui.js';
     const check = (condition, message) => {
       if (!condition) throw new Error(message);
     };
@@ -32,20 +33,38 @@
       const samples = document.createElement('div');
       samples.dataset.processUsage = 'true';
       fillProcessUsage(samples, factory);
-      target.replaceChildren(editor, scroll, samples);
+      const admission = document.createElement('div');
+      appendAdmission(admission, factory);
+      target.replaceChildren(editor, scroll, samples, admission);
     };
     const factory = (cpu, cap = 2) => ({
       resources: { cpuPercent: cpu },
       processUsage: [
         { role: '<img src=x onerror=alert(1)>', sample: { processes: [{ pid: 7, memoryMb: 90, cpuPercent: cpu }] } },
       ],
-      admission: { sample: { observedAt: cpu }, limits: { maxActiveJobs: cap }, blocker: 'none' },
+      features: [
+        { id: 'a', objective: '<img src=x>' },
+        { id: 'b', objective: 'Second objective' },
+      ],
+      admission: {
+        sample: { observedAt: Date.now(), cpuPercent: cpu },
+        limits: { maxActiveJobs: cap },
+        blocker: 'job_cap',
+        brokerReservations: 3,
+        running: [
+          { role: 'developer-1', kind: 'develop', state: 'running', featureId: 'a' },
+          { role: 'product-owner', kind: 'plan', state: 'running', featureId: 'b' },
+        ],
+      },
     });
     try {
       render(factory(10));
       const editor = target.querySelector('details');
       const input = target.querySelector('textarea');
       const scroll = target.children[1];
+      const admission = target.querySelector('[data-admission-sample]');
+      const gate = target.querySelectorAll('details')[1];
+      gate.open = true;
       input.value = 'Preserve this pending instruction';
       input.focus();
       scroll.scrollTop = 200;
@@ -55,10 +74,24 @@
       check(input.value === 'Preserve this pending instruction' && editor.open, 'editor state survives');
       check(scroll.scrollTop === 200, 'sample-only update preserves scroll');
       check(
+        target.querySelector('[data-admission-sample]') === admission && gate.open,
+        'admission updates preserve expanded evidence',
+      );
+      check(admission.textContent.includes('CPU 90%'), 'admission sample refreshes in place');
+      check(
         target.querySelector('[data-process-usage]').textContent.includes('90.0%'),
         'latest process sample renders',
       );
       check(target.querySelector('img') === null, 'hostile role stays literal text');
+      check(
+        target.textContent.includes('developer-1') && target.textContent.includes('Second objective'),
+        'distinct overlapping objectives',
+      );
+      check(
+        target.textContent.includes('Other broker pipelines/reservations: 1') &&
+          target.textContent.includes('Job cap reached'),
+        'anonymous count and parked cause',
+      );
       render(factory(90, 3));
       check(target.querySelector('textarea') !== input, 'changed admission limit invalidates content');
       document.querySelector('#result').textContent =

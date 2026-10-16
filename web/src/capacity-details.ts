@@ -3,6 +3,7 @@
  *
  * @file
  */
+import { admissionSample } from './admission-ui.js';
 import { child, number, records, text, firstText, resourceSummary } from './api.js';
 import { element } from './worker-ui.js';
 
@@ -187,6 +188,10 @@ export function appendProcessUsage(target: HTMLElement, factory: Data): void {
  * @param factory - Latest project-scoped snapshot.
  */
 export function refreshCapacitySamples(factory: Data): void {
+  const admission = document.querySelector('[data-admission-sample]');
+  if (admission !== null) {
+    admission.textContent = admissionSample(factory);
+  }
   const resources = document.querySelector('[data-resource-machine]');
   if (resources !== null) {
     resources.textContent = resourceSummary(factory);
