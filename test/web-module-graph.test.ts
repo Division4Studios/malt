@@ -21,7 +21,7 @@ await test('actual console HTTP serves the full app module graph and caches its 
   const worker = await fetch(`${web.url}/sw.js`);
   assert.equal(worker.status, 200);
   const shell = await worker.text();
-  const build = await readFile(new URL('../scripts/build-shell.ts', import.meta.url), 'utf8');
+  const build = await readFile('scripts/build-shell.ts', 'utf8');
   const pending = ['/app.js'];
   const seen = new Set<string>();
   while (pending.length > 0) {
@@ -41,8 +41,8 @@ await test('actual console HTTP serves the full app module graph and caches its 
     );
     assert.ok(build.includes(`'dist${module}'`), `${module} contributes to the reproducible shell fingerprint`);
     const source = await response.text();
-    for (const match of source.matchAll(/\b(?:from\s*|import\s*)['"]\.\/([a-z\-]+\.js)['"]/gv)) {
-      const name = match[1];
+    for (const match of source.matchAll(/\b(?:from\s*|import\s*)["']\.\/(?<module>[\-a-z]+\.js)["']/gv)) {
+      const name = match.groups?.['module'];
       assert.ok(name !== undefined);
       pending.push(`/${name}`);
     }
