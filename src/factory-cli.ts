@@ -30,6 +30,7 @@ export const FACTORY_COMMANDS = [
   'factory-instruct',
   'factory-cancel-job',
   'factory-capacity',
+  'factory-reconcile-github',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -51,6 +52,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-instruct': 'factory_instruct',
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
+  'factory-reconcile-github': 'factory_reconcile_github',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([
@@ -83,14 +85,14 @@ export function isFactoryCommand(value: string): value is FactoryCommand {
  *
  * @param command - Validated command.
  * @param config - Target workspace.
- * @param options - Optional structured file and product objective.
+ * @param options - Optional structured file, product objective and explicit reconciliation apply.
  * @returns JSON result, or undefined for an interactive dashboard.
  * @throws {Error} When input options are missing.
  */
 export async function runFactoryCommand(
   command: FactoryCommand,
   config: MeshConfig,
-  options: { file?: string | undefined; body?: string | undefined },
+  options: { file?: string | undefined; body?: string | undefined; apply?: boolean | undefined },
 ): Promise<unknown> {
   if (command === 'dashboard') {
     const { runDashboard } = await import('./dashboard.ts');
@@ -112,6 +114,8 @@ export async function runFactoryCommand(
       throw new Error('--body must describe the product objective.');
     }
     input = { objective: options.body };
+  } else if (command === 'factory-reconcile-github') {
+    input = { apply: options.apply === true };
   }
   return rpc(config, operation, input);
 }
