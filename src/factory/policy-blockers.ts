@@ -14,6 +14,8 @@ const gateSchema = z.object({
   reason: z.string(),
   taskId: z.string().nullable(),
   featureId: z.string().nullable(),
+  taskVersion: z.number().int().nullable(),
+  featureUpdatedAt: z.number().nullable(),
 });
 
 /**
@@ -25,11 +27,15 @@ const gateSchema = z.object({
  */
 export function recordPolicyBlocker(context: FactoryContext, reason: string, intent?: JobIntent): void {
   const { repository } = context;
+  const task = intent?.taskId === undefined || intent.taskId === null ? null : repository.task(intent.taskId);
+  const feature = repository.features().find((item) => item.id === intent?.featureId);
   const gate = {
     revision: context.settings.modelPolicy?.revision,
     reason,
     taskId: intent?.taskId ?? null,
     featureId: intent?.featureId ?? null,
+    taskVersion: task?.version ?? null,
+    featureUpdatedAt: task === null ? (feature?.updatedAt ?? null) : null,
   };
   const value = JSON.stringify(gate);
   repository.store.transaction(() => {
@@ -48,14 +54,7 @@ export function recordPolicyBlocker(context: FactoryContext, reason: string, int
       KEY,
       value,
     );
-    if (intent?.taskId !== undefined && intent.taskId !== null) {
-      repository.editTask(intent.taskId, (task) => ({ ...task, phase: 'blocked', error: reason }));
-    } else if (intent?.featureId !== undefined && intent.featureId !== null) {
-      const feature = repository.features().find((item) => item.id === intent.featureId);
-      if (feature !== undefined) {
-        repository.saveFeature({ ...feature, phase: 'blocked', error: reason, updatedAt: repository.store.now() });
-      }
-    }
+    // Policy eligibility is separate from delivery state: retain exact review/triage evidence.
     repository.store.event('FACTORY_MODEL_POLICY_BLOCKED', null, gate);
     repository.notify(reason);
   });
@@ -81,16 +80,28 @@ export function policyBlocker(repository: FactoryRepository): string | null {
   if (!gate.success || gate.data.revision !== repository.config()?.modelPolicy?.revision) {
     return null;
   }
-  const { reason, taskId, featureId } = gate.data;
+  const { reason, taskId, featureId, taskVersion, featureUpdatedAt } = gate.data;
   if (taskId !== null) {
-    return repository.tasks().some((task) => task.id === taskId && task.phase === 'blocked' && task.error === reason)
+    return repository.tasks().some((task) => {
+      return (
+        task.id === taskId &&
+        task.version === taskVersion &&
+        task.phase !== 'done' &&
+        task.scopeReplacement === undefined
+      );
+    })
       ? reason
       : null;
   }
   if (featureId !== null) {
-    return repository
-      .features()
-      .some((feature) => feature.id === featureId && feature.phase === 'blocked' && feature.error === reason)
+    return repository.features().some((feature) => {
+      return (
+        feature.id === featureId &&
+        feature.updatedAt === featureUpdatedAt &&
+        feature.phase !== 'done' &&
+        feature.scopeReplacement === undefined
+      );
+    })
       ? reason
       : null;
   }

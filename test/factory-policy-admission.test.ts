@@ -8,7 +8,7 @@ import { AdmissionPool, brokerAdmission } from '../src/factory/admission.ts';
 import { admittedAssignment } from '../src/factory/dispatch-admission.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { policyBlocker } from '../src/factory/policy-blockers.ts';
-import { retryBlocked } from '../src/factory/recovery.ts';
+import { deliveryTask } from '../src/factory/reconcile.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
@@ -110,7 +110,7 @@ await test('inadequate choices park durably once without claims, paid retries or
   assert.equal(admittedAssignment(context, sample, pool, request), null);
   const blocked = context.repository.features()[0];
   assert.ok(blocked !== undefined);
-  assert.equal(blocked.phase, 'blocked');
+  assert.equal(blocked.phase, 'queued', 'A policy gate cannot overwrite the delivery workflow.');
   assert.match(policyBlocker(context.repository) ?? '', /codex: no allowed standard/v);
   const events = context.repository.store.db
     .prepare("SELECT count(*) AS count FROM events WHERE type='FACTORY_MODEL_POLICY_BLOCKED'")
@@ -129,7 +129,6 @@ await test('inadequate choices park durably once without claims, paid retries or
   assert.equal(context.repository.capacity('codex', config).reservedTokens, 0);
   const changed = factoryConfigSchema.parse({ ...settings, modelPolicy: { ...settings.modelPolicy, revision: 2 } });
   context.repository.configure(changed);
-  retryBlocked(context.repository, { featureId: queued.featureId });
   assert.equal(
     admittedAssignment(context, sample, pool, request),
     null,
@@ -140,6 +139,57 @@ await test('inadequate choices park durably once without claims, paid retries or
     admittedAssignment({ ...context, settings: changed }, sample, pool, request)?.routing.selection?.policyRevision,
     2,
   );
+});
+
+await test('policy gates preserve review, final verification and triage revisions and reappear after a retry', (t) => {
+  const config = factoryConfigSchema.parse({
+    ...settings,
+    providers: { ...settings.providers, claude: { ...settings.providers.claude, enabled: false } },
+  });
+  const context = contextFor(t, config);
+  const task = deliveryTask(
+    context,
+    {
+      issue: 2,
+      parentIssue: 1,
+      title: 'Retain exact-source review',
+      description: 'Do not restart implementation.',
+      acceptanceCriteria: ['Retained gates survive policy failure.'],
+    },
+    null,
+  );
+  context.repository.addTask(task);
+  for (const [phase, kind, role] of [
+    ['review', 'review', 'qa-1'],
+    ['verifying', 'verify', 'final-tester'],
+    ['blocked', 'triage', 'team-lead'],
+  ] as const) {
+    context.repository.editTask(task.id, (current) => {
+      return {
+        ...current,
+        phase,
+        error: 'Original blocker retained.',
+        finalReview: { head: 'head', base: 'base', jobId: task.id, summary: 'Prior independent integration evidence.' },
+      };
+    });
+    const before = context.repository.task(task.id);
+    const request = { ...intent, taskId: task.id, kind, role };
+    assert.equal(admittedAssignment(context, sample, new AdmissionPool(), request), null);
+    assert.deepEqual(
+      context.repository.task(task.id),
+      before,
+      'Policy checks cannot invalidate approval/triage versions.',
+    );
+    assert.match(policyBlocker(context.repository) ?? '', /Model policy revision/v);
+    context.repository.editTask(task.id, (current) => ({ ...current, error: 'Operator retry / changed evidence.' }));
+    assert.equal(policyBlocker(context.repository), null, 'An old scope revision is no longer current.');
+    assert.equal(admittedAssignment(context, sample, new AdmissionPool(), request), null);
+    assert.match(
+      policyBlocker(context.repository) ?? '',
+      /Model policy revision/v,
+      'Unresolved admission stays actionable.',
+    );
+  }
 });
 
 await test('actual supervisor persists frozen policy before inference and revalidates a fresh session after pause', async (t) => {
