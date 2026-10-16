@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { terminalPage, terminalViews } from '../web/src/terminal-contract.ts';
+import { hasTerminalEnded, terminalPage, terminalViews } from '../web/src/terminal-contract.ts';
 import { TerminalEventDecoder, TerminalStream } from '../web/src/terminal-stream.ts';
 
 /** Public fixture identity carries no native process capability. */
@@ -66,6 +66,18 @@ await test('browser replay rejects wrong scopes, skipped/duplicate cursors and e
   );
   const gap = { ...page, output: [{ type: 'truncated', sequence: 1 }, ...page.output] };
   assert.equal(terminalPage(gap, { id, after: 0 }).output.length, 2);
+  for (const after of [0, 1]) {
+    const sequence = after + 2;
+    const skipped = { ...page, output: [{ type: 'data', sequence, text: 'lost prefix' }], nextCursor: sequence };
+    assert.throws(() => terminalPage(skipped, { id, after }), /cursor/v);
+    assert.equal(
+      terminalPage({ ...skipped, output: [{ type: 'truncated', sequence }, ...skipped.output] }, { id, after })
+        .nextCursor,
+      sequence,
+    );
+  }
+  assert.equal(hasTerminalEnded(terminalPage(page, { id, after: 0 })), false);
+  assert.equal(hasTerminalEnded(terminalPage({ ...page, output: [], nextCursor: 1 }, { id, after: 1 })), true);
 });
 
 await test('one browser stream waits for each applied page and never creates duplicate fetch loops', async (t) => {
@@ -83,6 +95,8 @@ await test('one browser stream waits for each applied page and never creates dup
       start(controller) {
         controller.enqueue(event(1));
         controller.enqueue(event(2));
+        const drained = { session, output: [], nextCursor: 2, unavailable: false };
+        controller.enqueue(encoder.encode(`id: 2\nevent: terminal\ndata: ${JSON.stringify(drained)}\n\n`));
         controller.close();
       },
     });
@@ -111,7 +125,7 @@ await test('one browser stream waits for each applied page and never creates dup
   blocked.resolve(undefined);
   await Promise.all([first, second]);
   assert.equal(fetches, 1);
-  assert.deepEqual(applied, [1, 2]);
+  assert.deepEqual(applied, [1, 2, 2]);
   assert.equal(states.at(-1), 'ended');
   stream.close();
 });
