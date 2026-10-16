@@ -29,4 +29,6 @@ These practices draw on [GitHub Cheat Sheet](https://github.com/tiimgreen/github
 
 Human-facing Markdown-only changes use trusted-base classification, formatting/security and explicit successful platform/Docker fast paths. Executable changes, agent instructions, skills, prompts or uncertain classification run full checks. Required check names remain present; Quality gate and Security gate are required alongside platform/Docker and the separate CodeQL rule.
 
+Do not add runtime npm packages. The backend keeps exactly three (Zod, the MCP SDK and node-pty), each for one contained role, and the Security gate rejects runtime packages outside the MIT-compatible license allowlist. See the [dependency policy](https://github.com/Division4Studios/malt/blob/main/docs/dependency-policy.md) for why they stay and how they are locked down.
+
 Keep [current status](Current-status), source guides and wiki mirrors consistent. Mark acceptance only with supporting evidence, link the implementing PR and preserve historical/partial scope notes. A passing model fixture is not a live-provider, real-terminal or installed-PWA certification.
