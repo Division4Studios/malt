@@ -23,6 +23,17 @@ import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
 
 /**
+ * Read dispatch authority afresh after an asynchronous external observation.
+ *
+ * @param repository - Current project ledger.
+ * @param isStopped - Current supervisor shutdown state.
+ * @returns Whether the supervisor may claim another assignment.
+ */
+export function canDispatch(repository: FactoryRepository, isStopped: boolean): boolean {
+  return !isStopped && repository.active();
+}
+
+/**
  * Persist verified project policy without starting any agent.
  *
  * @param mesh - Selected project.

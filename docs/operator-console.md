@@ -227,6 +227,12 @@ The editor explains each action before submission. Decisions use a stable reques
 
 The supervisor inspects parked PRs before another implementation turn. An external merge becomes a traceable verification decision rather than repeated empty-diff development; a changed head invalidates stale approvals. One automatic lead investigation is queued per blocked revision, and completion or failure parks that diagnosis without repeatedly spending turns on the same revision. Existing published PR repairs are offered before fresh development when objective priorities are equal. Operator objective priority/focus remains explicit authority.
 
+### Closed issues are not developed
+
+Immediately before a developer assignment is claimed, the supervisor reads the delivery's GitHub issue state (`state` and `state_reason` only, from the connected repository's issues endpoint; a pull request number or another repository is rejected). This covers ready deliveries and development-phase rework such as "Main advanced before PR submission", and costs no model turn. Only deliveries that would otherwise be dispatched in that pass are read.
+
+If the issue is **closed**, the delivery moves to Blocked and no developer process starts. The blocker names the issue, that it is closed and its `state_reason` (`completed` or `not_planned`). Head, base, branch, worktree and uncommitted edits are preserved; the factory never closes, reopens or completes the issue itself. Recover by adopting the merge that delivered the work, or by reopening or re-scoping the issue and then using the normal dispatcher decisions. If the read fails or returns an unrecognized response, nothing launches, the delivery's phase and error are unchanged, the supervisor reports a bounded "Waiting to confirm issue #N is open" problem and retries after the next reconcile interval. An operator edit made during the read is never overwritten; the next pass decides on the current revision. Open issues dispatch exactly as before.
+
 CLI equivalent: `node src/cli.ts factory-triage --file decision.json`. Read current task IDs/versions from `factory-status`. A decision contains `requestId`, `taskId`, `expectedVersion`, `action` (one of the table's validated operation names: `acknowledge`, `investigate`, `repair`, `review`, `verify`, `wait`) and `note`. Decisions are not queued offline and never imply acceptance, protected review or a merge.
 
 ## Recover a stopped objective
