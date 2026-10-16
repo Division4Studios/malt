@@ -51,6 +51,8 @@ See the official [Codex CLI contract](https://learn.chatgpt.com/docs/developer-c
 
 The combined `--with-broker` lifetime is required for native terminal controls. When switching from separate services, stop both the existing broker for this store and the UI occupying port 4318 before starting it. A separate UI still supports factory/log views but has no terminal capability. Docker already colocates these services.
 
+Opening a selected workspace creates its durable project state and uses the existing bounded two-minute project-operation deadline on client and broker. Ordinary RPC retains its five-second client deadline; request-body/header security limits are unchanged. Slow Windows storage must not turn a successfully created workspace into an ordinary-RPC timeout.
+
 ## Ownership, limits and recovery
 
 The backend's `terminals` policy is separate from subscription quota:
@@ -66,6 +68,8 @@ These are fields of the existing factory policy, not a second configuration file
 Every terminal reserves the actual broker-wide admission pool alongside managed jobs and respects provider concurrency/cooldown and sampled CPU/free-memory pressure. Windows Job Objects apply configured aggregate memory/CPU/process ceilings (`resources.jobProcessLimit`, default 32, includes host, ConPTY, CLI and tools). A lower configured ceiling may make native startup impossible; the error does not grant extra capacity. POSIX process groups provide owned cleanup, not hard CPU/memory ceilings. A descendant that deliberately creates another session can escape POSIX groups; container ceilings are additional containment, not a claim that native groups are cgroups.
 
 Each start fetches/resolves the configured remote base into a new private worktree and `malt/terminal/<uuid>` branch. It never falls back to stale local main or pushes the scratch branch. At most three scratch worktrees are retained. Dirty/newer work is preserved; clean retained history is archived before safe pruning. If only dirty trees remain at the cap, startup refuses with a useful reason.
+
+Publication requires exact delivery-scoped receipts for new supervisor-created commits, anchored at the actual fetched main or a previously validated durable publication checkpoint. A terminal checkout cannot taint legitimate managed source, and reset/rebase/reflog expiry cannot grant an operator commit a receipt. Developers leave edits uncommitted for the supervisor, as required by their lifecycle skill. Unknown commits fail closed with their branch/edits preserved for the original developer; a receipt-write failure likewise prevents publication. More than 256 new commits requires bounded-history review. The local `refs/malt/delivery/` receipts retain source history and are not pushed by MALT; keep them with safe local backups rather than publishing a repository mirror. These receipts establish source ownership, never replace validation, QA or merge gates.
 
 Close, idle/absolute timeout, pause, resource pressure, broker shutdown and loss of the owned wrapper terminate the relevant tree. Windows starts the host suspended, assigns it to a kill-on-close Job and resumes it; a private OS-lifetime pipe lets the Job owner detect even a wrapper crash. POSIX cleanup addresses both the host group and the CLI's separate PTY group, escalating TERM to KILL. MALT never blanket-kills PowerShell, Node or provider processes.
 

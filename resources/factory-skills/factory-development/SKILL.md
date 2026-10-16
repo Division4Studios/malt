@@ -11,7 +11,7 @@ On a failure reproduce it, isolate the cause, reduce the case, fix the cause, ad
 
 QA returns findings to the original developer. Read every blocking finding and provide a concise disposition with evidence; optional nits do not expand scope automatically. Only developers change the implementation. Refresh current main before publication; resolve retained conflicts and rerun affected checks. Changed head/base requires fresh independent approval.
 
-The supervisor commits, bounds the diff, pushes and creates/reuses the PR after validation. Do not publish, merge, close issues or start extra processes yourself. Return a concise tested handoff and exit. Cancellation leaves unfinished work available for the next bounded session.
+Leave implementation edits uncommitted: the supervisor creates delivery-scoped source receipts when it commits and refreshes main. A manually created or imported commit is not supervisor-owned proof. Preserve unexpected history and report it rather than rewriting source to evade a gate. The supervisor bounds the diff, pushes and creates/reuses the PR after validation. Do not publish, merge, close issues or start extra processes yourself. Return a concise tested handoff and exit. Cancellation leaves unfinished work available for the next bounded session.
 
 ## Ticket progress
 
