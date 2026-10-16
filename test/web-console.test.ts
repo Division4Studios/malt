@@ -458,7 +458,8 @@ async function pairBrowser(url: string, code: string): Promise<Record<string, st
     body: JSON.stringify({ code }),
   });
   assert.equal(pair.status, 200);
-  return { Origin: url, Cookie: (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '' };
+  // Same-process synchronous SQLite/README fixture writes may outlast pooled socket idle deadlines on CI.
+  return { Origin: url, Cookie: (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '', Connection: 'close' };
 }
 
 /**
