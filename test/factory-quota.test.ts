@@ -341,13 +341,14 @@ await test('Claude window validation excludes credits, expired and malformed tel
       ['legacy-reported', null, 10],
     ],
   );
-  const manyWindows = Array.from({ length: 20 }, (_, index): [string, { utilization: number; resetsAt: number }] => {
-    return [`window_${String(index)}`, { utilization: 0.5, resetsAt: 50 }];
-  });
+  const manyWindows: Record<string, { utilization: number; resetsAt: number }> = {};
+  for (let index = 0; index < 20; index += 1) {
+    manyWindows[`window_${String(index)}`] = { utilization: 0.5, resetsAt: 50 };
+  }
   assert.equal(
     claudeWindows(
       {
-        unifiedWindows: Object.fromEntries(manyWindows),
+        unifiedWindows: manyWindows,
         utilization: 0.2,
       },
       1000,
