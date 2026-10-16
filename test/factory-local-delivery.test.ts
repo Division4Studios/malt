@@ -1,7 +1,7 @@
 /**
- * GitHub-free delivery: the real local hub protects its base branch, fences
- * merges by expected base and recovers interrupted merges, and the local ledger
- * validates and serializes its writes. Git is real.
+ * GitHub-free delivery: the real local hub and ledger carry a complete factory
+ * loop, with protected-base enforcement, exact-head fencing and crash-safe merges.
+ * Inference is a fixture; Git, checks and the hub are real.
  *
  * @file
  */
@@ -11,11 +11,48 @@ import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { loadConfig } from '../src/config.ts';
 import { command } from '../src/factory/commands.ts';
+import { LocalDelivery, MERGEABLE_CHECK } from '../src/factory/local-delivery.ts';
 import { LocalHub } from '../src/factory/local-hub.ts';
 import { LocalTracker, parseLedger } from '../src/factory/local-tracker.ts';
+import { factoryConfigSchema } from '../src/factory/schema.ts';
+import { FactoryService } from '../src/factory/service.ts';
+import { ProjectGitHub } from '../src/github.ts';
+import { ProjectLearning } from '../src/learning.ts';
+import { Store } from '../src/store.ts';
+
+import type { AgentCompletion, AgentRequest } from '../src/factory/providers.ts';
+import type { AgentResult } from '../src/factory/schema.ts';
+
+/** Valid structured output from fixture roles. */
+const success: AgentResult = {
+  outcome: 'success',
+  summary: 'Acceptance and role checks verified.',
+  findings: [],
+  deliveries: [],
+  skillActions: [],
+  instructionReceipts: [],
+};
+
+/**
+ * Wrap a fixture result as a provider completion.
+ *
+ * @param result - Role result.
+ * @returns Completion without paid inference.
+ */
+function completion(result: AgentResult): AgentCompletion {
+  return {
+    result,
+    usageTokens: 10,
+    cooldownUntil: 0,
+    subscriptionUsedPercent: null,
+    subscriptionResetAt: null,
+    process: { exitCode: 0, stdout: '', stderr: '', interrupted: false },
+  };
+}
 
 /**
  * Create a repository with one committed baseline and no remote at all.
@@ -44,22 +81,28 @@ async function repository(prefix: string): Promise<string> {
 await test('local hub protects its base, fences merges by expected base and recovers interrupted merges', async () => {
   const source = await repository('malt-hub-');
   const mesh = loadConfig(source, { create: true });
-  const hub = new LocalHub(path.join(mesh.directory, 'local'), 'main');
-  assert.equal(await hub.initialize(source, 'malt-hub'), true);
-  assert.equal(await hub.initialize(source, 'malt-hub'), false, 'Repeated setup reuses the hub.');
-  await hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true);
-  await assert.rejects(hub.verify(source, true), { code: 'WRONG_PROJECT' });
+  const settings = factoryConfigSchema.parse({
+    delivery: 'local',
+    remote: 'malt-hub',
+    testCommands: [{ file: 'node' }],
+    endToEndCommands: [{ file: 'node' }],
+  });
+  const delivery = new LocalDelivery(mesh, settings);
+  assert.equal(await delivery.hub.initialize(source, 'malt-hub'), true);
+  assert.equal(await delivery.hub.initialize(source, 'malt-hub'), false, 'Repeated setup reuses the hub.');
+  await delivery.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source));
+  await assert.rejects(delivery.verify(source), { code: 'WRONG_PROJECT' });
   if (process.platform !== 'win32') {
-    const hook = path.join(hub.directory, 'hooks', 'pre-receive');
+    const hook = path.join(delivery.hub.directory, 'hooks', 'pre-receive');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook inside the disposable hub.
     chmodSync(hook, 0o600);
     await assert.rejects(
-      hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true),
+      delivery.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source)),
       { code: 'FACTORY_GATED' },
       'A hook Git would skip is not protection.',
     );
-    await hub.initialize(source, 'malt-hub');
-    await hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true);
+    await delivery.hub.initialize(source, 'malt-hub');
+    await delivery.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source));
   }
 
   await command('git', ['commit', '--allow-empty', '-m', 'Direct base push'], source);
@@ -74,26 +117,29 @@ await test('local hub protects its base, fences merges by expected base and reco
   await writeFile(path.join(source, 'value.mjs'), 'export const value = 2;\n');
   await command('git', ['commit', '-am', 'Raise value'], source);
   await command('git', ['push', 'malt-hub', 'feature/a'], source);
-  const base = await hub.tip();
-  const head = await hub.head('feature/a');
+  const base = await delivery.hub.tip();
+  const head = await delivery.hub.head('feature/a');
   assert.ok(base !== null && head !== null);
-  const preview = await hub.preview('feature/a');
+  const preview = await delivery.hub.preview('feature/a');
   assert.deepEqual(preview, { base, head, upToDate: true, mergeable: true });
 
   await assert.rejects(
-    hub.squash({ pull: 9, branch: 'feature/a', head, base: head, title: 'Stale', body: '' }),
+    delivery.hub.squash({ pull: 9, branch: 'feature/a', head, base: head, title: 'Stale', body: '' }),
     { code: 'FACTORY_GATED' },
     'An unexpected base must never be overwritten.',
   );
-  const merged = await hub.squash({ pull: 9, branch: 'feature/a', head, base, title: 'Raise', body: 'b' });
-  assert.equal(await hub.tip(), merged);
+  const merged = await delivery.hub.squash({ pull: 9, branch: 'feature/a', head, base, title: 'Raise', body: 'b' });
+  assert.equal(await delivery.hub.tip(), merged);
   assert.equal(
-    await hub.squash({ pull: 9, branch: 'feature/a', head, base, title: 'Raise', body: 'b' }),
+    await delivery.hub.squash({ pull: 9, branch: 'feature/a', head, base, title: 'Raise', body: 'b' }),
     merged,
     'A retried merge after a lost ledger write recognizes its own commit.',
   );
-  assert.equal(await command('git', ['show', `${merged}:value.mjs`], hub.directory), 'export const value = 2;');
-  assert.equal(await command('git', ['rev-parse', `${merged}^`], hub.directory), base);
+  assert.equal(
+    await command('git', ['show', `${merged}:value.mjs`], delivery.hub.directory),
+    'export const value = 2;',
+  );
+  assert.equal(await command('git', ['rev-parse', `${merged}^`], delivery.hub.directory), base);
 });
 
 await test('local ledger validates input, deduplicates comments and rejects reused request identities', async () => {
@@ -143,4 +189,118 @@ await test('local ledger validates input, deduplicates comments and rejects reus
   assert.equal(tracker.issue(feature.number).comments.length, 11, 'Serialized writes must not lose updates.');
   assert.throws(() => parseLedger({ version: 2 }), { code: 'INTERNAL' });
   assert.throws(() => parseLedger({ ...tracker.read(), issues: [{ number: 'one' }] }), { code: 'INTERNAL' });
+});
+
+/**
+ * Configure local delivery, request one objective and let the supervisor finish it.
+ *
+ * @param factory - Isolated factory.
+ * @param advance - Fixture clock advance per step.
+ */
+async function driveLocalDelivery(factory: FactoryService, advance: () => void): Promise<void> {
+  await factory.execute('factory_setup', {
+    delivery: 'local',
+    remote: 'malt-hub',
+    maxAttempts: 3,
+    testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
+    endToEndCommands: [{ file: process.execPath, args: ['check.mjs'] }],
+  });
+  await factory.execute('factory_request', { objective: 'Deliver a small verified value improvement.' });
+  await factory.execute('factory_start', {});
+  for (let step = 0; step < 1000 && factory.repository.features()[0]?.phase !== 'done'; step += 1) {
+    advance();
+
+    await factory.tick();
+
+    await delay(30);
+  }
+}
+
+await test('factory delivers end to end through the local hub without any hosted service', async () => {
+  const source = await repository('malt-local-loop-');
+  const mesh = loadConfig(source, { create: true });
+  let now = Date.now();
+  const store = new Store(mesh, { now: () => now });
+  const stages: string[] = [];
+  let writes = 0;
+  let isReturned = false;
+  const agent = async (request: AgentRequest): Promise<AgentCompletion> => {
+    stages.push(request.job.kind);
+    if (request.job.kind === 'plan' || request.job.kind === 'refine') {
+      return completion({
+        ...success,
+        deliveries: [
+          {
+            key: 'value',
+            title: 'Deliver verified value',
+            description: 'One independently verifiable value change.',
+            acceptanceCriteria: ['The public value is at least two.'],
+            dependencies: [],
+            capabilityTier: 'small',
+            skills: [],
+          },
+        ],
+      });
+    }
+    if (request.job.kind === 'develop') {
+      writes += 1;
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture inference edits only its owned worktree.
+      await writeFile(path.join(request.cwd, 'value.mjs'), `export const value = ${String(writes + 1)};\n`);
+    }
+    if (!isReturned && request.job.role === 'qa-1') {
+      isReturned = true;
+      return completion({
+        ...success,
+        outcome: 'changes_requested',
+        summary: 'Boundary case needs another change.',
+        findings: ['Return this finding to the original developer.'],
+      });
+    }
+    return completion(success);
+  };
+  const factory = new FactoryService(
+    mesh,
+    store,
+    { github: new ProjectGitHub(mesh), learning: new ProjectLearning(mesh) },
+    {
+      home: source,
+      agent,
+      resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
+    },
+  );
+  let phases: string | undefined;
+  try {
+    await driveLocalDelivery(factory, () => {
+      now += 31_000;
+    });
+    phases = JSON.stringify(factory.repository.tasks().map((task) => task.phase));
+  } finally {
+    await factory.close();
+    store.close();
+  }
+  assert.equal(phases, '["done"]');
+  assert.ok(isReturned);
+  assert.equal(writes, 2, 'The QA defect returned to the original developer exactly once.');
+  for (const stage of ['plan', 'refine', 'develop', 'review', 'final', 'verify']) {
+    assert.ok(stages.includes(stage), `Missing ${stage} stage.`);
+  }
+  const local = path.join(mesh.directory, 'local');
+  const tracker = new LocalTracker(local);
+  const ledger = tracker.read();
+  const pull = ledger.pulls[0];
+  assert.ok(pull !== undefined);
+  assert.equal(pull.state, 'MERGED');
+  assert.ok(
+    ledger.issues.every((issue) => issue.state === 'closed'),
+    JSON.stringify(ledger.issues),
+  );
+  const hub = new LocalHub(local, 'main');
+  assert.equal(await hub.tip(), pull.mergeCommit);
+  assert.equal(await command('git', ['show', 'main:value.mjs'], hub.directory), 'export const value = 3;');
+  const settings = factoryConfigSchema.parse({ testCommands: [{ file: 'x' }], endToEndCommands: [{ file: 'x' }] });
+  const delivery = new LocalDelivery(mesh, settings);
+  const snapshot = await delivery.inspect(pull.number);
+  assert.equal(snapshot.state, 'MERGED');
+  assert.equal(snapshot.mergeCommit?.oid, pull.mergeCommit);
+  assert.ok((snapshot.statusCheckRollup ?? []).every((check) => check.name !== MERGEABLE_CHECK));
 });
