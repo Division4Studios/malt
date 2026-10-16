@@ -14,7 +14,7 @@ The chosen Pstack source is specifically `backnotprop/pstack`; it is not a claim
 
 ## Dependencies and executables
 
-The browser and service worker have no production npm dependencies. The backend uses `@modelcontextprotocol/sdk`, `zod` and the exact pinned `node-pty@1.2.0-beta.15`; their transitive packages retain their distributed licenses in `node_modules`. The lockfile pins resolved versions/integrity. Generate an inventory for the exact checkout with `npm sbom --omit=dev --sbom-format=cyclonedx` and audit with `npm audit`. Development tooling and GitHub Actions have their own licenses; full inventories are version-specific, not a permanent blanket MIT claim.
+The browser and service worker have no production npm dependencies. The backend uses exactly `@modelcontextprotocol/sdk`, `zod` and the exact pinned `node-pty@1.2.0-beta.15`; their transitive packages retain their distributed licenses in `node_modules`. The lockfile pins resolved versions/integrity. On 2026-10-16 the full runtime inventory (96 packages) was MIT, ISC, BSD-2-Clause or BSD-3-Clause. The Security gate rejects pull requests that add a runtime package under any license other than MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0 or 0BSD. Generate an inventory for the exact checkout with `npm sbom --omit=dev --sbom-format=cyclonedx` and audit with `npm audit`. Development tooling and GitHub Actions have their own licenses, including LGPL-3.0, CC-BY and other non-MIT terms; they run only to lint, test and build and are not distributed with MALT. See the [dependency policy](docs/dependency-policy.md). Full inventories are version-specific, not a permanent blanket MIT claim.
 
 ### Native terminal dependency
 
