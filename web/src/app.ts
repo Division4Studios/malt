@@ -34,6 +34,7 @@ import {
 } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
+import { refreshHandoffConnection } from './report-ui.js';
 import { TerminalWorkspace } from './terminal-workspace.ts';
 import { triageDialog } from './triage-ui.js';
 import {
@@ -301,7 +302,7 @@ function render(): void {
   node('view-description', HTMLParagraphElement).textContent = HEADINGS[state.view][1];
   updateNavigation(state.view);
   const builders: Record<View, () => HTMLElement> = {
-    overview: () => overviewView(observed, actions),
+    overview: () => overviewView(observed, actions, state.isConnected),
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
@@ -349,6 +350,7 @@ function connection(isConnected: boolean): void {
     : 'DISCONNECTED · STATE IS STALE';
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
+  refreshHandoffConnection(isConnected);
   if (isConnected) {
     node('run', HTMLButtonElement).disabled = state.current === null || !hasFlag(state.current.factory, 'configured');
     node('new-objective', HTMLButtonElement).disabled = state.current === null;

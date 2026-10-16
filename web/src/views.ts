@@ -9,6 +9,7 @@ import { appendQuotaWindows, appendProcessUsage } from './capacity-details.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import { recoveryPanel } from './recovery-ui.js';
+import { handoffPreviews } from './report-ui.js';
 import { triagePanel } from './triage-ui.js';
 import {
   artifactSelector,
@@ -378,9 +379,10 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
  *
  * @param state - Selected project snapshot.
  * @param actions - Operator controls.
+ * @param isConnected - Whether the selected snapshot is currently connected.
  * @returns Overview workspace.
  */
-export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
+export function overviewView(state: Snapshot, actions: Actions, isConnected = true): HTMLElement {
   const node = element('div');
   const metrics = overviewMetrics(state.factory);
   const grid = element('div', 'grid');
@@ -393,7 +395,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const right = element('div');
   right.append(
     panel('Provider & local capacity', 'SUBSCRIPTION SESSIONS', capacityView(state)),
-    panel('Latest handoffs', 'COMMITTED EVENTS', activityView(state, true)),
+    panel('Latest handoffs and messages', 'DURABLE RECORDS', handoffPreviews(state, isConnected)),
   );
   grid.append(left, right);
   node.append(recoveryPanel(state, actions), metrics, triagePanel(state, actions), grid);

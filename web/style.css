@@ -1390,6 +1390,24 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
     monospace;
   overflow-wrap: anywhere;
 }
+.handoff-heading {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+  font-family: Consolas, 'Cascadia Code', monospace;
+}
+.handoff-route {
+  color: var(--cyan);
+  font-size: 12px;
+}
+.handoff-preview > summary {
+  align-items: flex-start;
+}
+.handoff-preview .pill {
+  flex-shrink: 0;
+}
 .triage-body {
   padding: 0 20px 20px;
   border-top: 1px solid var(--line);
@@ -1637,4 +1655,21 @@ summary {
 .objective-controls button:hover:not(:disabled) {
   border-color: var(--cyan);
   transform: translateY(-1px);
+}
+
+.handoff-preview .triage-body {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .handoff-preview > summary {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+  .handoff-preview > summary > .pill {
+    grid-column: 2;
+    margin-left: 0;
+    justify-self: start;
+  }
 }

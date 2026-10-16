@@ -216,6 +216,12 @@ Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` mus
 
 Full queue replacements and `factory-reorder-objective` share the same durable ranks and revision. Either control invalidates stale inputs to the other; relative moves retain the current focus. Existing saved queue order/focus is migrated once without discarding history. Status reads use a deferred read-only SQLite snapshot and do not regenerate the README or reserve the writer lock.
 
+## Mission handoff previews
+
+Mission's **Latest handoffs and messages** panel displays six entries from the bounded `factory_status.handoffs` feed, rather than relabeling generic Activity events. Each native disclosure shows the recorded sender, intended recipient, available issue/stage and purpose, meaningful summary and timestamp. Expand with the pointer, Enter or Space to inspect bounded stored text and assignment context. Missing origins and context stay unavailable; report outcomes and process success never become independent delivery verification. Factory instruction transport is distinguished from the originating worker, and peer messages retain their actual broker sender.
+
+Opening these read-only previews acknowledges no inbox, applies no instruction and fetches no artifact. Source truncation is explicit; the preview does not promise a full transcript. Stable source IDs preserve expansion and initiating focus across live refresh, removed records release their choices, and project changes clear them. Disconnection updates the stale label in place without replacing focused details. A backend without this additive feed shows an unavailable state rather than inventing reports from Activity. General event history remains in Activity.
+
 ## Activity history
 
 Activity keeps up to 200 recent events in browser memory. **Older activity** reads one earlier page of at most 50 durable events and replaces the previous older page; it can traverse beyond the live retention window. New observations keep arriving separately. **Return to recent** restores the live window and cancels any pending page selection. No event history persists in browser storage or the service-worker cache.
