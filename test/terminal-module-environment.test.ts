@@ -12,6 +12,26 @@ import { createCleanup, createProject } from './helpers.ts';
 
 const outputSchema = z.object({ module: z.string(), cache: z.string(), cleanup: z.string() });
 
+await test('explicitly empty module variables remain present rather than inheriting helper defaults', async (t) => {
+  const mesh = createProject(createCleanup(t));
+  const controller = new AbortController();
+  const result = await runProcess({
+    file: process.execPath,
+    args: [
+      '-e',
+      'console.log(JSON.stringify({module:process.env.PSModulePath,cache:process.env.PSModuleAnalysisCachePath,cleanup:process.env.PSDisableModuleAnalysisCacheCleanup}))',
+    ],
+    cwd: mesh.root,
+    input: '',
+    artifact: path.join(mesh.directory, 'empty-module-env'),
+    timeoutMs: 15_000,
+    signal: controller.signal,
+    env: { PSModulePath: '', PSModuleAnalysisCachePath: '', PSDisableModuleAnalysisCacheCleanup: '' },
+  });
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.deepEqual(outputSchema.parse(JSON.parse(result.stdout)), { module: '', cache: '', cleanup: '' });
+});
+
 await test('owned assignments retain their explicit PowerShell environment outside the helper', async (t) => {
   const mesh = createProject(createCleanup(t));
   const module = path.join(mesh.root, 'custom-modules');
