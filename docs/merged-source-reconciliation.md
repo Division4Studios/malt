@@ -18,7 +18,7 @@ Merged PR cards are Done in Project10. Completed repair issues have evidence-lin
 
 ## Verification
 
-The fresh full `npm run check` on unchanged merged main passed **342 tests**, all three TypeScript targets, zero-warning ESLint, Prettier and browser compilation. The separate handoff-feed branch's **346-test** check includes four new tests and is not attributed to merged main. All 15 merged PRs have zero unresolved GitHub review conversations at reconciliation.
+The fresh full `npm run check` on unchanged merged main passed **342 tests**, all three TypeScript targets, zero-warning ESLint, Prettier and browser compilation. The initial handoff-feed branch at `b310be0` passed **346 tests**. Later combined source [`d26296f`](https://github.com/Division4Studios/malt/tree/d26296fe629da783a239611a8066df552217081e) passed **347 tests**, adding the real task-backed source-job regression and Mission previews. The follow-ups are [#230](https://github.com/Division4Studios/malt/pull/230) and [#232](https://github.com/Division4Studios/malt/pull/232); their review/merge/rollout gates remain open, and these results are not attributed to merged main. All 15 merged PRs have zero unresolved GitHub review conversations at reconciliation.
 
 Regressions use fixture inference and a fixture GitHub boundary. SQLite, local Git/worktrees, validation subprocesses and loopback HTTP are real. Earlier Chrome checks exercised actual compiled paging/adoption controls, keyboard/focus, hostile text and disconnection. This reconciliation does not claim new paid-provider usage, a complete installed-PWA/accessibility audit, or fresh production deployment.
 
