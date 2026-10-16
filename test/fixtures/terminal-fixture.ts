@@ -1,6 +1,6 @@
 /**
  * Token-free terminal fixture. Newline-delimited stdin commands (LF or CRLF):
- * size; resize <columns> <rows>; frame; credential; spawn; ignore-term; term; quit.
+ * size; resize <columns> <rows>; frame; credential; spawn; flood; ignore-term; term; quit.
  * Every line is echoed as ECHO <JSON string>; unknown commands report UNKNOWN.
  * Pipes start at 80x24; a TTY uses its actual size and reports SIGWINCH/resize.
  * `term` exercises the SIGTERM handler even on Windows, where child.kill bypasses
@@ -70,6 +70,7 @@ async function interactive(): Promise<void> {
   let columns = process.stdout.isTTY ? process.stdout.columns : 80;
   let rows = process.stdout.isTTY ? process.stdout.rows : 24;
   let child: ChildProcess | undefined;
+  let flood: NodeJS.Timeout | undefined;
   let isIgnoreTerm = false;
   const reportSize = (): void => {
     process.stdout.write(`SIZE ${String(columns)} ${String(rows)}\n`);
@@ -130,6 +131,15 @@ async function interactive(): Promise<void> {
         process.stdout.write('IGNORING SIGTERM\n');
         break;
       }
+      case 'flood': {
+        flood ??= setInterval(() => {
+          // Bound the fixture's own queue while exercising real native backpressure.
+          if (process.stdout.writableLength < 65_536) {
+            process.stdout.write(`FLOOD ${'x'.repeat(1016)}\n`);
+          }
+        }, 1);
+        break;
+      }
       case 'term': {
         process.emit('SIGTERM');
         break;
@@ -151,6 +161,7 @@ async function interactive(): Promise<void> {
       }
     }
   } finally {
+    clearInterval(flood);
     input.close();
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(false);
