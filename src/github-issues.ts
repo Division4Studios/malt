@@ -304,6 +304,8 @@ export async function readObservedIssue(
 
 /** Selected-source reader capabilities; no mutation or scheduler authority. */
 export interface IssueReader {
+  /** Verified current repository identity, available without a native query. */
+  readonly repositoryId: string;
   /** Read one scoped, bounded page. */
   readonly page: (input: unknown) => Promise<IssueCorpusPage>;
   /** Refresh the exact native issue revision. */
@@ -330,6 +332,7 @@ export function createIssueReader(
     );
   }
   return {
+    repositoryId,
     page: async (input) => readIssueCorpus(query, repositoryId, input),
     get: async (number) => readObservedIssue(query, repositoryId, number),
   };
