@@ -1,5 +1,7 @@
 # Mission control and human skill governance
 
+Each worker's **Model selection evidence · requested launch** disclosure shows the immutable recorded assignment: reviewed recommendation/rationale, requested provider/model/effort, enforced capability floor, policy revision and selection/override reason. Older records with no effort evidence say unknown. Provider-applied effort is not independently confirmed by a requested CLI argument. Later task or policy changes cannot rewrite that historical evidence. A current factory admission gate is shown separately, including when no assignment was claimed; correct its cause before resuming rather than resetting completed reviews.
+
 In **Project setup → Edit model and effort policy**, inspect and edit this project's allowed native models, declared capability floors, effort interfaces, evidence and provider/tier defaults. Pause the factory and wait for owned assignments and terminals to settle before saving. Unknown support is shown explicitly and cannot launch an explicit-policy assignment; the editor never invents available models or subscription quotas.
 
 Saving uses the observed policy revision and preserves unrelated factory settings. Server validation or revision conflicts retain the draft; inspect the message before refreshing and reopening against current server state. A draft opened for one project cannot be submitted to another selected project. These are requested native arguments, not a claim that the provider applied the effort or certified the model's capability.

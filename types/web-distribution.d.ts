@@ -17,6 +17,16 @@ declare module '*/web/dist/brand-ui.js' {
   ): { title: string; items: Record<string, unknown>[] }[];
 }
 
+declare module '*/web/dist/selection-ui.js' {
+  /**
+   * Format only immutable recorded assignment fields for display.
+   *
+   * @param job - Validated public job data.
+   * @returns Plain native definition-list rows.
+   */
+  export function selectionRows(job: Record<string, unknown>): [string, string][];
+}
+
 declare module '*/web/dist/admission-ui.js' {
   /**
    * Read-only dispatch evidence lines.

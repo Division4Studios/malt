@@ -43,3 +43,11 @@ Pause stops owned attempts and preserves edits; it does not certify success. Set
 ## Capacity reading order
 
 The subscription-first panel is prepared in the #21 delivery stack, pending merge and deliberate runtime update. It separates **Subscription limits**, **Diagnostic usage** and **Local machine**. Disabled providers remain identifiable and ineligible for dispatch. Window percentages, resets, observation times, freshness and sources are observations; unavailable values remain unknown, including absolute allowances. Legacy summaries do not invent window durations. Token diagnostics are not API credits. Locally launched subscription CLI sessions still use provider-hosted models.
+
+## Prepared model-policy controls
+
+[Stack #251](https://github.com/Division4Studios/malt/stack/251) contains prepared source for revisioned model policy, frozen native arguments, supported-provider admission, a native model/effort editor and independently reviewed role choices. These PRs require operator review/merge and a deliberate matching runtime update; this section does not certify a deployed feature or paid provider capability.
+
+The editor is under **Project setup → Edit model and effort policy**. Pause and settle owned work before saving. Declare only subscription-available models and retain exact CLI-version/interface evidence; unknown support remains ineligible. A stale save preserves the draft. A model-policy gate preserves a ticket's current reviews, final proof and triage revision: correct the policy and resume to recheck the same stage, rather than resetting completed gates with a generic delivery retry.
+
+Product-owner model choices remain proposals. The independent lead's final role-specific choice is persisted into delivery tasks. Current choices are honored; changed policy or inadequate capability blocks with a reason. Rework, security and organization floors remain binding. Requested CLI model/effort arguments do not prove the provider actually applied them, and unavailable subscription quota remains unknown. Historical assignments retain their original evidence.

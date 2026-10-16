@@ -13,6 +13,7 @@ import {
   modelPolicySchema,
   modelPolicyUpdateSchema,
   modelSelectionSchema,
+  reviewedRecommendationSchema,
 } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
@@ -427,6 +428,7 @@ export const jobSchema = z.object({
       model: z.string().nullable(),
       effort: z.enum(['low', 'medium', 'high']).nullable().optional(),
       selection: modelSelectionSchema.optional(),
+      reviewed: reviewedRecommendationSchema.optional(),
       reason: textSchema,
       skillNames: z.array(keySchema),
       organization: frozenOrganizationSchema.optional(),
