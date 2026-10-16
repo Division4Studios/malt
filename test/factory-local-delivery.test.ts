@@ -1,6 +1,7 @@
 /**
  * GitHub-free delivery: the real local hub protects its base branch, fences
- * merges by expected base and recovers interrupted merges. Git is real.
+ * merges by expected base and recovers interrupted merges, and the local ledger
+ * validates and serializes its writes. Git is real.
  *
  * @file
  */
@@ -14,6 +15,7 @@ import { test } from 'node:test';
 import { loadConfig } from '../src/config.ts';
 import { command } from '../src/factory/commands.ts';
 import { LocalHub } from '../src/factory/local-hub.ts';
+import { LocalTracker, parseLedger } from '../src/factory/local-tracker.ts';
 
 /**
  * Create a repository with one committed baseline and no remote at all.
@@ -92,4 +94,53 @@ await test('local hub protects its base, fences merges by expected base and reco
   );
   assert.equal(await command('git', ['show', `${merged}:value.mjs`], hub.directory), 'export const value = 2;');
   assert.equal(await command('git', ['rev-parse', `${merged}^`], hub.directory), base);
+});
+
+await test('local ledger validates input, deduplicates comments and rejects reused request identities', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'malt-ledger-'));
+  let now = 1;
+  const tracker = new LocalTracker(directory, () => now);
+  const feature = await tracker.createIssue({
+    requestId: 'f',
+    kind: 'feature',
+    title: 'Feature',
+    body: 'Scope',
+    acceptanceCriteria: ['Done'],
+    parent: null,
+  });
+  const repeat = await tracker.createIssue({
+    requestId: 'f',
+    kind: 'feature',
+    title: 'Feature',
+    body: 'Scope',
+    acceptanceCriteria: ['Done'],
+    parent: null,
+  });
+  assert.equal(repeat.number, feature.number);
+  await assert.rejects(
+    tracker.createIssue({
+      requestId: 'f',
+      kind: 'feature',
+      title: 'Other',
+      body: '',
+      acceptanceCriteria: [],
+      parent: null,
+    }),
+    { code: 'INVALID_INPUT' },
+  );
+  await assert.rejects(
+    tracker.createIssue({ requestId: 'x', kind: 'delivery', title: 'D', body: '', acceptanceCriteria: [], parent: 99 }),
+    { code: 'INVALID_INPUT' },
+  );
+  now = 2;
+  assert.equal(await tracker.comment(feature.number, 'effect-1', 'Hello'), true);
+  assert.equal(await tracker.comment(feature.number, 'effect-1', 'Hello'), false);
+  await assert.rejects(tracker.setStatus(feature.number, 'Shipping'), { code: 'INVALID_INPUT' });
+  const concurrent = await Promise.all(
+    Array.from({ length: 10 }, async (_, index) => tracker.comment(feature.number, `c-${String(index)}`, 'x')),
+  );
+  assert.ok(concurrent.every(Boolean));
+  assert.equal(tracker.issue(feature.number).comments.length, 11, 'Serialized writes must not lose updates.');
+  assert.throws(() => parseLedger({ version: 2 }), { code: 'INTERNAL' });
+  assert.throws(() => parseLedger({ ...tracker.read(), issues: [{ number: 'one' }] }), { code: 'INTERNAL' });
 });
