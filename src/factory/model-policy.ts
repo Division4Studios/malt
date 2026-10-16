@@ -21,6 +21,15 @@ const idSchema = z.string().regex(/^[a-z][\-0-9a-z]{0,63}$/v);
 export const modelChoiceSchema = z
   .object({ policyRevision: z.number().int().safe().positive(), entryId: idSchema })
   .strict();
+/** Assignment-local reviewed intent, kept independent of later task/policy edits. */
+export const reviewedRecommendationSchema = z
+  .object({
+    tier: z.enum(MODEL_TIERS),
+    effort: z.enum(['low', 'medium', 'high']),
+    reason: z.string().min(1).max(NOTE_MAX),
+    modelChoice: modelChoiceSchema.nullable(),
+  })
+  .strict();
 /** Native CLI structured-output equivalent; null preserves stage-default routing. */
 export const MODEL_CHOICE_OUTPUT_SCHEMA = {
   anyOf: [

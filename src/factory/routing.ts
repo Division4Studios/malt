@@ -127,6 +127,7 @@ export function routeAssignment(context: {
     ...decision,
     tier,
     ...selected,
+    ...reviewedIntent(context.task, context.intent.role),
     reason: `${routingReason(decision.reason, tier !== decision.tier, floor, selected.model)} ${choiceReason(selected.selection, context.task, context.intent.role)}`,
     skillNames: [
       ...new Set([
@@ -148,6 +149,30 @@ export function routeAssignment(context: {
         },
       }),
   };
+}
+
+/**
+ * Freeze only this role's approved intent, independently of mutable task history.
+ *
+ * @param task - Independently reviewed delivery, absent for taskless roles.
+ * @param role - Exact managed seat receiving this assignment.
+ * @returns Optional immutable recommendation metadata.
+ */
+function reviewedIntent(
+  task: FactoryTask | null,
+  role: FactoryJob['role'],
+): Pick<NonNullable<FactoryJob['routing']>, 'reviewed'> {
+  const reviewed = task?.assignmentProfiles?.find((assignment) => assignment.role === role);
+  return reviewed === undefined
+    ? {}
+    : {
+        reviewed: {
+          tier: reviewed.tier,
+          effort: reviewed.effort,
+          reason: reviewed.reason,
+          modelChoice: reviewed.modelChoice ?? null,
+        },
+      };
 }
 
 /**

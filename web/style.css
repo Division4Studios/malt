@@ -1318,6 +1318,11 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
 [data-model-policy] input[type='checkbox'] {
   width: auto;
 }
+[data-selection-evidence] dd {
+  min-width: 0;
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
+}
 .connection-fields input {
   width: 100%;
   min-width: 0;

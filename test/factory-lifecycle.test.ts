@@ -5,27 +5,31 @@
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { z } from 'zod/v3';
+
+import { startBroker } from '../src/broker.ts';
 import { loadConfig } from '../src/config.ts';
 import { dashboardSchema, renderDashboard, safeText } from '../src/dashboard-view.ts';
 import { command } from '../src/factory/commands.ts';
+import { nativeModelArguments } from '../src/factory/provider-selection.ts';
 import { hasApprovals, chooseProvider } from '../src/factory/scheduler.ts';
-import { factoryConfigSchema } from '../src/factory/schema.ts';
-import { FactoryService } from '../src/factory/service.ts';
-import { ProjectGitHub } from '../src/github.ts';
-import { ProjectLearning } from '../src/learning.ts';
-import { Store } from '../src/store.ts';
+import { factoryConfigSchema, publicJobSchema } from '../src/factory/schema.ts';
+import { startWebConsole } from '../src/web/server.ts';
+import { selectionRows } from '../web/dist/selection-ui.js';
 
 import { policySettings } from './fixtures/model-policy.ts';
+import { brokerUrl } from './helpers.ts';
 
 import type { AgentRequest, AgentCompletion } from '../src/factory/providers.ts';
 import type { DeliveryRemote, PullRequest } from '../src/factory/remote.ts';
 import type { FactoryJob, FactoryTask, AgentResult } from '../src/factory/schema.ts';
+import type { FactoryService } from '../src/factory/service.ts';
 
 /** Valid structured output from fixture roles. */
 const success: AgentResult = {
@@ -36,6 +40,8 @@ const success: AgentResult = {
   skillActions: [],
   instructionReceipts: [],
 };
+/** Actual paired assignment projection, excluding internal job tokens. */
+const projectedJobsSchema = z.object({ factory: z.object({ jobs: z.array(publicJobSchema) }) });
 
 /**
  * Deliberately revise the product proposal during independent lead planning.
@@ -90,6 +96,61 @@ async function driveUntilDone(factory: FactoryService, advance: () => void): Pro
   }
 }
 
+/**
+ * Verify the paired projection and policy-change gate independently of source delivery assertions.
+ *
+ * @param context - Exact disposable console, project and completed supervisor.
+ */
+async function verifySelectionEvidence(context: {
+  web: { url: string };
+  headers: Record<string, string>;
+  project: string;
+  factory: FactoryService;
+  control: (operation: string, input: unknown) => Promise<void>;
+  stages: readonly string[];
+}): Promise<void> {
+  const { web, headers, project, factory, control, stages } = context;
+  const oldCount = stages.length;
+  const response = await fetch(`${web.url}/api/snapshot?project=${project}`, { headers });
+  assert.equal(response.status, 200);
+  const { jobs } = projectedJobsSchema.parse(await response.json()).factory;
+  const displayed = jobs.find((job) => job.kind === 'develop');
+  assert.ok(displayed !== undefined);
+  const rows = new Map<string, string>(selectionRows(displayed));
+  assert.equal(rows.get('Requested model'), 'fixture-claude');
+  assert.equal(rows.get('Reviewed recommendation'), 'standard / medium; claude');
+  assert.equal(rows.get('Policy revision'), '1');
+  assert.match(rows.get('Execution confirmation') ?? '', /not independently confirmed/v);
+  assert.equal((await fetch(`${web.url}/api/snapshot?project=missing`, { headers })).status, 403);
+  const homeSnapshot = await fetch(`${web.url}/api/snapshot?project=home`, { headers });
+  assert.deepEqual(
+    projectedJobsSchema.parse(await homeSnapshot.json()).factory.jobs,
+    [],
+    'Selected-project work never appears in broker-home state.',
+  );
+  const policy = policySettings.modelPolicy;
+  assert.ok(policy !== undefined);
+  const unknown = {
+    ...policy,
+    revision: 2,
+    entries: policy.entries.map((entry) => ({ ...entry, effortSupport: 'unknown', efforts: [], evidence: null })),
+    defaults: policy.defaults.map((choice) => ({ ...choice, effort: null })),
+  };
+  await control('factory_model_policy', { expectedRevision: 1, policy: unknown });
+  assert.deepEqual(
+    factory.repository.jobs().find((job) => job.id === displayed.id)?.routing,
+    displayed.routing,
+    'Policy edits cannot rewrite historical displayed evidence.',
+  );
+  await control('factory_request', { objective: 'No launch until the unknown policy is repaired.' });
+  await control('factory_start', {});
+  await factory.tick();
+  const blocked = z.object({ error: z.string().nullable() }).parse(await factory.status());
+  assert.match(blocked.error ?? '', /No inference launched/v);
+  assert.equal(stages.length, oldCount);
+  await control('factory_pause', {});
+}
+
 await test('autonomous factory plans, returns QA defect to original dev, reviews, merges, verifies and cleans', async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'mlt-lifecycle-'));
   const source = path.join(root, 'source');
@@ -116,9 +177,6 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   await command('git', ['push', '-u', 'origin', 'main'], source);
   const mesh = loadConfig(source, { create: true });
   let now = Date.now();
-  const store = new Store(mesh, { now: () => now });
-  const github = new ProjectGitHub(mesh);
-  const learning = new ProjectLearning(mesh);
   let pr: PullRequest | null = null;
   let isMerged = false;
   let isReturned = false;
@@ -240,6 +298,14 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
         writes === 0 ? 'medium' : 'high',
         'Rework raises effort without losing the reviewed model.',
       );
+      const settings = lifecycle.factory?.repository.config();
+      assert.ok(settings !== null && settings !== undefined);
+      assert.deepEqual(nativeModelArguments(request.job, settings), [
+        '--model',
+        'fixture-claude',
+        '--effort',
+        request.job.routing.effort,
+      ]);
       assert.match(await command('git', ['branch', '--show-current'], request.cwd), /^malt\/issue-/v);
       if (owner === null) {
         owner = request.job.role;
@@ -271,29 +337,63 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     }
     return completion(success);
   };
-  const factory = new FactoryService(
-    mesh,
-    store,
-    { github, learning },
-    {
-      home: source,
-      remote,
-      agent,
-      resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
+  const controlRoot = path.join(root, 'control');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only this disposable fixture's separate broker-home directory.
+  await mkdir(controlRoot);
+  const home = loadConfig(controlRoot, { create: true });
+  const broker = await startBroker(home, {
+    port: 0,
+    now: () => now,
+    factoryOptions: () => {
+      return {
+        remote,
+        agent,
+        resources: () => ({ freeMemoryMb: 10_000, totalMemoryMb: 20_000, cpuPercent: 1 }),
+      };
     },
-  );
+  });
+  const web = await startWebConsole({ ...home, url: brokerUrl(broker.port) }, 0);
+  const paired = await fetch(`${web.url}/api/pair`, {
+    method: 'POST',
+    headers: { Origin: web.url, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: web.pairingCode }),
+  });
+  assert.equal(paired.status, 200);
+  const headers = {
+    Origin: web.url,
+    Cookie: (paired.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '',
+    'Content-Type': 'application/json',
+    Connection: 'close',
+  };
+  const opened = await fetch(`${web.url}/api/projects`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ workspace: source }),
+  });
+  assert.equal(opened.status, 200);
+  const project = z.object({ id: z.string() }).parse(await opened.json()).id;
+  const factory = broker.teams.get(project)?.factory;
+  assert.ok(factory !== undefined);
+  const control = async (operation: string, input: unknown): Promise<void> => {
+    const response = await fetch(`${web.url}/api/control?project=${project}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ operation, input }),
+    });
+    assert.equal(response.status, 200, await response.text());
+  };
   lifecycle.factory = factory;
   try {
-    await factory.execute('factory_setup', {
-      modelPolicy: policySettings.modelPolicy,
+    await control('factory_setup', {
       maxAttempts: 3,
       maxDiffLines: 123,
       maxFiles: 7,
       testCommands: [{ file: process.execPath, args: ['check.mjs'] }],
       endToEndCommands: [{ file: process.execPath, args: ['check.mjs'] }],
     });
-    await factory.execute('factory_request', { objective: 'Deliver a small verified value improvement.' });
-    await factory.execute('factory_start', {});
+    await control('factory_model_policy', { expectedRevision: null, policy: policySettings.modelPolicy });
+    await control('factory_request', { objective: 'Deliver a small verified value improvement.' });
+    await control('factory_start', {});
     await driveUntilDone(factory, () => {
       if (isParentClosureRetried && !closed.has(1)) {
         parentPhaseAtFailure = factory.repository.features()[0]?.phase;
@@ -350,9 +450,10 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     const oldCount = stages.length;
     await factory.tick();
     assert.equal(stages.length, oldCount, 'paused factory must not invoke agents');
+    await verifySelectionEvidence({ web, headers, project, factory, control, stages });
   } finally {
-    await factory.close();
-    store.close();
+    await web.close();
+    await broker.close();
   }
 });
 

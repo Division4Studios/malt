@@ -10,6 +10,7 @@ import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import { recoveryPanel } from './recovery-ui.js';
 import { handoffPreviews } from './report-ui.js';
+import { selectionDetails } from './selection-ui.js';
 import { triagePanel } from './triage-ui.js';
 import {
   artifactSelector,
@@ -505,6 +506,7 @@ export function workerView(
       'Captured output and handoffs. This pane is not an interactive terminal.',
     );
     const body = workerBody({ factory: state.factory, role, taskId, summary, tools, log });
+    body.prepend(selectionDetails(job, text(state.factory, 'error')));
     const pane = panel(role.replaceAll('-', ' '), firstText(text(job, 'provider').toUpperCase(), 'PARKED'), body);
     pane.classList.add('worker-pane');
     tools.append(paneHeight(pane, role));

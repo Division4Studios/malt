@@ -29,6 +29,7 @@ const SHELL = [
   '/capacity-view.js',
   '/admission-ui.js',
   '/model-policy-ui.js',
+  '/selection-ui.js',
   '/terminal-parser.js',
   '/terminal-style.js',
   '/terminal-grid.js',

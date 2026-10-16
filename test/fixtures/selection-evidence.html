@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Recorded model selection evidence</title>
+  <link rel="stylesheet" href="../../web/style.css" />
+  <div id="content"></div>
+  <output id="result" aria-live="polite">PENDING</output>
+  <script type="module">
+    import { selectionDetails, selectionRows } from '../../web/dist/selection-ui.js';
+    const check = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const job = {
+      id: 'historical-job',
+      provider: 'claude',
+      routing: {
+        model: 'fixture-model',
+        tier: 'advanced',
+        effort: 'high',
+        reason: '<img src=x onerror=1> Rework raised the floor.',
+        selection: { policyRevision: 1 },
+        reviewed: {
+          tier: 'standard',
+          effort: 'medium',
+          reason: '<script>bad()<\/script>',
+          modelChoice: { policyRevision: 1, entryId: 'reviewed' },
+        },
+      },
+    };
+    const current = selectionDetails(job, 'Unknown policy support: no inference launched.');
+    const legacy = selectionDetails({ id: 'old' }, '');
+    document.querySelector('#content').append(current, legacy);
+    current.open = true;
+    legacy.open = true;
+    const rows = new Map(selectionRows(job));
+    check(rows.get('Reviewed recommendation') === 'standard / medium; reviewed', 'Reviewed intent preserved');
+    check(rows.get('Requested effort') === 'high', 'Actual recorded request differs from recommendation');
+    check(new Map(selectionRows({})).get('Requested effort').includes('Unknown'), 'Historical effort honest');
+    check(current.textContent.includes('no inference launched'), 'Unclaimed blocker visible');
+    check(document.querySelector('img,script:not([type=module])') === null, 'Hostile rationale stays text');
+    check(current.textContent.includes('not independently confirmed'), 'No false execution claim');
+    document.querySelector('#result').textContent =
+      'PASS: reviewed/selected distinction, unknown history, no-launch blocker and inert hostile rationale';
+  </script>
+</html>

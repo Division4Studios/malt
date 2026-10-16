@@ -37,6 +37,7 @@ const FILES = [
   'dist/capacity-view.js',
   'dist/admission-ui.js',
   'dist/model-policy-ui.js',
+  'dist/selection-ui.js',
   'dist/terminal-parser.js',
   'dist/terminal-style.js',
   'dist/terminal-grid.js',
