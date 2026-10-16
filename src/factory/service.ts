@@ -14,6 +14,7 @@ import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
+  canDispatch,
   configureProject,
   shouldParkForMemory,
   recoverUnownedClaims,
@@ -27,6 +28,7 @@ import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
+import { IssueGuard } from './issue-guard.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
@@ -128,6 +130,8 @@ export class FactoryService {
   private readonly quota = new QuotaObserver();
   /** Managed pipelines only; never unrelated processes. */
   private readonly running = new Map<string, Running>();
+  /** Parks deliveries whose GitHub issue is closed before any developer launch. */
+  private readonly issueGuard = new IssueGuard();
   /** Sole stateful sampler; only the scheduling cycle advances it. */
   private readonly sampler: ResourceSampler;
   /** Validated execution context, absent before setup. */
@@ -212,7 +216,7 @@ export class FactoryService {
   public async status(): Promise<unknown> {
     return factoryStatus(this.repository, this.mesh, {
       connected: this.connected,
-      error: this.error,
+      error: this.error ?? this.issueGuard.waitingReason,
       resources: this.sampler.latest,
       admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
     });
@@ -372,8 +376,7 @@ export class FactoryService {
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
     };
-    const result = await Promise.resolve(handlers[operation]());
-    return result;
+    return await handlers[operation]();
   }
 
   /** Isolate unpaid infrastructure failures from the heartbeat loop. */
@@ -439,7 +442,7 @@ export class FactoryService {
     const intents = jobIntents(scheduling);
     await this.refreshQuota(context, intents.length);
     if (
-      !this.canDispatch() ||
+      !canDispatch(this.repository, this.stopped) ||
       JSON.stringify(scheduling.objectiveQueue) !== JSON.stringify(this.repository.objectiveQueue.read())
     ) {
       return;
@@ -461,7 +464,8 @@ export class FactoryService {
       if (provider === null) {
         break;
       }
-      this.dispatch(intent, provider);
+      // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
+      await this.issueGuard.launch(context, intent, this.dispatch.bind(this, intent, provider));
     }
   }
 
@@ -480,15 +484,6 @@ export class FactoryService {
       return;
     }
     await this.quota.observe(context);
-  }
-
-  /**
-   * Recheck dispatch authority after an asynchronous diagnostic.
-   *
-   * @returns Whether this supervisor still owns active dispatch.
-   */
-  private canDispatch(): boolean {
-    return !this.stopped && this.repository.active();
   }
 
   /** Stop reviewers whose exact source or assigned stage was invalidated. */
@@ -531,6 +526,9 @@ export class FactoryService {
    * @param provider - Capacity-selected provider.
    */
   private dispatch(intent: JobIntent, provider: FactoryJob['provider']): void {
+    if (!canDispatch(this.repository, this.stopped)) {
+      return;
+    }
     const context = this.configured();
     const id = randomUUID();
     const now = this.repository.store.now();
