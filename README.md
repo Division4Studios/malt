@@ -26,7 +26,7 @@ The console includes bounded Activity history, traceable handoff/conversation pr
 
 ## Start natively
 
-Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
+Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex, Claude Code or GitHub Copilot CLIs with subscription login. Local delivery keeps issues, pull requests and merges in a protected hub on this machine and needs no hosted service; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
 
 ```sh
 git clone https://github.com/Division4Studios/malt.git
@@ -45,6 +45,10 @@ node src/cli.ts ui --project /absolute/path/to/your/project --port 4318
 Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process, and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
 
 See [complete setup and provider authentication](docs/operator-console.md), [GitHub coordination](docs/software-factory.md), and [Docker startup](#quick-start-with-docker-compose). Keep `.malt/`, provider credentials and pairing codes private.
+
+### Deliver without GitHub
+
+Set `"delivery": "local"` in the factory policy. MALT creates a protected local hub, keeps issues and pull requests in `.malt/`, squash-merges reviewed heads with an expected-base check and fast-forwards your checkout on request. **Workflow → Pull requests** shows checks, discussion and diffs. Copilot can join as a third provider, and advanced deliveries can optionally run as Codex Cloud tasks with local review and merge. See [local delivery, Copilot and cloud sessions](docs/local-delivery.md).
 
 ### Interactive scratch terminals
 
