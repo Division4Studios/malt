@@ -6,7 +6,8 @@ import { test } from 'node:test';
 import { nativeModelArguments } from '../src/factory/provider-selection.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { routeAssignment } from '../src/factory/routing.ts';
-import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
+import { validatePlan } from '../src/factory/scheduler.ts';
+import { factoryConfigSchema, featureSchema, jobSchema, resultSchema, taskSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
 
 import { policyIntent as baseIntent, policySettings } from './fixtures/model-policy.ts';
@@ -66,10 +67,59 @@ await test('reviewed role choice survives SQLite restart and becomes exact nativ
   const defer = createCleanup(t);
   const mesh = createProject(defer);
   const store = new Store(mesh);
+  defer(() => {
+    if (store.db.isOpen) {
+      store.close();
+    }
+  });
   const repository = new FactoryRepository(store);
   repository.configure(policySettings);
   const task = taskFor(policySettings);
   repository.addTask(task);
+  const legacyProfile = { ...task.assignmentProfiles?.[0] };
+  delete legacyProfile.modelChoice;
+  const legacyTask = taskSchema.parse({
+    ...task,
+    id: randomUUID(),
+    issue: 3,
+    assignmentProfiles: [legacyProfile, legacyProfile],
+  });
+  repository.addTask(legacyTask);
+  const legacyPlan = resultSchema.parse({
+    outcome: 'success',
+    summary: 'Previously accepted legacy duplicate roles.',
+    findings: [],
+    deliveries: [
+      {
+        key: 'old',
+        title: 'Retained old plan',
+        description: 'Do not break historical project reads.',
+        acceptanceCriteria: ['History remains readable.'],
+        dependencies: [],
+        assignmentProfiles: [legacyProfile, legacyProfile],
+      },
+    ],
+  });
+  repository.saveFeature(
+    featureSchema.parse({
+      id: randomUUID(),
+      objective: 'Historical legacy plan',
+      phase: 'queued',
+      productPlan: legacyPlan,
+      plan: legacyPlan,
+      parentIssue: null,
+      error: null,
+      createdAt: 1000,
+      updatedAt: 1000,
+    }),
+  );
+  assert.throws(
+    () => {
+      validatePlan(legacyPlan);
+    },
+    /unique role recommendations/v,
+    'A new submission still rejects duplicates, even through the legacy shape.',
+  );
   store.close();
   const reopened = new Store(mesh);
   defer(() => {
@@ -77,6 +127,8 @@ await test('reviewed role choice survives SQLite restart and becomes exact nativ
   });
   const restoredRepository = new FactoryRepository(reopened);
   const restored = restoredRepository.task(task.id);
+  assert.deepEqual(restoredRepository.task(legacyTask.id).assignmentProfiles, legacyTask.assignmentProfiles);
+  assert.equal(restoredRepository.features()[0]?.plan?.deliveries[0]?.assignmentProfiles?.length, 2);
   assert.deepEqual(restored.assignmentProfiles, task.assignmentProfiles);
   const routing = routeAssignment({
     intent: policyIntent,

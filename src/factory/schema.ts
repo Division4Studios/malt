@@ -101,7 +101,7 @@ const assignmentProfilesSchema = z
   .max(FACTORY_ROLES.length)
   .refine((profiles) => {
     const roles = new Set(profiles.map((profile) => profile.role));
-    return roles.size === profiles.length;
+    return profiles.every((profile) => profile.modelChoice === undefined) || roles.size === profiles.length;
   }, 'Duplicate role recommendations.')
   .optional();
 /** Bounded text which cannot be empty. */
