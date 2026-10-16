@@ -5,6 +5,8 @@ import type { TerminalStyle } from './terminal-style.ts';
 
 /** One immutable display cell. */
 export interface TerminalCell {
+  /** Display columns: zero marks the trailing half of a wide glyph. */
+  readonly width: 0 | 1 | 2;
   /** Unicode glyph or blank. */
   readonly text: string;
   /** Immutable numeric/palette styling. */
@@ -22,7 +24,12 @@ export interface TerminalCursor {
 /** Explicit hard memory ceilings. */
 const LIMIT = { columns: 500, rows: 200, history: 500 } as const;
 /** Shared immutable blank cell. */
-export const BLANK_CELL: TerminalCell = Object.freeze({ text: ' ', style: DEFAULT_TERMINAL_STYLE, link: null });
+export const BLANK_CELL: TerminalCell = Object.freeze({
+  text: ' ',
+  width: 1,
+  style: DEFAULT_TERMINAL_STYLE,
+  link: null,
+});
 
 /**
  * Clamp untrusted dimensions before allocating cells.
@@ -102,13 +109,14 @@ export class TerminalGrid {
    * @param top - First affected row.
    * @param bottom - Last affected row.
    * @param count - Positive scroll-up or negative scroll-down count.
+   * @param shouldRetain - Explicit line deletion must not enter scrollback.
    */
-  public scroll(top: number, bottom: number, count: number): void {
+  public scroll(top: number, bottom: number, count: number, shouldRetain = true): void {
     const amount = Math.min(Math.abs(count), bottom - top + 1);
     for (let index = 0; index < amount; index += 1) {
       if (count > 0) {
         const removed = this.lines.splice(top, 1)[0];
-        if (removed !== undefined && top === 0 && this.hasHistory && bottom === this.rows - 1) {
+        if (removed !== undefined && top === 0 && shouldRetain && this.hasHistory && bottom === this.rows - 1) {
           this.history.push(removed);
           if (this.history.length > LIMIT.history) {
             this.history.splice(0, this.history.length - LIMIT.history);
