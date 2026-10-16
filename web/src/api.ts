@@ -6,6 +6,18 @@
 
 /** Finite observation deadline; controls are never automatically retried. */
 const READ_TIMEOUT_MS = 15_000;
+
+/**
+ * Read uncached older Activity through the paired local boundary.
+ *
+ * @param project - Selected public project ID.
+ * @param before - Exclusive durable sequence.
+ * @param limit - Bounded page size.
+ * @returns Untrusted response, validated transactionally by ActivityHistory.
+ */
+export async function activityHistory(project: string, before: number, limit: number): Promise<unknown> {
+  return await request(`${scoped(project, '/api/history')}&before=${String(before)}&limit=${String(limit)}`);
+}
 /** Validated plain JSON object. */
 export type Data = Record<string, unknown>;
 

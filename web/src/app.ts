@@ -19,6 +19,7 @@ import { QueueState } from './brand-ui.js';
 import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
 import { startConsoleClock } from './console-clock.js';
 import { Freshness } from './freshness.js';
+import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import {
@@ -55,7 +56,7 @@ import {
 } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
-import type { Snapshot, Data } from './api.js';
+import type { Snapshot } from './api.js';
 import type { View } from './navigation.js';
 import type { OperatorEdit as Edit } from './recovery-ui.js';
 import type { Actions } from './views.js';
@@ -69,8 +70,6 @@ const MAX_LOGS = 8;
 const UNAUTHORIZED = 401;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
 const MAX_RECONNECTS = 5;
-/** Bounded visible timeline memory; SQLite retains the complete history. */
-const HISTORY_LIMIT = 200;
 
 /** Only public layout choices may persist in browser storage. */
 const layoutKey = 'malt-worker-layout-v1';
@@ -141,9 +140,7 @@ const control = createOperatorControl({
 /** Prevent overlapping reads from duplicating a captured output chunk. */
 const pendingLogs = new Set<string>();
 /** Durable event sequence deduplication for the currently selected project. */
-const eventHistory = new Map<number, Data>();
-/** Scope associated with the bounded in-memory timeline. */
-const historyScope = { project: 'home' };
+const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
 const freshness = new Freshness();
 
@@ -347,16 +344,17 @@ function connection(isConnected: boolean): void {
 /** Read one actual snapshot without mutating project state. */
 async function refresh(): Promise<void> {
   const projectId = state.project;
+  const scope = history.scope();
   try {
     const response = await request(scoped(projectId, '/api/snapshot'));
-    if (state.project !== projectId) {
+    if (!history.isCurrent(scope)) {
       return;
     }
     applyObserved(snapshot(response), projectId);
     connection(true);
     render();
   } catch (error) {
-    if (state.project !== projectId) {
+    if (!history.isCurrent(scope)) {
       return;
     }
     connection(false);
@@ -382,27 +380,8 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   if (state.project !== projectId) {
     return;
   }
-  if (historyScope.project !== projectId) {
-    eventHistory.clear();
-    historyScope.project = projectId;
-  }
-  for (const event of observed.events) {
-    const sequence = event['seq'];
-    if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence)) {
-      throw new TypeError('Invalid activity sequence.');
-    }
-    eventHistory.set(sequence, event);
-  }
-  const events = eventHistory
-    .entries()
-    .toArray()
-    .toSorted(([left], [right]) => left - right)
-    .slice(-HISTORY_LIMIT);
-  eventHistory.clear();
-  for (const [sequence, event] of events) {
-    eventHistory.set(sequence, event);
-  }
-  state.current = { ...observed, events: events.map(([, event]) => event) };
+  history.observe(observed.events);
+  state.current = { ...observed, events: history.view().recent };
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
@@ -590,6 +569,7 @@ async function start(): Promise<void> {
   });
   node('project', HTMLSelectElement).addEventListener('change', () => {
     state.project = node('project', HTMLSelectElement).value;
+    history.select(state.project);
     state.current = null;
     logs.clear();
     cursors.clear();
@@ -679,6 +659,7 @@ async function openProject(workspace: string): Promise<void> {
   try {
     const value = data(await request('/api/projects', { workspace }));
     state.project = text(value, 'id');
+    history.select(state.project);
     state.current = null;
     logs.clear();
     cursors.clear();
@@ -698,6 +679,7 @@ async function signout(): Promise<void> {
   logs.clear();
   cursors.clear();
   connection(false);
+  history.reset();
   node('pairing', HTMLDialogElement).showModal();
 }
 
