@@ -672,7 +672,7 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_recover:
     'Operator only: recover a blocked objective or authorize existing-delivery clearance without new objectives.',
   factory_triage:
-    'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, or explicitly authorize verification of a confirmed external merge. Never creates approvals.',
+    'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, explicitly authorize verification of a confirmed external merge, or (operator only) adopt an external merge commit for merged-main verification. Never creates approvals.',
   factory_enqueue:
     'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',
   factory_capacity:

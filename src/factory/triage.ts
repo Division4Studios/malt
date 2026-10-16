@@ -92,8 +92,14 @@ export function decideTriage(
   actorId: string | null = null,
 ): TriageDecision {
   const value = factorySchemas.factory_triage.parse(input);
+  if ((value.action === 'adopt_merge') !== (value.mergeCommit !== undefined)) {
+    throw new MeshError('INVALID_INPUT', 'mergeCommit is required for adopt_merge and accepted by no other action.');
+  }
   if (actorId !== null && value.action === 'approve_size') {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may approve a publication size exception.');
+  }
+  if (actorId !== null && value.action === 'adopt_merge') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may adopt an external merge commit.');
   }
   return repository.store.transaction(() => {
     const prior = selectOne(
@@ -130,6 +136,10 @@ export function decideTriage(
     };
     if (value.action === 'approve_size') {
       approvePublicationSize(repository, task, value.note);
+      decision.state = 'applied';
+      decision.version = repository.task(task.id).version;
+    } else if (value.action === 'adopt_merge') {
+      adoptMerge(repository, value);
       decision.state = 'applied';
       decision.version = repository.task(task.id).version;
     }
@@ -181,6 +191,7 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
     acknowledge: null,
     investigate: null,
     approve_size: null,
+    adopt_merge: null,
   } as const;
   const nextPhase = phase[input.action];
   if (nextPhase === null) {
@@ -201,6 +212,39 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
   if (input.action === 'repair' && task.developer !== null) {
     repository.instruct(task.developer, task.id, `Resolve this delivery blocker: ${note}`);
   }
+}
+
+/**
+ * Record an operator-identified external merge for mandatory merged-main verification.
+ * Containment in main and end-to-end checks remain the final tester's gate; no approval is inferred.
+ *
+ * @param repository - Project ledger.
+ * @param input - Exact operator decision.
+ * @throws {MeshError} When the delivery already records a merge.
+ */
+function adoptMerge(repository: FactoryRepository, input: Input): void {
+  const task = repository.task(input.taskId);
+  if (task.merge !== null) {
+    throw new MeshError('FACTORY_GATED', 'This delivery already records a merge. Use verify for its merged main.');
+  }
+  const commit = input.mergeCommit ?? '';
+  const note = input.note === '' ? 'Explicit triage decision.' : input.note;
+  repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'verifying',
+      merge: commit,
+      attempts: 0,
+      reviews: [],
+      finalReview: null,
+      verifiedMain: null,
+      error: null,
+      feedback: [
+        ...current.feedback,
+        `Operator adopt_merge: adopted external merge ${commit} for merged-main verification. ${note} No factory QA approvals are implied.`,
+      ],
+    };
+  });
 }
 
 /**

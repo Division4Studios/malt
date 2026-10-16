@@ -13,6 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod/v3';
 
 import { rejectDelivery, completeJob } from '../src/factory/completion.ts';
+import { executeJob, retireSnapshot } from '../src/factory/execution.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { runProcess } from '../src/factory/processes.ts';
 import { PublicationSizeError, assertPublicationSize } from '../src/factory/publication-size.ts';
@@ -20,6 +21,7 @@ import { reconcile } from '../src/factory/reconcile.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { taskSchema, factoryConfigSchema, jobSchema, resultSchema } from '../src/factory/schema.ts';
 import { replaceScope } from '../src/factory/scope-changes.ts';
+import { installFactorySkills } from '../src/factory/skills.ts';
 import { sealSource, readSource } from '../src/factory/source-reader.ts';
 import { decideTriage } from '../src/factory/triage.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
@@ -661,4 +663,159 @@ await test('oversized validated source parks for an exact human exception and pu
     assertPublicationSize({ ...gate, base: 'advanced' }, settings, approved.sizeApproval);
   }, PublicationSizeError);
   assert.throws(() => decideTriage(context.repository, { ...decision, requestId: randomUUID() }), /changed/v);
+});
+
+/** Verification spawns are not observed by these fixtures. */
+function ignoreSpawn(): void {
+  // Intentionally empty: no process identity is needed.
+}
+
+/**
+ * Claim one merged-main verification exactly as the scheduler would for this delivery revision.
+ *
+ * @param context - Real Git fixture.
+ * @param task - Verifying delivery.
+ * @returns Live final-tester claim.
+ */
+function verifyClaim(context: FactoryContext, task: FactoryTask): z.output<typeof jobSchema> {
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    kind: 'verify',
+    role: 'final-tester',
+    provider: 'codex',
+    taskId: task.id,
+    featureId: null,
+    head: task.head,
+    base: task.base,
+    state: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    expiresAt: Date.now() + 60_000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: path.join(context.mesh.directory, 'checks', randomUUID()),
+  });
+  assert.equal(context.repository.claim(job, context.settings), true);
+  return job;
+}
+
+/**
+ * Adopt an operator-identified commit on a parked delivery without a recorded merge.
+ *
+ * @param context - Real Git fixture.
+ * @param task - Parked delivery.
+ * @param mergeCommit - Operator-named external merge.
+ * @returns Verifying delivery.
+ */
+function adoptExternal(context: FactoryContext, task: FactoryTask, mergeCommit: string): FactoryTask {
+  const parked = context.repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'blocked',
+      error: 'Issue already delivered outside the factory.',
+    };
+  });
+  const receipt = decideTriage(context.repository, {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: parked.version,
+    action: 'adopt_merge',
+    mergeCommit,
+    note: 'Delivered by external PRs.',
+  });
+  assert.equal(receipt.state, 'applied');
+  return context.repository.task(task.id);
+}
+
+await test('an adopted commit missing from main fails verification gated and never closes its issue', async (t) => {
+  const { context, task } = await fixture(t);
+  const outside = await context.workspaces.git(['commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Not on main']);
+  const adopted = adoptExternal(context, task, outside);
+  assert.equal(adopted.phase, 'verifying');
+  const job = verifyClaim(context, adopted);
+  await assert.rejects(
+    executeJob(context, job, { signal: AbortSignal.timeout(60_000), onSpawn: ignoreSpawn }),
+    { code: 'FACTORY_GATED', message: /not contained/v },
+    'Containment is checked before any paid final-tester inference.',
+  );
+  await reconcile(context);
+  const current = context.repository.task(task.id);
+  assert.equal(current.phase, 'verifying');
+  assert.equal(current.verifiedMain, null);
+  const returned = await rejectDelivery(context, current, 'Merged-main verification failed.');
+  await reconcile(context);
+  assert.ok(!['closing', 'done'].includes(context.repository.task(task.id).phase));
+  assert.equal(returned.verifiedMain, null);
+  assert.ok(!context.repository.effectCompleted(`${task.id}:verified:close`));
+  assert.ok(context.repository.effects().every((effect) => effect.kind !== 'close'));
+});
+
+await test('an adopted commit contained in main verifies, closes and completes while dirty owned work survives', async (t) => {
+  const { context, task } = await fixture(t);
+  assert.ok(task.head !== null);
+  installFactorySkills(context.mesh);
+  const branch = 'malt/adopted-source';
+  const worktree = await context.workspaces.create(task.id, task.head, branch);
+  const filename = path.join(worktree, 'preserve.txt');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Write a fixed file inside this fixture's owned worktree.
+  await writeFile(filename, 'Unsubmitted edits must survive completion.\n');
+  context.repository.editTask(task.id, (current) => ({ ...current, branch, worktree }));
+  const external = await advanceMain(context);
+  const adopted = adoptExternal(context, task, external);
+  assert.deepEqual([adopted.head, adopted.base, adopted.pr], [task.head, task.base, task.pr]);
+  const effects: string[] = [];
+  const verifying: FactoryContext = {
+    ...context,
+    agent: async () => {
+      await delay(0);
+      return {
+        result: resultSchema.parse({
+          outcome: 'success',
+          summary: 'Adopted merge verified on actual main.',
+          findings: [],
+          deliveries: [],
+          instructionReceipts: [],
+        }),
+        usageTokens: 1,
+        cooldownUntil: 0,
+        subscriptionUsedPercent: null,
+        subscriptionResetAt: null,
+        process: { exitCode: 0, stdout: '', stderr: '', interrupted: false },
+      };
+    },
+    remote: {
+      ...context.remote,
+      effect: async (effect) => {
+        await delay(0);
+        effects.push(effect.kind);
+      },
+    },
+  };
+  const job = verifyClaim(context, adopted);
+  const controller = new AbortController();
+  const execution = await executeJob(verifying, job, { signal: controller.signal, onSpawn: ignoreSpawn });
+  await completeJob(verifying, job, execution, controller.signal);
+  await retireSnapshot(verifying, execution.snapshot);
+  const closing = context.repository.task(task.id);
+  assert.equal(closing.phase, 'closing');
+  assert.equal(closing.verifiedMain?.head, external);
+  assert.deepEqual(closing.reviews, [], 'Verification cannot fabricate QA approvals.');
+  await reconcile(verifying);
+  assert.equal(context.repository.task(task.id).phase, 'done');
+  await reconcile(verifying);
+  await reconcile(verifying);
+  const done = context.repository.task(task.id);
+  assert.equal(done.phase, 'done');
+  assert.match(done.error ?? '', /^Preserved/v);
+  assert.equal(done.worktree, worktree);
+  await access(filename);
+  assert.ok(context.repository.effectCompleted(`${task.id}:verified:close`));
+  assert.ok(effects.includes('close'));
+  assert.ok(
+    effects.every((kind) => ['status', 'comment', 'close'].includes(kind)),
+    'Completion effects never reopen or re-scope an issue.',
+  );
 });

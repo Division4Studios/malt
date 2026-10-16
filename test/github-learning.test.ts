@@ -752,3 +752,45 @@ await test('the issue-state read is refused for an unconnected workspace', async
   await assert.rejects(adapter.issueState(5), z.ZodError);
   assert.equal(isCalled, false);
 });
+
+await test('issue close effects leave an already-closed issue and its recorded reason untouched', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const github = new ProjectGitHub(config, remote.run);
+  await github.execute('github_connect', connection);
+  remote.issues.push(
+    {
+      id: 201,
+      node_id: 'issue-closed',
+      number: 7,
+      html_url: 'https://github.com/example/app/issues/7',
+      body: '',
+      state: 'closed',
+    },
+    {
+      id: 202,
+      node_id: 'issue-open',
+      number: 8,
+      html_url: 'https://github.com/example/app/issues/8',
+      body: '',
+      state: 'open',
+    },
+  );
+  const patches: { endpoint: string; input: unknown }[] = [];
+  const runner: GitHubRunner = async (args, input) => {
+    if (args.includes('PATCH')) {
+      patches.push({ endpoint: args[1] ?? '', input });
+      return {};
+    }
+    return remote.run(args, input);
+  };
+  const adapter = new GitHubDelivery(config, github, runner);
+  const effect = { attempts: 0, retryAt: 0, error: null, value: 'Verified on merged main.' };
+  await adapter.effect({ ...effect, id: 'closed-complete', kind: 'close', issue: 7 });
+  await adapter.effect({ ...effect, id: 'closed-obsolete', kind: 'close_not_planned', issue: 7 });
+  assert.deepEqual(patches, [], 'A closed issue must not be reopened or have its state_reason rewritten.');
+  await adapter.effect({ ...effect, id: 'open-complete', kind: 'close', issue: 8 });
+  assert.deepEqual(patches, [
+    { endpoint: 'repos/example/app/issues/8', input: { state: 'closed', state_reason: 'completed' } },
+  ]);
+});

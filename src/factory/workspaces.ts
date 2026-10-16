@@ -362,9 +362,16 @@ export class WorkspaceManager {
    *
    * @param merge - GitHub-confirmed merge commit.
    * @param base - Fetched main commit.
+   * @throws {MeshError} When the commit is unknown or not an ancestor of main.
    */
   public async contains(merge: string, base: string): Promise<void> {
-    await this.git(['merge-base', '--is-ancestor', merge, base]);
+    try {
+      await this.git(['merge-base', '--is-ancestor', merge, base]);
+    } catch (error) {
+      throw new MeshError('FACTORY_GATED', `Merge ${merge} is not contained in fetched main ${base}.`, {
+        cause: error,
+      });
+    }
   }
 
   /**

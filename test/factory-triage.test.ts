@@ -22,6 +22,7 @@ import {
 } from '../src/factory/triage.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
+import { parseInput } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -406,4 +407,145 @@ await test('publication recovery does not replace its validated local head with 
     publishing,
     'An unpaid publication retry must retain its validated local checkpoint.',
   );
+});
+
+/** A full lowercase commit identity named by the operator. */
+const adopted = 'a'.repeat(40);
+
+await test('operator adoption records an external merge for verification without implying QA approval', (t) => {
+  const { repository } = fixture(t);
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const prepared = repository.editTask(task.id, (previous) => {
+    return {
+      ...previous,
+      reviews: [{ role: 'qa-1', head: 'old', base: 'base', outcome: 'success', summary: 'Old', jobId: randomUUID() }],
+      finalReview: { head: 'old', base: 'base', jobId: randomUUID(), summary: 'Old final' },
+      verifiedMain: { head: 'base', jobId: randomUUID(), summary: 'Old proof' },
+    };
+  });
+  const input = {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: prepared.version,
+    action: 'adopt_merge',
+    mergeCommit: adopted,
+    note: 'Delivered by PRs #128 and #134.',
+  };
+  const receipt = decideTriage(repository, input);
+  assert.equal(receipt.state, 'applied');
+  assert.equal(receipt.action, 'adopt_merge');
+  const current = repository.task(task.id);
+  assert.equal(receipt.version, current.version);
+  assert.equal(current.phase, 'verifying');
+  assert.equal(current.merge, adopted);
+  assert.deepEqual(current.reviews, []);
+  assert.equal(current.finalReview, null);
+  assert.equal(current.verifiedMain, null);
+  assert.equal(current.attempts, 0);
+  assert.equal(current.error, null);
+  assert.deepEqual([current.head, current.base, current.pr], [task.head, task.base, task.pr]);
+  const feedback = current.feedback.at(-1) ?? '';
+  assert.ok(feedback.includes(`adopt_merge: adopted external merge ${adopted}`));
+  assert.ok(feedback.includes('Delivered by PRs #128 and #134.'));
+  assert.ok(feedback.includes('No factory QA approvals are implied'));
+  assert.deepEqual(decideTriage(repository, input), receipt);
+  assert.equal(repository.task(task.id).version, current.version, 'An exact replay must not reapply.');
+  assert.throws(() => decideTriage(repository, { ...input, mergeCommit: 'b'.repeat(40) }), /identity/v);
+});
+
+await test('adoption rejects malformed commit input, other actions with a commit and managed agents', (t) => {
+  const { repository } = fixture(t);
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const base = { taskId: task.id, expectedVersion: task.version, note: 'Adopt' };
+  const invalid: unknown[] = [
+    { ...base, requestId: randomUUID(), action: 'adopt_merge' },
+    { ...base, requestId: randomUUID(), action: 'verify', mergeCommit: adopted },
+    { ...base, requestId: randomUUID(), action: 'acknowledge', mergeCommit: adopted },
+  ];
+  for (const input of invalid) {
+    assert.throws(() => decideTriage(repository, input), { code: 'INVALID_INPUT' });
+  }
+  for (const mergeCommit of ['A'.repeat(40), 'a'.repeat(39), 'a'.repeat(41), `${'a'.repeat(39)}g`, '']) {
+    const input = { ...base, requestId: randomUUID(), action: 'adopt_merge', mergeCommit };
+    assert.throws(() => parseInput('factory_triage', input), { code: 'INVALID_INPUT' });
+    assert.throws(() => decideTriage(repository, input), /40-character/v);
+  }
+  assert.throws(
+    () => {
+      return decideTriage(
+        repository,
+        { ...base, requestId: randomUUID(), action: 'adopt_merge', mergeCommit: adopted },
+        'agent',
+      );
+    },
+    { code: 'NOT_ORCHESTRATOR' },
+  );
+  assert.deepEqual(triageStatus(repository), []);
+  assert.deepEqual(repository.task(task.id), task, 'Rejected adoption must persist nothing.');
+});
+
+await test('adoption is gated for recorded merges, completed or superseded scopes, live claims and stale revisions', (t) => {
+  const { repository } = fixture(t);
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const adopt = (expectedVersion: number): unknown => {
+    return {
+      requestId: randomUUID(),
+      taskId: task.id,
+      expectedVersion,
+      action: 'adopt_merge',
+      mergeCommit: adopted,
+    };
+  };
+  const merged = repository.editTask(task.id, (current) => ({ ...current, merge: 'c'.repeat(40) }));
+  assert.throws(() => decideTriage(repository, adopt(merged.version)), { code: 'FACTORY_GATED', message: /verify/v });
+  const open = repository.editTask(task.id, (current) => ({ ...current, merge: null }));
+  assert.throws(() => decideTriage(repository, adopt(open.version - 1)), { code: 'FACTORY_GATED' });
+  const done = repository.editTask(task.id, (current) => ({ ...current, phase: 'done' }));
+  assert.throws(() => decideTriage(repository, adopt(done.version)), { code: 'FACTORY_GATED' });
+  const superseded = repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'blocked',
+      scopeReplacement: randomUUID(),
+    };
+  });
+  assert.throws(() => decideTriage(repository, adopt(superseded.version)), { code: 'FACTORY_GATED' });
+  const parked = repository.editTask(task.id, (current) => ({ ...current, scopeReplacement: undefined }));
+  const investigation = decideTriage(repository, {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: parked.version,
+    action: 'investigate',
+  });
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    role: 'team-lead',
+    kind: 'triage',
+    target: investigation.id,
+    taskId: task.id,
+    featureId: null,
+    head: null,
+    base: null,
+    provider: 'codex',
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: Date.now() + 1000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(repository.claim(job, config), true);
+  assert.throws(() => decideTriage(repository, adopt(parked.version)), {
+    code: 'FACTORY_GATED',
+    message: /assignment/v,
+  });
+  assert.equal(repository.task(task.id).merge, null);
+  assert.ok(triageStatus(repository).every((decision) => decision.action !== 'adopt_merge'));
 });
