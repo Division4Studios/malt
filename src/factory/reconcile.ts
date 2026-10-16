@@ -360,7 +360,7 @@ async function flushEffects(context: FactoryContext): Promise<void> {
  *
  * @param context - Product feature ledger and remote board.
  */
-async function closeParents(context: FactoryContext): Promise<void> {
+export async function closeParents(context: FactoryContext): Promise<void> {
   const candidates3 = context.repository
     .features()
     .filter(
@@ -372,6 +372,8 @@ async function closeParents(context: FactoryContext): Promise<void> {
     if (
       tasks.length === 0 ||
       tasks.some((task) => task.phase !== 'done') ||
+      // Children closed without delivery never justify closing the parent as completed; the operator decides.
+      tasks.some((task) => task.verifiedMain?.undelivered === true) ||
       context.repository.effects().some((effect) => tasks.some((task) => task.issue === effect.issue))
     ) {
       continue;

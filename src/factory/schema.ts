@@ -397,7 +397,16 @@ export const taskSchema = z.object({
     .object({ head: z.string(), base: z.string(), jobId: z.string().uuid(), summary: textSchema })
     .nullable()
     .default(null),
-  verifiedMain: z.object({ head: z.string(), jobId: proofJobIdSchema, summary: textSchema }).nullable().default(null),
+  verifiedMain: z
+    .object({
+      head: z.string(),
+      jobId: proofJobIdSchema,
+      summary: textSchema,
+      /** Closed as not planned or duplicate: done, but never counted as delivered. */
+      undelivered: z.literal(true).optional(),
+    })
+    .nullable()
+    .default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),

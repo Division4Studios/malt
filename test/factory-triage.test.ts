@@ -13,6 +13,7 @@ import { OPERATOR_ADOPTED } from '../src/factory/adoption-schema.ts';
 import { adoptDeliveredIssue, reconcileGitHub, retireObjective, triageControl } from '../src/factory/adoption.ts';
 import { hasParkedPRUpdate } from '../src/factory/blocked-pr.ts';
 import { recordCancellation } from '../src/factory/controls.ts';
+import { closeParents } from '../src/factory/reconcile.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
 import { factoryConfigSchema, featureSchema, taskSchema, jobSchema, factorySchemas } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
@@ -674,6 +675,51 @@ await test('adopt_delivered records not-planned closures as done without deliver
   assert.equal(done.merge, null);
   assert.match(done.verifiedMain?.summary ?? '', /^Closed without delivery: issue #1 was closed as not_planned/v);
   assert.ok(done.feedback.at(-1)?.includes('Nothing was merged') === true);
+  assert.equal(done.verifiedMain?.undelivered, true);
+});
+
+await test('a parent whose child closed without delivery is never closed as completed', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const feature = featureSchema.parse({
+    id: randomUUID(),
+    objective: 'Existing feature #2',
+    phase: 'active',
+    productPlan: null,
+    plan: null,
+    parentIssue: 2,
+    error: null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  repository.saveFeature(feature);
+  const linked = repository.editTask(task.id, (current) => ({ ...current, featureId: feature.id }));
+  mockEvidence(t, context, { 1: 'duplicate' });
+  const parentComplete = t.mock.method(context.remote, 'parentComplete', async () => delay(0, true));
+  await adoptDeliveredIssue(
+    context,
+    {
+      requestId: randomUUID(),
+      taskId: linked.id,
+      expectedVersion: linked.version,
+      action: 'adopt_delivered',
+      note: 'Dup.',
+    },
+    null,
+  );
+  assert.equal(repository.task(task.id).phase, 'done');
+  for (const effect of repository.effects()) {
+    repository.settleEffect(effect, null);
+  }
+  await closeParents(context);
+  assert.equal(parentComplete.mock.callCount(), 0);
+  assert.ok(
+    repository.effects().every((effect) => effect.issue !== 2),
+    'No status or close effect targets the parent.',
+  );
+  assert.equal(repository.features().find((candidate) => candidate.id === feature.id)?.phase, 'active');
 });
 
 await test('adopt_delivered rejects open issues, running assignments and every agent including the lead', async (t) => {

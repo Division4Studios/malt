@@ -347,7 +347,12 @@ function adoptDelivered(repository: FactoryRepository, input: Input, evidence: D
       merge: evidence.merge,
       attempts: 0,
       error: null,
-      verifiedMain: { head: evidence.head, jobId: OPERATOR_ADOPTED, summary },
+      verifiedMain: {
+        head: evidence.head,
+        jobId: OPERATOR_ADOPTED,
+        summary,
+        ...(!evidence.isDelivered && { undelivered: true as const }),
+      },
       feedback: [...current.feedback, `Operator adopt_delivered: ${summary}`],
     };
   });
