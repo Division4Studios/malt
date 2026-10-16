@@ -9,6 +9,59 @@ import { records, text } from './api.js';
 import type { Data, Snapshot } from './api.js';
 
 /**
+ * Require an actual typed shell node without accepting unsafe DOM casts.
+ *
+ * @param id - Fixed public shell ID.
+ * @param type - Required native DOM constructor.
+ * @returns Typed shell element.
+ * @throws {TypeError} If the expected app shell is incomplete.
+ */
+export function shellNode<T extends HTMLElement>(id: string, type: new () => T): T {
+  const value = document.querySelector(`#${CSS.escape(id)}`);
+  if (!(value instanceof type)) {
+    throw new TypeError(`Missing app element: ${id}`);
+  }
+  return value;
+}
+
+/**
+ * Display a plain-text console outcome without injecting project HTML.
+ *
+ * @param message - Safe display text.
+ * @param isSuccessful - Whether an explicit operation was confirmed.
+ */
+export function consoleNotice(message: string, isSuccessful = false): void {
+  const target = shellNode('notice', HTMLDivElement);
+  target.hidden = message === '';
+  target.textContent = message;
+  target.setAttribute('class', isSuccessful ? 'notice success' : 'notice');
+}
+
+/**
+ * Restore only bounded public role choices, preserving the default if storage fails.
+ *
+ * @param key - Current app layout key.
+ * @param allowed - Known logical role vocabulary.
+ * @param fallback - Harmless default selection.
+ * @param maximum - Maximum simultaneous log panes.
+ * @returns Validated role choices without private contents.
+ */
+export function restoreRoleLayout(
+  key: string,
+  allowed: readonly string[],
+  fallback: string[],
+  maximum: number,
+): string[] {
+  try {
+    const saved = localStorage.getItem(key) ?? localStorage.getItem('mlt-worker-layout-v1');
+    const value: unknown = JSON.parse(saved ?? 'null');
+    return restoredRoles(value, allowed, fallback, maximum);
+  } catch {
+    return fallback;
+  }
+}
+
+/**
  * Validate public persisted layout without accepting arbitrary worker names.
  *
  * @param value - Untrusted local layout value.

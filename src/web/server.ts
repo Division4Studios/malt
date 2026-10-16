@@ -22,7 +22,7 @@ import type { MeshConfig } from '../config.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** Static assets are explicit, preventing arbitrary path traversal. */
-const ASSETS = new Map([
+const ASSETS = new Map<string, readonly [string, string]>([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/app.js', ['dist/app.js', 'text/javascript; charset=utf-8']],
   ['/views.js', ['dist/views.js', 'text/javascript; charset=utf-8']],
@@ -40,6 +40,20 @@ const ASSETS = new Map([
   ['/console-clock.js', ['dist/console-clock.js', 'text/javascript; charset=utf-8']],
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
   ['/api.js', ['dist/api.js', 'text/javascript; charset=utf-8']],
+  ...[
+    'terminal-parser',
+    'terminal-style',
+    'terminal-grid',
+    'terminal-width',
+    'terminal-screen',
+    'terminal-render-model',
+    'terminal-render',
+    'terminal-contract',
+    'terminal-stream',
+    'terminal-pane',
+    'terminal-workspace',
+  ].map((name): [string, [string, string]] => [`/${name}.js`, [`dist/${name}.js`, 'text/javascript; charset=utf-8']]),
+  ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/sw.js', ['dist/sw.js', 'text/javascript; charset=utf-8']],
@@ -385,9 +399,6 @@ async function asset(pathname: string, request: IncomingMessage, response: Serve
     return;
   }
   const [file, type] = entry;
-  if (file === undefined || type === undefined) {
-    throw new Error('Invalid static asset mapping.');
-  }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The path comes only from the fixed app-shell allowlist above, never a requested filesystem path.
   const content = await readFile(path.join(WEB_ROOT, file));
   response.writeHead(HTTP.ok, { 'Content-Type': type, 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': '/' });

@@ -72,6 +72,41 @@
     box-shadow: inset 0 0 0 1px transparent;
   }
 }
+.terminal-navigation {
+  margin-bottom: 1rem;
+}
+.terminal-navigation [aria-pressed='true'] {
+  border-color: var(--accent, #79dbde);
+  background: #173239;
+}
+.terminal-workspace {
+  display: grid;
+  gap: 1rem;
+}
+.terminal-workspace[hidden] {
+  display: none;
+}
+.terminal-panes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 36rem), 1fr));
+  gap: 1rem;
+}
+.terminal-pane {
+  min-width: 0;
+}
+.terminal-location {
+  overflow-wrap: anywhere;
+}
+.terminal-history {
+  max-height: 20rem;
+  overflow: auto;
+}
+.terminal-status {
+  min-height: 1.5em;
+}
+.terminal-pane .toolbar {
+  flex-wrap: wrap;
+}
 @media (prefers-reduced-motion: reduce) {
   .term-cursor {
     animation: none;
