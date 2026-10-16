@@ -19,7 +19,7 @@ import { startBroker } from '../src/broker.ts';
 import { loadConfig } from '../src/config.ts';
 import { objectiveQueueSchema } from '../src/factory/objective-queue-schema.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { jobSchema, factoryConfigSchema } from '../src/factory/schema.ts';
+import { jobSchema, taskSchema, factoryConfigSchema } from '../src/factory/schema.ts';
 import { readArtifact } from '../src/web/artifacts.ts';
 import { ProjectGateway } from '../src/web/projects.ts';
 import { startWebConsole } from '../src/web/server.ts';
@@ -44,6 +44,76 @@ const factoryViewSchema = z.object({
 const viewSchema = z.object({ factory: factoryViewSchema });
 /** A bounded native artifact response. */
 const artifactPageSchema = z.object({ text: z.string(), nextCursor: z.number() });
+
+await test('paired external-merge adoption is fenced, durable and does not start verification by itself', async (t) => {
+  const defer = createCleanup(t);
+  const initial = createProject(defer);
+  const broker = await startBroker(initial, { port: 0 });
+  defer(async () => broker.close());
+  const web = await startWebConsole({ ...initial, url: brokerUrl(broker.port) }, 0);
+  defer(async () => web.close());
+  const headers = await pairBrowser(web.url, web.pairingCode);
+  const repository = new FactoryRepository(broker.store);
+  const task = taskSchema.parse({
+    id: randomUUID(),
+    featureId: null,
+    issue: 2,
+    parentIssue: 1,
+    key: 'external',
+    title: 'Externally completed scope',
+    description: 'Verify the actual delivery.',
+    acceptanceCriteria: ['The external scope is verified on main.'],
+    dependencies: [],
+    phase: 'blocked',
+    developer: null,
+    branch: null,
+    worktree: null,
+    head: null,
+    base: null,
+    pr: null,
+    prUrl: null,
+    merge: null,
+    reviews: [],
+    feedback: [],
+    attempts: 0,
+    version: 0,
+    error: 'External completion needs reconciliation.',
+    updatedAt: Date.now(),
+  });
+  repository.addTask(task);
+  const input = {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: task.version,
+    action: 'adopt_merge',
+    mergeCommit: 'a'.repeat(40),
+    note: 'Inspect this externally delivered scope.',
+  };
+  const post = async (value: unknown, requestHeaders = headers, project = 'home'): Promise<Response> => {
+    return await fetch(`${web.url}/api/control?project=${project}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...requestHeaders },
+      body: JSON.stringify({ operation: 'factory_triage', input: value }),
+    });
+  };
+  assert.equal((await post(input, { 'Content-Type': 'application/json' })).status, 403);
+  assert.equal((await post(input, { ...headers, Origin: 'https://hostile.invalid' })).status, 403);
+  assert.equal((await post({ ...input, mergeCommit: 'main' })).status, 400);
+  assert.equal(repository.task(task.id).phase, 'blocked');
+  assert.equal((await post(input)).status, 200);
+  const adopted = repository.task(task.id);
+  assert.equal(adopted.phase, 'verifying');
+  assert.equal(adopted.merge, input.mergeCommit);
+  assert.deepEqual(adopted.reviews, []);
+  assert.equal(adopted.finalReview, null);
+  assert.equal((await post(input)).status, 200, 'An identical retry replays the durable receipt.');
+  assert.equal(repository.task(task.id).version, adopted.version);
+  assert.equal((await post({ ...input, mergeCommit: 'b'.repeat(40) })).status, 400);
+  assert.equal((await post(input, headers, 'unknown')).status, 403, 'Unapproved projects cannot receive controls.');
+  assert.equal(repository.active(), false);
+  assert.deepEqual(repository.jobs(), []);
+  assert.equal(repository.task(task.id).phase, 'verifying', 'Adoption never declares acceptance or completion.');
+});
 
 await test('two local consoles keep independent pairing cookies and reject each other sessions', async (t) => {
   const defer = createCleanup(t);

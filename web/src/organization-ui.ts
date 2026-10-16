@@ -161,6 +161,7 @@ export function resetConnectionFields(body: HTMLTextAreaElement): void {
   const textarea = body;
   document.querySelector('[data-github-connection]')?.remove();
   document.querySelector('[data-factory-policy]')?.remove();
+  document.querySelector('[data-editor-fields]')?.remove();
   textarea.hidden = false;
   textarea.required = true;
   const label = document.querySelector('#editor-label');
