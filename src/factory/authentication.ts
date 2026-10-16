@@ -14,7 +14,7 @@ import type { FactoryConfig, Provider } from './schema.ts';
 
 /** Native unpaid CLI diagnostics. */
 const execute = promisify(execFile);
-/** Keys which can redirect inference to API billing or external gateways. */
+/** Keys which redirect billing/gateways or override the assignment's frozen effort. */
 const API_ENVIRONMENT = new Set([
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
@@ -26,6 +26,7 @@ const API_ENVIRONMENT = new Set([
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_SIMPLE',
+  'CLAUDE_CODE_EFFORT_LEVEL',
 ]);
 /** Known inherited credential keys which must never reach captured diagnostics. */
 const CREDENTIAL_ENVIRONMENT = new Set([

@@ -8,7 +8,7 @@
 import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
-import { modelPolicySchema, modelPolicyUpdateSchema } from './model-policy.ts';
+import { modelPolicySchema, modelPolicyUpdateSchema, modelSelectionSchema } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -424,7 +424,8 @@ export const jobSchema = z.object({
     .object({
       tier: z.enum(['small', 'standard', 'advanced']),
       model: z.string().nullable(),
-      effort: z.enum(['low', 'medium', 'high']).optional(),
+      effort: z.enum(['low', 'medium', 'high']).nullable().optional(),
+      selection: modelSelectionSchema.optional(),
       reason: textSchema,
       skillNames: z.array(keySchema),
       organization: frozenOrganizationSchema.optional(),

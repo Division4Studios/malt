@@ -324,3 +324,11 @@ Legacy projects without `modelPolicy` retain implicit CLI routing and unchanged 
 ```
 
 The symbolic model above is not a recommendation or verified installed model. No credential, API key or inferred subscription entitlement belongs in this policy.
+
+### Frozen native selection arguments
+
+Assignments may retain `routing.selection` with `policyRevision`, the exact model entry (including its support evidence), and nullable `effort`. Both adapters validate that this agrees with the assignment provider/model/effort before writing launch artifacts or starting inference. Unknown explicit support and disallowed efforts fail closed; a recorded lack of effort control emits no effort override. Supported explicit choices become literal shell-free `--model` plus Codex `-c model_reasoning_effort=...` or Claude `--effort`. Later mutable legacy model defaults cannot change a routed assignment. Records predating routing retain their documented legacy defaults; the explicit-policy admission gate remains until enforcement is implemented.
+
+Unpaid local help observations on 2026-10-16: `codex-cli 0.162.1` supports `exec --model` and `--config`; `Claude Code 2.1.301` exposes `--model` and `--effort` (including low/medium/high). The [official Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) documents `model_reasoning_effort`; the [Claude CLI reference](https://code.claude.com/docs/en/cli-reference) documents session effort. Availability remains model-specific: a project entry must retain its own evidence and is not certified merely by being saved. MALT currently bounds policy efforts to low/medium/high.
+
+The recorded choice is the requested native argument, not proof that a provider applied it. [Claude model configuration](https://code.claude.com/docs/en/model-config) describes organization limits that may silently clamp streamed sessions. An inherited `CLAUDE_CODE_EFFORT_LEVEL` is removed from managed environments so it cannot replace the frozen choice. Provider policies remain authoritative. No inference API, API-key fallback or paid CLI turn is used by argument fixtures or help/version inspection.
