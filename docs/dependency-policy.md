@@ -12,7 +12,7 @@ The browser app and service worker have **no** production npm packages. The back
 | `@modelcontextprotocol/sdk` | Speaks the MCP protocol to Claude Code, Codex and Copilot sessions in `src/mcp.ts`                                       | The official protocol implementation; it tracks protocol versions and negotiation as the specification changes                         | Only the stdio server is used; its bundled HTTP/OAuth transports (Express, Hono, JOSE and others) are installed but never loaded |
 | `node-pty`                  | Creates real pseudo-terminals for operator scratch terminals                                                             | Node.js has no built-in terminal API, and no pure TypeScript replacement exists                                                        | Exact pinned beta; loaded only inside the contained terminal host process; unreachable from agents and broker RPC                |
 
-New features do not add runtime packages. Code that needs validation outside an existing Zod boundary uses small hand-written validators; the local delivery ledger is an example. Adding, replacing or removing a runtime package is an explicit, reviewed decision that updates this page, [third-party notices](../THIRD_PARTY_NOTICES.md) and the [contribution rules](../CONTRIBUTING.md).
+New features do not add runtime packages. Code that needs validation outside an existing Zod boundary uses small hand-written validators; the local delivery ledger and cloud journal are examples. Adding, replacing or removing a runtime package is an explicit, reviewed decision that updates this page, [third-party notices](../THIRD_PARTY_NOTICES.md) and the [contribution rules](../CONTRIBUTING.md).
 
 ## Why everything is locked down
 
