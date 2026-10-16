@@ -8,6 +8,7 @@ import { run, selectOne } from '../database.ts';
 import { observedIssueSchema } from '../github-issues.ts';
 import { MeshError } from '../protocol.ts';
 
+import { areObjectivesCurrent } from './recommendation-objectives.ts';
 import { recommendationAddress } from './recommendation-read-schema.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -106,12 +107,18 @@ async function commitDecision(
   if (before?.revision !== request.revision) {
     return { operationId: request.operationId, id: request.id, revision: request.revision, outcome: 'stale' };
   }
-  if (readIssue === undefined || before.state !== 'awaiting_human') {
+  if (before.state !== 'awaiting_human' || (readIssue === undefined && before.body.observedIssues.length > 0)) {
     throw new MeshError('FACTORY_GATED', 'An awaiting-human revision and verified issue reader are required.');
   }
-  let isFresh = true;
+  let isFresh = areObjectivesCurrent(repository, before.body.observedObjectives);
   let index = 0;
-  for await (const raw of issueObservations(readIssue, before.body.observedIssues)) {
+  const nativeReader =
+    readIssue ??
+    (() => {
+      throw new MeshError('FACTORY_GATED', 'Native issue reader unavailable.');
+    });
+  const observations = issueObservations(nativeReader, before.body.observedIssues);
+  for await (const raw of observations) {
     const issue = observedIssueSchema.parse(raw);
     const observed = before.body.observedIssues.at(index);
     index += 1;
@@ -133,7 +140,7 @@ async function commitDecision(
       );
     }
     const decision = request.decision === 'approve' ? 'approved' : 'rejected';
-    const outcome = isFresh ? decision : 'stale';
+    const outcome = isFresh && areObjectivesCurrent(repository, current.body.observedObjectives) ? decision : 'stale';
     repository.recommendations.transition({
       id: request.id,
       revision: request.revision,

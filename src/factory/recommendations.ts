@@ -75,6 +75,7 @@ function summary(record: Recommendation): Record<string, unknown> {
       kind: body.kind,
       tickets: body.tickets,
       observedIssues: body.observedIssues,
+      observedObjectives: body.observedObjectives,
       action: body.action.slice(0, SUMMARY_MAX),
       evidence: body.evidence.slice(0, EVIDENCE_MAX).map((item) => item.slice(0, SUMMARY_MAX)),
       preview: { before: body.preview.before.slice(0, SUMMARY_MAX), after: body.preview.after.slice(0, SUMMARY_MAX) },
