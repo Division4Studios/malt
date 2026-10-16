@@ -3,9 +3,11 @@
  *
  * @file
  */
+import { activityPanel, activityControls } from './activity-ui.js';
 import {
   LocalRequestError,
   createOperatorControl,
+  activityHistory,
   child,
   data,
   records,
@@ -36,7 +38,6 @@ import { TerminalWorkspace } from './terminal-workspace.ts';
 import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
-  activityView,
   deliveryView,
   element,
   learningView,
@@ -286,6 +287,8 @@ function render(): void {
     terminalMode: terminalWorkspace.selected,
     files: files.entries().toArray(),
     events: observed.events,
+    activity: state.view === 'activity' ? history.view() : null,
+    isConnected: state.isConnected,
     learning: observed.learning,
     github: observed.github,
   });
@@ -304,7 +307,20 @@ function render(): void {
     deliveries: () => deliveryView(observed, actions),
     workers: () =>
       terminalWorkspace.selected ? element('div') : workerView(observed, { roles: state.panes, logs, files, actions }),
-    activity: () => activityView(observed),
+    activity: () => {
+      return activityPanel(
+        observed,
+        history.view(),
+        activityControls(history, {
+          isConnected: state.isConnected,
+          isReady: () => state.view === 'activity' && state.isConnected && navigator.onLine,
+          canAnnounce: () => !node('editor', HTMLDialogElement).open,
+          read: activityHistory,
+          render,
+          notice,
+        }),
+      );
+    },
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
   };
@@ -332,6 +348,7 @@ function connection(isConnected: boolean): void {
     ? 'LOCAL CONSOLE CONNECTED'
     : 'DISCONNECTED · STATE IS STALE';
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
+  render();
   if (isConnected) {
     node('run', HTMLButtonElement).disabled = state.current === null || !hasFlag(state.current.factory, 'configured');
     node('new-objective', HTMLButtonElement).disabled = state.current === null;

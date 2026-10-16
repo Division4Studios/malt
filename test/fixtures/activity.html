@@ -1,0 +1,148 @@
+<!doctype html>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../web/style.css" />
+<label for="outside">Unrelated editor</label><input id="outside" />
+<main id="content"></main>
+<pre id="result">PENDING</pre>
+<script type="module">
+  import { ActivityHistory } from '../../web/dist/history.js';
+  import { activityPanel, activityControls } from '../../web/dist/activity-ui.js';
+  import { QueueState } from '../../web/dist/brand-ui.js';
+  const root = document.querySelector('#content');
+  const result = document.querySelector('#result');
+  const check = (value, message) => {
+    if (!value) throw new Error(message);
+  };
+  const events = (start, length) =>
+    Array.from({ length }, (_, index) => ({
+      seq: start + index,
+      type: 'FIXTURE_ACTIVITY',
+      created_at: 0,
+      data: { summary: `Event ${start + index} <img src=x onerror="window.injected=true">` },
+    }));
+  const history = new ActivityHistory();
+  const queue = new QueueState();
+  let pending = Promise.resolve();
+  let reads = [];
+  let isConnected = true;
+  let boundary = Promise.withResolvers();
+  let read = async (project, before, limit) => {
+    reads.push(before);
+    return await boundary.promise;
+  };
+  const render = () => {
+    const controls = activityControls(history, {
+      isConnected,
+      isReady: () => isConnected,
+      canAnnounce: () => true,
+      notice: () => {},
+      read: (...args) => read(...args),
+      render,
+    });
+    queue.replace(
+      root,
+      activityPanel({ events: [], project: {} }, history.view(), {
+        ...controls,
+        older: () => {
+          pending = controls.older();
+          return pending;
+        },
+      }),
+      history.scope().project,
+    );
+  };
+  const older = () => root.querySelector('[data-queue-focus="activity-older"]');
+  const recent = () => root.querySelector('[data-queue-focus="activity-recent"]');
+  const status = () => root.querySelector('#activity-page-status').textContent;
+  try {
+    history.observe(events(201, 200));
+    render();
+    check(root.querySelectorAll('.event').length === 200, 'all retained recent events are visible before paging');
+    older().focus();
+    older().click();
+    check(
+      history.view().isLoading && older().getAttribute('aria-disabled') === 'true',
+      'loading blocks duplicate reads',
+    );
+    check(document.activeElement === older(), 'loading preserves initiating focus');
+    older().click();
+    check(reads.length === 1, 'duplicate button activation stays single-flight');
+    history.observe(events(401, 100));
+    render();
+    boundary.resolve({ project: 'home', events: events(151, 50), oldestCursor: 151, hasMore: true });
+    await pending;
+    check(document.activeElement === older(), 'success preserves initiating focus');
+    check(
+      reads[0] === 201 && root.querySelectorAll('.event').length === 50,
+      'first cursor matches oldest visible recent event',
+    );
+    read = async () => {
+      throw new Error('Fixture network failure.');
+    };
+    older().click();
+    await pending;
+    check(
+      status().includes('Fixture network failure') && older().textContent === 'Retry older activity',
+      'retry explains failure',
+    );
+    check(
+      root.querySelectorAll('.event').length === 50 && document.activeElement === older(),
+      'failure retains page and focus',
+    );
+    const outside = document.querySelector('#outside');
+    outside.focus();
+    history.observe(events(501, 50));
+    render();
+    check(document.activeElement === outside, 'live rendering never steals unrelated focus');
+    read = async (project, before) => ({
+      project,
+      events: events(before - 50, 50),
+      oldestCursor: before - 50,
+      hasMore: before > 51,
+    });
+    older().focus();
+    older().click();
+    await pending;
+    check(history.view().visible[0].seq === 101, 'retry retained cursor');
+    older().click();
+    await pending;
+    check(history.view().visible[0].seq === 51, 'third backward page');
+    older().click();
+    await pending;
+    check(
+      status().includes('Beginning reached') && older().getAttribute('aria-disabled') === 'true',
+      'beginning is explicit',
+    );
+    check(document.activeElement === older(), 'end has a reachable focused control');
+    recent().click();
+    check(history.view().visible.length === 200 && !history.view().isOlder, 'return to current live window');
+    boundary = Promise.withResolvers();
+    read = async () => await boundary.promise;
+    older().focus();
+    older().click();
+    history.select('other');
+    history.observe(events(1, 2));
+    render();
+    boundary.resolve({ project: 'home', events: events(1, 50), oldestCursor: 1, hasMore: false });
+    await pending;
+    check(
+      !history.view().isOlder && root.querySelectorAll('.event').length === 2,
+      'late project result cannot replace current events',
+    );
+    isConnected = false;
+    render();
+    older().click();
+    check(status().includes('Disconnected') && !history.view().isLoading, 'offline controls do not read or replay');
+    check(
+      !root.querySelector('img') && !window.injected && root.textContent.includes('<img'),
+      'hostile event text stays plain text',
+    );
+    isConnected = true;
+    read = async (project, before) => ({ project, events: [], oldestCursor: before, hasMore: false });
+    render();
+    result.textContent =
+      'PASS: loading/retry/end, three pages, live isolation, focus, unrelated editor, stale project, offline and hostile text. Native controls below remain available for keyboard inspection.';
+  } catch (error) {
+    result.textContent = `FAIL: ${error.message}`;
+  }
+</script>

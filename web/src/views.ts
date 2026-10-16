@@ -31,7 +31,7 @@ const CAPACITY_NOTE =
 /** Compact activity count. */
 const COMPACT_EVENTS = 6;
 /** Full visible activity page. */
-const VISIBLE_EVENTS = 50;
+const VISIBLE_EVENTS = 200;
 /** Maximum displayed observation excerpt. */
 const EXCERPT_LENGTH = 500;
 /** Short commit identity for display, never for approval fencing. */
