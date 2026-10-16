@@ -288,7 +288,7 @@ function render(): void {
     files: files.entries().toArray(),
     events: observed.events,
     activity: state.view === 'activity' ? history.view() : null,
-    isConnected: state.isConnected,
+    isConnected: state.view === 'activity' ? state.isConnected : null,
     learning: observed.learning,
     github: observed.github,
   });

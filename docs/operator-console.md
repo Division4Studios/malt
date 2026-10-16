@@ -220,6 +220,8 @@ Full queue replacements and `factory-reorder-objective` share the same durable r
 
 Activity keeps up to 200 recent events in browser memory. **Older activity** reads one earlier page of at most 50 durable events and replaces the previous older page; it can traverse beyond the live retention window. New observations keep arriving separately. **Return to recent** restores the live window and cancels any pending page selection. No event history persists in browser storage or the service-worker cache.
 
+While browsing, separate **Older history page** and **Recent live activity** sections display their bounded counts. Intermediate pages are explicitly omitted rather than presented as a continuous timeline. Events present in the older page are excluded from the live section's rendered rows so each sequence appears once, including reconnect overlap; its retained and shown counts remain distinct.
+
 Loading, failure/retry and beginning-of-history states are explicit. A failed read preserves the page and exact retry cursor. Switching projects immediately clears paging and fences old successes, errors and finalizers, including switching away and back. Keyboard focus stays on the initiating control across page updates; unrelated focus and open dialogs are respected. Native buttons remain focusable while `aria-disabled` explains a pending or unavailable read. Disconnection labels the displayed state stale and blocks new reads. Polite announcements describe requested page transitions rather than rereading the event list for every live frame.
 
 ## Dispatcher decisions
