@@ -7,6 +7,7 @@
 
 import { z } from 'zod/v3';
 
+import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { modelPolicySchema, modelPolicyUpdateSchema, modelSelectionSchema } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
@@ -398,7 +399,16 @@ export const taskSchema = z.object({
     .object({ head: z.string(), base: z.string(), jobId: z.string().uuid(), summary: textSchema })
     .nullable()
     .default(null),
-  verifiedMain: z.object({ head: z.string(), jobId: z.string().uuid(), summary: textSchema }).nullable().default(null),
+  verifiedMain: z
+    .object({
+      head: z.string(),
+      jobId: proofJobIdSchema,
+      summary: textSchema,
+      /** Closed as not planned or duplicate: done, but never counted as delivered. */
+      undelivered: z.literal(true).optional(),
+    })
+    .nullable()
+    .default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -529,7 +539,7 @@ export const factorySchemas = {
       requestId: z.string().uuid(),
       featureId: z.string().uuid(),
       expectedUpdatedAt: z.number(),
-      action: z.enum(['lead', 'owner', 'existing']),
+      action: z.enum(['lead', 'owner', 'existing', 'retire']),
       note: z.string().trim().min(1).max(TRIAGE_NOTE_MAX),
     })
     .strict(),
@@ -547,6 +557,7 @@ export const factorySchemas = {
         'wait',
         'approve_size',
         'adopt_merge',
+        'adopt_delivered',
       ]),
       note: z.string().trim().max(TRIAGE_NOTE_MAX).default(''),
       mergeCommit: z
@@ -574,6 +585,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -598,6 +610,7 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_reconcile_github',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {
