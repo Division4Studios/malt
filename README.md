@@ -42,6 +42,12 @@ Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI proc
 
 See [complete setup and provider authentication](docs/operator-console.md), [GitHub coordination](docs/software-factory.md), and [Docker startup](#quick-start-with-docker-compose). Keep `.malt/`, provider credentials and pairing codes private.
 
+### Interactive scratch terminals
+
+**Workers → Scratch terminals** provides real subscription-CLI PTYs in separate owned worktrees, with native keyboard input, resize, bounded replay and explicit close. Start is an operator action; idle roles and page refreshes start nothing. Managed worker logs and durable conversations/instructions remain separate channels. Scratch sessions cannot attach to a gated developer/QA assignment or supply its review evidence.
+
+The backend uses an isolated, pinned `node-pty` host; the browser parser/renderer has zero production dependencies. Defaults admit one terminal, five minutes without operator input and thirty minutes total. Broker-wide resource/provider limits still apply. Restart retains metadata, not transcripts or live processes. See [startup, keyboard controls, security and tested support](docs/interactive-terminals.md). Feature #101's stack must be merged and matching services restarted before these controls appear in an older deployment.
+
 ## The delivery loop
 
 ```mermaid
