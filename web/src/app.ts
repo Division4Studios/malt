@@ -276,6 +276,7 @@ async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<v
 function render(): void {
   syncTerminals();
   if (state.current === null) {
+    state.renderKey = '';
     node('content', HTMLDivElement).replaceChildren();
     return;
   }

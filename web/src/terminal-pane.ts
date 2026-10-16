@@ -97,6 +97,8 @@ export class TerminalPane {
   private readonly paneRemoval = element('button', 'button secondary', 'Remove pane');
   /** Explicit plain-text view of bounded primary history. */
   private readonly history = element('pre', 'log terminal-history');
+  /** Open history tracks the same current bounded model as the live display. */
+  private readonly historyDetails = element('details', 'terminal-history-details');
 
   /**
    * Build semantic native controls without starting any provider or fetch.
@@ -156,7 +158,7 @@ export class TerminalPane {
     this.warning.hidden = true;
     this.status.setAttribute('role', 'status');
     this.warning.setAttribute('role', 'alert');
-    const details = element('details', 'terminal-history-details');
+    const details = this.historyDetails;
     details.append(element('summary', '', 'Recent scrollback (memory only)'), this.history);
     details.addEventListener('toggle', () => {
       if (details.open) {
@@ -213,6 +215,7 @@ export class TerminalPane {
     this.stream?.close();
     this.parser = new TerminalParser();
     this.screen.reset();
+    this.showHistory();
     this.warning.hidden = true;
     const stream = new TerminalStream({
       project: this.options.project,
@@ -242,9 +245,12 @@ export class TerminalPane {
     this.paneRemoval.disabled = ACTIVE.has(this.current.state) || this.isBusy;
     const reason = this.current.reason === '' ? '' : ` · ${this.current.reason}`;
     const processState = this.isReplayUnavailable ? `Recorded ${this.current.state}` : this.current.state;
-    this.status.textContent = this.isBusy
+    const status = this.isBusy
       ? 'Closing requested. Waiting for owned process cleanup…'
       : `${processState} · output ${this.phase}${reason}`;
+    if (this.status.textContent !== status) {
+      this.status.textContent = status;
+    }
     this.root.dataset['terminalState'] = this.current.state;
     this.input.update();
   }
@@ -327,6 +333,9 @@ export class TerminalPane {
     while (this.hasPendingPaint(signal)) {
       // eslint-disable-next-line no-await-in-loop -- Dirty rows are limited per paint frame, never queued without a bound.
       await nextFrame(signal);
+    }
+    if (this.historyDetails.open) {
+      this.showHistory();
     }
   }
 

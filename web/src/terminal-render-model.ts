@@ -5,6 +5,23 @@ import type { TerminalStyle } from './terminal-style.ts';
 
 /** A bounded batch prevents a full-screen redraw monopolizing one frame. */
 const ROW_BUDGET = 8;
+
+/**
+ * Find the next mounted row even when dirty rows arrive out of order.
+ *
+ * @param indices - Current mounted row indices.
+ * @param index - New row index.
+ * @returns Nearest following row, or null for append.
+ */
+export function nextTerminalRow(indices: Iterable<number>, index: number): number | null {
+  let next: number | null = null;
+  for (const candidate of indices) {
+    if (candidate > index && (next === null || candidate < next)) {
+      next = candidate;
+    }
+  }
+  return next;
+}
 /** One project-derived run; targets remain untrusted until link validation. */
 export interface TerminalRun {
   /** Literal display text. */
