@@ -1,10 +1,13 @@
 # Launch one configured native executable inside a Windows Job Object.
 # Closing this helper (including broker crash/cancellation) kills every child.
 # Arguments are encoded for CreateProcessW; no cmd.exe shell is involved.
-param([Parameter(Mandatory=$true)][string]$Descriptor)
+param([Parameter(Mandatory=$true)][string]$Descriptor, [string]$CancelFile = '')
 $ErrorActionPreference = 'Stop'
-$launch = Get-Content -LiteralPath $Descriptor -Raw | ConvertFrom-Json
-Add-Type -TypeDefinition @'
+$startup = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'job-status.json')
+[System.IO.File]::WriteAllText($startup, '{"stage":"reading-descriptor"}')
+$launch = [System.IO.File]::ReadAllText($Descriptor) | Microsoft.PowerShell.Utility\ConvertFrom-Json
+[System.IO.File]::WriteAllText($startup, '{"stage":"compiling-helper"}')
+Microsoft.PowerShell.Utility\Add-Type -TypeDefinition @'
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
@@ -30,8 +33,13 @@ public static class MltWindowsJob {
   [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle,uint timeout);
   [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process,out uint code);
   [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process,uint code);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateJobObject(IntPtr job,uint code);
   [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
   static void Check(bool success) { if(!success) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error()); }
+  static void Stage(string telemetry,string stage) {
+    string file=Path.Combine(Path.GetDirectoryName(telemetry),"job-status.json");
+    try { File.WriteAllText(file,"{\"stage\":\""+stage+"\"}"); } catch(IOException) {} catch(UnauthorizedAccessException) {}
+  }
   static string Quote(string arg) {
     var result = new StringBuilder("\""); int slashes=0;
     foreach(char c in arg) { if(c=='\\') { slashes++; continue; } if(c=='\"') result.Append('\\',slashes*2+1); else result.Append('\\',slashes); result.Append(c); slashes=0; }
@@ -64,7 +72,20 @@ public static class MltWindowsJob {
       if(File.Exists(destination)) File.Replace(temp,destination,null); else File.Move(temp,destination);
     } catch(IOException) {} catch(UnauthorizedAccessException) {} finally { Marshal.FreeHGlobal(data); }
   }
-  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry) {
+  // The helper reports completion only after its anonymous Job has no active processes.
+  static void Retire(IntPtr job) {
+    Check(TerminateJobObject(job,1));
+    IntPtr accounting=Marshal.AllocHGlobal(48);
+    try {
+      for(int i=0;i<200;i++) {
+        Check(QueryInformationJobObject(job,1,accounting,48,IntPtr.Zero));
+        if(Marshal.ReadInt32(accounting,40)==0) return;
+        System.Threading.Thread.Sleep(10);
+      }
+      throw new TimeoutException("Owned Job did not finish retiring its processes.");
+    } finally { Marshal.FreeHGlobal(accounting); }
+  }
+  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry,string cancel) {
     IntPtr job=CreateJobObject(IntPtr.Zero,null); if(job==IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
     ProcessInfo pi=new ProcessInfo();
     try {
@@ -75,16 +96,25 @@ public static class MltWindowsJob {
       try { Marshal.StructureToPtr(limits,data,false); Check(SetInformationJobObject(job,9,data,(uint)size)); } finally { Marshal.FreeHGlobal(data); }
       if(cpuPercent>0 && cpuPercent<100) { var cpu=new CpuLimits { ControlFlags=5, CpuRate=cpuPercent*100 }; size=Marshal.SizeOf(cpu); data=Marshal.AllocHGlobal(size); try { Marshal.StructureToPtr(cpu,data,false); Check(SetInformationJobObject(job,15,data,(uint)size)); } finally { Marshal.FreeHGlobal(data); } }
       var si=new StartupInfo { cb=(uint)Marshal.SizeOf(typeof(StartupInfo)), dwFlags=0x100, hStdInput=GetStdHandle(-10), hStdOutput=GetStdHandle(-11), hStdError=GetStdHandle(-12) };
+      if(cancel.Length>0 && File.Exists(cancel)) return 1;
       var command=new StringBuilder(Quote(file)); foreach(string arg in args) command.Append(' ').Append(Quote(arg));
+      Stage(telemetry,"creating-host");
       Check(CreateProcess(null,command,IntPtr.Zero,IntPtr.Zero,true,0x08000004,IntPtr.Zero,cwd,ref si,out pi));
       try { Check(AssignProcessToJobObject(job,pi.hProcess)); } catch { TerminateProcess(pi.hProcess,1); throw; }
       ResumeThread(pi.hThread);
+      Stage(telemetry,"host-resumed");
       Sample(job,telemetry);
-      while(WaitForSingleObject(pi.hProcess,2000)==258) Sample(job,telemetry);
-      uint code; Check(GetExitCodeProcess(pi.hProcess,out code)); return unchecked((int)code);
+      long nextSample=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()+2000;
+      while(WaitForSingleObject(pi.hProcess,100)==258) {
+        if(cancel.Length>0 && File.Exists(cancel)) { Retire(job); break; }
+        long now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        if(now>=nextSample) { Sample(job,telemetry); nextSample=now+2000; }
+      }
+      uint code; Check(GetExitCodeProcess(pi.hProcess,out code)); Retire(job); return unchecked((int)code);
     } finally { if(pi.hThread!=IntPtr.Zero) CloseHandle(pi.hThread); if(pi.hProcess!=IntPtr.Zero) CloseHandle(pi.hProcess); CloseHandle(job); }
   }
 }
 '@
-$telemetry = Join-Path (Split-Path -LiteralPath $Descriptor) 'resources.json'
-exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry)
+$telemetry = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'resources.json')
+[System.IO.File]::WriteAllText($startup, '{"stage":"entering-native-job"}')
+exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile)

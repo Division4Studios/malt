@@ -188,6 +188,15 @@ export async function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
       finish(null);
     });
     child.once('close', finish);
+    child.once('exit', (code) => {
+      if (!isInterrupted) {
+        return;
+      }
+
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      finish(code);
+    });
   });
 }
 
