@@ -48,6 +48,13 @@ const FILES = [
   'dist/terminal-keys.js',
   'dist/terminal-writes.js',
   'dist/terminal-input.js',
+  'dist/telemetry-format.js',
+  'dist/transcript-ui.js',
+  'dist/sessions-ui.js',
+  'dist/cost-chart.js',
+  'dist/price-editor.js',
+  'dist/costs-ui.js',
+  'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');

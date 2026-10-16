@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
 import { OperatorSessions } from './security.ts';
+import { telemetryRoute } from './telemetry-routes.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -58,8 +59,15 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'terminal-keys',
     'terminal-writes',
     'terminal-input',
+    'telemetry-format',
+    'transcript-ui',
+    'sessions-ui',
+    'cost-chart',
+    'price-editor',
+    'costs-ui',
   ].map((name): [string, [string, string]] => [`/${name}.js`, [`dist/${name}.js`, 'text/javascript; charset=utf-8']]),
   ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
+  ['/sessions.css', ['sessions.css', 'text/css; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/sw.js', ['dist/sw.js', 'text/javascript; charset=utf-8']],
@@ -492,7 +500,8 @@ async function api(
         return;
       }
       default: {
-        json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
+        // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
+        json(response, HTTP.ok, await telemetryRoute(url, gateway));
         return;
       }
     }
