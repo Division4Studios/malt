@@ -79,6 +79,7 @@ export class IssueGuard {
    * @param start - Rechecks supervisor authority and claims the unchanged assignment.
    */
   public async launch(context: FactoryContext, intent: JobIntent, start: () => void): Promise<void> {
+    this.waitingReason(context.repository);
     if (intent.kind !== 'develop' || (await this.isOpen(context, intent))) {
       start();
     }

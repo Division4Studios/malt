@@ -419,6 +419,24 @@ await test('status drops obsolete issue-read failures immediately after operator
   assert.ok(!JSON.stringify(await fixture.factory.execute('factory_status', {})).includes('Waiting to confirm issue'));
 });
 
+await test('dispatch retries a changed revision without requiring a status read or old cooldown expiry', async (t) => {
+  const fixture = await build(t);
+  const task = seed(fixture, { issue: 303 });
+  fixture.behavior.read = async () => {
+    await delay(0);
+    throw new Error('Fixture temporary failure.');
+  };
+  await pass(fixture);
+  assert.deepEqual(fixture.reads, [303]);
+  fixture.repository.editTask(task.id, (current) => ({ ...current, feedback: ['Operator repaired this scope.'] }));
+  fixture.behavior.read = async () => delay(0, { state: 'closed', stateReason: 'completed' });
+  fixture.clock.now += 1000;
+  await fixture.factory.tick();
+  assert.deepEqual(fixture.reads, [303, 303], 'A new revision is not delayed by the old revision’s failed read.');
+  assert.equal(fixture.repository.task(task.id).phase, 'blocked');
+  assert.deepEqual(fixture.launches, []);
+});
+
 await test('two projects awaiting GitHub cannot overclaim the same broker slot', { timeout: 30_000 }, async (t) => {
   const first = await build(t);
   const second = await build(t);
