@@ -6,23 +6,21 @@
  * @file
  */
 
-import { createHash } from 'node:crypto';
-
 import { z } from 'zod/v3';
 
 import { githubRunner } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
 import { reconcileDependencies } from './dependencies.ts';
+import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
 import type { GitHubRunner, ProjectGitHub } from '../github.ts';
+import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
-/** Named request hash length bound. */
-const REQUEST_HASH_LENGTH = 32;
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
 /** Bound GitHub's machine-readable close reason separately from issue prose. */
@@ -99,6 +97,10 @@ export interface IssueState {
 }
 /** Injectable external delivery boundary, including fixture GitHub merges. */
 export interface DeliveryRemote {
+  /** Current verified saved source identity, read without a native subprocess. */
+  readonly issueRepositoryId?: () => string;
+  /** Existing unresolved native creation identities, read without a remote mutation. */
+  readonly unresolvedOperations?: () => Promise<OperationSnapshot[]>;
   /** Bounded selected-repository observations; absent fixture capability is never complete coverage. */
   readonly issueCorpus?: (input: unknown) => Promise<IssueCorpusPage>;
   /** Current issue identity/content revision for exact reviewed decisions. */
@@ -153,6 +155,24 @@ export class GitHubDelivery implements DeliveryRemote {
    */
   public async issueCorpus(input: unknown): Promise<IssueCorpusPage> {
     return await this.github.issues().page(input);
+  }
+
+  /**
+   * Read the current verified repository node without using a cached corpus as source authority.
+   *
+   * @returns Selected repository identity; unverified setup fails closed.
+   */
+  public issueRepositoryId(): string {
+    return this.github.issues().repositoryId;
+  }
+
+  /**
+   * Read the existing durable native operation journal without spawning a model.
+   *
+   * @returns Original unresolved native creation identities.
+   */
+  public async unresolvedOperations(): Promise<OperationSnapshot[]> {
+    return await readProvisioningOperations(this.github);
   }
 
   /**
@@ -215,8 +235,7 @@ export class GitHubDelivery implements DeliveryRemote {
     );
     const mappings: DeliveryPlanIssue[] = [];
     for (const delivery of record.plan.deliveries) {
-      const identity = `${record.id}:${delivery.key}`;
-      const requestId = `delivery-${createHash('sha256').update(identity).digest('hex').slice(0, REQUEST_HASH_LENGTH)}`;
+      const requestId = deliveryOperationIdentity(record.id, delivery.key);
 
       const created = z.object({ issue: z.object({ number: z.number() }) }).parse(
         // eslint-disable-next-line no-await-in-loop -- Persist each deterministic native child before advancing its dependent provisioning sequence.
