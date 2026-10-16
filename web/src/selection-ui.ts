@@ -52,10 +52,10 @@ export function selectionRows(job: Data): [string, string][] {
  * Build a keyboard-operable request-evidence disclosure from immutable job fields.
  *
  * @param job - Historical or current assignment, never a mutable policy lookup.
- * @param gate - Current factory-wide no-launch explanation, if present.
+ * @param diagnostic - Current supervisor diagnostic, which may include a no-launch gate.
  * @returns Safe native details; hostile rationale remains text.
  */
-export function selectionDetails(job: Data, gate: string): HTMLElement {
+export function selectionDetails(job: Data, diagnostic: string): HTMLElement {
   const details = element('details', 'panel-body');
   details.dataset['selectionEvidence'] = '';
   details.append(element('summary', '', 'Model selection evidence · requested launch'));
@@ -64,8 +64,10 @@ export function selectionDetails(job: Data, gate: string): HTMLElement {
     list.append(element('dt', 'subtle', label), element('dd', '', value));
   }
   details.append(list);
-  if (gate !== '') {
-    details.append(element('p', 'subtle', `Current factory admission gate (separate from this recorded job): ${gate}`));
+  if (diagnostic !== '') {
+    details.append(
+      element('p', 'subtle', `Current supervisor diagnostic (separate from this recorded job): ${diagnostic}`),
+    );
   }
   return details;
 }
