@@ -74,7 +74,11 @@ function isAuthorized(connection: Connection, signal: AbortSignal): boolean {
  * @param signal - Stream lifetime.
  * @throws {Error} For oversized or stalled output.
  */
-async function emit(response: ServerResponse, page: TerminalPage, signal: AbortSignal): Promise<void> {
+export async function writeTerminalPage(
+  response: ServerResponse,
+  page: TerminalPage,
+  signal: AbortSignal,
+): Promise<void> {
   const frame = `id: ${String(page.nextCursor)}\nevent: terminal\ndata: ${JSON.stringify(page)}\n\n: heartbeat\n\n`;
   if (Buffer.byteLength(frame) > FRAME_BYTES) {
     throw new Error('Terminal frame exceeded its escaped byte ceiling.');
@@ -231,7 +235,7 @@ export class TerminalStreams {
         return;
       }
       // eslint-disable-next-line no-await-in-loop -- Drain this frame before reading the next page.
-      await emit(connection.response, page, signal);
+      await writeTerminalPage(connection.response, page, signal);
       after = page.nextCursor;
       if (page.unavailable || (!ACTIVE.has(page.session.state) && page.output.length === 0)) {
         return;
