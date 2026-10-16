@@ -1,6 +1,6 @@
 ﻿# Interactive scratch terminals
 
-The implementation for [feature #101](https://github.com/Division4Studios/malt/issues/101) is prepared in [native Stack #155](https://github.com/Division4Studios/malt/pull/153). This guide describes that stack, not a claim that an older running broker has been upgraded. Merge, install locked dependencies, build the browser shell and restart matching broker/UI services before expecting these controls in a deployed console.
+The implementation for [feature #101](https://github.com/Division4Studios/malt/issues/101) is prepared in native Stack #155, starting with [PR #153](https://github.com/Division4Studios/malt/pull/153). This guide describes that stack, not a claim that an older running broker has been upgraded. Merge, install locked dependencies, build the browser shell and restart matching broker/UI services before expecting these controls in a deployed console.
 
 ## Three separate channels
 
@@ -30,7 +30,7 @@ Run `codex login status` or `claude auth status` in your normal provider environ
 
 Open **Workers → Scratch terminals**, select an enabled provider and explicitly choose **Start scratch terminal**. Opening a page, refreshing, reconnecting or viewing an idle role never starts a CLI. Admission may refuse startup when capacity, authentication, provider cooldown, base fetch or retained-worktree policy is not ready. Inspect the reported reason rather than repeatedly clicking Start.
 
-- Enable **Capture keyboard** to send native keystrokes. Escape releases capture; Tab leaves the input through normal browser focus navigation. **Send Tab** and **Send Escape** send those keys explicitly. Browser/OS shortcuts remain available.
+- Enable **Capture keyboard** to send native keystrokes. Escape releases capture; Tab leaves the input through normal browser focus navigation. **Send Tab** and **Send Escape** send those keys explicitly. Meta shortcuts and Ctrl+L/T/W/N/R/V remain with the browser. Other Ctrl combinations, including Ctrl+F/P/S, go to the CLI while capture is focused; release capture before using those browser actions.
 - Paste is normalized and control sequences are stripped; UTF-8 input including bracketed-paste framing must fit 16 KiB. Ambiguous writes are reported and never retried automatically.
 - Apply explicit columns/rows or opt into **Fit to pane**. It measures the displayed monospace font and padding, debounces resize and disables fitting after an unconfirmed resize. Choose compact/standard/tall pane height. At most two panes are open.
 - **Reconnect output** resumes the bounded safe replay cursor without replaying input. Hidden/offline/rescoped views stop readers and input; reconnect does not recapture the keyboard. Closing a pane is distinct from closing its native session.

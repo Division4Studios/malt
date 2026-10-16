@@ -2,7 +2,7 @@
 
 Reviewed against main `0325f63` on 2026-10-15. This is a capability map, not a declaration that the full factory roadmap is complete. The [95-issue audit](issue-audit-2026-10-15.md) records individual scopes and merged PR evidence. Live issues and the selected Project remain authoritative for subsequent changes.
 
-Terminal update on 2026-10-16: [feature #101's native Stack #155](https://github.com/Division4Studios/malt/pull/153) adds the connected operator scratch-terminal path described below. This source revision is ahead of the historical main audit; merge and restart matching services before treating it as deployed. The original audit remains a dated record, not a reason to redispatch duplicate terminal implementation.
+Terminal update on 2026-10-16: feature #101's native Stack #155, starting with [PR #153](https://github.com/Division4Studios/malt/pull/153), adds the connected operator scratch-terminal path described below. This source revision is ahead of the historical main audit; merge and restart matching services before treating it as deployed. The original audit remains a dated record, not a reason to redispatch duplicate terminal implementation.
 
 ## Capability map
 
