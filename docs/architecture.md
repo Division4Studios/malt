@@ -78,7 +78,7 @@ Heartbeats run independently of model turns, every 15 seconds by default. An age
 
 Messages and their send events commit in the same transaction. Broadcast fan-out is transactional and creates a per-recipient message. Inbox reads do not acknowledge. Acknowledgement only works for the recipient and emits one event even if repeated. Reply looks up the original inside the sender's own inbox. Message/event sequence numbers provide stable cursor pagination.
 
-Acknowledged messages remain available for history; retention and pruning are deferred. A request timeout is ambiguous for a mutation, so automatic send retries are intentionally absent. A future idempotency key can support safe retries. Handoff payloads and task references are carried as metadata until the task store exists.
+Acknowledged messages remain available for history; retention and pruning are deferred. A request timeout is ambiguous for a mutation, so automatic send retries are intentionally absent. A future idempotency key can support safe retries. Cooperative message handoff payloads and task references remain message metadata. Managed factory tasks, claims and reporting handoffs have their own durable SQLite records; they are separate from cooperative work requests and do not turn a message into verified delivery evidence.
 
 ## Local trust model
 

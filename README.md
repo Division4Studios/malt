@@ -48,7 +48,7 @@ Start the paired native services together with `node src/cli.ts ui --with-broker
 
 **Workers → Scratch terminals** provides real subscription-CLI PTYs in separate owned worktrees, with native keyboard input, resize, bounded replay and explicit close. Start is an operator action; idle roles and page refreshes start nothing. Managed worker logs and durable conversations/instructions remain separate channels. Scratch sessions cannot attach to a gated developer/QA assignment or supply its review evidence.
 
-The backend uses an isolated, pinned `node-pty` host; the browser parser/renderer has zero production dependencies. Defaults admit one terminal, five minutes without operator input and thirty minutes total. Broker-wide resource/provider limits still apply. Restart retains metadata, not transcripts or live processes. See [startup, keyboard controls, security and tested support](docs/interactive-terminals.md). Feature #101's stack must be merged and matching services restarted before these controls appear in an older deployment.
+The backend uses an isolated, pinned `node-pty` host; the browser parser/renderer has zero production dependencies. Defaults admit one terminal, five minutes without operator input and thirty minutes total. Broker-wide resource/provider limits still apply. Restart retains metadata, not transcripts or live processes. See [startup, keyboard controls, security and tested support](docs/interactive-terminals.md). Feature #101's terminal stack and the subsequent recovery/Activity stack are merged. Restart matching services deliberately before expecting an older deployment to expose these controls; see the [merged-source reconciliation](docs/merged-source-reconciliation.md).
 
 ## The delivery loop
 
