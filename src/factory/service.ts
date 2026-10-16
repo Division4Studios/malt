@@ -26,12 +26,13 @@ import {
 } from './controls.ts';
 import { admittedProvider } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
-import { executeJob, retireSnapshot } from './execution.ts';
+import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
@@ -352,6 +353,7 @@ export class FactoryService {
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
       factory_setup: () => this.controlSetup(parsed),
+      factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -405,6 +407,11 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
+    if (context.settings.modelPolicy !== undefined) {
+      this.error =
+        'Explicit model policy is saved but dispatch enforcement is not available in this delivery. No inference launched; complete policy enforcement before resuming.';
+      return;
+    }
     if (shouldParkForMemory(context, this.running, this.sampler.latest)) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
@@ -430,7 +437,7 @@ export class FactoryService {
     if (!this.connected || this.stopped || !this.repository.active()) {
       return;
     }
-    this.cancelStale();
+    cancelStaleAssignments(this.repository, this.running);
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
@@ -474,39 +481,6 @@ export class FactoryService {
       return;
     }
     await this.quota.observe(context);
-  }
-
-  /** Stop reviewers whose exact source or assigned stage was invalidated. */
-  private cancelStale(): void {
-    const candidates3 = this.repository
-      .jobs()
-      .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
-    for (const job of candidates3) {
-      if (job.taskId === null || job.kind === 'develop') {
-        continue;
-      }
-      const task = this.repository.task(job.taskId);
-      if (job.kind === 'triage') {
-        if (!triage.isCurrentTriage(this.repository, job)) {
-          this.running.get(job.id)?.controller.abort();
-        }
-        continue;
-      }
-      const phases = {
-        review: 'review',
-        final: 'merge_ready',
-        verify: 'verifying',
-        plan: '',
-        refine: '',
-        develop: '',
-        learn: '',
-        skill: '',
-        triage: '',
-      } as const;
-      if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
-        this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
-      }
-    }
   }
 
   /**
@@ -761,8 +735,8 @@ export class FactoryService {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
-    configureProject(this.mesh, this.repository, parsed);
     this.context = null;
+    configureProject(this.mesh, this.repository, parsed);
     return this.status();
   }
 }

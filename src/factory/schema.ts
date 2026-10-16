@@ -8,6 +8,7 @@
 import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
+import { modelPolicySchema, modelPolicyUpdateSchema } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -222,6 +223,7 @@ export function isTokenCapExceeded(budget: number | null, usage: number): boolea
 export const factoryConfigSchema = z
   .object({
     version: z.literal(1).default(1),
+    modelPolicy: modelPolicySchema.optional(),
     organization: organizationSchema(FACTORY_ROLES),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
@@ -464,18 +466,8 @@ export const capacitySchema = z.object({
 });
 /** Persisted capacity snapshot. */
 export type Capacity = z.output<typeof capacitySchema>;
-/** Durable, retryable remote effects. */
-export const effectSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['status', 'comment', 'close', 'close_not_planned', 'close_pr']),
-  issue: z.number().int().positive(),
-  value: z.string(),
-  attempts: z.number().int().nonnegative(),
-  retryAt: z.number(),
-  error: z.string().nullable(),
-});
-/** One outbox entry. */
-export type FactoryEffect = z.output<typeof effectSchema>;
+export { effectSchema } from './outbox-schema.ts';
+export type { FactoryEffect } from './outbox-schema.ts';
 /** Independent lead review of a learning steward's adoption/retirement request. */
 export const skillRequestSchema = skillActionSchema.extend({
   id: z.string().uuid(),
@@ -515,6 +507,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_setup: factoryConfigSchema,
+  factory_model_policy: modelPolicyUpdateSchema,
   factory_status: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
@@ -587,6 +580,7 @@ export const factorySchemas = {
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_model_policy',
   'factory_progress',
   'factory_read_source',
   'factory_export_maintenance',

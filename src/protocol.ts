@@ -658,6 +658,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Managed readonly assignment only: read its exact pinned Git source. Omit path to list tracked files or supply a nonprivate relative path for a bounded file. Runtime state and secrets are excluded, and the live role claim is enforced by the backend.',
   factory_setup:
     'Designated lead only: configure this project factory with real validation commands, review standards, CLI providers and local resource limits. Pause before changing settings.',
+  factory_model_policy:
+    'Designated lead/operator only: update explicit project model/effort policy against its expected revision. Requires paused and settled managed work; preserves unrelated settings. Unknown CLI support is never verified implicitly.',
   factory_start:
     'Designated lead only: start autonomous bounded assignments after this project has a verified GitHub Project connection.',
   factory_pause:
