@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
+import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -40,7 +41,7 @@ import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
-import { recoverObjective, retryBlocked } from './recovery.ts';
+import { retryBlocked } from './recovery.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
@@ -337,9 +338,10 @@ export class FactoryService {
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
     const handlers: Record<FactoryOperation, () => unknown> = {
-      factory_recover: () => recoverObjective(this.repository, parsed),
+      factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
-      factory_triage: () => triage.decideTriage(this.repository, parsed, actorId),
+      factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
+      factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(

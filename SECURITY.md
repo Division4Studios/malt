@@ -32,6 +32,7 @@ MALT is pre-1.0. Security work targets the latest `main` commit and the latest t
 - Managed developer permissions can allow arbitrary code execution under the native OS account. This is a trusted local-user tool, not a hostile-agent sandbox. Review permission modes, target-project code and validation commands before enabling dispatch.
 - Independent QA, exact-commit gates and GitHub protections reduce delivery risk; they do not make untrusted code safe to run. Model approvals do not satisfy GitHub's authenticated review rules.
 - Tools, MCP servers and upstream skills are executable or behavioral supply-chain inputs. Pin sources, retain provenance/licenses, review changes and require human approval for exact project skill revisions.
+- Runtime npm code runs with the same access as MALT. The backend is limited to three exactly pinned packages (Zod, the MCP SDK and `node-pty`), installed from integrity-checked lockfiles with install scripts disabled, audited at every severity and license-checked on every pull request. See the [dependency policy](docs/dependency-policy.md).
 - Windows owned processes use Job Objects; other platforms use process groups and admission checks. Admission limits are not universal hard OS ceilings. Never terminate unrelated processes to recover a job.
 
 ## Before sharing artifacts
