@@ -4,6 +4,7 @@
  * @file
  */
 import { conversationWindow } from './conversations.ts';
+import { handoffFeed } from './handoff-feed.ts';
 import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
 import { triageStatus } from './triage.ts';
@@ -45,6 +46,7 @@ export async function factoryStatus(
     skillRequests: repository.skillRequests(),
     instructions: repository.instructionLedger.recent(),
     conversations: conversationWindow(repository.store, mesh),
+    handoffs: handoffFeed(repository.store, mesh),
     workflow: workflowState(repository),
     capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
