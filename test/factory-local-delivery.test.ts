@@ -5,7 +5,7 @@
  * @file
  */
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,6 +59,17 @@ await test('local hub protects its base, fences merges by expected base and reco
     await hub.initialize(source, 'malt-hub');
     await hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true);
   }
+
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed directory inside the disposable hub.
+  mkdirSync(path.join(hub.directory, 'elsewhere'));
+  await command('git', ['config', '--local', 'core.hooksPath', 'elsewhere'], hub.directory);
+  await assert.rejects(
+    hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true),
+    { code: 'FACTORY_GATED' },
+    'A hook directory Git does not use is not protection.',
+  );
+  await hub.initialize(source, 'malt-hub');
+  await hub.verify(await command('git', ['remote', 'get-url', 'malt-hub'], source), true);
 
   await command('git', ['commit', '--allow-empty', '-m', 'Direct base push'], source);
   await assert.rejects(

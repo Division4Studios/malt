@@ -27,6 +27,8 @@ const HEAD_TRAILER = 'MALT-Head';
 const RECOVERY_DEPTH = 200;
 /** Owner-only, executable hook mode; Git silently skips hooks without the execute bit on POSIX. */
 const HOOK_MODE = 0o700;
+/** Hub-local hook directory, relative to the bare repository where Git runs receive hooks. */
+const HOOKS_PATH = 'hooks';
 
 /** Git boundary, injectable for failure tests. */
 export type HubGit = (args: readonly string[], cwd: string) => Promise<string>;
@@ -309,7 +311,11 @@ export class LocalHub {
     }
   }
 
-  /** Install or restore the protection hook. */
+  /**
+   * Install or restore the protection hook, and pin Git's hook directory to it.
+   * A global or system `core.hooksPath` would otherwise make Git run hooks from
+   * elsewhere and skip this one; the repository-local setting takes precedence.
+   */
   private async protect(): Promise<void> {
     const hook = path.join(this.directory, 'hooks', 'pre-receive');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook directory inside the private hub.
@@ -317,16 +323,20 @@ export class LocalHub {
     writeAtomic(hook, protectionHook(this.base));
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook path inside the private hub.
     await chmod(hook, HOOK_MODE);
+    await this.git(['config', '--local', 'core.hooksPath', HOOKS_PATH], this.directory);
   }
 
   /**
    * Check that the exact protection hook is installed and Git will run it.
    *
-   * @returns Whether the hook matches and Git can execute it.
+   * @returns Whether the hook matches, Git's effective hook directory is the hub's own and Git can execute it.
    */
   private async isProtected(): Promise<boolean> {
     const hook = path.join(this.directory, 'hooks', 'pre-receive');
     try {
+      if ((await this.git(['config', '--get', 'core.hooksPath'], this.directory)) !== HOOKS_PATH) {
+        return false;
+      }
       // Windows treats X_OK as an existence check, matching Git for Windows.
       await access(hook, constants.X_OK);
       // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook path inside the private hub.
