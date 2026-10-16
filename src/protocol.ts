@@ -677,6 +677,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',
   factory_capacity:
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
+  factory_local:
+    'Designated lead or operator: inspect and manage GitHub-free local delivery. Actions: summary; issue/pull with number (pull includes checks and diff); create_issue with requestId, kind, title, description, acceptanceCriteria, optional parent and status "Ready"; set_status; comment with body; sync fast-forwards the clean operator checkout from the protected local hub.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   learning_status:

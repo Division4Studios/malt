@@ -30,7 +30,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
-import { deliveryFor, prepareDelivery } from './local-controls.ts';
+import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
@@ -349,6 +349,7 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
+      factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
       factory_setup: async () => this.controlSetup(parsed),
       factory_start: async () => {
         this.configured();

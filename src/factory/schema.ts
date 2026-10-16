@@ -7,6 +7,7 @@
 
 import { z } from 'zod/v3';
 
+import { localControlSchema } from './local-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
@@ -572,6 +573,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_local: localControlSchema,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -595,6 +597,7 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_local',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {

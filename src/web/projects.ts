@@ -63,6 +63,7 @@ export const controlSchema = z
       'factory_reorder_objective',
       'factory_cancel_job',
       'factory_capacity',
+      'factory_local',
       'github_connect',
       'terminal_start',
       'terminal_close',
