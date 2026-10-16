@@ -6,7 +6,7 @@
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
   mission: ['overview', 'activity'],
-  workflow: ['workflow', 'team', 'deliveries'],
+  workflow: ['workflow', 'team', 'deliveries', 'pulls'],
   workers: ['workers'],
   project: ['setup', 'learning'],
 };
@@ -50,7 +50,8 @@ export function updateNavigation(view: string): void {
 }
 
 /** View routes remain local UI state, not a competing delivery ledger. */
-export type View = 'overview' | 'team' | 'workflow' | 'deliveries' | 'workers' | 'activity' | 'learning' | 'setup';
+export type View =
+  'overview' | 'team' | 'workflow' | 'deliveries' | 'pulls' | 'workers' | 'activity' | 'learning' | 'setup';
 
 /** UI navigation descriptions. */
 export const HEADINGS: Record<View, readonly [string, string]> = {
@@ -58,6 +59,7 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
   deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],
+  pulls: ['Pull requests.', 'Local issues, reviewed diffs and protected merges. Nothing leaves this machine.'],
   workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
   activity: ['Activity stream.', 'The committed story of your software factory.'],
   learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],

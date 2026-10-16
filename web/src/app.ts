@@ -23,6 +23,7 @@ import { startConsoleClock } from './console-clock.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
+import { LogTails } from './log-tails.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import {
   organizationDialog,
@@ -32,6 +33,8 @@ import {
   factoryPolicyDialog,
   githubConnectionDescription,
 } from './organization-ui.js';
+import { PullController } from './pulls-controller.js';
+import { pullsView } from './pulls-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -66,8 +69,6 @@ import type { EditorDescription, InstallEvent } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
-/** Captured output histories retained in memory only. */
-const MAX_LOGS = 8;
 /** HTTP status requiring a fresh local pairing. */
 const UNAUTHORIZED = 401;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
@@ -75,8 +76,6 @@ const MAX_RECONNECTS = 5;
 
 /** Only public layout choices may persist in browser storage. */
 const layoutKey = 'malt-worker-layout-v1';
-/** Bounded read-only stdout cache, never persisted in browser storage. */
-const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
@@ -127,11 +126,9 @@ function syncTerminals(): void {
 }
 
 /** Read-only log tails for selected panes. */
-const logs = new Map<string, string>();
+const tails = new LogTails();
 /** Public artifact tab choices; captured contents remain memory-only. */
 const files = new Map<string, string>();
-/** Durable byte cursor per captured output. */
-const cursors = new Map<string, number>();
 /** Explicit mutations run one at a time and are never automatically retried. */
 const control = createOperatorControl({
   scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
@@ -139,8 +136,6 @@ const control = createOperatorControl({
   refresh,
   notice,
 });
-/** Prevent overlapping reads from duplicating a captured output chunk. */
-const pendingLogs = new Set<string>();
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
@@ -250,6 +245,9 @@ const actions: Actions = {
   },
 };
 
+/** Local pull-request selection, diffs and ledger controls. */
+const pulls = new PullController({ project: () => state.project, control, editor, render });
+
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
  *
@@ -292,6 +290,8 @@ function render(): void {
     isConnected: state.view === 'activity' ? state.isConnected : null,
     learning: observed.learning,
     github: observed.github,
+    local: observed.local,
+    pull: pulls.selection,
   });
   if (renderKey === state.renderKey) {
     return;
@@ -306,8 +306,12 @@ function render(): void {
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
-    workers: () =>
-      terminalWorkspace.selected ? element('div') : workerView(observed, { roles: state.panes, logs, files, actions }),
+    pulls: () => pullsView(observed.local, pulls.selection, pulls.actions, pulls.detail()),
+    workers: () => {
+      return terminalWorkspace.selected
+        ? element('div')
+        : workerView(observed, { roles: state.panes, logs: tails.logs, files, actions });
+    },
     activity: () => {
       return activityPanel(
         observed,
@@ -401,6 +405,7 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  pulls.observe(observed.local);
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
@@ -467,68 +472,7 @@ async function readLogs(): Promise<void> {
   const artifacts = state.panes
     .map((role) => ({ id: text(roleJob(observed, role), 'id'), file: files.get(role) ?? 'stdout.log' }))
     .filter((entry) => entry.id !== '');
-  await Promise.all(artifacts.map(async (entry) => readLog(projectId, entry)));
-  while (logs.size > MAX_LOGS) {
-    const first = logs.keys().next().value;
-    if (first === undefined) {
-      continue;
-    }
-
-    logs.delete(first);
-    cursors.delete(first);
-  }
-}
-
-/**
- * Fetch one owned log tail with a single-flight cursor and a project fence.
- *
- * @param projectId - Scope captured before the read.
- * @param entry - Actual owned job identity and allowlisted artifact.
- */
-async function readLog(projectId: string, entry: { id: string; file: string }): Promise<void> {
-  const artifactKey = `${entry.id}:${entry.file}`;
-  const key = `${projectId}:${artifactKey}`;
-  if (pendingLogs.has(key)) {
-    return;
-  }
-  pendingLogs.add(key);
-  const after = entry.file.endsWith('.log') ? (cursors.get(artifactKey) ?? 0) : 0;
-  const route = `${scoped(projectId, '/api/artifact')}&job=${encodeURIComponent(entry.id)}&file=${encodeURIComponent(entry.file)}&after=${String(after)}`;
-  try {
-    const response = await request(route);
-    if (state.project !== projectId) {
-      return;
-    }
-    applyLog(artifactKey, data(response));
-  } catch {
-    /* A log may not yet exist; the last observed tail remains available. */
-  } finally {
-    pendingLogs.delete(key);
-  }
-}
-
-/**
- * Apply actual captured output once, rendering project text through textContent.
- *
- * @param id - Owned job and allowlisted artifact cache key.
- * @param value - Validated log response.
- * @throws {TypeError} When the captured output cursor is invalid.
- */
-function applyLog(id: string, value: ReturnType<typeof data>): void {
-  const cursor = value['nextCursor'];
-  if (typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0) {
-    throw new TypeError('Invalid captured output cursor.');
-  }
-  cursors.set(id, cursor);
-  const file = text(value, 'file');
-  const prior = file.endsWith('.log') ? (logs.get(id) ?? '') : '';
-  const tail = `${prior}${text(value, 'text')}`.slice(-LOG_LIMIT);
-  logs.set(id, tail);
-  for (const pre of document.querySelectorAll<HTMLPreElement>('pre[data-job]')) {
-    if (`${pre.dataset['job'] ?? ''}:${pre.dataset['file'] ?? ''}` === id) {
-      pre.textContent = tail === '' ? 'This artifact has not emitted data yet.' : tail;
-    }
-  }
+  await tails.readAll(projectId, artifacts, () => state.project === projectId);
 }
 /** Queue an explicit product objective for owner/lead refinement. */
 function objective(): void {
@@ -590,8 +534,7 @@ async function start(): Promise<void> {
     state.project = node('project', HTMLSelectElement).value;
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     void refresh();
     subscribe();
@@ -680,8 +623,7 @@ async function openProject(workspace: string): Promise<void> {
     state.project = text(value, 'id');
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     await projects();
     await refresh();
@@ -695,8 +637,7 @@ async function signout(): Promise<void> {
   await request('/api/logout', {});
   state.stream?.close();
   state.current = null;
-  logs.clear();
-  cursors.clear();
+  tails.clear();
   connection(false);
   history.reset();
   node('pairing', HTMLDialogElement).showModal();
