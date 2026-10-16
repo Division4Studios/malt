@@ -5,6 +5,7 @@ import { createConnection } from 'node:net';
 import path from 'node:path';
 
 import { encodeFrame, FrameDecoder, MAX_FRAME_BODY } from './terminal-frames.ts';
+import { stopTerminalGroup } from './terminal-groups.ts';
 import { isTerminalInputName } from './terminal-input.ts';
 import { terminalArguments, terminalEnvironment, terminalLaunchSchema } from './terminal-launch.ts';
 
@@ -116,8 +117,17 @@ async function main(): Promise<void> {
   const input = pipe === undefined ? process.stdin : createConnection(pipe);
   let isEnded = false;
   const decoder = new FrameDecoder();
+  let isClosing = false;
   const close = (): void => {
-    terminal.kill();
+    if (isClosing) {
+      return;
+    }
+    isClosing = true;
+    if (process.platform === 'win32') {
+      terminal.kill();
+    } else {
+      void stopTerminalGroup(terminal.pid);
+    }
     input.pause();
   };
   const fail = (): void => {

@@ -92,7 +92,8 @@ export function createCleanup(t: TestContext): Defer {
 export function createProject(defer: Defer, prefix = 'agentmesh-test-'): MeshConfig {
   const root = mkdtempSync(path.join(tmpdir(), prefix));
   defer(() => {
-    rmSync(root, { recursive: true, force: true });
+    // Windows console teardown can briefly retain the directory after every owned PID exits.
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
   return loadConfig(root, { create: true });
 }

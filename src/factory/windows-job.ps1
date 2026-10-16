@@ -1,7 +1,7 @@
 # Launch one configured native executable inside a Windows Job Object.
 # Closing this helper (including broker crash/cancellation) kills every child.
 # Arguments are encoded for CreateProcessW; no cmd.exe shell is involved.
-param([Parameter(Mandatory=$true)][string]$Descriptor, [string]$CancelFile = '')
+param([Parameter(Mandatory=$true)][string]$Descriptor, [string]$CancelFile = '', [string]$OwnerPipe = '')
 $ErrorActionPreference = 'Stop'
 $startup = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'job-status.json')
 [System.IO.File]::WriteAllText($startup, '{"stage":"reading-descriptor"}')
@@ -15,6 +15,8 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.IO;
 using System.Globalization;
+using System.IO.Pipes;
+using System.Threading.Tasks;
 public static class MltWindowsJob {
   [StructLayout(LayoutKind.Sequential)] struct BasicLimits { public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags; public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit; public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
   [StructLayout(LayoutKind.Sequential)] struct IoCounters { public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount, ReadTransferCount, WriteTransferCount, OtherTransferCount; }
@@ -85,7 +87,18 @@ public static class MltWindowsJob {
       throw new TimeoutException("Owned Job did not finish retiring its processes.");
     } finally { Marshal.FreeHGlobal(accounting); }
   }
-  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry,string cancel) {
+  static NamedPipeClientStream Owner(string name) {
+    if(name.Length==0) return null;
+    const string prefix=@"\\.\pipe\";
+    Guid capability;
+    const string namespacePrefix="malt-terminal-";
+    if(!name.StartsWith(prefix+namespacePrefix,StringComparison.Ordinal) || !Guid.TryParse(name.Substring(prefix.Length+namespacePrefix.Length),out capability)) throw new ArgumentException("Invalid owned lifetime channel.");
+    var stream=new NamedPipeClientStream(".",name.Substring(prefix.Length),PipeDirection.In,PipeOptions.Asynchronous);
+    try { stream.Connect(5000); return stream; } catch { stream.Dispose(); throw; }
+  }
+  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry,string cancel,string owner) {
+    using(var lifetime=Owner(owner)) {
+    Task<int> disconnected=lifetime==null ? null : lifetime.ReadAsync(new byte[1],0,1);
     IntPtr job=CreateJobObject(IntPtr.Zero,null); if(job==IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
     ProcessInfo pi=new ProcessInfo();
     try {
@@ -96,7 +109,7 @@ public static class MltWindowsJob {
       try { Marshal.StructureToPtr(limits,data,false); Check(SetInformationJobObject(job,9,data,(uint)size)); } finally { Marshal.FreeHGlobal(data); }
       if(cpuPercent>0 && cpuPercent<100) { var cpu=new CpuLimits { ControlFlags=5, CpuRate=cpuPercent*100 }; size=Marshal.SizeOf(cpu); data=Marshal.AllocHGlobal(size); try { Marshal.StructureToPtr(cpu,data,false); Check(SetInformationJobObject(job,15,data,(uint)size)); } finally { Marshal.FreeHGlobal(data); } }
       var si=new StartupInfo { cb=(uint)Marshal.SizeOf(typeof(StartupInfo)), dwFlags=0x100, hStdInput=GetStdHandle(-10), hStdOutput=GetStdHandle(-11), hStdError=GetStdHandle(-12) };
-      if(cancel.Length>0 && File.Exists(cancel)) return 1;
+      if((cancel.Length>0 && File.Exists(cancel)) || (disconnected!=null && disconnected.IsCompleted)) return 1;
       var command=new StringBuilder(Quote(file)); foreach(string arg in args) command.Append(' ').Append(Quote(arg));
       Stage(telemetry,"creating-host");
       Check(CreateProcess(null,command,IntPtr.Zero,IntPtr.Zero,true,0x08000004,IntPtr.Zero,cwd,ref si,out pi));
@@ -106,15 +119,16 @@ public static class MltWindowsJob {
       Sample(job,telemetry);
       long nextSample=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()+2000;
       while(WaitForSingleObject(pi.hProcess,100)==258) {
-        if(cancel.Length>0 && File.Exists(cancel)) { Retire(job); break; }
+        if((cancel.Length>0 && File.Exists(cancel)) || (disconnected!=null && disconnected.IsCompleted)) { Retire(job); break; }
         long now=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         if(now>=nextSample) { Sample(job,telemetry); nextSample=now+2000; }
       }
       uint code; Check(GetExitCodeProcess(pi.hProcess,out code)); Retire(job); return unchecked((int)code);
     } finally { if(pi.hThread!=IntPtr.Zero) CloseHandle(pi.hThread); if(pi.hProcess!=IntPtr.Zero) CloseHandle(pi.hProcess); CloseHandle(job); }
+    }
   }
 }
 '@
 $telemetry = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'resources.json')
 [System.IO.File]::WriteAllText($startup, '{"stage":"entering-native-job"}')
-exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile)
+exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile, $OwnerPipe)

@@ -409,6 +409,7 @@ async function verifyNativeTerminal(): Promise<void> {
         '--test',
         '--test-concurrency=1',
         'test/terminal-web-e2e.test.ts',
+        'test/terminal-containment.test.ts',
       ],
       { timeout: COMMAND_TIMEOUT_MS, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true },
     );
