@@ -19,6 +19,7 @@ import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
@@ -75,6 +76,8 @@ export const controlSchema = z
   .strict();
 /** One project gateway proxies the existing broker without another scheduler. */
 export class ProjectGateway {
+  /** Colocated operator-only decisions cannot be serialized into agent RPC authority. */
+  private readonly recommendationOperator: RecommendationOperator | undefined;
   /** Only the colocated owning broker can supply this nonserializable authority. */
   private readonly terminalOperator: TerminalOperator | undefined;
   /** Home broker authentication remains server-side. */
@@ -87,10 +90,16 @@ export class ProjectGateway {
    *
    * @param home - Broker home configuration.
    * @param terminalOperator - Optional memory-only capability from the owning broker.
+   * @param recommendationOperator - Optional paired-only decision capability from the same owning broker.
    */
-  public constructor(home: MeshConfig, terminalOperator?: TerminalOperator) {
+  public constructor(
+    home: MeshConfig,
+    terminalOperator?: TerminalOperator,
+    recommendationOperator?: RecommendationOperator,
+  ) {
     this.home = home;
     this.terminalOperator = terminalOperator;
+    this.recommendationOperator = recommendationOperator;
     this.projects.set('home', home);
   }
 
@@ -218,6 +227,21 @@ export class ProjectGateway {
       shouldMarkRead ? 'factory_recommendation_read' : 'factory_recommendations',
       input,
     );
+  }
+
+  /**
+   * Decide only through colocated operator authority after browser pairing and project authorization.
+   *
+   * @param id - Explicit selected project.
+   * @param input - Exact revision, stable operation and human rationale.
+   * @returns Durable inert decision receipt, never an execution outcome.
+   */
+  public async decideRecommendation(id: string, input: unknown): Promise<unknown> {
+    if (this.recommendationOperator === undefined) {
+      throw new MeshError('FACTORY_GATED', 'Start the console with its owning broker to authorize human decisions.');
+    }
+    const selected = this.config(id);
+    return this.recommendationOperator(selected, input);
   }
 
   /**

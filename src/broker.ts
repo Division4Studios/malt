@@ -35,6 +35,7 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
@@ -55,6 +56,7 @@ import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts'
 import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
+import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
@@ -166,6 +168,8 @@ export interface Team {
 export interface Broker {
   /** Memory-only authority for a colocated, paired operator service; never an RPC result. */
   readonly operatorTerminalControl: TerminalOperator;
+  /** Nonserializable human decision authority; never available through agent/MCP RPC. */
+  readonly operatorRecommendationControl: RecommendationOperator;
   /** The home project's store. */
   readonly store: Store;
   /** The HTTP server. */
@@ -762,6 +766,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   log('info', 'broker', 'listening', { host, port: boundPort });
 
   return {
+    operatorRecommendationControl: async (selected, input) => {
+      if (!server.listening) {
+        throw new MeshError('BROKER_UNAVAILABLE', 'The owning broker has stopped.');
+      }
+      const team = selected.team === undefined ? context.home : context.teams.get(selected.team);
+      if (team?.config.projectId !== selected.projectId) {
+        throw new MeshError('NOT_FOUND', 'The selected project is not owned by this broker.');
+      }
+      const configured = team.factory.configured();
+      return decideRecommendation(
+        configured.repository,
+        configured.remote.observedIssue?.bind(configured.remote),
+        input,
+      );
+    },
     operatorTerminalControl: async (selected, operation, input, signal) => {
       if (!server.listening) {
         throw new MeshError('BROKER_UNAVAILABLE', 'The owning broker has stopped.');
