@@ -49,7 +49,7 @@ These interactive permissions differ from bounded managed assignments. Neither t
 
 See the official [Codex CLI contract](https://learn.chatgpt.com/docs/developer-commands), [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference). Installed help is checked for the pinned versions. Codex interactive mode has no supported `--ephemeral` equivalent; provider-owned session records/settings/diagnostics may remain in its home. Claude's prompt-history exclusion does not promise that the vendor writes no diagnostics. MALT does not copy provider credentials or vendor session histories into project memory.
 
-The combined `--with-broker` lifetime is required for native terminal controls. Stop an existing broker for this store before starting it. A separate UI still supports factory/log views but has no terminal capability. Docker already colocates these services.
+The combined `--with-broker` lifetime is required for native terminal controls. When switching from separate services, stop both the existing broker for this store and the UI occupying port 4318 before starting it. A separate UI still supports factory/log views but has no terminal capability. Docker already colocates these services.
 
 ## Ownership, limits and recovery
 

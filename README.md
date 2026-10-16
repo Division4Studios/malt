@@ -44,7 +44,7 @@ See [complete setup and provider authentication](docs/operator-console.md), [Git
 
 ### Interactive scratch terminals
 
-Start the paired native services together with `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`; stop any older broker using this store first. Docker already colocates them. A separately launched UI supports factory/log inspection but cannot control terminals.
+Start the paired native services together with `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`. When switching from the quick-start's separate processes, stop both the older broker using this store and the UI occupying port 4318 first. Docker already colocates them. A separately launched UI supports factory/log inspection but cannot control terminals.
 
 **Workers → Scratch terminals** provides real subscription-CLI PTYs in separate owned worktrees, with native keyboard input, resize, bounded replay and explicit close. Start is an operator action; idle roles and page refreshes start nothing. Managed worker logs and durable conversations/instructions remain separate channels. Scratch sessions cannot attach to a gated developer/QA assignment or supply its review evidence.
 

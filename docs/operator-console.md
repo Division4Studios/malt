@@ -18,7 +18,7 @@ The overview separates **Pending objectives** (product requests not yet delivere
 
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
-`--with-broker` owns the broker and UI in one process lifetime and enables scratch terminal control through a memory-only capability. Stop any existing broker using this store first. A separately launched UI can inspect factory/log state but cannot grant terminal authority from a project token. Docker already colocates both services.
+`--with-broker` owns the broker and UI in one process lifetime and enables scratch terminal control through a memory-only capability. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI can inspect factory/log state but cannot grant terminal authority from a project token. Docker already colocates both services.
 
 ## GitHub connection and board visibility
 

@@ -1,6 +1,6 @@
 # Operations and recovery
 
-For native scratch terminal control, run `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`. Stop an older broker for this store first. Docker already shares this lifetime; a separately launched UI supports factory/log inspection but cannot grant terminal authority.
+For native scratch terminal control, run `node src/cli.ts ui --with-broker --project "<target-folder>" --port 4318`. When switching from separate services, stop both the older broker for this store and the UI occupying port 4318 first. Docker already shares this lifetime; a separately launched UI supports factory/log inspection but cannot grant terminal authority.
 
 Project setup verifies repository identity, GitHub access and intended Project. Keep subscription authentication in the provider's supported store and configure actual validation commands. Admission uses provider cooldown/verified utilization plus local CPU, memory and process policy. Unknown subscription quota must remain unknown; diagnostic token counts are not API credits.
 
