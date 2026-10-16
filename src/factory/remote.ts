@@ -16,12 +16,19 @@ import { MeshError } from '../protocol.ts';
 import { reconcileDependencies } from './dependencies.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
+import type { CapabilityPrincipal } from '../capability-policy.ts';
 import type { MeshConfig } from '../config.ts';
 import type { GitHubRunner, ProjectGitHub } from '../github.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
 /** Named request hash length bound. */
 const REQUEST_HASH_LENGTH = 32;
+
+/**
+ * The supervisor provisions lead-reviewed plans, re-verifies the lead's saved
+ * connection and moves Project status, so it acts for the team-lead role.
+ */
+const SUPERVISOR: CapabilityPrincipal = { kind: 'supervisor', role: 'team-lead' };
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
 /** Bound GitHub's machine-readable close reason separately from issue prose. */
@@ -156,7 +163,7 @@ export class GitHubDelivery implements DeliveryRemote {
     if (normalized !== `https://github.com/${connection.repository}`.toLowerCase()) {
       await verifyRepositoryIdentity(this.runner, normalized, connection.repository);
     }
-    await this.github.execute('github_connect', {
+    await this.github.execute(SUPERVISOR, 'github_connect', {
       repository: connection.repository,
       owner: connection.owner,
       projectNumber: connection.project.number,
@@ -177,7 +184,7 @@ export class GitHubDelivery implements DeliveryRemote {
       throw new MeshError('INVALID_INPUT', 'A record needs a nonempty reviewed atomic plan.');
     }
     const parentResult = z.object({ issue: z.object({ number: z.number() }) }).parse(
-      await this.github.execute('github_create_issue', {
+      await this.github.execute(SUPERVISOR, 'github_create_issue', {
         requestId: `record-${record.id}`,
         kind: 'feature',
         title: record.objective.slice(0, ISSUE_TITLE_LIMIT),
@@ -195,7 +202,7 @@ export class GitHubDelivery implements DeliveryRemote {
 
       const created = z.object({ issue: z.object({ number: z.number() }) }).parse(
         // eslint-disable-next-line no-await-in-loop -- Persist each deterministic native child before advancing its dependent provisioning sequence.
-        await this.github.execute('github_create_issue', {
+        await this.github.execute(SUPERVISOR, 'github_create_issue', {
           requestId,
           kind: 'delivery',
           parent: parentResult.issue.number,
@@ -352,7 +359,7 @@ export class GitHubDelivery implements DeliveryRemote {
     const record = effect;
     const connection = await this.connection();
     if (record.kind === 'status') {
-      await this.github.execute('github_set_status', { issue: record.issue, status: record.value });
+      await this.github.execute(SUPERVISOR, 'github_set_status', { issue: record.issue, status: record.value });
       return;
     }
     if (record.kind === 'close_pr') {
@@ -402,7 +409,7 @@ export class GitHubDelivery implements DeliveryRemote {
   public async readyIssues(): Promise<ReadyIssue[]> {
     const snapshot = z
       .object({ items: z.array(z.unknown()), complete: z.boolean() })
-      .parse(await this.github.execute('github_sync', { limit: 1000, cached: true }));
+      .parse(await this.github.execute(SUPERVISOR, 'github_sync', { limit: 1000, cached: true }));
     const connection = await this.connection();
     const itemSchema = z
       .object({
@@ -512,7 +519,7 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns Canonical repository and Project identity.
    */
   private async connection(): Promise<z.output<typeof connectionSchema>['connection']> {
-    return connectionSchema.parse(await this.github.execute('github_status', {})).connection;
+    return connectionSchema.parse(await this.github.execute(SUPERVISOR, 'github_status', {})).connection;
   }
 }
 

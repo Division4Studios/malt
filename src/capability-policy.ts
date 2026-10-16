@@ -15,9 +15,10 @@ import { hasErrorCode, readJsonFile } from './config.ts';
 import { parseConnection } from './connector.ts';
 import { run, selectAll, selectOne, valueRowSchema } from './database.ts';
 import { FACTORY_ROLES } from './factory/schema.ts';
-import { MeshError } from './protocol.ts';
+import { MeshError, parseInput } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
+import type { GitHubOperation } from './protocol.ts';
 import type { Store } from './store.ts';
 
 /** Independently configurable connector operations. */
@@ -127,6 +128,47 @@ function describe(principal: z.output<typeof principalSchema>): string {
   }
   return principal.kind === 'agent' ? `agent ${principal.id} as ${principal.role}` : `supervisor for ${principal.role}`;
 }
+
+/**
+ * Every capability a GitHub operation would exercise; reads need none.
+ *
+ * @param operation - GitHub operation name.
+ * @param input - Untrusted input, validated here.
+ * @returns Capabilities to authorize before dispatch.
+ */
+export function githubCapabilities(operation: GitHubOperation, input: unknown): Capability[] {
+  switch (operation) {
+    case 'github_status':
+    case 'github_sync': {
+      return [];
+    }
+    case 'github_connect': {
+      return parseInput(operation, input).createProject ? ['project-connect', 'project-create'] : ['project-connect'];
+    }
+    case 'github_create_issue': {
+      // Every created issue is attached to the selected Project.
+      return parseInput(operation, input).parent === undefined
+        ? ['issue-create', 'membership']
+        : ['issue-create', 'membership', 'relationships'];
+    }
+    case 'github_set_status': {
+      parseInput(operation, input);
+      return ['transition'];
+    }
+  }
+}
+
+/** The policy decision a project's GitHub integration consults before mutating. */
+export type CapabilityGate = Pick<CapabilityPolicyStore, 'authorize'>;
+
+/** Fail-closed gate for an integration whose project policy is not bound. */
+export const UNBOUND_GATE: CapabilityGate = {
+  authorize: (_principal, capabilities) => {
+    if (capabilities.length > 0) {
+      throw new MeshError('CAPABILITY_DENIED', 'No capability policy is bound to this project.');
+    }
+  },
+};
 
 /** Policy persistence sharing the already project-fenced broker database. */
 export class CapabilityPolicyStore {

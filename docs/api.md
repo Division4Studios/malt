@@ -108,31 +108,32 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 ## Common error codes
 
-| Code                            | Meaning / recovery                                          |
-| ------------------------------- | ----------------------------------------------------------- |
-| `IDLE_NOT_APPROVED`             | Submit/inspect a check-in and wait for explicit approval.   |
-| `UNREAD_MESSAGES`               | Process and acknowledge the inbox before checking in.       |
-| `NOT_ORCHESTRATOR`              | Only the stored lead can decide or list check-ins.          |
-| `NOT_A_WORKER`                  | Lead/observer attempted a worker-only check-in.             |
-| `STALE_CHECKIN`                 | Request was decided or invalidated; fetch current requests. |
-| `INSTRUCTIONS_REQUIRED`         | A work decision needs nonblank instructions.                |
-| `WAIT_ALREADY_ACTIVE`           | Another wait is already open for this identity.             |
-| `INVALID_REVISION`              | Cursor exceeds the current revision; inspect work status.   |
-| `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                  |
-| `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.  |
-| `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.   |
-| `NOT_JOINED`                    | The session has not called `mesh_join`; join when asked.    |
-| `ALREADY_JOINED`                | The session already takes part in another way; start anew.  |
-| `LEAD_ACTIVE`                   | The team has a live lead; join as a worker or use the CLI.  |
-| `NO_WORKSPACE`                  | No workspace folder; pass `--workspace` or set an env var.  |
-| `AGENT_LEFT`                    | The recipient's session ended; it can never read messages.  |
-| `UNKNOWN_TEAM`                  | The team header names no team on this broker.               |
-| `AGENT_ACTIVE`                  | Another bridge holds the same name's live lease.            |
-| `IDENTITY_CONFLICT`             | Name exists with a different identity secret.               |
-| `UNAUTHORIZED_AGENT`            | Secret/session mismatch, including a replaced session.      |
-| `UNAUTHORIZED`, `WRONG_PROJECT` | Project authentication or routing mismatch.                 |
-| `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP. |
-| `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                      |
+| Code                            | Meaning / recovery                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `IDLE_NOT_APPROVED`             | Submit/inspect a check-in and wait for explicit approval.                                           |
+| `UNREAD_MESSAGES`               | Process and acknowledge the inbox before checking in.                                               |
+| `NOT_ORCHESTRATOR`              | Only the stored lead can decide or list check-ins.                                                  |
+| `NOT_A_WORKER`                  | Lead/observer attempted a worker-only check-in.                                                     |
+| `STALE_CHECKIN`                 | Request was decided or invalidated; fetch current requests.                                         |
+| `INSTRUCTIONS_REQUIRED`         | A work decision needs nonblank instructions.                                                        |
+| `WAIT_ALREADY_ACTIVE`           | Another wait is already open for this identity.                                                     |
+| `INVALID_REVISION`              | Cursor exceeds the current revision; inspect work status.                                           |
+| `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                                                          |
+| `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.                                          |
+| `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.                                           |
+| `NOT_JOINED`                    | The session has not called `mesh_join`; join when asked.                                            |
+| `ALREADY_JOINED`                | The session already takes part in another way; start anew.                                          |
+| `LEAD_ACTIVE`                   | The team has a live lead; join as a worker or use the CLI.                                          |
+| `NO_WORKSPACE`                  | No workspace folder; pass `--workspace` or set an env var.                                          |
+| `AGENT_LEFT`                    | The recipient's session ended; it can never read messages.                                          |
+| `UNKNOWN_TEAM`                  | The team header names no team on this broker.                                                       |
+| `AGENT_ACTIVE`                  | Another bridge holds the same name's live lease.                                                    |
+| `IDENTITY_CONFLICT`             | Name exists with a different identity secret.                                                       |
+| `UNAUTHORIZED_AGENT`            | Secret/session mismatch, including a replaced session.                                              |
+| `UNAUTHORIZED`, `WRONG_PROJECT` | Project authentication or routing mismatch.                                                         |
+| `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP.                                         |
+| `CAPABILITY_DENIED`             | Project capability policy forbids this connector call; a human can change it with `capability-set`. |
+| `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                                                              |
 
 ## Managed factory controls
 

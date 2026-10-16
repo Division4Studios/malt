@@ -35,7 +35,7 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
-import { capabilityStatus, setCapability } from './capability-endpoints.ts';
+import { PROJECT_OPERATOR, capabilityStatus, setCapability } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
@@ -57,6 +57,7 @@ import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
 
+import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
@@ -211,14 +212,15 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     return context.home;
   }
   const store = new Store(config, { now: context.now });
-  const github = new ProjectGitHub(config, context.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, context.githubRunner?.(config));
   const team: Team = {
     config,
     store,
     waiters: new Waiters(store),
     github,
-    policy: new CapabilityPolicyStore(store, config),
+    policy,
     learning,
     factory: new FactoryService(
       config,
@@ -612,9 +614,12 @@ async function handleProjectOperation(
       "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
     );
   }
+  // Only the designated lead passes the check above, so agents act as team-lead.
+  const principal: CapabilityPrincipal =
+    actor === null ? PROJECT_OPERATOR : { kind: 'agent', id: actor, role: 'team-lead' };
   const result = isLearningOperation(operation)
     ? await team.learning.execute(operation, input, actor ?? '')
-    : await team.github.execute(operation, input);
+    : await team.github.execute(principal, operation, input);
   if (!READ_PROJECT_OPERATIONS.has(operation)) {
     team.store.transaction(() => {
       team.store.event('PROJECT_OPERATION_COMPLETED', actor, { operation });
@@ -752,7 +757,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const github = new ProjectGitHub(config, options.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, options.githubRunner?.(config));
   const context: BrokerContext = {
     home: {
@@ -760,7 +766,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       store,
       waiters,
       github,
-      policy: new CapabilityPolicyStore(store, config),
+      policy,
       learning,
       factory: new FactoryService(
         config,

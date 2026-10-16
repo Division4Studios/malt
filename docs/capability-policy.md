@@ -3,8 +3,8 @@
 `CapabilityPolicyStore` in `src/capability-policy.ts` shares the selected project's
 private `.malt/state/mesh.db`. Construct it with that project's `Store` and matching
 `MeshConfig`; the broker opens one per project. Human read/edit endpoints are
-described in the [API reference](api.md#connector-capability-policy). Connector
-enforcement and console editing remain queued.
+described in the [API reference](api.md#connector-capability-policy). Console
+editing remains queued.
 
 `get(capability)` returns a mode and explicit `roles` array. Operations in
 `CAPABILITIES` default to `disabled` apart from the initialization grants below. `human-only` also requires an empty role
@@ -36,6 +36,28 @@ the step. Roles come from `FACTORY_ROLES`.
 | `approved-agent-roles` | allowed        | allowed for listed role |
 
 An operation needing no capability, such as a read, passes.
+
+## Enforcement
+
+`ProjectGitHub.execute(principal, operation, input)` authorizes every mutation
+immediately before dispatch, inside the project's serialized operation queue, so
+a denial makes no remote call and writes no journal. `github_status` and
+`github_sync` need no capability.
+
+| Operation             | Capabilities                                                       |
+| --------------------- | ------------------------------------------------------------------ |
+| `github_connect`      | `project-connect`, plus `project-create` with `createProject`      |
+| `github_create_issue` | `issue-create` and `membership`, plus `relationships` for a parent |
+| `github_set_status`   | `transition`                                                       |
+
+Every entry point supplies its principal from authenticated context. A
+project-token call without agent credentials (the console and the factory CLI)
+is the `project-operator` human. An MCP or RPC call with agent credentials must
+first pass the existing designated-lead rule, and then acts as `team-lead`. The
+supervisor's delivery adapter provisions lead-reviewed plans, re-verifies the
+saved connection and moves Project status as `{ kind: 'supervisor', role:
+'team-lead' }`. A `ProjectGitHub` constructed without a policy denies every
+mutation.
 
 ## Initialization
 
