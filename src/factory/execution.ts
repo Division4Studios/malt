@@ -19,13 +19,55 @@ import { publicJobSchema } from './schema.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
-import { pendingTriage } from './triage.ts';
+import { isCurrentTriage, pendingTriage } from './triage.ts';
 import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
+import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
+
+/**
+ * Stop reviewers whose exact source or assigned stage was invalidated, preserving developer edits.
+ *
+ * @param repository - Current project ledger.
+ * @param running - Only the supervisor's owned cancellation handles.
+ */
+export function cancelStaleAssignments(
+  repository: FactoryRepository,
+  running: ReadonlyMap<string, { controller: AbortController }>,
+): void {
+  const candidates = repository
+    .jobs()
+    .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
+  for (const job of candidates) {
+    if (job.taskId === null || job.kind === 'develop') {
+      continue;
+    }
+    const task = repository.task(job.taskId);
+    if (job.kind === 'triage') {
+      if (!isCurrentTriage(repository, job)) {
+        running.get(job.id)?.controller.abort();
+      }
+      continue;
+    }
+    const phases = {
+      review: 'review',
+      final: 'merge_ready',
+      verify: 'verifying',
+      plan: '',
+      refine: '',
+      develop: '',
+      learn: '',
+      skill: '',
+      triage: '',
+    } as const;
+    if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
+      running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
+    }
+  }
+}
 /** Bounded planning inventory, without historical transcripts. */
 const PLANNING_DELIVERIES = 100;
 /** Keep diagnostics compact; full histories stay in durable artifacts. */
