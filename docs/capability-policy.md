@@ -39,25 +39,36 @@ An operation needing no capability, such as a read, passes.
 
 ## Enforcement
 
-`ProjectGitHub.execute(principal, operation, input)` authorizes every mutation
-immediately before dispatch, inside the project's serialized operation queue, so
-a denial makes no remote call and writes no journal. `github_status` and
-`github_sync` need no capability.
+`ProjectGitHub.execute(principal, operation, input)` authorizes each Project
+mutation immediately before dispatch, inside the project's serialized operation
+queue, so a denial makes no remote call and writes no journal. `github_status`
+and `github_sync` need no capability.
 
-| Operation             | Capabilities                                                       |
-| --------------------- | ------------------------------------------------------------------ |
-| `github_connect`      | `project-connect`, plus `project-create` with `createProject`      |
-| `github_create_issue` | `issue-create` and `membership`, plus `relationships` for a parent |
-| `github_set_status`   | `transition`                                                       |
+| Operation             | Capabilities                                                                               |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `github_connect`      | `project-connect`, plus `project-create` with `createProject`                              |
+| `github_create_issue` | `issue-create`, `membership` and `transition` (Backlog), plus `relationships` for a parent |
+| `github_set_status`   | `transition` and `membership` (it attaches the issue if needed)                            |
 
-Every entry point supplies its principal from authenticated context. A
-project-token call without agent credentials (the console and the factory CLI)
-is the `project-operator` human. An MCP or RPC call with agent credentials must
-first pass the existing designated-lead rule, and then acts as `team-lead`. The
+Connecting also creates MALT's own workflow field when none is selected; that is
+part of `project-connect`, and existing fields are never edited.
+
+Every entry point supplies its principal from its transport. A project-token call
+without agent credentials (the console and the factory CLI) is the
+`project-operator` human. As before, anything that can read the project token
+can act as the operator; this is a local trust boundary, not a defense against a
+hostile process of the same OS user. An MCP or RPC call with agent credentials
+must first pass the existing designated-lead rule, then acts as `team-lead`. The
 supervisor's delivery adapter provisions lead-reviewed plans, re-verifies the
 saved connection and moves Project status as `{ kind: 'supervisor', role:
 'team-lead' }`. A `ProjectGitHub` constructed without a policy denies every
 mutation.
+
+Not yet gated: the delivery adapter's direct repository effects (pull request
+creation, merges, PR/issue closure, comments and native dependency edges) still
+call GitHub without a capability check. Dependency edges are only reachable after
+the same plan's `relationships`-gated issue creation. Labels, milestones, views
+and Jira are separate capabilities with their own deliveries.
 
 ## Initialization
 

@@ -481,7 +481,7 @@ await test('the actual factory delivery adapter provisions a valid native featur
   assert.equal(remote.creations, 3, 'Reconciliation must not provision duplicate native issues.');
 });
 
-await test('under the seeded policy the supervisor verifies, provisions and transitions; a revocation denies it with no remote call', async (t) => {
+await test('a human connection lets the supervisor verify, provision and transition; revocations deny it with no remote call', async (t) => {
   const defer = createCleanup(t);
   const config = createProject(defer);
   const remote = new FakeGitHub();
@@ -490,14 +490,19 @@ await test('under the seeded policy the supervisor verifies, provisions and tran
     calls += 1;
     return remote.run(args, input);
   };
-  // The operator connects first; the policy then initializes for a connected project.
-  await mechanicsGitHub(config, counted).execute(OPERATOR, 'github_connect', connection);
   const store = new Store(config);
   defer(() => {
     store.close();
   });
   const policy = new CapabilityPolicyStore(store, config);
-  const adapter = new GitHubDelivery(config, new ProjectGitHub(config, counted, policy), counted);
+  const github = new ProjectGitHub(config, counted, policy);
+  // A fresh project's first connection is human-only and agents cannot grant themselves anything.
+  await assert.rejects(github.execute({ kind: 'supervisor', role: 'team-lead' }, 'github_connect', connection), {
+    code: 'CAPABILITY_DENIED',
+  });
+  assert.equal(calls, 0);
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const adapter = new GitHubDelivery(config, github, counted);
   await adapter.verify('https://github.com/example/app.git');
   const plan = {
     outcome: 'success',
@@ -544,6 +549,12 @@ await test('under the seeded policy the supervisor verifies, provisions and tran
     message: /transition is human-only.*supervisor for team-lead/v,
   });
   assert.equal(calls, before, 'the denied supervisor effect made no remote call');
+  policy.set(OPERATOR, 'project-connect', { mode: 'human-only', roles: [] });
+  await assert.rejects(adapter.verify('https://github.com/example/app.git'), {
+    code: 'CAPABILITY_DENIED',
+    message: /project-connect is human-only.*supervisor for team-lead/v,
+  });
+  assert.equal(calls, before, 'the denied re-verification made no remote call');
 });
 
 await test('feature parents and atomic children are retryable and linked natively', async (t) => {

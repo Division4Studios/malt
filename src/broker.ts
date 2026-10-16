@@ -614,7 +614,8 @@ async function handleProjectOperation(
       "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
     );
   }
-  // Only the designated lead passes the check above, so agents act as team-lead.
+  // Mutations admit only the designated lead above, so agents act as team-lead;
+  // other credentialed callers reach here only for reads, which need no capability.
   const principal: CapabilityPrincipal =
     actor === null ? PROJECT_OPERATOR : { kind: 'agent', id: actor, role: 'team-lead' };
   const result = isLearningOperation(operation)

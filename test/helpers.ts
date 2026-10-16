@@ -334,5 +334,8 @@ export function mechanicsGitHub(config: MeshConfig, runner?: GitHubRunner): Proj
     authorize: () => {
       /* Mechanics tests do not exercise capability policy. */
     },
+    grantConnectionDefaults: () => {
+      /* No policy to grant into. */
+    },
   });
 }

@@ -182,7 +182,11 @@ export class ProjectGitHub {
     await previous;
     try {
       this.policy.authorize(principal, githubCapabilities(operation, input));
-      return await this.dispatch(operation, input);
+      const result = await this.dispatch(operation, input);
+      if (operation === 'github_connect') {
+        this.policy.grantConnectionDefaults(principal);
+      }
+      return result;
     } finally {
       resolve(undefined);
     }

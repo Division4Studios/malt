@@ -6,12 +6,13 @@
  * @file
  */
 import assert from 'node:assert/strict';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';
+import { parseConnection } from '../src/connector.ts';
 import { runFactoryCommand } from '../src/factory-cli.ts';
 import { MeshError } from '../src/protocol.ts';
 import { startWebConsole } from '../src/web/server.ts';
@@ -29,7 +30,7 @@ const connection = { repository: 'example/app', owner: 'example', projectNumber:
 /** A feature issue request; the project need not be connected to be denied first. */
 const issue = {
   requestId: 'policy-issue',
-  kind: 'feature',
+  kind: 'feature' as const,
   title: 'Denied feature',
   description: 'Never reaches GitHub.',
   acceptanceCriteria: ['Nothing is created.'],
@@ -83,8 +84,6 @@ await test('operator RPC is denied by policy before any remote call or journal w
   await assert.rejects(rpc(config, 'github_set_status', { issue: 1, status: 'Done' }), {
     code: 'CAPABILITY_DENIED',
   });
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only the disposable project's journal directory.
-  assert.equal(existsSync(path.join(config.directory, 'github', 'operations')), false, 'no journal was written');
   await setConnect(config, 'disabled');
   await assert.rejects(rpc(config, 'github_connect', connection), { code: 'CAPABILITY_DENIED' });
   await assert.rejects(
@@ -152,4 +151,33 @@ await test('the factory CLI and paired console cannot bypass a disabled capabili
   assert.equal(response.status, 403);
   assert.match(await response.text(), /project-connect is disabled/v);
   assert.deepEqual(calls, []);
+});
+
+await test('a connected project denies a revoked issue creation before its journal or any remote call', async (t) => {
+  const { defer, config, calls } = await fixture(t);
+  const directory = path.join(config.directory, 'github');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Disposable project fixture.
+  mkdirSync(directory, { recursive: true });
+  const saved = new Date();
+  const { v2 } = parseConnection({
+    version: 1,
+    repository: 'example/app',
+    owner: 'example',
+    project: { id: 'P_4', number: 4, url: 'https://github.com/users/example/projects/4' },
+    statusField: { id: 'status', name: 'Status', options: [] },
+    verifiedAt: saved.toISOString(),
+  });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Disposable project fixture.
+  writeFileSync(path.join(directory, 'connection.json'), JSON.stringify(v2));
+  const lead = new AgentClient(config, { role: 'lead' });
+  await lead.connect();
+  defer(async () => lead.close());
+  await rpc(config, 'capability_policy_set', { capability: 'issue-create', policy: { mode: 'disabled', roles: [] } });
+  await assert.rejects(lead.call('github_create_issue', issue), { code: 'CAPABILITY_DENIED' });
+  await assert.rejects(rpc(config, 'github_create_issue', issue), { code: 'CAPABILITY_DENIED' });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only the disposable project's journal directory.
+  assert.equal(existsSync(path.join(directory, 'operations')), false, 'no journal was written');
+  assert.deepEqual(calls, []);
+  // The connected project's lead still holds its other legacy grants.
+  await assert.rejects(lead.call('github_set_status', { issue: 1, status: 'Done' }), { code: 'GITHUB_UNAVAILABLE' });
 });

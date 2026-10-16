@@ -146,20 +146,20 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
       return parseInput(operation, input).createProject ? ['project-connect', 'project-create'] : ['project-connect'];
     }
     case 'github_create_issue': {
-      // Every created issue is attached to the selected Project.
-      return parseInput(operation, input).parent === undefined
-        ? ['issue-create', 'membership']
-        : ['issue-create', 'membership', 'relationships'];
+      // Every created issue is attached to the selected Project and set to Backlog.
+      const needed: Capability[] = ['issue-create', 'membership', 'transition'];
+      return parseInput(operation, input).parent === undefined ? needed : [...needed, 'relationships'];
     }
     case 'github_set_status': {
+      // Setting status first attaches the issue to the Project if needed.
       parseInput(operation, input);
-      return ['transition'];
+      return ['transition', 'membership'];
     }
   }
 }
 
 /** The policy decision a project's GitHub integration consults before mutating. */
-export type CapabilityGate = Pick<CapabilityPolicyStore, 'authorize'>;
+export type CapabilityGate = Pick<CapabilityPolicyStore, 'authorize' | 'grantConnectionDefaults'>;
 
 /** Fail-closed gate for an integration whose project policy is not bound. */
 export const UNBOUND_GATE: CapabilityGate = {
@@ -167,6 +167,9 @@ export const UNBOUND_GATE: CapabilityGate = {
     if (capabilities.length > 0) {
       throw new MeshError('CAPABILITY_DENIED', 'No capability policy is bound to this project.');
     }
+  },
+  grantConnectionDefaults: () => {
+    /* Unreachable: an unbound integration cannot connect. */
   },
 };
 
