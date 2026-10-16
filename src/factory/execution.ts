@@ -14,6 +14,7 @@ import { writeAtomic } from '../summary.ts';
 
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
+import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
 import { routedSkills } from './skills.ts';
@@ -172,14 +173,15 @@ export async function executeJob(
   const { cwd, snapshot, checks } = await prepareSource(context, record, controls.signal);
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
   const evidence = await roleEvidence(context, record);
+  const recommendations = recommendationNotices(repository.store, record);
 
   const currentTask = task === null ? null : repository.task(task.id);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, recommendations } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
-    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
+    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
   );
   writeAtomic(path.join(record.artifact, 'prompt.md'), prompt);
   controls.signal.throwIfAborted();

@@ -7,6 +7,7 @@ import { z } from 'zod/v3';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { initializeRecommendationNotices, recordRecommendationNotices } from './recommendation-notices.ts';
 import {
   RECOMMENDATION_DETAIL_MAX,
   recommendationDetailInput,
@@ -96,6 +97,7 @@ export class RecommendationLedger {
    */
   public constructor(store: Store) {
     this.store = store;
+    initializeRecommendationNotices(store);
     const rowSchema = z.object({ value: z.string() });
     const row = selectOne(store.db, rowSchema, "SELECT value FROM metadata WHERE key = 'project_id'");
     this.project = rowSchema.parse(row).value;
@@ -296,6 +298,7 @@ export class RecommendationLedger {
       audit: [...record.audit, { at: this.store.now(), from: record.state, to: next, reason }],
     };
     this.save(updated);
+    recordRecommendationNotices(this.store, updated);
     return updated;
   }
 

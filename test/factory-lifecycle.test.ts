@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -24,6 +24,7 @@ import { startWebConsole } from '../src/web/server.ts';
 import { selectionRows } from '../web/dist/selection-ui.js';
 
 import { policySettings } from './fixtures/model-policy.ts';
+import { proposal as recommendationProposal } from './fixtures/recommendations.ts';
 import { brokerUrl } from './helpers.ts';
 
 import type { AgentRequest, AgentCompletion } from '../src/factory/providers.ts';
@@ -268,6 +269,35 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     stages.push(request.job.kind);
     assert.ok(request.prompt.includes('factory-session'));
     assert.ok(request.prompt.includes('Adapted from'));
+    if (request.job.kind === 'plan') {
+      const activeFactory = lifecycle.factory;
+      assert.ok(activeFactory !== null);
+      const ledger = activeFactory.repository.recommendations;
+      const notice = ledger.propose(recommendationProposal);
+      ledger.transition({
+        id: notice.id,
+        revision: notice.revision,
+        state: 'proposed',
+        next: 'awaiting_human',
+        reason: 'Fixture submission',
+      });
+      ledger.transition({
+        id: notice.id,
+        revision: notice.revision,
+        state: 'awaiting_human',
+        next: 'approved',
+        reason: 'recommendation-notice-fixture',
+      });
+      assert.ok(!request.prompt.includes('recommendation-notice-fixture'));
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture reads only its factory-owned immutable assignment artifact.
+      const persistedPrompt = await readFile(path.join(request.job.artifact, 'prompt.md'), 'utf8');
+      assert.equal(persistedPrompt, request.prompt, 'Running prompt artifact remains frozen.');
+    } else if (request.job.kind === 'refine') {
+      assert.ok(
+        request.prompt.includes('recommendation-notice-fixture'),
+        'Fresh lead context receives the persisted decision.',
+      );
+    }
     if (request.job.kind === 'plan' || request.job.kind === 'refine') {
       assert.match(request.prompt, /"deliveryLimits":\s*\{\s*"maxDiffLines": 123,\s*"maxFiles": 7\s*\}/v);
       assert.match(request.prompt, /"allowedModelPolicy":\s*\{\s*"revision": 1/v);
