@@ -23,7 +23,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
-import { STATE_DIRECTORY_NAME, loadIdentity, sessionIdentity } from './config.ts';
+import { STATE_DIRECTORY_NAME, assertLocalBrokerUrl, loadIdentity, sessionIdentity } from './config.ts';
 import { log } from './log.ts';
 import { MeshError, PROJECT_OPERATION_TIMEOUT_MS, WAIT_TIMEOUT_DEFAULT_MS, isMeshErrorCode } from './protocol.ts';
 import { teamAccessSchema } from './teams.ts';
@@ -177,7 +177,8 @@ export async function rpc(
   // network deadline.
   const deadline = AbortSignal.timeout(deadlineFor(operation, input));
   const combined = AbortSignal.any(signal === undefined ? [deadline] : [deadline, signal]);
-  const url = new URL('/rpc', config.url);
+  // The bearer token and body never leave the host, whatever built this config.
+  const url = new URL('/rpc', assertLocalBrokerUrl(config.url));
   let response: Response;
   try {
     response = await fetch(url, {
