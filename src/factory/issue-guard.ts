@@ -7,6 +7,7 @@
  */
 
 import type { FactoryContext } from './context.ts';
+import type { FactoryRepository } from './repository.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryTask } from './schema.ts';
 /** Longest retained waiting explanation. */
@@ -42,17 +43,32 @@ function isEligible(task: FactoryTask, intent: JobIntent): boolean {
 /** Remembers failed reads so one unreachable GitHub call is not repeated every heartbeat. */
 export class IssueGuard {
   /** Unresolved observations remain visible when another delivery reads successfully. */
-  private readonly failures = new Map<string, string>();
+  private readonly failures = new Map<string, { reason: string; version: number }>();
   /** Earliest retry per delivery after a failed or malformed read. */
   private readonly retryAt = new Map<string, number>();
 
   /**
    * Surface one unresolved read without losing other deliveries' explanations.
    *
+   * @param repository - Current task revisions, including operator re-scoping.
    * @returns Oldest still-unresolved bounded diagnostic.
    */
-  public get waitingReason(): string | null {
-    return this.failures.values().next().value ?? null;
+  public waitingReason(repository: FactoryRepository): string | null {
+    const tasks = new Map(repository.tasks().map((task) => [task.id, task]));
+    for (const [id, failure] of this.failures) {
+      const task = tasks.get(id);
+      if (!(
+        task?.version !== failure.version ||
+        task.scopeReplacement !== undefined ||
+        (task.phase !== 'ready' && task.phase !== 'development')
+      )) {
+        continue;
+      }
+
+      this.failures.delete(id);
+      this.retryAt.delete(id);
+    }
+    return this.failures.values().next().value?.reason ?? null;
   }
 
   /**
@@ -92,10 +108,13 @@ export class IssueGuard {
     } catch (error) {
       this.retryAt.set(task.id, repository.store.now() + context.settings.reconcileMs);
       const detail = Error.isError(error) ? error.message : 'unknown failure';
-      this.failures.set(
-        task.id,
-        `Waiting to confirm issue #${String(task.issue)} is open before development: ${detail}`.slice(0, WAITING_LIMIT),
-      );
+      this.failures.set(task.id, {
+        version: task.version,
+        reason: `Waiting to confirm issue #${String(task.issue)} is open before development: ${detail}`.slice(
+          0,
+          WAITING_LIMIT,
+        ),
+      });
       return false;
     }
     this.retryAt.delete(task.id);
