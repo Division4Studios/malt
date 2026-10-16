@@ -496,19 +496,20 @@ export class WorkspaceManager {
    * @throws {MeshError} For a terminal-exclusive source head.
    */
   private async assertDeliveryHead(head: string, base: string): Promise<void> {
-    const common = await this.git(['merge-base', '--', head, base]);
-    if (common === head) {
+    const all = await this.git(['rev-list', '--count', head, `^${base}`]);
+    if (all === '0') {
       return;
     }
-    const terminal = await this.git([
-      'for-each-ref',
-      '--count=1',
-      `--contains=${head}`,
-      '--format=%(refname)',
-      'refs/heads/malt/terminal/',
-      'refs/malt/archive/terminal-',
+    const independent = await this.git([
+      'rev-list',
+      '--count',
+      head,
+      `^${base}`,
+      '--not',
+      '--branches=malt/terminal/*',
+      '--glob=refs/malt/archive/terminal-*',
     ]);
-    if (terminal !== '') {
+    if (independent !== all) {
       throw new MeshError('FACTORY_GATED', 'A terminal-only commit cannot satisfy a delivery head.');
     }
   }
