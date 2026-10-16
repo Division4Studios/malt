@@ -113,6 +113,10 @@ export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFix
     port: 0,
     factoryOptions: () => {
       return {
+        agent: async () => {
+          await Promise.resolve();
+          assert.fail('Inference is disabled in the native terminal fixture.');
+        },
         resources: () => ({ freeMemoryMb: 20_000, totalMemoryMb: 32_000, cpuPercent: 0 }),
         terminals: {
           clock: {

@@ -9,7 +9,18 @@ import type { TerminalView } from './terminal-contract.ts';
 import type { TerminalScreen } from './terminal-screen.ts';
 
 /** Bounded geometry/traffic deadlines; no resize loop can keep the CLI alive. */
-const LIMIT = { columns: 500, rows: 200, debounce: 200, deadline: 10_000, padding: 24, cell: 8, line: 18 } as const;
+const LIMIT = { columns: 500, rows: 200, debounce: 200, deadline: 10_000, cell: 8, line: 18 } as const;
+
+/**
+ * Read computed CSS pixels, including fractional zoom-dependent padding.
+ *
+ * @param value - Native computed length, never project text.
+ * @returns Nonnegative finite pixels or a safe zero fallback.
+ */
+function cssPixels(value: string): number {
+  const pixels = Number(value.replace(/px$/v, ''));
+  return Number.isFinite(pixels) && pixels >= 0 ? pixels : 0;
+}
 /** Exactly one pane's native input authority. */
 export interface TerminalInputOptions {
   /** Captured selected project and native session identity. */
@@ -359,13 +370,16 @@ export class TerminalInput {
       const style = getComputedStyle(this.options.display);
       const canvas = document.createElement('canvas').getContext('2d');
       if (canvas !== null) {
-        canvas.font = style.font;
+        // The shorthand can be empty when font-variant-ligatures is non-default.
+        canvas.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
       }
       const cell = canvas?.measureText('M').width ?? LIMIT.cell;
       const measuredLine = Number(style.lineHeight.replace(/px$/v, ''));
       const line = Number.isFinite(measuredLine) && measuredLine > 0 ? measuredLine : LIMIT.line;
-      const columns = Math.floor((this.options.display.clientWidth - LIMIT.padding) / cell);
-      const rows = Math.floor((this.options.display.clientHeight - LIMIT.padding) / line);
+      const horizontalPadding = cssPixels(style.paddingLeft) + cssPixels(style.paddingRight);
+      const verticalPadding = cssPixels(style.paddingTop) + cssPixels(style.paddingBottom);
+      const columns = Math.floor((this.options.display.clientWidth - horizontalPadding) / cell);
+      const rows = Math.floor((this.options.display.clientHeight - verticalPadding) / line);
       this.columns.value = String(Math.max(1, Math.min(LIMIT.columns, columns)));
       this.rows.value = String(Math.max(1, Math.min(LIMIT.rows, rows)));
       void this.resize();
