@@ -14,9 +14,9 @@ import {
   snapshot,
   text,
   hasFlag,
-  resourceSummary,
 } from './api.js';
 import { QueueState } from './brand-ui.js';
+import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
 import { startConsoleClock } from './console-clock.js';
 import { Freshness } from './freshness.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
@@ -281,11 +281,8 @@ function render(): void {
     return;
   }
   const observed = state.current;
-  const resources = document.querySelector('[data-resource-machine]');
-  if (resources !== null) {
-    resources.textContent = resourceSummary(observed.factory);
-  }
-  const factory = Object.fromEntries(Object.entries(observed.factory).filter(([key]) => key !== 'resources'));
+  refreshCapacitySamples(observed.factory);
+  const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
     project: observed.project,
     factory,
