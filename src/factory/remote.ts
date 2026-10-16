@@ -108,7 +108,10 @@ export interface DeliveryRemote {
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
-  readonly provision: (feature: Feature) => Promise<DeliveryPlanIssue[]>;
+  readonly provision: (
+    feature: Feature,
+    checkpoint?: (mappings: readonly DeliveryPlanIssue[], repositoryId: string) => void,
+  ) => Promise<DeliveryPlanIssue[]>;
   /** Create or reuse the developer branch's open PR. */
   readonly pullRequest: (task: FactoryTask, config: FactoryConfig) => Promise<{ number: number; url: string }>;
   /** Inspect exact-head CI and branch state. */
@@ -213,14 +216,19 @@ export class GitHubDelivery implements DeliveryRemote {
    * Create a feature parent and retry-safe native atomic sub-issues.
    *
    * @param feature - Lead-reviewed plan.
+   * @param checkpoint - Durable receipt sink before native dependency reconciliation.
    * @returns Issue mappings for the plan, including parent identity.
    * @throws {MeshError} When the objective has no reviewed plan.
    */
-  public async provision(feature: Feature): Promise<DeliveryPlanIssue[]> {
+  public async provision(
+    feature: Feature,
+    checkpoint?: (mappings: readonly DeliveryPlanIssue[], repositoryId: string) => void,
+  ): Promise<DeliveryPlanIssue[]> {
     const record = feature;
     if (record.plan === null || record.plan.deliveries.length === 0) {
       throw new MeshError('INVALID_INPUT', 'A record needs a nonempty reviewed atomic plan.');
     }
+    const source = checkpoint === undefined ? null : this.issueRepositoryId();
     const parentResult = z.object({ issue: z.object({ number: z.number() }) }).parse(
       await this.github.execute('github_create_issue', {
         requestId: `record-${record.id}`,
@@ -249,6 +257,12 @@ export class GitHubDelivery implements DeliveryRemote {
         }),
       );
       mappings.push({ key: delivery.key, issue: created.issue.number, parentIssue: parentResult.issue.number });
+    }
+    if (source !== null) {
+      if (this.issueRepositoryId() !== source) {
+        throw new MeshError('FACTORY_GATED', 'The verified repository changed during native provisioning.');
+      }
+      checkpoint?.(mappings, source);
     }
     if (record.plan.deliveries.some((delivery) => delivery.dependencies.length > 0)) {
       const connection = await this.connection();
