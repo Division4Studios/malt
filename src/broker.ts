@@ -469,7 +469,7 @@ async function handleRpc(
   team.store.expire();
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
-    assertFactoryAuthority(team, operation, credentials);
+    assertFactoryAuthority(team, operation, credentials, input);
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return team.factory.execute(
       operation,
@@ -491,33 +491,78 @@ async function handleRpc(
   return result;
 }
 
+/** Factory operations the live delivery manager may use; every other control stays with people. */
+const MANAGER_FACTORY_SCOPE: ReadonlySet<Operation> = new Set([
+  'factory_brief',
+  'factory_status',
+  'factory_request',
+  'factory_instruct',
+  'factory_queue',
+  'factory_retry',
+  'factory_local',
+  'factory_ask',
+]);
+
 /**
  * Authenticate role controls independently of their dispatch transport.
  *
  * @param team - Selected project.
  * @param operation - Validated factory operation.
  * @param credentials - Optional attached agent identity.
+ * @param input - Validated operation input, inspected for manager-restricted actions.
  * @throws {MeshError} When an agent attempts an operator-only operation.
  */
-function assertFactoryAuthority(team: Team, operation: Operation, credentials: PresentedCredentials | undefined): void {
+function assertFactoryAuthority(
+  team: Team,
+  operation: Operation,
+  credentials: PresentedCredentials | undefined,
+  input: unknown,
+): void {
   if (credentials === undefined) {
+    if (operation === 'factory_ask') {
+      throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+    }
     return;
   }
-  if (['factory_skill_decide', 'factory_export_maintenance', 'factory_recover'].includes(operation)) {
+  if (
+    ['factory_skill_decide', 'factory_export_maintenance', 'factory_recover', 'factory_manager'].includes(operation)
+  ) {
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may approve skill changes, objective recovery or cross-project maintenance.',
+      'Only the human operator may approve skill changes, recover objectives, run cross-project maintenance or control the delivery manager.',
     );
   }
   const actor = team.store.authenticate(credentials);
+  if (team.factory.manager.isManagerActor(actor)) {
+    assertManagerScope(operation, input);
+    return;
+  }
+  if (operation === 'factory_ask') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+  }
   if (
-    operation !== 'factory_status' &&
-    operation !== 'factory_read_source' &&
-    operation !== 'factory_progress' &&
+    !['factory_status', 'factory_read_source', 'factory_progress', 'factory_brief'].includes(operation) &&
     actor !== team.store.coordination.leadId()
   ) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
+  }
+}
+
+/**
+ * Keep the live delivery manager to steering operations; human decisions stay human.
+ *
+ * @param operation - Validated factory operation.
+ * @param input - Validated input.
+ * @throws {MeshError} For operations outside the manager's scope.
+ */
+function assertManagerScope(operation: Operation, input: unknown): void {
+  const isSync = typeof input === 'object' && input !== null && 'action' in input && input.action === 'sync';
+  if (!MANAGER_FACTORY_SCOPE.has(operation) || (operation === 'factory_local' && isSync)) {
+    throw new MeshError(
+      'NOT_ORCHESTRATOR',
+      'The delivery manager steers through requests, instructions, focus, retries and local issues. Ask the operator for this with factory_ask.',
+    );
   }
 }
 

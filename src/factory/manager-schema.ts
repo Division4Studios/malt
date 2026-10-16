@@ -52,3 +52,36 @@ export const managerPolicySchema = z
   .strict();
 /** Parsed manager policy with every default applied. */
 export type ManagerPolicy = z.output<typeof managerPolicySchema>;
+
+/** Longest operator message or answer. */
+const TEXT_MAX = 32_000;
+/** Longest decision question. */
+const QUESTION_MAX = 2000;
+/** Most answer options in one decision. */
+const OPTIONS_MAX = 8;
+/** Largest conversation page. */
+const PAGE_MAX = 500;
+
+/** Factory operations owned by the manager. */
+export const MANAGER_FACTORY_OPERATIONS = ['factory_manager', 'factory_brief', 'factory_ask'] as const;
+
+/** Input contracts of the manager operations; flat objects so MCP can expose their fields. */
+export const managerOperationSchemas = {
+  factory_manager: z
+    .object({
+      action: z.enum(['status', 'start', 'stop', 'send', 'answer', 'history']),
+      text: z.string().trim().min(1).max(TEXT_MAX).optional(),
+      decisionId: z.string().uuid().optional(),
+      after: z.number().int().nonnegative().optional(),
+      limit: z.number().int().positive().max(PAGE_MAX).optional(),
+    })
+    .strict(),
+  factory_brief: z.object({}).strict(),
+  factory_ask: z
+    .object({
+      question: z.string().trim().min(1).max(QUESTION_MAX),
+      options: z.array(z.string().trim().min(1).max(QUESTION_MAX)).max(OPTIONS_MAX).default([]),
+      evidence: z.string().trim().min(1).max(TEXT_MAX),
+    })
+    .strict(),
+};
