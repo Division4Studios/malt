@@ -25,7 +25,7 @@ CI uses a documentation fast path only when every changed path is a human-facing
 
 Classification executes the classifier from the immutable base commit, never from the proposed PR checkout. Missing base classifiers use full CI, including the initial introduction of this optimization. A PR changing the classifier cannot use its proposed classifier to exempt itself from validation.
 
-Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. Backend MCP SDK, Zod and Node SQLite remain allowed. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
+Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. The backend has exactly three runtime packages, each kept for one contained role: Zod (input validation), the MCP SDK (stdio protocol for agent sessions) and the pinned `node-pty` (scratch terminals only), alongside built-in `node:sqlite`. Do not add runtime packages; new code validates with hand-written checks where no Zod boundary exists. Runtime packages must use an MIT-compatible license (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0 or 0BSD), which the Security gate enforces. Keep exact version pins, install with `npm ci --ignore-scripts` and never import a development package at runtime. See the [dependency policy](docs/dependency-policy.md) for why each package stays and how they are locked down. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
 
 ## Native test resources
 
