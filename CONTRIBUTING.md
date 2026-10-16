@@ -54,7 +54,7 @@ Review covers the current source and base. A change to either can invalidate ear
 4. Check `git diff --check`, the complete staged diff and secret-scan results. Never include `.malt`, `.mlt`, provider homes, `.env`, credentials or private logs.
 5. Open a focused PR using the template. Link its issue, prerequisites, acceptance criteria and any size exception. Refresh current main and obtain fresh independent review when source or base changes.
 
-Maintainers require passing quality/security gates, resolved conversations and authenticated GitHub reviews under repository protection. AI-authored changes have the same requirements. Reviewers reproduce and report findings; the responsible author repairs them. Do not use administrator bypass or represent model comments as protected-branch approvals.
+Maintainers require passing quality/security gates, resolved conversations and authenticated GitHub reviews under repository protection. AI-authored changes have the same requirements. The [documented solo-maintainer exception](docs/github-controls.md) currently requires zero authenticated GitHub approvals; the intended two-reviewer/code-owner policy resumes when trusted collaborators join. Independent factory QA and final verification remain separate gates. Reviewers reproduce and report findings; the responsible author repairs them. Do not use administrator bypass or represent model comments as protected-branch approvals.
 
 Keep review requests respectful. No automatic stale bot will close an unresolved report merely because time passed. Maintainers may defer or reject scope with a written reason.
 

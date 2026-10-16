@@ -32,11 +32,11 @@ Dependabot covers npm, Actions and Docker. Node/Node-type and TypeScript major c
 
 ## Community and funding
 
-Use Q&A for support, Ideas for proposals, Announcements for maintainer updates and Show and tell for community examples. Pin the welcome/triage guide and link duplicate discussions with rationale. Do not enable a stale bot that closes unresolved defects automatically.
+Use Q&A for support, Ideas for proposals, Announcements for maintainer updates and Show and tell for community examples. Use the [community operations guide](community-operations.md) for label semantics, forms, Discussion categories and published onboarding; link duplicate discussions with rationale. Do not enable a stale bot that closes unresolved defects automatically.
 
-The funding file links the owner's publicly reachable [GitHub Sponsors page](https://github.com/sponsors/Division4Studios). Public listing visibility is not proof that identity, tax, payout routing or sponsor tiers are configured. The owner must review those in the [Sponsors dashboard](https://github.com/sponsors/Division4Studios/dashboard); assistants must not invent payout details, accept financial terms or promise benefits.
+The [sponsorship guide](../SPONSORING.md) publishes funding purpose without a support SLA or guaranteed roadmap. The funding file links the owner's publicly reachable [GitHub Sponsors page](https://github.com/sponsors/Division4Studios). Public listing visibility is not proof that identity, tax, payout routing or sponsor tiers are configured. The owner must review those in the [Sponsors dashboard](https://github.com/sponsors/Division4Studios/dashboard); assistants must not invent payout details, accept financial terms or promise benefits.
 
-For the social preview, upload `docs/assets/malt-social.png` in repository Settings → General → Social preview. The original SVG is editable, the PNG is 1280×640, and neither includes project state or third-party logos. Preview changes are repository metadata, separate from the README banner.
+A custom social preview is already configured (verified 2026-10-16). To replace it, upload `docs/assets/malt-social.png` in repository Settings → General → Social preview. The original SVG is editable, the PNG is 1280×640, and neither includes project state or third-party logos. Preview changes are repository metadata, separate from the README banner.
 
 Wiki source is versioned under `docs/wiki/`. Publish reviewed pages to the separate `.wiki.git` repository and verify links. Wiki editing is limited to repository collaborators; a wiki is not a substitute for reviewed source/API documentation.
 
