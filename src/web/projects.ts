@@ -63,6 +63,7 @@ export const controlSchema = z
       'factory_reorder_objective',
       'factory_cancel_job',
       'factory_capacity',
+      'capability_policy_set',
       'github_connect',
       'terminal_start',
       'terminal_close',
@@ -201,6 +202,16 @@ export class ProjectGateway {
     const config = this.config(id);
     const page = historyPageSchema.parse(await rpc(config, 'events', { before, limit }));
     return { project: id, ...page };
+  }
+
+  /**
+   * Read connector capability policies beside provider support and history.
+   *
+   * @param id - Explicit project selection.
+   * @returns The broker's policy view for that project only.
+   */
+  public async capabilities(id: string): Promise<unknown> {
+    return rpc(this.config(id), 'capability_policy_status', {});
   }
 
   /**

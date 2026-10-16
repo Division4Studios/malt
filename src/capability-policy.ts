@@ -2,7 +2,6 @@
  * Private project capability policies. History is the append-only source of
  * truth; initialization and changes commit atomically in the project's SQLite.
  * Callers must supply principals from authenticated context, never request data.
- * This module does not yet enforce permissions on connector operations.
  *
  * @file
  */
@@ -36,6 +35,8 @@ export const CAPABILITIES = [
   'view-field-delete',
   'mcp-binding-configure',
 ] as const;
+/** One independently configurable connector operation. */
+export type Capability = (typeof CAPABILITIES)[number];
 /** Reject unknown capabilities even for JavaScript callers. */
 const capabilitySchema = z.enum(CAPABILITIES);
 /** Human identity is supplied by the trusted caller, not inferred from a role. */
