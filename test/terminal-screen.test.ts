@@ -69,3 +69,35 @@ await test('wide glyphs, combining floods, unsafe OSC links and clipped resize r
   screen.reset();
   assert.equal(rows(screen)[0], ' ');
 });
+
+await test('scroll regions and line edits preserve outside rows without creating history', () => {
+  const screen = new TerminalScreen(5, 4);
+  feed(screen, 'AAAAA\r\nBBBBB\r\nCCCCC\r\nDDDDD\u{1B}[2;3r\u{1B}[3;1H\n');
+  assert.deepEqual(rows(screen), ['AAAAA', 'CCCCC', ' '.repeat(5), 'DDDDD']);
+  feed(screen, '\u{1B}[2;1H\u{1B}[L');
+  assert.deepEqual(rows(screen), ['AAAAA', ' '.repeat(5), 'CCCCC', 'DDDDD']);
+  feed(screen, '\u{1B}[M');
+  assert.deepEqual(rows(screen), ['AAAAA', 'CCCCC', ' '.repeat(5), 'DDDDD']);
+  assert.equal(screen.grid.history.length, 0);
+  feed(screen, '\u{1B}[999999S\u{1B}[999999T\u{1B}[4;1H\u{1B}[L');
+  assert.equal(rows(screen)[0], 'AAAAA');
+  assert.equal(rows(screen)[3], 'DDDDD');
+  assert.equal(screen.grid.lines.length, 4);
+});
+
+await test('character edits and resize cannot retain orphan wide halves or grow rows', () => {
+  const screen = new TerminalScreen(5, 2);
+  feed(screen, 'A日B\u{1B}[1;2H\u{1B}[@');
+  assert.equal(rows(screen)[0], 'A 日B');
+  feed(screen, '\u{1B}[1;3H\u{1B}[P');
+  assert.equal(rows(screen)[0], 'A  B ');
+  feed(screen, '\u{1B}[999999@\u{1B}[999999P\u{1B}[999999X');
+  assert.ok(screen.grid.lines.every((line) => line.length === 5));
+  feed(screen, '\u{1B}[1;1H日');
+  screen.resize(1, 1);
+  assert.equal(screen.grid.lines[0]?.[0]?.width, 1);
+  for (let index = 0; index < 2000; index += 1) {
+    feed(screen, 'x\r\n');
+  }
+  assert.equal(screen.grid.history.length, 500);
+});

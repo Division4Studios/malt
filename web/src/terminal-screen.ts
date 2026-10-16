@@ -1,8 +1,9 @@
 /** @file Pure bounded VT screen; output never becomes DOM, CSS or terminal commands. */
-import { BLANK_CELL, TerminalGrid } from './terminal-grid.ts';
+import { BLANK_CELL, TerminalGrid, normalizeTerminalRow } from './terminal-grid.ts';
 import { DEFAULT_TERMINAL_STYLE, terminalStyle } from './terminal-style.ts';
 import { terminalWidth } from './terminal-width.ts';
 
+import type { TerminalCell } from './terminal-grid.ts';
 import type { TerminalAction } from './terminal-parser.ts';
 import type { TerminalStyle } from './terminal-style.ts';
 
@@ -388,6 +389,30 @@ export class TerminalScreen {
       K: () => {
         this.erase(action.params[0] ?? 0, false);
       },
+      '@': () => {
+        this.characters(amount, true);
+      },
+      P: () => {
+        this.characters(amount, false);
+      },
+      X: () => {
+        this.fill(y, x, x + amount);
+      },
+      L: () => {
+        this.lines(-amount);
+      },
+      M: () => {
+        this.lines(amount);
+      },
+      S: () => {
+        this.active.scroll(this.top, this.bottom, amount);
+      },
+      T: () => {
+        this.active.scroll(this.top, this.bottom, -amount);
+      },
+      r: () => {
+        this.region(row, action.params[1]);
+      },
       s: () => {
         this.escape('7');
       },
@@ -460,6 +485,60 @@ export class TerminalScreen {
     const line = this.active.lines[row];
     line?.fill({ ...BLANK_CELL, style: this.style }, Math.max(0, start), Math.min(end, this.active.columns));
     this.active.dirty.add(row);
+  }
+
+  /**
+   * Insert or delete characters without expanding the row.
+   *
+   * @param amount - Requested count, clamped before allocation.
+   * @param isInsert - Insert versus delete.
+   */
+  private characters(amount: number, isInsert: boolean): void {
+    const { x, y } = this.active.cursor;
+    const line = this.active.lines[y];
+    if (line === undefined) {
+      return;
+    }
+    const count = Math.min(amount, this.active.columns - x);
+    const blanks: TerminalCell[] = Array.from({ length: count }, () => ({ ...BLANK_CELL, style: this.style }));
+    if (isInsert) {
+      line.splice(x, 0, ...blanks);
+      line.length = this.active.columns;
+    } else {
+      line.splice(x, count);
+      line.push(...blanks);
+    }
+    this.active.lines[y] = normalizeTerminalRow(line);
+    this.active.dirty.add(y);
+    this.isWrapPending = false;
+  }
+
+  /**
+   * Insert/delete lines only inside the active scroll region.
+   *
+   * @param count - Positive delete, negative insert.
+   */
+  private lines(count: number): void {
+    const { y } = this.active.cursor;
+    if (y >= this.top && y <= this.bottom) {
+      this.active.scroll(y, this.bottom, count, false);
+    }
+  }
+
+  /**
+   * Validate a scroll region before moving the cursor home.
+   *
+   * @param top - Zero-based first row.
+   * @param end - Optional one-based bottom row.
+   */
+  private region(top: number, end: number | undefined): void {
+    const bottom = (end === undefined || end <= 0 ? this.active.rows : end) - 1;
+    if (top < 0 || top >= bottom || bottom >= this.active.rows) {
+      return;
+    }
+    this.top = top;
+    this.bottom = bottom;
+    this.move(0, 0);
   }
 
   /**

@@ -32,6 +32,21 @@ export const BLANK_CELL: TerminalCell = Object.freeze({
 });
 
 /**
+ * Remove split wide-cell halves after clipping or character insertion/deletion.
+ *
+ * @param row - Bounded cell row.
+ * @returns Independent canonical row with no orphan wide halves.
+ */
+export function normalizeTerminalRow(row: readonly TerminalCell[]): TerminalCell[] {
+  return row.map((cell, index) => {
+    if (cell.width === 0 && row[index - 1]?.width !== 2) {
+      return BLANK_CELL;
+    }
+    return cell.width === 2 && row[index + 1]?.width !== 0 ? BLANK_CELL : cell;
+  });
+}
+
+/**
  * Clamp untrusted dimensions before allocating cells.
  *
  * @param value - Requested integer size.
@@ -142,8 +157,10 @@ export class TerminalGrid {
   public resize(columns: number, rows: number): void {
     this.columns = dimension(columns, LIMIT.columns);
     this.rows = dimension(rows, LIMIT.rows);
-    const resizeRow = (row: TerminalCell[]): TerminalCell[] =>
-      [...row.slice(0, this.columns), ...this.blank()].slice(0, this.columns);
+    const resizeRow = (row: TerminalCell[]): TerminalCell[] => {
+      const clipped = [...row.slice(0, this.columns), ...this.blank()].slice(0, this.columns);
+      return normalizeTerminalRow(clipped);
+    };
     this.lines = this.lines.slice(0, this.rows).map((row) => resizeRow(row));
     while (this.lines.length < this.rows) {
       this.lines.push(this.blank());
