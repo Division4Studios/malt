@@ -481,18 +481,8 @@ export const capacitySchema = z.object({
 });
 /** Persisted capacity snapshot. */
 export type Capacity = z.output<typeof capacitySchema>;
-/** Durable, retryable remote effects. */
-export const effectSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['status', 'comment', 'close', 'close_not_planned', 'close_pr']),
-  issue: z.number().int().positive(),
-  value: z.string(),
-  attempts: z.number().int().nonnegative(),
-  retryAt: z.number(),
-  error: z.string().nullable(),
-});
-/** One outbox entry. */
-export type FactoryEffect = z.output<typeof effectSchema>;
+export { effectSchema } from './outbox-schema.ts';
+export type { FactoryEffect } from './outbox-schema.ts';
 /** Independent lead review of a learning steward's adoption/retirement request. */
 export const skillRequestSchema = skillActionSchema.extend({
   id: z.string().uuid(),
