@@ -232,9 +232,5 @@ await test('broker restart ends the live generation and a fresh session receives
   await settled(resumed, message.id, 'answered');
   await resumed.stop();
   const [first = ''] = received(log);
-  assert.match(
-    first,
-    /Context restored after a restart/v,
-    'A fresh session gets the brief without an extra turn.',
-  );
+  assert.match(first, /Context restored after a restart/v, 'A fresh session gets the brief without an extra turn.');
 });

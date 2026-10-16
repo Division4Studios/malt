@@ -31,6 +31,7 @@ export const FACTORY_COMMANDS = [
   'factory-cancel-job',
   'factory-capacity',
   'factory-local',
+  'factory-manager',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -53,6 +54,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
   'factory-local': 'factory_local',
+  'factory-manager': 'factory_manager',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([
@@ -110,6 +112,8 @@ export async function runFactoryCommand(
       throw new Error('--file must name a JSON input file.');
     }
     input = readJsonFile(path.resolve(options.file));
+  } else if (command === 'factory-manager') {
+    input = managerInput(options);
   } else if (command === 'factory-request') {
     if (options.body === undefined) {
       throw new Error('--body must describe the product objective.');
@@ -117,4 +121,23 @@ export async function runFactoryCommand(
     input = { objective: options.body };
   }
   return rpc(config, operation, input);
+}
+
+/**
+ * Build manager control input: --body sends a message, --file supplies any action.
+ *
+ * @param options - Parsed CLI options.
+ * @param options.file - JSON control file.
+ * @param options.body - Message text.
+ * @returns Control input.
+ * @throws {Error} When neither option is present.
+ */
+function managerInput(options: { file?: string | undefined; body?: string | undefined }): unknown {
+  if (options.body !== undefined) {
+    return { action: 'send', text: options.body };
+  }
+  if (options.file === undefined) {
+    throw new Error('Use --body to message the manager, or --file for a JSON action such as {"action":"start"}.');
+  }
+  return readJsonFile(path.resolve(options.file));
 }

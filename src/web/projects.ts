@@ -64,6 +64,7 @@ export const controlSchema = z
       'factory_cancel_job',
       'factory_capacity',
       'factory_local',
+      'factory_manager',
       'github_connect',
       'terminal_start',
       'terminal_close',
@@ -83,6 +84,24 @@ export const controlSchema = z
 async function localSummary(config: MeshConfig): Promise<unknown> {
   try {
     return await rpc(config, 'factory_local', { action: 'summary' });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the manager's live status and the mission brief for the console.
+ *
+ * @param config - Selected project.
+ * @returns Status and brief, or null before the factory is configured.
+ */
+async function managerSummary(config: MeshConfig): Promise<unknown> {
+  try {
+    const [status, brief] = await Promise.all([
+      rpc(config, 'factory_manager', { action: 'status' }),
+      rpc(config, 'factory_brief', {}),
+    ]);
+    return { status, brief };
   } catch {
     return null;
   }
@@ -187,13 +206,14 @@ export class ProjectGateway {
    */
   public async snapshot(id: string, afterEvent?: number): Promise<unknown> {
     const config = this.config(id);
-    const [factory, events, agents, github, learning, local] = await Promise.all([
+    const [factory, events, agents, github, learning, local, manager] = await Promise.all([
       rpc(config, 'factory_status', {}),
       rpc(config, 'events', { after: afterEvent ?? 0, limit: 50, recent: afterEvent === undefined }),
       rpc(config, 'list_agents', {}),
       rpc(config, 'github_status', {}),
       rpc(config, 'learning_status', {}),
       localSummary(config),
+      managerSummary(config),
     ]);
     return {
       project: { id, name: config.name, root: config.workspace ?? config.root },
@@ -203,8 +223,29 @@ export class ProjectGateway {
       github,
       learning,
       local,
+      manager,
       observedAt: Date.now(),
     };
+  }
+
+  /**
+   * Read one local pull request with its gate evidence and bounded diff.
+   *
+   * @param id - Explicit project selection.
+   * @param number - Local pull-request number.
+   * @returns Pull request, evidence and diff.
+   */
+
+  /**
+   * Read one page of the manager conversation.
+   *
+   * @param id - Explicit project selection.
+   * @param after - Exclusive sequence cursor.
+   * @param limit - Requested page size; the broker enforces its bound.
+   * @returns Entries and the latest sequence.
+   */
+  public async managerHistory(id: string, after: number, limit: number): Promise<unknown> {
+    return rpc(this.config(id), 'factory_manager', { action: 'history', after, limit });
   }
 
   /**
