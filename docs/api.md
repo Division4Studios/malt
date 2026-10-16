@@ -254,6 +254,12 @@ Columns are 1–500; rows are 1–200. Arbitrary executables, arguments, environ
 
 The paired browser uses `GET /api/terminals?project=home` and `POST /api/control` with `terminal_start` or `terminal_close`. `GET /api/terminal-stream?project=home&id=<uuid>&after=0` emits SSE `terminal` events and heartbeat comments. `Last-Event-ID` overrides `after` on reconnect. Duplicate query parameters and invalid cursors are rejected. There are eight console terminal subscribers globally, at most two per selected terminal, a five-second drain timeout and a two-minute connection lifetime. Authorization is rechecked before and after every broker poll. Finished sessions drain their remaining replay and end; disconnected clients cancel their pending broker read. No terminal content is cached by the service worker.
 
+## Operator terminal input and resize
+
+Paired browsers use `POST /api/control` with `operation: "terminal_input"` and `input: {id, text}`, or `operation: "terminal_resize"` and `input: {id, columns, rows}`. Both return metadata and numeric counters only. The corresponding broker operations retain the project-token-only authority described above.
+
+Input is accepted only while the owned PTY is running: at most 16 KiB UTF-8 per write, a 64 KiB burst and 16 KiB/second refill. Resizes have an independent 20-event/second allowance and the same 1–500 column / 1–200 row bounds as startup. Rejections leave the session running. Closing/exited sessions reject further input. Accepted input resets idle time; output and resize do not. Keystrokes are never logged, persisted or automatically retried. After an ambiguous network failure, inspect the terminal before deciding whether to send again.
+
 ## Managed developer ticket checkpoints
 
 `mesh_factory_progress({ key, body })` queues a checkpoint on the current managed developer assignment's issue. It accepts no target issue or role override. The backend requires a current unexpired owned development claim and rejects QA, unmanaged callers, changed content for a reused key, and more than twenty checkpoints per job. Stable keys deduplicate retries through the transactional outbox and remote comment marker. Results say `queued` until a confirmed remote receipt exists; temporary GitHub failures do not rerun implementation. The supervisor supplies a start update and a validated completion summary. Keep updates meaningful, concise and free of secrets, private paths or raw transcripts.

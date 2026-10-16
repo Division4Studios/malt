@@ -1,4 +1,5 @@
 /** @file Operator-only scratch terminals sharing broker-wide native resource admission. */
+import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
@@ -10,6 +11,7 @@ import { providerPreflight } from './authentication.ts';
 import { resourceBlocker, resourceProbe } from './resources.ts';
 import { providerBlockers } from './scheduler.ts';
 import { TerminalBuffer } from './terminal-buffer.ts';
+import { TerminalInputGate } from './terminal-input-gate.ts';
 import { terminalLaunchSchema, terminalMcpServers } from './terminal-launch.ts';
 import { TerminalLifetime, terminalClock } from './terminal-lifetime.ts';
 import { startTerminalProcess } from './terminal-process.ts';
@@ -50,6 +52,8 @@ export interface TerminalOptions {
 }
 /** In-memory execution state; no terminal content is durable. */
 interface LiveTerminal {
+  /** Per-session input/resize traffic accounting contains only numbers. */
+  readonly inputGate: TerminalInputGate;
   /** Idle/absolute timers, disposed before process teardown. */
   readonly lifetime: TerminalLifetime;
   /** First requested terminal outcome survives late native results. */
@@ -141,6 +145,9 @@ export class TerminalService {
    * @returns Persisted session metadata.
    */
   public async control(operation: TerminalOperation, input: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (operation === 'terminal_input' || operation === 'terminal_resize') {
+      return this.write(operation, input);
+    }
     if (operation === 'terminal_read') {
       const value = terminalSchemas.terminal_read.parse(input);
       return this.reads.read(value.id, value.after, value.waitMs, signal);
@@ -239,6 +246,7 @@ export class TerminalService {
         this.options.clock,
       );
       this.live.set(id, {
+        inputGate: new TerminalInputGate(this.repository.store.now()),
         process: native,
         buffer,
         lifetime,
@@ -352,6 +360,41 @@ export class TerminalService {
     if (this.isStopped || this.isClosing || generation !== this.generation) {
       throw new MeshError('FACTORY_GATED', 'Terminal preparation was cancelled by operator control.');
     }
+  }
+
+  /**
+   * Write only to a current running owned session; never persist keystrokes.
+   *
+   * @param operation - Operator input or resize.
+   * @param input - Untrusted wire payload.
+   * @returns Metadata with numeric counters only.
+   * @throws {MeshError} For closed, foreign or backpressured sessions.
+   */
+  private write(operation: 'terminal_input' | 'terminal_resize', input: unknown): TerminalSession {
+    const value = terminalSchemas[operation].parse(input);
+    const session = this.repository.terminals.get(value.id);
+    if (session === null) {
+      throw new MeshError('NOT_FOUND', 'Terminal session not found in this project.');
+    }
+    const live = this.live.get(value.id);
+    if (live === undefined || session.state !== 'running') {
+      throw new MeshError('FACTORY_GATED', 'Terminal is not running or is no longer owned.');
+    }
+    if ('text' in value) {
+      const data = Buffer.from(value.text);
+      live.inputGate.take('input', data.byteLength, this.repository.store.now());
+      live.process.send({ type: 'input', data });
+      live.lifetime.touch();
+      return this.repository.terminals.change(value.id, 'running', 'running', {
+        inputBytes: session.inputBytes + data.byteLength,
+      });
+    }
+    live.inputGate.take('resize', 0, this.repository.store.now());
+    live.process.send({ type: 'resize', columns: value.columns, rows: value.rows });
+    return this.repository.terminals.change(value.id, 'running', 'running', {
+      columns: value.columns,
+      rows: value.rows,
+    });
   }
 
   /**
