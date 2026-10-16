@@ -143,6 +143,7 @@ await test('timeout, pause and shutdown persist distinct causes despite late suc
     },
     spawn(spec) {
       const completion = Promise.withResolvers<undefined>();
+      let isStopping = false;
       results.push(spec.onFrame);
       queueMicrotask(() => {
         spec.onFrame({ type: 'started', pid: 1234 });
@@ -153,7 +154,12 @@ await test('timeout, pause and shutdown persist distinct causes despite late suc
           assert.fail('No input expected.');
         },
         async stop() {
-          completion.resolve(undefined);
+          if (!isStopping) {
+            isStopping = true;
+            spec.onFrame({ type: 'error', code: 'teardown', message: 'Late native failure.' });
+            spec.onFrame({ type: 'close' });
+            completion.resolve(undefined);
+          }
           await completion.promise;
         },
       };
@@ -180,6 +186,14 @@ await test('timeout, pause and shutdown persist distinct causes despite late suc
     assert.equal(repository.terminals.get(session.id)?.state, 'timed_out');
     assert.equal(timers.size, 0);
   }
+  const failed = await service.start({ provider: 'codex', columns: 80, rows: 24 });
+  const fail = results.at(-1);
+  assert.ok(fail !== undefined);
+  fail({ type: 'error', code: 'fixture', message: 'Initial native failure.' });
+  fail({ type: 'exit', code: 0, signal: null });
+  const failure = await service.close(failed.id);
+  assert.equal(failure.state, 'failed');
+  assert.equal(failure.reason, 'terminal host failed');
   const paused = await service.start({ provider: 'codex', columns: 80, rows: 24 });
   await service.closeAll('factory paused');
   assert.equal(repository.terminals.get(paused.id)?.reason, 'factory paused');

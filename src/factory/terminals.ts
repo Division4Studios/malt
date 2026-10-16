@@ -1,6 +1,7 @@
 /** @file Operator-only scratch terminals sharing broker-wide native resource admission. */
 import { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 
 import { log } from '../log.ts';
@@ -57,7 +58,7 @@ interface LiveTerminal {
   /** Idle/absolute timers, disposed before process teardown. */
   readonly lifetime: TerminalLifetime;
   /** First requested terminal outcome survives late native results. */
-  outcome: 'exited' | 'cancelled' | 'timed_out' | null;
+  outcome: 'exited' | 'failed' | 'cancelled' | 'timed_out' | null;
   /** Owned process and descendant cleanup. */
   readonly process: TerminalProcess;
   /** Bounded, redacted transient replay. */
@@ -440,14 +441,20 @@ export class TerminalService {
         break;
       }
       case 'error': {
-        live.reason = 'terminal host failed';
+        if (live.outcome === null) {
+          live.outcome = 'failed';
+          live.reason = 'terminal host failed';
+        }
         void live.process.stop();
         break;
       }
       case 'input':
       case 'resize':
       case 'close': {
-        live.reason = 'terminal protocol failed';
+        if (live.outcome === null) {
+          live.outcome = 'failed';
+          live.reason = 'terminal protocol failed';
+        }
         void live.process.stop();
         break;
       }
@@ -509,6 +516,12 @@ export class TerminalService {
     for (const record of retained) {
       if (this.live.has(record.id.slice('terminal-'.length))) {
         continue;
+      }
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only a registry-owned terminal worktree path before any destructive operation.
+      if (!existsSync(record.directory)) {
+        // eslint-disable-next-line no-await-in-loop -- Retire only this absent owned creation intent; no filesystem tree is deleted.
+        await workspaces.remove(record.directory);
+        return;
       }
       // eslint-disable-next-line no-await-in-loop -- Retire one oldest owned clean tree; never race destructive Git operations.
       const snapshot = await workspaces.snapshot(record.directory);
