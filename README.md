@@ -13,6 +13,8 @@
 
 **Your local team of coding agents. Small deliveries. Independent review. One mission control.**
 
+[Support continued development](SPONSORING.md): sponsorship helps fund subscription access, verification resources, security work and contributor guidance. MALT remains MIT licensed; donations do not buy guaranteed features or a support SLA.
+
 [Get started](#start-natively) · [Wiki](https://github.com/Division4Studios/malt/wiki) · [Discussions](https://github.com/Division4Studios/malt/discussions) · [Contribute](CONTRIBUTING.md) · [Report privately](SECURITY.md) · [Sponsor](https://github.com/sponsors/Division4Studios)
 
 MALT coordinates real subscription-authenticated Codex and Claude Code sessions through an MCP broker and an installable progressive web app. The supervisor schedules bounded work; idle roles need no model process. Each target repository owns its durable `.malt/` memory.

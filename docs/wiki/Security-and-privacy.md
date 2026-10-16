@@ -1,5 +1,7 @@
 # Security and privacy
 
+The [verified GitHub controls](https://github.com/Division4Studios/malt/blob/main/docs/github-controls.md) distinguish enabled scanning and required checks from the temporary solo-maintainer review exception. Both Dependabot auto-dismissal presets are disabled. Existing scan findings remain subject to investigation; configured scanning is not a clean-security certificate. A second trusted maintainer and dedicated private conduct contact are still needed. Sponsorship never changes the private reporting route or security gates.
+
 Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/Division4Studios/malt/security/advisories/new). Do not publish a reproduction with live secrets or attach a `.malt` archive. See the repository Security tab for the current policy.
 
 ```mermaid
