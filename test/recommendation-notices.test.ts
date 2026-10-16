@@ -45,7 +45,6 @@ await test('decision notices target owners and fresh context while retaining ful
     error: null,
     updatedAt: Date.now(),
   });
-  repository.addTask(task);
   const assignment = jobSchema.parse({
     id: randomUUID(),
     role: 'developer-1',
@@ -83,6 +82,18 @@ await test('decision notices target owners and fresh context while retaining ful
     reason: '<script>hostile()</script>',
   });
   recordRecommendationNotices(store, approved);
+  assert.equal(
+    recommendationNotices(store, assignment).length,
+    0,
+    'A not-yet-provisioned ticket has no current assignment owner.',
+  );
+  repository.addTask({ ...task, developer: null });
+  assert.equal(
+    recommendationNotices(store, assignment).length,
+    0,
+    'An unowned task does not deliver to an arbitrary developer.',
+  );
+  repository.editTask(task.id, (current) => ({ ...current, developer: 'developer-1' }));
   const notices = recommendationNotices(store, assignment);
   assert.equal(old.length, 0, 'Previously selected context is not mutated.');
   assert.equal(notices.length, 1);

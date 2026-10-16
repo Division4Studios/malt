@@ -10,6 +10,8 @@ import type { FactoryJob, Recommendation } from './schema.ts';
 
 /** Finite compact context window, independent of complete durable history. */
 const CONTEXT_MAX = 10;
+/** Explicit role notices and retained scope notices may describe the same transition. */
+const SCAN_MAX = CONTEXT_MAX * 2;
 /** Avoid repeating full rationale or proposal text in every assignment. */
 const REASON_MAX = 1000;
 /** Role scope is derived from current owned tasks and explicit retained assignment identities. */
@@ -62,11 +64,11 @@ export function initializeRecommendationNotices(store: Store): void {
  * @returns Bounded current owners and explicit assignment recipients.
  */
 function recipients(store: Store, record: Recommendation): Map<string, Recipient> {
-  const result = new Map<string, Recipient>(
-    ['product-owner', 'team-lead'].map((role) => {
-      return [role, { tasks: new Set<string>(), features: new Set<string>(), shared: true }];
-    }),
-  );
+  const result = new Map<string, Recipient>();
+  for (const role of ['product-owner', 'team-lead']) {
+    result.set(role, { tasks: new Set<string>(), features: new Set<string>(), shared: true });
+  }
+  result.set('*', { tasks: new Set(record.body.affectedAssignments), features: new Set<string>(), shared: false });
   const assignments = JSON.stringify(record.body.affectedAssignments);
   const tasks = selectAll(
     store.db,
@@ -148,13 +150,15 @@ export function recordRecommendationNotices(store: Store, record: Recommendation
       shared: scope.shared,
     };
     run(store.db, 'INSERT INTO factory_recommendation_notices VALUES(?,?,?)', id, role, JSON.stringify(notice));
-    store.event('FACTORY_RECOMMENDATION_NOTICE', null, {
-      id,
-      role,
-      recommendationId: record.id,
-      revision: record.revision,
-      state: record.state,
-    });
+    if (role !== '*') {
+      store.event('FACTORY_RECOMMENDATION_NOTICE', null, {
+        id,
+        role,
+        recommendationId: record.id,
+        revision: record.revision,
+        state: record.state,
+      });
+    }
   }
 }
 
@@ -166,13 +170,29 @@ export function recordRecommendationNotices(store: Store, record: Recommendation
  * @returns At most ten notices; full histories remain durable and running prompts are untouched.
  */
 export function recommendationNotices(store: Store, job: FactoryJob): z.output<typeof noticeSchema>[] {
-  return selectAll(
+  const rows = selectAll(
     store.db,
     rowSchema,
-    "SELECT data FROM factory_recommendation_notices WHERE role=? AND (json_extract(data,'$.shared')=1 OR ? IN (SELECT value FROM json_each(json_extract(data,'$.tasks'))) OR ? IN (SELECT value FROM json_each(json_extract(data,'$.features')))) ORDER BY rowid DESC LIMIT ?",
+    `SELECT n.data FROM factory_recommendation_notices n WHERE
+      (n.role=? AND (json_extract(n.data,'$.shared')=1 OR ? IN (SELECT value FROM json_each(json_extract(n.data,'$.tasks'))) OR ? IN (SELECT value FROM json_each(json_extract(n.data,'$.features')))))
+      OR (n.role='*' AND EXISTS(SELECT 1 FROM factory_tasks t WHERE t.id=?
+        AND (json_extract(t.data,'$.developer')=? OR EXISTS(SELECT 1 FROM factory_jobs j WHERE j.id=? AND j.role=? AND j.state='running' AND json_extract(j.data,'$.taskId')=t.id))
+        AND (t.issue IN (SELECT value FROM json_each(json_extract(n.data,'$.tickets'))) OR t.id IN (SELECT value FROM json_each(json_extract(n.data,'$.tasks'))) OR json_extract(t.data,'$.featureId') IN (SELECT value FROM json_each(json_extract(n.data,'$.tasks'))))))
+      ORDER BY n.rowid DESC LIMIT ?`,
     job.role,
     job.taskId,
     job.featureId,
-    CONTEXT_MAX,
-  ).map((row) => noticeSchema.parse(JSON.parse(row.data)));
+    job.taskId,
+    job.role,
+    job.id,
+    job.role,
+    SCAN_MAX,
+  );
+  const unique = new Map<string, z.output<typeof noticeSchema>>();
+  for (const row of rows) {
+    const notice = noticeSchema.parse(JSON.parse(row.data));
+    const key = JSON.stringify([notice.recommendationId, notice.revision, notice.state]);
+    unique.set(key, { ...notice, role: job.role });
+  }
+  return unique.values().take(CONTEXT_MAX).toArray();
 }
