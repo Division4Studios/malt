@@ -508,14 +508,18 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     return;
   }
   if (
-    ['factory_skill_decide', 'factory_export_maintenance', 'factory_recover', 'factory_recommendation_read'].includes(
-      operation,
-    )
+    [
+      'factory_skill_decide',
+      'factory_export_maintenance',
+      'factory_recover',
+      'factory_reconcile_github',
+      'factory_recommendation_read',
+    ].includes(operation)
   ) {
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, recover objectives or authorize cross-project maintenance.',
+      'Only the human operator may acknowledge recommendation reads, approve skill changes, objective recovery, GitHub reconciliation or cross-project maintenance.',
     );
   }
   const actor = team.store.authenticate(credentials);
