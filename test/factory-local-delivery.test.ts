@@ -407,6 +407,7 @@ await test('local controls create Ready deliveries for import and reject disable
   await assert.rejects(localControl(mesh, github, { action: 'summary' }), { code: 'FACTORY_GATED' });
   const settings = factoryConfigSchema.parse({ ...base, delivery: 'local', remote: 'malt-hub' });
   await prepareDelivery(mesh, settings, false);
+  const delivery = new LocalDelivery(mesh, settings);
   const feature = { action: 'create_issue', requestId: 'checkout', kind: 'feature', title: 'Checkout' };
   const parent = await localControl(mesh, settings, {
     ...feature,
@@ -425,6 +426,33 @@ await test('local controls create Ready deliveries for import and reject disable
     }),
     { code: 'INVALID_INPUT' },
   );
+  await assert.rejects(
+    localControl(mesh, settings, {
+      ...feature,
+      requestId: 'nested',
+      description: 'x',
+      acceptanceCriteria: [],
+      parent: parent.number,
+    }),
+    { code: 'INVALID_INPUT' },
+    'A feature must not have a parent.',
+  );
+  const unknownStatus = {
+    action: 'create_issue',
+    requestId: 'shipping',
+    kind: 'delivery',
+    title: 'x',
+    description: 'x',
+    acceptanceCriteria: ['x'],
+    parent: parent.number,
+    status: 'Shipping',
+  };
+  await assert.rejects(localControl(mesh, settings, unknownStatus), { code: 'INVALID_INPUT' });
+  assert.equal(
+    delivery.tracker.read().requests['shipping'],
+    undefined,
+    'A rejected status must not persist an issue or consume its request ID.',
+  );
   await localControl(mesh, settings, {
     action: 'create_issue',
     requestId: 'select-address',
@@ -435,7 +463,6 @@ await test('local controls create Ready deliveries for import and reject disable
     parent: parent.number,
     status: 'Ready',
   });
-  const delivery = new LocalDelivery(mesh, settings);
   const ready = await delivery.readyIssues();
   assert.equal(ready.length, 1);
   const [imported] = ready;
