@@ -10,7 +10,7 @@ import { FactoryRepository } from '../src/factory/repository.ts';
 import { recommendationBodySchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
 
-import { proposal } from './fixtures/recommendations.ts';
+import { proposal, readObservation } from './fixtures/recommendations.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
 await test('local scope changes stale a decision without inventing a native issue; phase movement is stable', async (t) => {
@@ -59,6 +59,60 @@ await test('local scope changes stale a decision without inventing a native issu
     rationale: 'Reviewed old local scope',
   });
   assert.equal(result.outcome, 'stale');
+  assert.match(repository.recommendations.get(record.id)?.audit.at(-1)?.reason ?? '', /Local objective scope/v);
+  const other = queueObjective(repository, { objective: 'Independently related local work.' }).featureId;
+  const otherScope = objectiveObservation(repository, other);
+  assert.ok(otherScope !== null);
+  const unrelated = repository.recommendations.propose({
+    ...body,
+    observedObjectives: [otherScope],
+    affectedAssignments: [other],
+  });
+  assert.notEqual(unrelated.id, record.id, 'Unrelated local-only scopes cannot supersede one another.');
+  repository.recommendations.transition({
+    id: unrelated.id,
+    revision: unrelated.revision,
+    state: 'proposed',
+    next: 'awaiting_human',
+    reason: 'Independent local submission',
+  });
+  await decideRecommendation(repository, undefined, {
+    operationId: randomUUID(),
+    id: unrelated.id,
+    revision: unrelated.revision,
+    decision: 'approve',
+    rationale: 'Independent local scope.',
+  });
+  const fresh = objectiveObservation(repository, id);
+  assert.ok(fresh !== null);
+  const late = repository.recommendations.propose({
+    ...proposal,
+    observedObjectives: [fresh],
+    affectedAssignments: [id],
+  });
+  repository.recommendations.transition({
+    id: late.id,
+    revision: late.revision,
+    state: 'proposed',
+    next: 'awaiting_human',
+    reason: 'Native and local inspection',
+  });
+  const lateResult = await decideRecommendation(
+    repository,
+    async (number) => {
+      repository.saveFeature({ ...feature, objective: 'Changed while native reads were in progress.' });
+      return await readObservation(number);
+    },
+    {
+      operationId: randomUUID(),
+      id: late.id,
+      revision: late.revision,
+      decision: 'approve',
+      rationale: 'This approval must not be recorded as the stale reason.',
+    },
+  );
+  assert.equal(lateResult.outcome, 'stale');
+  assert.match(repository.recommendations.get(late.id)?.audit.at(-1)?.reason ?? '', /Local objective scope/v);
   assert.equal(repository.effects().length, 0);
   const legacy = repository.recommendations.propose(proposal);
   assert.equal(

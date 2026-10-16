@@ -185,7 +185,11 @@ export class RecommendationLedger {
    */
   public propose(input: RecommendationBody): Recommendation {
     const body = recommendationBodySchema.parse(input);
-    const id = digest([this.project, body.kind, body.tickets]);
+    const identity: unknown[] = [this.project, body.kind, body.tickets];
+    if (body.observedObjectives !== undefined) {
+      identity.push(body.observedObjectives.map((item) => item.id));
+    }
+    const id = digest(identity);
     const revision = digest(body);
     return this.store.transaction(() => {
       const replay = this.get(id, revision);

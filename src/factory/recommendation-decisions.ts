@@ -110,7 +110,8 @@ async function commitDecision(
   if (before.state !== 'awaiting_human' || (readIssue === undefined && before.body.observedIssues.length > 0)) {
     throw new MeshError('FACTORY_GATED', 'An awaiting-human revision and verified issue reader are required.');
   }
-  let isFresh = areObjectivesCurrent(repository, before.body.observedObjectives);
+  const wereObjectivesCurrent = areObjectivesCurrent(repository, before.body.observedObjectives);
+  let areNativeIssuesCurrent = true;
   let index = 0;
   const nativeReader =
     readIssue ??
@@ -123,7 +124,7 @@ async function commitDecision(
     const observed = before.body.observedIssues.at(index);
     index += 1;
     if (issue.number !== observed?.issue || !issue.complete || issue.revision !== observed.revision) {
-      isFresh = false;
+      areNativeIssuesCurrent = false;
       break;
     }
   }
@@ -140,13 +141,20 @@ async function commitDecision(
       );
     }
     const decision = request.decision === 'approve' ? 'approved' : 'rejected';
-    const outcome = isFresh && areObjectivesCurrent(repository, current.body.observedObjectives) ? decision : 'stale';
+    const areLocalObjectivesCurrent =
+      wereObjectivesCurrent && areObjectivesCurrent(repository, current.body.observedObjectives);
+    const isFresh = areNativeIssuesCurrent && areLocalObjectivesCurrent;
+    const outcome = isFresh ? decision : 'stale';
+    const staleReason = areLocalObjectivesCurrent
+      ? 'Native issue evidence changed or is incomplete; refresh the proposal.'
+      : 'Local objective scope changed, disappeared or was superseded; refresh the proposal.';
+    const reason = isFresh ? request.rationale : staleReason;
     repository.recommendations.transition({
       id: request.id,
       revision: request.revision,
       state: 'awaiting_human',
       next: outcome,
-      reason: isFresh ? request.rationale : 'Native issue evidence changed or is incomplete; refresh the proposal.',
+      reason,
     });
     const result: z.output<typeof resultSchema> = {
       operationId: request.operationId,
