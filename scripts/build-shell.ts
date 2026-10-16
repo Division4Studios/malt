@@ -24,6 +24,8 @@ const FILES = [
   'dist/worker-ui.js',
   'dist/learning-ui.js',
   'dist/log-tails.js',
+  'dist/pulls-ui.js',
+  'dist/pulls-controller.js',
   'dist/pwa.js',
   'dist/brand-ui.js',
   'dist/workflow-ui.js',

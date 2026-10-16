@@ -33,6 +33,8 @@ import {
   factoryPolicyDialog,
   githubConnectionDescription,
 } from './organization-ui.js';
+import { PullController } from './pulls-controller.js';
+import { pullsView } from './pulls-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -243,6 +245,9 @@ const actions: Actions = {
   },
 };
 
+/** Local pull-request selection, diffs and ledger controls. */
+const pulls = new PullController({ project: () => state.project, control, editor, render });
+
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
  *
@@ -285,6 +290,8 @@ function render(): void {
     isConnected: state.view === 'activity' ? state.isConnected : null,
     learning: observed.learning,
     github: observed.github,
+    local: observed.local,
+    pull: pulls.selection,
   });
   if (renderKey === state.renderKey) {
     return;
@@ -299,6 +306,7 @@ function render(): void {
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
+    pulls: () => pullsView(observed.local, pulls.selection, pulls.actions, pulls.detail()),
     workers: () => {
       return terminalWorkspace.selected
         ? element('div')
@@ -397,6 +405,7 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  pulls.observe(observed.local);
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
