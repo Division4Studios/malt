@@ -16,16 +16,16 @@ Updated **2026-10-16**. Merged main [187dc5a](https://github.com/Division4Studio
 
 ## Partial or queued
 
-| Feature                                                                                 | Remaining boundary                                                                 |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| [Handoffs #17](https://github.com/Division4Studios/malt/issues/17)                      | Unified report/message feed and meaningful Mission previews                        |
-| [Subscription capacity #21](https://github.com/Division4Studios/malt/issues/21)         | Legacy Claude windows and subscription-first presentation                          |
-| [Parallel capacity #27](https://github.com/Division4Studios/malt/issues/27)             | Complete admission UI and deferred-supervisor overlap fixtures                     |
-| [Model policy #32](https://github.com/Division4Studios/malt/issues/32)                  | Revisioned allowed provider/model/effort combinations, enforcement and editor      |
-| [Project management #50](https://github.com/Division4Studios/malt/issues/50)            | Observed issue corpus, human decision routes/pane, intake/execution/notifications  |
-| [Project connectors #72](https://github.com/Division4Studios/malt/issues/72)            | Discovery, universal capability enforcement, labels/milestones/views and real Jira |
-| [Progress-aware checkpoints #209](https://github.com/Division4Studios/malt/issues/209)  | Coordinated bounded continuation, real progress/quota evidence and human decisions |
-| [Persistent delivery manager #211](https://github.com/Division4Studios/malt/issues/211) | Always-available primary manager session and complete lifecycle supervision        |
+| Feature                                                                                 | Remaining boundary                                                                                                                                                                              |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Handoffs #17](https://github.com/Division4Studios/malt/issues/17)                      | Feed/Mission preview source prepared in [#230](https://github.com/Division4Studios/malt/pull/230) / [#232](https://github.com/Division4Studios/malt/pull/232); review, merge and rollout remain |
+| [Subscription capacity #21](https://github.com/Division4Studios/malt/issues/21)         | Legacy Claude windows and subscription-first presentation                                                                                                                                       |
+| [Parallel capacity #27](https://github.com/Division4Studios/malt/issues/27)             | Complete admission UI and deferred-supervisor overlap fixtures                                                                                                                                  |
+| [Model policy #32](https://github.com/Division4Studios/malt/issues/32)                  | Revisioned allowed provider/model/effort combinations, enforcement and editor                                                                                                                   |
+| [Project management #50](https://github.com/Division4Studios/malt/issues/50)            | Observed issue corpus, human decision routes/pane, intake/execution/notifications                                                                                                               |
+| [Project connectors #72](https://github.com/Division4Studios/malt/issues/72)            | Discovery, universal capability enforcement, labels/milestones/views and real Jira                                                                                                              |
+| [Progress-aware checkpoints #209](https://github.com/Division4Studios/malt/issues/209)  | Coordinated bounded continuation, real progress/quota evidence and human decisions                                                                                                              |
+| [Persistent delivery manager #211](https://github.com/Division4Studios/malt/issues/211) | Always-available primary manager session and complete lifecycle supervision                                                                                                                     |
 
 Managed-session terminal attachment is separate from implemented scratch terminals. Complete provider inference/architecture certification, protected-review live delivery and installed-PWA lifecycle/accessibility audits remain unverified. Regression inference/GitHub use fixtures; native process, Git, loopback and Docker boundaries are real. The browser has zero production npm dependencies.
 
