@@ -5,7 +5,7 @@
  */
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
-  mission: ['overview', 'activity'],
+  mission: ['overview', 'manager', 'activity'],
   workflow: ['workflow', 'team', 'deliveries', 'pulls'],
   workers: ['workers'],
   project: ['setup', 'learning'],
@@ -51,11 +51,12 @@ export function updateNavigation(view: string): void {
 
 /** View routes remain local UI state, not a competing delivery ledger. */
 export type View =
-  'overview' | 'team' | 'workflow' | 'deliveries' | 'pulls' | 'workers' | 'activity' | 'learning' | 'setup';
+  'overview' | 'manager' | 'team' | 'workflow' | 'deliveries' | 'pulls' | 'workers' | 'activity' | 'learning' | 'setup';
 
 /** UI navigation descriptions. */
 export const HEADINGS: Record<View, readonly [string, string]> = {
   overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
+  manager: ['Delivery manager.', 'One persistent session runs the mission with you. Every role reports here.'],
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
   deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],

@@ -31,6 +31,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod/v3';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
+import { MANAGER_OPERATIONS } from './factory/manager-launch.ts';
 import { log } from './log.ts';
 import {
   MeshError,
@@ -563,9 +564,13 @@ function registerTools(server: McpServer, runtime: BridgeRuntime, allowed?: Read
  * Expose only the tools a bounded managed assignment needs, reducing context and authority.
  *
  * @param name - Factory-owned logical role identity.
+ * @param isManager - Whether this is the persistent delivery manager.
  * @returns Read/communication tools, plus research writes only for the learning steward.
  */
-function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
+function managedTools(name: string | undefined, isManager: boolean): ReadonlySet<ToolOperation> {
+  if (isManager) {
+    return new Set<ToolOperation>(MANAGER_OPERATIONS);
+  }
   const tools = new Set<ToolOperation>([
     'whoami',
     'get_messages',
@@ -618,6 +623,22 @@ function registerPrompts(server: McpServer): void {
 }
 
 /**
+ * Server instructions for the bridge's runtime.
+ *
+ * @param options - Bridge runtime label.
+ * @returns Instructions shown to the model host.
+ */
+function bridgeInstructions(options: BridgeOptions): string {
+  const byRuntime: Readonly<Record<string, string>> = {
+    'factory-manager':
+      'You are the persistent delivery manager. Use only the supplied tools: read mesh_factory_brief first, steer through requests, instructions, focus, retries and local issues, and ask the operator with mesh_factory_ask when a human decision is needed. The unpaid supervisor runs all work; never bypass a gate.',
+    'factory-managed':
+      'This is one bounded managed factory assignment. You are already joined. Use only the supplied scoped tools, return your structured handoff and exit. The unpaid supervisor owns continuation and process scheduling. Do not wait, spawn agents, mutate delivery gates or activate skills.',
+  };
+  return byRuntime[options.runtime ?? ''] ?? SERVER_INSTRUCTIONS;
+}
+
+/**
  * Start the bridge: expose tools and prompts, and serve MCP over stdio until
  * the host disconnects.
  *
@@ -631,19 +652,18 @@ function registerPrompts(server: McpServer): void {
  * @throws {MeshError} When a named registration fails (for example AGENT_ACTIVE).
  */
 export async function startMcp(config: MeshConfig, options: BridgeOptions): Promise<Bridge> {
-  const isManaged = options.runtime === 'factory-managed';
+  const isManager = options.runtime === 'factory-manager';
+  const isManaged = options.runtime === 'factory-managed' || isManager;
   if (isManaged && options.name === undefined) {
     throw new MeshError('INVALID_INPUT', 'Managed assignments require an owned named identity.');
   }
-  const instructions = isManaged
-    ? 'This is one bounded managed factory assignment. You are already joined. Use only the supplied scoped tools, return your structured handoff and exit. The unpaid supervisor owns continuation and process scheduling. Do not wait, spawn agents, mutate delivery gates or activate skills.'
-    : SERVER_INSTRUCTIONS;
+  const instructions = bridgeInstructions(options);
   const server = new McpServer({ name: 'agentmesh', version: '0.1.0' }, { instructions });
   const runtime = new BridgeRuntime(config, options, server);
   if (options.name !== undefined) {
     await runtime.startNamed();
   }
-  registerTools(server, runtime, isManaged ? managedTools(options.name) : undefined);
+  registerTools(server, runtime, isManaged ? managedTools(options.name, isManager) : undefined);
   if (!isManaged) {
     registerPrompts(server);
   }

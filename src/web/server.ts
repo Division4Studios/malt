@@ -22,6 +22,8 @@ import type { MeshConfig } from '../config.ts';
 import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+/** Largest manager conversation page served to the console. */
+const MANAGER_PAGE_MAX = 500;
 /** Static assets are explicit, preventing arbitrary path traversal. */
 const ASSETS = new Map<string, readonly [string, string]>([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -34,6 +36,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/log-tails.js', ['dist/log-tails.js', 'text/javascript; charset=utf-8']],
   ['/pulls-ui.js', ['dist/pulls-ui.js', 'text/javascript; charset=utf-8']],
   ['/pulls-controller.js', ['dist/pulls-controller.js', 'text/javascript; charset=utf-8']],
+  ['/manager-ui.js', ['dist/manager-ui.js', 'text/javascript; charset=utf-8']],
+  ['/manager-controller.js', ['dist/manager-controller.js', 'text/javascript; charset=utf-8']],
   ['/pwa.js', ['dist/pwa.js', 'text/javascript; charset=utf-8']],
   ['/brand-ui.js', ['dist/brand-ui.js', 'text/javascript; charset=utf-8']],
   ['/workflow-ui.js', ['dist/workflow-ui.js', 'text/javascript; charset=utf-8']],
@@ -469,6 +473,20 @@ function inspection(url: URL, gateway: ProjectGateway, project: string): Promise
     case '/api/history': {
       const query = historyQuery(url);
       return gateway.history(query.project, query.before, query.limit);
+    }
+    case '/api/manager-history': {
+      const after = z.coerce
+        .number()
+        .int()
+        .nonnegative()
+        .parse(url.searchParams.get('after') ?? '0');
+      const limit = z.coerce
+        .number()
+        .int()
+        .positive()
+        .max(MANAGER_PAGE_MAX)
+        .parse(url.searchParams.get('limit') ?? '200');
+      return gateway.managerHistory(project, after, limit);
     }
     case '/api/local-pull': {
       const number = z.coerce.number().int().positive().parse(url.searchParams.get('number'));
