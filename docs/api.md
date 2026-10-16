@@ -254,6 +254,10 @@ Columns are 1–500; rows are 1–200. Arbitrary executables, arguments, environ
 
 The paired browser uses `GET /api/terminals?project=home` and `POST /api/control` with `terminal_start` or `terminal_close`. `GET /api/terminal-stream?project=home&id=<uuid>&after=0` emits SSE `terminal` events and heartbeat comments. `Last-Event-ID` overrides `after` on reconnect. Duplicate query parameters and invalid cursors are rejected. There are eight console terminal subscribers globally, at most two per selected terminal, a five-second drain timeout and a two-minute connection lifetime. Authorization is rechecked before and after every broker poll. Finished sessions drain their remaining replay and end; disconnected clients cancel their pending broker read. No terminal content is cached by the service worker.
 
+### Replay envelope
+
+Replay pages also cap the number of entries at 128, independently of their 64 KiB text ceiling. A stream emitting individual bytes cannot inflate JSON metadata beyond the SSE frame limit. Continue from `nextCursor` to drain later pages without dropping entries.
+
 ## Operator terminal input and resize
 
 Paired browsers use `POST /api/control` with `operation: "terminal_input"` and `input: {id, text}`, or `operation: "terminal_resize"` and `input: {id, columns, rows}`. Both return metadata and numeric counters only. The corresponding broker operations retain the project-token-only authority described above.

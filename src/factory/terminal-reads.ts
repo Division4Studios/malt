@@ -12,6 +12,8 @@ import type { TerminalSessions } from './terminal-sessions.ts';
 
 /** Raw content ceiling per page. */
 const PAGE_BYTES = 65_536;
+/** Per-entry JSON metadata must also obey the bounded SSE envelope. */
+const PAGE_ENTRIES = 128;
 /** Small bounded finished-output reconnect window. */
 const RETAINED = 3;
 /** Simultaneous polls per session. */
@@ -163,7 +165,7 @@ export class TerminalReads {
     const chunks = buffer === undefined ? [] : buffer.readAfter(after);
     for (const chunk of chunks) {
       const size = chunk.type === 'data' ? Buffer.byteLength(chunk.text) : 0;
-      if (bytes + size > PAGE_BYTES) {
+      if (output.length >= PAGE_ENTRIES || bytes + size > PAGE_BYTES) {
         break;
       }
       output.push(chunk);
