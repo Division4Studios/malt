@@ -127,6 +127,9 @@ const ID_MAX = 100;
 /** Maximum length of provider/runtime/role labels. */
 const LABEL_MAX = 64;
 
+/** Longest connector capability name accepted before store validation. */
+const CAPABILITY_NAME_MAX = 64;
+
 /** Maximum length of a workspace path or file URI. */
 const WORKSPACE_MAX = 4096;
 
@@ -412,6 +415,11 @@ export const schemas = {
       parent: z.number().int().positive().optional(),
     })
     .strict(),
+  capability_policy_status: z.object({}).strict(),
+  // The policy store validates capability names, modes and roles.
+  capability_policy_set: z
+    .object({ capability: z.string().min(1).max(CAPABILITY_NAME_MAX), policy: z.unknown() })
+    .strict(),
   github_set_status: z
     .object({
       issue: z.number().int().positive(),
@@ -513,6 +521,25 @@ export const GITHUB_OPERATIONS = [
 
 /** An asynchronous project-scoped GitHub operation. */
 export type GitHubOperation = (typeof GITHUB_OPERATIONS)[number];
+
+/** Connector capability policy controls; never exported as agent tools. */
+export const CAPABILITY_OPERATIONS = [
+  'capability_policy_status',
+  'capability_policy_set',
+] as const satisfies readonly Operation[];
+
+/** A connector capability policy read or human edit. */
+export type CapabilityOperation = (typeof CAPABILITY_OPERATIONS)[number];
+
+/**
+ * Identify connector capability policy controls.
+ *
+ * @param operation - Validated wire operation.
+ * @returns Whether the broker routes it to the policy store.
+ */
+export function isCapabilityOperation(operation: Operation): operation is CapabilityOperation {
+  return (CAPABILITY_OPERATIONS as readonly Operation[]).includes(operation);
+}
 
 /** Project-local learning operations, independently usable without a board. */
 export const LEARNING_OPERATIONS = [

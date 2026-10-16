@@ -31,7 +31,13 @@ import { teamAccessSchema } from './teams.ts';
 import type { MeshConfig } from './config.ts';
 import type { AgentRow } from './database.ts';
 import type { FactoryOperation } from './factory/schema.ts';
-import type { GitHubOperation, LearningOperation, Operation, OperationRawInput } from './protocol.ts';
+import type {
+  CapabilityOperation,
+  GitHubOperation,
+  LearningOperation,
+  Operation,
+  OperationRawInput,
+} from './protocol.ts';
 import type { Credentials, StoreOperation, StoreResults } from './store.ts';
 import type { WaitResult } from './waiters.ts';
 
@@ -48,7 +54,8 @@ const WAIT_NETWORK_GRACE_MS = 5000;
 export type ClientOperation = StoreOperation | GitHubOperation | LearningOperation | FactoryOperation | 'wait_for_work';
 
 /** The result type of every operation an agent session can call. */
-export interface ClientResults extends StoreResults, Record<LearningOperation | FactoryOperation, unknown> {
+export interface ClientResults
+  extends StoreResults, Record<LearningOperation | FactoryOperation | CapabilityOperation, unknown> {
   /** This project's non-secret GitHub connection and pending operations. */
   readonly github_status: unknown;
   /** Verified GitHub Project connection. */
