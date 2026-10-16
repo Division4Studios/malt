@@ -288,7 +288,9 @@ export class TerminalInput {
     try {
       this.enqueue(terminalPaste(text, this.options.screen.isBracketedPaste));
     } catch {
-      this.options.warn('Paste exceeds the 16 KiB native input limit. Split it into smaller explicit pastes.');
+      this.options.warn(
+        'Paste exceeds the raw clipboard or 16 KiB native input limit. Split it into smaller explicit pastes.',
+      );
     }
   }
 
