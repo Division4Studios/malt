@@ -35,6 +35,7 @@ const FILES = [
   'dist/console-clock.js',
   'dist/capacity-details.js',
   'dist/capacity-view.js',
+  'dist/admission-ui.js',
   'dist/terminal-parser.js',
   'dist/terminal-style.js',
   'dist/terminal-grid.js',
