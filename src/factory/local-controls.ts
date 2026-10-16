@@ -176,14 +176,21 @@ export function deliveryFor(mesh: MeshConfig, settings: FactoryConfig, github: P
 }
 
 /**
- * Create and protect the local hub before policy is saved.
+ * Validate cross-field delivery policy, then create and protect the local hub before it is saved.
  *
  * @param mesh - Target project.
  * @param input - Policy being applied.
  * @param isInjected - Tests supplied their own delivery boundary.
+ * @throws {MeshError} When cloud routing lacks an environment.
  */
 export async function prepareDelivery(mesh: MeshConfig, input: unknown, isInjected: boolean): Promise<void> {
   const settings = factoryConfigSchema.parse(input);
+  if (settings.cloud.developers !== 'off' && settings.cloud.environment === undefined) {
+    throw new MeshError(
+      'INVALID_INPUT',
+      'Cloud developer routing needs cloud.environment, a Codex Cloud environment ID.',
+    );
+  }
   if (isInjected || settings.delivery !== 'local') {
     return;
   }

@@ -11,6 +11,7 @@ import { writeAtomic } from '../summary.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { providerPreflight } from './authentication.ts';
+import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -37,7 +38,6 @@ import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
-import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
 import { recoverObjective, retryBlocked } from './recovery.ts';
@@ -204,7 +204,7 @@ export class FactoryService {
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
-      agent: this.options.agent ?? (async (request) => runAgent(request, processes)),
+      agent: this.options.agent ?? defaultAgent(processes),
     };
     return this.context;
   }

@@ -7,6 +7,7 @@
 
 import { z } from 'zod/v3';
 
+import { cloudPolicySchema } from './cloud-schema.ts';
 import { localControlSchema } from './local-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
@@ -44,7 +45,7 @@ export const FACTORY_ROLES = [
   'learning-steward',
 ] as const;
 /** Provider CLI families supported by the managed runtime. */
-export const PROVIDERS = ['codex', 'claude'] as const;
+export const PROVIDERS = ['codex', 'claude', 'copilot'] as const;
 /** Longest descriptive task text. */
 const TEXT_MAX = 32_000;
 /** Longest public title. */
@@ -243,8 +244,13 @@ export const factoryConfigSchema = z
       .object({
         codex: providerSchema.default({ executable: 'codex' }),
         claude: providerSchema.default({ executable: 'claude' }),
+        copilot: providerSchema.default({ executable: 'copilot', enabled: false }),
       })
-      .default({ codex: { executable: 'codex' }, claude: { executable: 'claude' } }),
+      .default({
+        codex: { executable: 'codex' },
+        claude: { executable: 'claude' },
+        copilot: { executable: 'copilot', enabled: false },
+      }),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
     maxFiles: z.number().int().positive().default(MAX_FILES),
     maxDiffLines: z.number().int().positive().default(MAX_LINES),
@@ -269,6 +275,8 @@ export const factoryConfigSchema = z
       })
       .default({}),
     terminals: terminalPolicySchema.default({}),
+    /** Developer assignments routed to Codex Cloud on the operator's subscription. */
+    cloud: cloudPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
