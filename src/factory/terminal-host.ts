@@ -8,6 +8,7 @@ import { encodeFrame, FrameDecoder, MAX_FRAME_BODY } from './terminal-frames.ts'
 import { stopTerminalGroup } from './terminal-groups.ts';
 import { isTerminalInputName } from './terminal-input.ts';
 import { terminalArguments, terminalEnvironment, terminalLaunchSchema } from './terminal-launch.ts';
+import { observeTerminalPid } from './terminal-ready.ts';
 
 import type { Frame } from './terminal-frames.ts';
 import type { TerminalLaunch } from './terminal-launch.ts';
@@ -114,18 +115,8 @@ async function main(): Promise<void> {
     failStartup('unsupported_platform', 'Native terminal could not start.');
     return;
   }
-  // ConPTY connects asynchronously: its public PID is zero until the socket is ready.
-  let isAnnounced = false;
-  const announce = (): void => {
-    if (isAnnounced || terminal.pid <= 0) {
-      return;
-    }
-
-    isAnnounced = true;
-    send({ type: 'started', pid: terminal.pid });
-  };
-  announce();
   const input = pipe === undefined ? process.stdin : createConnection(pipe);
+  const startup: { cancel?: () => void } = {};
   let isEnded = false;
   const decoder = new FrameDecoder();
   let isClosing = false;
@@ -134,6 +125,7 @@ async function main(): Promise<void> {
       return;
     }
     isClosing = true;
+    startup.cancel?.();
     if (process.platform === 'win32') {
       terminal.kill();
     } else {
@@ -145,11 +137,22 @@ async function main(): Promise<void> {
     send({ type: 'error', code: 'protocol_error', message: 'Terminal channel rejected a frame.' });
     close();
   };
+  const readiness = observeTerminalPid(
+    () => terminal.pid,
+    (pid) => {
+      send({ type: 'started', pid });
+    },
+    () => {
+      failStartup('startup_timeout', 'Native terminal PID did not become ready.');
+      close();
+    },
+  );
+  startup.cancel = readiness.cancel;
   terminal.onData((text) => {
     if (isEnded) {
       return;
     }
-    announce();
+    readiness.check();
     const bytes = Buffer.from(text);
     if (bytes.length > MAX_FRAME_BODY) {
       fail();
@@ -162,6 +165,7 @@ async function main(): Promise<void> {
       return;
     }
     isEnded = true;
+    readiness.cancel();
     send({ type: 'exit', code: event.exitCode, signal: event.signal === undefined ? null : String(event.signal) });
     if (process.platform === 'win32') {
       terminal.kill();
