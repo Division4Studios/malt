@@ -447,6 +447,10 @@ async function api(
         json(response, HTTP.ok, await gateway.snapshot(project));
         return;
       }
+      case '/api/terminals': {
+        json(response, HTTP.ok, await gateway.terminals(project));
+        return;
+      }
       case '/api/skill': {
         json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
         return;

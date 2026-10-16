@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-import { z } from 'zod/v3';
 
 import { log } from '../log.ts';
 import { MeshError } from '../protocol.ts';
@@ -12,10 +11,10 @@ import { providerPreflight } from './authentication.ts';
 import { resourceBlocker, resourceProbe } from './resources.ts';
 import { providerBlockers } from './scheduler.ts';
 import { TerminalBuffer } from './terminal-buffer.ts';
-import { MAX_COLUMNS, MAX_ROWS, MIN_COLUMNS, MIN_ROWS } from './terminal-frames.ts';
 import { terminalLaunchSchema, terminalMcpServers } from './terminal-launch.ts';
 import { TerminalLifetime, terminalClock } from './terminal-lifetime.ts';
 import { startTerminalProcess } from './terminal-process.ts';
+import { terminalSchemas, terminalStartSchema } from './terminal-schema.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -26,20 +25,14 @@ import type { FactoryConfig, Provider } from './schema.ts';
 import type { Frame } from './terminal-frames.ts';
 import type { TerminalClock, TerminalTimeout } from './terminal-lifetime.ts';
 import type { TerminalProcess } from './terminal-process.ts';
+import type { TerminalOperation } from './terminal-schema.ts';
 import type { TerminalSession } from './terminal-sessions.ts';
+import type { z } from 'zod/v3';
 
 /** Output content is transient and byte-bounded, not persisted. */
 const OUTPUT_BYTES = 262_144;
 /** Keep edited scratch work available for inspection without unbounded worktree growth. */
 const RETAINED_TREES = 3;
-/** Only these inputs are accepted from an authorized operator. */
-export const terminalStartSchema = z
-  .object({
-    provider: z.enum(['codex', 'claude']),
-    columns: z.number().int().min(MIN_COLUMNS).max(MAX_COLUMNS),
-    rows: z.number().int().min(MIN_ROWS).max(MAX_ROWS),
-  })
-  .strict();
 /** Injectable native boundaries; fixtures never invoke paid providers. */
 export interface TerminalOptions {
   /** Unpaid MCP name inspection; substitute explicitly in fixture tests. */
@@ -134,6 +127,24 @@ export class TerminalService {
    */
   public get size(): number {
     return this.live.size + this.preparing.size;
+  }
+
+  /**
+   * Dispatch a validated, lease-authorized operator request.
+   *
+   * @param operation - Authenticated HTTP-only operation name.
+   * @param input - Untrusted wire input.
+   * @returns Persisted session metadata.
+   */
+  public async control(operation: TerminalOperation, input: unknown): Promise<unknown> {
+    if (operation === 'terminal_start') {
+      return this.start(terminalSchemas.terminal_start.parse(input));
+    }
+    if (operation === 'terminal_close') {
+      return this.close(terminalSchemas.terminal_close.parse(input).id);
+    }
+    terminalSchemas.terminal_list.parse(input);
+    return this.repository.terminals.list();
   }
 
   /**

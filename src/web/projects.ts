@@ -12,6 +12,7 @@ import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
+import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
 import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -22,6 +23,8 @@ import type { Operation } from '../protocol.ts';
 const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), workspace: z.string().nullable() }));
 /** Server-generated triage records; never browser authority. */
 const triageRecordSchema = z.record(z.unknown());
+/** Bounded terminal metadata history. */
+const TERMINAL_HISTORY = 100;
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   orderRevision: z.number().int().nonnegative(),
@@ -57,6 +60,8 @@ export const controlSchema = z
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',
+      'terminal_start',
+      'terminal_close',
     ]),
     input: z.unknown(),
   })
@@ -189,6 +194,19 @@ export class ProjectGateway {
   }
 
   /**
+   * Inspect metadata only; viewing a project never creates a terminal.
+   *
+   * @param id - Explicitly selected operator scope.
+   * @returns Bounded metadata with no credentials or terminal content.
+   */
+  public async terminals(id: string): Promise<unknown> {
+    return z
+      .array(terminalSessionSchema)
+      .max(TERMINAL_HISTORY)
+      .parse(await rpc(this.config(id), 'terminal_list', {}));
+  }
+
+  /**
    * Apply an operator control through the exact broker/MCP invariant path.
    *
    * @param id - Explicit project selection.
@@ -198,6 +216,9 @@ export class ProjectGateway {
   public async control(id: string, input: unknown): Promise<unknown> {
     const control = controlSchema.parse(input);
     const result = await rpc(this.config(id), control.operation satisfies Operation, control.input);
+    if (control.operation === 'terminal_start' || control.operation === 'terminal_close') {
+      return terminalSessionSchema.parse(result);
+    }
     const status = z.object({ jobs: z.array(z.unknown()) }).safeParse(result);
     return status.success ? factoryViewSchema.parse(result) : result;
   }
