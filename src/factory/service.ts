@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
+import { decideApproval } from './approvals.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -30,6 +31,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
+import { attemptRecord } from './job-records.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
@@ -49,7 +51,6 @@ import {
   resourceProbe,
   hasCriticalMemoryPressure,
 } from './resources.ts';
-import { routeAssignment } from './routing.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
@@ -60,7 +61,7 @@ import { factoryStatus } from './status.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
-import { workflowLibrary } from './workflows.ts';
+import { chooseDefaultWorkflow, saveWorkflow } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -377,11 +378,9 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
-      factory_workflow_save: () => workflowLibrary(this.repository.store).save(parsed),
-      factory_workflow_default: async () => {
-        workflowLibrary(this.repository.store).setDefault(parsed);
-        return this.status();
-      },
+      factory_workflow_save: () => saveWorkflow(this.repository, input),
+      factory_workflow_default: () => chooseDefaultWorkflow(this.repository, input),
+      factory_approve: () => decideApproval(this.repository, input),
     };
     return await handlers[operation]();
   }
@@ -523,34 +522,12 @@ export class FactoryService {
       return;
     }
     const context = this.configured();
-    const provider = admittedProvider(context, this.sampler.latest, LOCAL_JOBS);
+    const provider = admittedProvider(context, this.sampler.latest, LOCAL_JOBS, intent.preferredProvider);
     if (provider === null) {
       return;
     }
-    const id = randomUUID();
-    const now = this.repository.store.now();
-    const job: FactoryJob = {
-      ...intent,
-      target: intent.target ?? null,
-      id,
-      provider,
-      routing: routeAssignment({
-        intent,
-        provider,
-        settings: context.settings,
-        task: intent.taskId === null ? null : this.repository.task(intent.taskId),
-      }),
-      token: randomUUID(),
-      state: 'running',
-      startedAt: now,
-      finishedAt: null,
-      expiresAt: now + LEASE_MS,
-      reservation: context.settings.providers[provider].reservationTokens,
-      usageTokens: null,
-      pid: null,
-      summary: null,
-      artifact: path.join(this.mesh.directory, 'factory', 'jobs', id),
-    };
+    const job = attemptRecord(context, intent, provider);
+    const { id } = job;
     if (!this.repository.claim(job, context.settings)) {
       return;
     }

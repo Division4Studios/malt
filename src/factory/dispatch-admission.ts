@@ -18,25 +18,30 @@ import type { Provider } from './schema.ts';
  * @param context - Selected project's durable policy/accounting.
  * @param sample - Latest local resource measurement.
  * @param pool - Shared broker-wide owned pipelines.
+ * @param preferred - Provider family the step prefers, if any.
  * @returns Currently admissible provider, or null while capacity is unavailable.
  */
 export function admittedProvider(
   context: FactoryContext,
   sample: ResourceSnapshot,
   pool: AdmissionPool,
+  preferred: Provider | null = null,
 ): Provider | null {
   const config = pool.policy(context.settings);
   if (resourceBlocker(config, sample, pool.size) !== null) {
     return null;
   }
   const now = context.repository.store.now();
-  return chooseProvider({
-    config,
-    capacities: pool.capacities(
-      PROVIDERS.map((name) => context.repository.capacity(name, context.settings)),
+  return chooseProvider(
+    {
+      config,
+      capacities: pool.capacities(
+        PROVIDERS.map((name) => context.repository.capacity(name, context.settings)),
+        now,
+      ),
+      jobs: pool.jobs(),
       now,
-    ),
-    jobs: pool.jobs(),
-    now,
-  });
+    },
+    preferred,
+  );
 }

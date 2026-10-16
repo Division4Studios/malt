@@ -92,9 +92,26 @@ function canUseSmallModel(intent: JobIntent, task: FactoryTask | null): boolean 
 }
 
 /**
+ * The organization type that shapes an assignment: the workflow step's profile
+ * when the project defines it, otherwise the seat's own type.
+ *
+ * @param settings - Project organization.
+ * @param seatType - Type configured for the seat.
+ * @param stepProfile - Profile named by the workflow step, if any.
+ * @returns Type name, or `undefined` when the seat has no member.
+ */
+function profileType(
+  settings: FactoryConfig,
+  seatType: string | undefined,
+  stepProfile: string | null,
+): string | undefined {
+  return stepProfile !== null && settings.organization.types[stepProfile] !== undefined ? stepProfile : seatType;
+}
+
+/**
  * Resolve configured native model names and selected skills without inference.
  *
- * @param context - Scoped intent, provider, configuration and durable task.
+ * @param context - Scoped intent, provider, configuration, durable task and the workflow step's profile override.
  * @returns Durable decision passed unchanged to both provider adapters.
  */
 export function routeAssignment(context: {
@@ -102,10 +119,12 @@ export function routeAssignment(context: {
   provider: Provider;
   settings: FactoryConfig;
   task: FactoryTask | null;
+  profile?: string | null;
 }): NonNullable<FactoryJob['routing']> {
   const decision = taskTier(context.intent, context.task);
   const member = context.settings.organization.members[context.intent.role];
-  const profile = member === undefined ? undefined : context.settings.organization.types[member.type];
+  const typeName = profileType(context.settings, member?.type, context.profile ?? null);
+  const profile = typeName === undefined ? undefined : context.settings.organization.types[typeName];
   const tiers = ['small', 'standard', 'advanced'] as const;
   const floor = profile?.minimumTier ?? 'small';
   const tier = tiers.indexOf(floor) > tiers.indexOf(decision.tier) ? floor : decision.tier;
@@ -127,10 +146,11 @@ export function routeAssignment(context: {
       ]),
     ],
     ...(member !== undefined &&
+      typeName !== undefined &&
       profile !== undefined && {
         organization: {
           revision: organizationRevision(context.settings.organization),
-          type: member.type,
+          type: typeName,
           label: profile.label,
           instructions: profile.instructions,
           reportsTo: member.reportsTo,
