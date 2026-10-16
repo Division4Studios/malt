@@ -372,10 +372,10 @@ await test('a preferred provider waits while busy and falls back only when disab
   assert.equal(chooseProvider({ config: disabled, capacities, jobs: [], now }, 'claude'), 'codex');
 });
 
-await test('only runnable workflows are offered until plan review steps are supported', () => {
-  assert.deepEqual(unsupportedSteps(builtin('malt-assured')), []);
-  assert.deepEqual(unsupportedSteps(builtin('direct')), []);
-  assert.ok(unsupportedSteps(builtin('full-assurance')).length > 0);
+await test('every built-in workflow uses only steps the supervisor can run', () => {
+  for (const workflow of builtinWorkflows()) {
+    assert.deepEqual(unsupportedSteps(workflow), [], workflow.id);
+  }
 });
 
 /**

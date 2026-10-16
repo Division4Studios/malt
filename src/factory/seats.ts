@@ -33,6 +33,7 @@ export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
 export const JOB_KINDS = [
   'plan',
   'refine',
+  'plan_review',
   'develop',
   'review',
   'adjudicate',
@@ -57,6 +58,7 @@ export const JOB_PHASE = {
   verify: 'verifying',
   plan: '',
   refine: '',
+  plan_review: '',
   learn: '',
   skill: '',
   triage: '',
@@ -65,6 +67,7 @@ export const JOB_PHASE = {
 export const STAGE_SKILLS = {
   plan: 'factory-product',
   refine: 'factory-product',
+  plan_review: 'factory-review',
   develop: 'factory-development',
   review: 'factory-review',
   adjudicate: 'factory-development',
@@ -76,3 +79,15 @@ export const STAGE_SKILLS = {
   skill: 'factory-learning',
   triage: 'factory-product',
 } as const satisfies Record<(typeof JOB_KINDS)[number], string>;
+/** Assignments that plan an objective rather than deliver code. */
+export const PLANNING_JOB_KINDS: ReadonlySet<string> = new Set(['plan', 'refine', 'plan_review']);
+
+/**
+ * Whether an assignment kind plans an objective.
+ *
+ * @param kind - Assignment kind.
+ * @returns True for specification, planning and plan review.
+ */
+export function isPlanningKind(kind: (typeof JOB_KINDS)[number]): kind is 'plan' | 'refine' | 'plan_review' {
+  return PLANNING_JOB_KINDS.has(kind);
+}

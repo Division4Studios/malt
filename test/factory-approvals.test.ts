@@ -171,10 +171,6 @@ await test('objectives freeze the chosen workflow; planning-free workflows provi
   assert.equal(assured.workflow?.id, 'malt-assured');
 
   assert.throws(
-    () => queueObjective(repository, { objective: 'Needs a plan reviewer', workflowId: 'full-assurance' }),
-    (error: unknown) => error instanceof MeshError && error.code === 'FACTORY_GATED',
-  );
-  assert.throws(
     () => queueObjective(repository, { objective: 'Unknown', workflowId: 'missing' }),
     (error: unknown) => error instanceof MeshError && error.code === 'NOT_FOUND',
   );

@@ -556,3 +556,19 @@ export const stepResultSchema = z
   .strict();
 /** One recorded fix-stage result. */
 export type StepResult = z.output<typeof stepResultSchema>;
+/** A planning review or revision result, bound to the plan it judged or produced. */
+export const planningResultSchema = z
+  .object({
+    stepId: keySchema,
+    kind: z.enum(['plan_review', 'plan_revise']),
+    role: z.enum(FACTORY_ROLES),
+    jobId: z.string().uuid(),
+    outcome: z.enum(['success', 'changes_requested']),
+    summary: z.string(),
+    findings: z.array(z.string()).default([]),
+    dispositions: dispositionsSchema.default([]),
+    at: z.number(),
+  })
+  .strict();
+/** One recorded planning result. */
+export type PlanningResult = z.output<typeof planningResultSchema>;

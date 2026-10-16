@@ -16,9 +16,10 @@ import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
 import { automaticWorkflow } from './objectives.ts';
 import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
+import { completePlanning } from './planning-stage.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
-import { CODE_JOB_KINDS, JOB_PHASE } from './seats.ts';
+import { CODE_JOB_KINDS, JOB_PHASE, isPlanningKind } from './seats.ts';
 import { completeTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
@@ -169,8 +170,8 @@ async function applyOutcome(
     completeTriage(context.repository, record, result);
     return;
   }
-  if (record.kind === 'plan' || record.kind === 'refine') {
-    completePlan(context, record, result);
+  if (isPlanningKind(record.kind)) {
+    completePlanning(context, record, result);
     return;
   }
   if (record.kind === 'learn') {
@@ -238,44 +239,6 @@ async function applyDelivery(
       break;
     }
   }
-}
-
-/**
- * Save product-owner refinement or the independent lead's atomic plan.
- *
- * @param context - Project ledger.
- * @param job - Product or lead role.
- * @param result - Reviewed plan or precise scope blocker.
- * @throws {Error} For invalid project state or failed execution.
- */
-function completePlan(context: FactoryContext, job: FactoryJob, result: AgentResult): void {
-  const record = job;
-  const feature = context.repository.features().find((candidate) => candidate.id === record.featureId);
-  if (feature === undefined) {
-    throw new MeshError('NOT_FOUND', 'The product request no longer exists.');
-  }
-  if (feature.scopeReplacement !== undefined) {
-    return;
-  }
-  if (result.outcome !== 'success') {
-    context.repository.saveFeature({
-      ...feature,
-      phase: 'blocked',
-      error: [result.summary, ...result.findings].join('\n'),
-      updatedAt: context.repository.store.now(),
-    });
-    context.repository.notify(`Product owner / lead clarification required: ${result.summary}`);
-    return;
-  }
-  validatePlan(result);
-  context.repository.saveFeature({
-    ...feature,
-    phase: record.kind === 'plan' ? 'refining' : 'provisioning',
-    productPlan: record.kind === 'plan' ? result : feature.productPlan,
-    plan: record.kind === 'refine' ? result : feature.plan,
-    error: null,
-    updatedAt: context.repository.store.now(),
-  });
 }
 
 /**

@@ -20,6 +20,7 @@ import {
   frozenWorkflowSchema,
   saveWorkflowRequestSchema,
   stepResultSchema,
+  planningResultSchema,
   dispositionsSchema,
 } from './workflow-schema.ts';
 
@@ -322,6 +323,9 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** When the plan step last produced a plan; plan reviews must postdate it. */
+  planAt: z.number().nullable().optional(),
+  planningResults: z.array(planningResultSchema).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;

@@ -16,12 +16,14 @@
 import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.ts';
 
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
-import type { Disposition, StepKind, StepResult, Workflow, WorkflowStep } from './workflows.ts';
+import type { Disposition, PlanningResult, StepKind, StepResult, Workflow, WorkflowStep } from './workflows.ts';
 
 /** Step kinds the supervisor can run today. */
 const RUNNABLE_KINDS: ReadonlySet<StepKind> = new Set([
   'specify',
   'plan',
+  'plan_review',
+  'plan_revise',
   'implement',
   'review',
   'adjudicate',
@@ -498,13 +500,74 @@ export function isStepRunning(
 export function planningStep(
   feature: Feature,
   workflow: Workflow,
-): { step: WorkflowStep; kind: 'plan' | 'refine' } | null {
+): { step: WorkflowStep; kind: 'plan' | 'refine' | 'plan_review' } | null {
   const specify = workflow.planning.find((step) => step.kind === 'specify');
   if (specify !== undefined && feature.productPlan === null) {
     return { step: specify, kind: 'plan' };
   }
   const plan = workflow.planning.find((step) => step.kind === 'plan');
-  return plan === undefined || feature.plan !== null ? null : { step: plan, kind: 'refine' };
+  if (plan === undefined) {
+    return null;
+  }
+  if (feature.plan === null) {
+    return { step: plan, kind: 'refine' };
+  }
+  const review = workflow.planning.find(
+    (step) => step.kind === 'plan_review' && planReview(feature, step) === undefined,
+  );
+  if (review !== undefined) {
+    return { step: review, kind: 'plan_review' };
+  }
+  const revise = workflow.planning.find((step) => step.kind === 'plan_revise');
+  return revise === undefined || isRevised(feature, workflow, revise) ? null : { step: revise, kind: 'refine' };
+}
+
+/**
+ * The latest review a plan review step recorded for the current plan.
+ *
+ * @param feature - Objective.
+ * @param step - The plan review step whose latest result to find.
+ * @returns That review, if the current plan has one.
+ */
+function planReview(feature: Feature, step: WorkflowStep): PlanningResult | undefined {
+  const planAt = feature.planAt ?? 0;
+  return (feature.planningResults ?? []).findLast((result) => result.stepId === step.id && result.at >= planAt);
+}
+
+/**
+ * Every plan review finding the revision must rule on, with ids `<reviewStepId>-<n>`.
+ *
+ * @param feature - Objective with a reviewed plan.
+ * @param workflow - Its workflow.
+ * @returns Findings from the current plan's reviews.
+ */
+export function planFindings(feature: Feature, workflow: Workflow): { id: string; step: string; finding: string }[] {
+  return workflow.planning
+    .filter((step) => step.kind === 'plan_review')
+    .flatMap((step) => {
+      const findings = planReview(feature, step)?.findings ?? [];
+      return findings.map((finding, index) => ({ id: `${step.id}-${String(index + 1)}`, step: step.title, finding }));
+    });
+}
+
+/**
+ * Whether the revision step has addressed the current plan's reviews. A plan
+ * whose reviews raised nothing needs no revision.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @param revise - Plan revision step.
+ * @returns True when no revision is needed or one postdates every review.
+ */
+function isRevised(feature: Feature, workflow: Workflow, revise: WorkflowStep): boolean {
+  const reviews = workflow.planning
+    .filter((step) => step.kind === 'plan_review')
+    .map((step) => planReview(feature, step));
+  const isClean = reviews.every((review) => review?.outcome === 'success' && review.findings.length === 0);
+  const latest = Math.max(0, ...reviews.map((review) => review?.at ?? 0));
+  return (
+    isClean || (feature.planningResults ?? []).some((result) => result.stepId === revise.id && result.at >= latest)
+  );
 }
 
 /**

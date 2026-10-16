@@ -12,12 +12,12 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
-import { featureWorkflow, findingsToRule, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
+import { featureWorkflow, findingsToRule, planFindings, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
-import { CODE_JOB_KINDS } from './seats.ts';
+import { CODE_JOB_KINDS, PLANNING_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
@@ -296,7 +296,7 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
     return pendingTriage(repository, record.featureId).find((item) => item.id === record.target) ?? null;
   }
   let evidence: unknown = null;
-  if (record.kind === 'plan' || record.kind === 'refine') {
+  if (PLANNING_JOB_KINDS.has(record.kind)) {
     evidence = {
       retainedWork: {
         objectives: repository
@@ -434,6 +434,25 @@ function promptView(
     task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined },
     feature: feature === null ? null : { ...feature, workflow: undefined },
     step: step ?? null,
-    findings: task === null || step?.kind !== 'adjudicate' ? null : findingsToRule(task, workflow, step),
+    findings: findingsFor(task, feature, step),
   };
+}
+
+/**
+ * Findings a fixer or plan reviser must rule on, by id.
+ *
+ * @param task - Delivery, for a fixer.
+ * @param feature - Objective, for a plan revision.
+ * @param step - Step being prompted.
+ * @returns Findings to rule on, or `null` for other steps.
+ */
+function findingsFor(
+  task: FactoryTask | null,
+  feature: Feature | null,
+  step: WorkflowStep | undefined,
+): { id: string; step: string; finding: string }[] | null {
+  if (task !== null && step?.kind === 'adjudicate') {
+    return findingsToRule(task, taskWorkflow(task), step);
+  }
+  return feature !== null && step?.kind === 'plan_revise' ? planFindings(feature, featureWorkflow(feature)) : null;
 }
