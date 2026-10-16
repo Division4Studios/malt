@@ -147,6 +147,7 @@ export function terminalPage(value: unknown, expected: { id: string; after: numb
       sequence <= expected.after ||
       sequence < cursor ||
       sequence > nextCursor ||
+      (!isGap && sequence > cursor + 1) ||
       (sequence === cursor && (isGap || !wasGap))
     ) {
       throw new TypeError('Invalid terminal replay cursor.');
@@ -179,7 +180,7 @@ export function terminalPage(value: unknown, expected: { id: string; after: numb
  * @returns Whether the session or its transient buffer has ended.
  */
 export function hasTerminalEnded(page: TerminalPage): boolean {
-  return page.unavailable || !ACTIVE.has(page.session.state);
+  return page.unavailable || (!ACTIVE.has(page.session.state) && page.output.length === 0);
 }
 
 /**

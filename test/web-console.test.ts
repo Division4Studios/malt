@@ -11,6 +11,7 @@ import { request as httpRequest } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 
 import { z } from 'zod/v3';
 
@@ -458,7 +459,8 @@ async function pairBrowser(url: string, code: string): Promise<Record<string, st
     body: JSON.stringify({ code }),
   });
   assert.equal(pair.status, 200);
-  return { Origin: url, Cookie: (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '' };
+  // Same-process synchronous SQLite/README fixture writes may outlast pooled socket idle deadlines on CI.
+  return { Origin: url, Cookie: (pair.headers.get('set-cookie') ?? '').split(';', 1)[0] ?? '', Connection: 'close' };
 }
 
 /**
@@ -517,11 +519,13 @@ await test('backward history pages reach the beginning without shifting or movin
   assert.deepEqual(await read(top), { project: 'home', events: [], hasMore: false, oldestCursor: top });
   assert.deepEqual(await read(0), { project: 'home', events: [], hasMore: false, oldestCursor: 0 });
   const hostile = '</script><script>alert(1)</script>\0"\\<img src=x onerror=1>';
-  for (let index = 0; index < 125; index += 1) {
-    broker.store.transaction(() => {
+  // Bulk fixture setup needs one derived README write, not 125 synchronous writes starving HTTP callbacks.
+  broker.store.transaction(() => {
+    for (let index = 0; index < 125; index += 1) {
       broker.store.event('HISTORY_FIXTURE', null, { index, text: hostile });
-    });
-  }
+    }
+  });
+  await yieldEventLoop();
   const recent = await firstStreamPage(`${console.url}/api/stream?project=home`, headers);
   const oldestShown = recent.events.events[0]?.seq ?? 0;
   assert.equal(oldestShown, 76);
@@ -531,11 +535,12 @@ await test('backward history pages reach the beginning without shifting or movin
     Array.from({ length: 30 }, (_, index) => index + 46),
   );
   assert.equal(first.events[0]?.data['text'], hostile, 'Hostile event text must remain verbatim JSON data.');
-  for (let index = 0; index < 5; index += 1) {
-    broker.store.transaction(() => {
+  broker.store.transaction(() => {
+    for (let index = 0; index < 5; index += 1) {
       broker.store.event('HISTORY_LIVE', null, { index });
-    });
-  }
+    }
+  });
+  await yieldEventLoop();
   assert.deepEqual(await read(oldestShown), first, 'Appended events must not shift an older page.');
   const partial = await walkHistory(read, oldestShown);
   assert.deepEqual(boundaries(partial), [
@@ -654,15 +659,17 @@ await test('two projects with overlapping sequence numbers keep separate backwar
   const other = z.object({ id: z.string() }).parse(await opened.json()).id;
   const team = broker.teams.get(other);
   assert.ok(team !== undefined);
-  for (let index = 0; index < 40; index += 1) {
-    for (const [store, owner] of [
-      [broker.store, 'home'],
-      [team.store, other],
-    ] as const) {
-      store.transaction(() => {
+  for (const [store, owner] of [
+    [broker.store, 'home'],
+    [team.store, other],
+  ] as const) {
+    store.transaction(() => {
+      for (let index = 0; index < 40; index += 1) {
         store.event('HISTORY_OWNER', null, { owner });
-      });
-    }
+      }
+    });
+    // Each project's committed fixture batch gives the shared HTTP server a turn.
+    await yieldEventLoop();
   }
   const sequences = new Map<string, Set<number>>();
   for (const project of ['home', other]) {
