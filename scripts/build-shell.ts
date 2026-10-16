@@ -54,7 +54,16 @@ const FILES = [
   'dist/cost-chart.js',
   'dist/price-editor.js',
   'dist/costs-ui.js',
+  'dist/console-model.js',
+  'dist/board-model.js',
+  'dist/approval-model.js',
+  'dist/console-dom.js',
+  'dist/approval-dialog.js',
+  'dist/inbox-ui.js',
+  'dist/board-ui.js',
+  'dist/delivery-ui.js',
   'sessions.css',
+  'board.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
