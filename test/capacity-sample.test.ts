@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { processUsageRows, stableFactory } from '../web/dist/capacity-details.js';
+import { processUsageRows, quotaUsage, stableFactory } from '../web/dist/capacity-details.js';
 
 const limits = { maxActiveJobs: 2 };
 
@@ -56,4 +56,13 @@ void test('any non-sample admission change alters the render key', () => {
 
 void test('process sample figures follow the newest snapshot', () => {
   assert.deepEqual(processUsageRows(factory({}, 90)).rows, [['developer-1', '7', '90.0', '90.0%']]);
+});
+
+void test('subscription zero, reached and unknown remain distinct without color', () => {
+  assert.equal(quotaUsage(0), '0% used');
+  assert.equal(quotaUsage(100), '100% used · limit reached');
+  assert.equal(quotaUsage(42), '42% used');
+  for (const value of [undefined, null, -1, 101, NaN, Infinity, '0']) {
+    assert.equal(quotaUsage(value), 'usage unknown');
+  }
 });
