@@ -2,7 +2,7 @@
 
 See [current capabilities](current-status.md) and the [issue-by-issue audit](issue-audit-2026-10-15.md). Source, runtime deployment and live-provider verification are separate states.
 
-The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod and SQLite remain server-side.
+The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod, SQLite and the isolated node-pty host remain server-side.
 
 To use the already configured source repository as its own delivery project,
 follow [Run MALT's development from mission control](operating-malt-on-itself.md).
@@ -35,9 +35,7 @@ Project membership is separate from board status. On this source Project 10,
 the visible board uses **Status**, while a separate **MALT Status** field is
 preserved. An attached issue with an empty visible status can appear unassigned.
 Changing the connector does not configure or rearrange saved views. The broader
-GitHub/Jira capability console and actual interactive worker terminals are
-tracked in [the connector delivery scope](project-connectors.md); these are
-queued features rather than controls already available in the form.
+GitHub/Jira capability console is tracked in [the connector delivery scope](project-connectors.md); that broader setup is queued rather than already available in the form. Interactive scratch terminals are a separate operator channel described below.
 
 ## Delivery requirements and planning policy
 
@@ -99,6 +97,14 @@ Worker panes offer actual output/evidence selectors, persistent public pane heig
 
 Worker controls queue instructions for a role or delivery. `queued` means stored; `delivered` means included in a sealed assignment, not that a model has read it. `acknowledged` and `applied` are explicit agent reports with evidence, accepted only for that assignment and current stage/source. A fresh provider session receives outstanding guidance again. Independent acceptance and review gates still establish whether the result works. Full instruction and receipt history stays in SQLite; the worker pane shows a bounded recent view.
 
+### Interactive scratch terminals
+
+Choose **Workers → Scratch terminals**, select an enabled subscription provider and explicitly start a session. This opens a real PTY in its own `malt/terminal/<uuid>` worktree, not a managed role's session. Up to two output panes display actual native execution; logs, conversations and durable instructions keep their existing separate views. Scratch output/commits cannot satisfy delivery gates.
+
+Capture keyboard sends input only while explicitly focused. Escape releases capture; Tab follows browser focus; dedicated Send Tab/Escape buttons send native controls. Manual geometry and opt-in Fit to pane resize the actual PTY. Reconnect resumes redacted memory output without resending input. Hidden/offline/project changes drop pending input and stop readers. Close retires owned descendants; Remove pane alone is a view action.
+
+Default policy allows one live terminal, five minutes without operator input and thirty minutes total. Terminals share broker-wide capacity, provider cooldown and machine resource gates. Pause/shutdown retires them; restart retains metadata and marks replay unavailable without launching a replacement. Input/transcripts are not persisted, and dirty scratch edits are preserved. See the [full native contract, rate limits, support matrix and reproducible checks](interactive-terminals.md). Full real-provider inference sessions and managed-job attachment are not established by startup smokes.
+
 Use `factory-instruct --file instruction.json` with `{ "role": "developer-1", "body": "Preserve the existing export names." }`. Add `taskId` for a delivery and `replan: true` for a coordinated scope change. Cancel with `factory-cancel-job --file cancel.json` containing `{ "jobId": "<running-job-uuid>" }`. Retry with `factory-retry --file retry.json` containing a `taskId` or `featureId`. These commands also accept `--project <broker-home> --workspace <target-folder>`.
 
 Coordinated quality/scope feedback additionally queues focused acceptance clarification for the product owner and a bounded learning investigation of relevant skills, tools and connectors. New explicit learning instructions can trigger research before the periodic cadence, but a live learning assignment excludes another process and unchanged feedback does not cause repeated paid polling. Subjective feedback with missing acceptance details remains a visible PO question rather than a guessed implementation.
@@ -140,13 +146,13 @@ Explicit cancellation requires a currently live job owned by that supervisor. It
 
 The broker still rejects browser-origin RPC. The UI server binds to loopback and checks Host, Origin and Fetch Metadata. Pairing is rate-limited and produces an expiring HttpOnly/SameSite=Strict cookie. Cross-site API traffic is rejected; ordinary navigation to the public app shell is allowed. Private responses are `no-store`, and the service worker caches only fixed public assets.
 
-Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
+Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control`, `/api/terminal-stream` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Terminal controls are operator-only and reject every managed-agent credential; terminal output uses bounded cursor SSE and is never service-worker-cached. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
 
 ## Verification limits
 
 On 2026-10-14, the explicitly selected source repository completed a real subscription-backed private-repository pilot: [PR #11](https://github.com/Division4Studios/malt/pull/11), actual merged-main proof, native child/parent closure and Done board states. The console showed one verified delivery, no blocked work and all eight roles spun down. Its supported Codex account probe returned actual quota metadata without a model turn. Two bounded learning assignments recorded lessons; they did not propose or activate a skill change. Early Codex startup failures were retained and repaired, and Claude completed the original developer's delivery; a fresh real Codex developer command path remains to be validated. No administrator bypass was used. That historical pilot did not establish live protected-branch review enforcement; current public-repository settings and the temporary solo-maintainer review exception are documented in [maintainer operations](maintainer-operations.md).
 
-Remaining work includes client-side Activity paging, the unified handoff feed, revisioned model policy, the full connector and ticket-recommendation consoles, real PTY workers and the installed-window/accessibility audit. The backward event API is already merged. The [capability map](current-status.md) identifies each boundary; the [operator guide](operating-malt-on-itself.md) assumes no prepared objective or current daemon state.
+Remaining work includes client-side Activity paging, the unified handoff feed, revisioned model policy, the full connector and ticket-recommendation consoles, managed-session terminal attachment and the installed-window/accessibility audit. The backward event API is already merged. The [capability map](current-status.md) identifies each boundary; the [operator guide](operating-malt-on-itself.md) assumes no prepared objective or current daemon state. Feature #101's scratch-terminal stack is source work until merged and redeployed; a refreshed browser cannot upgrade an older broker.
 
 Superseded feature parents wait for their local children to be delivered or safely retired, for pending child effects to settle, and for actual GitHub native children to close. The parent is then closed as `not_planned` through durable receipts; it never becomes a delivered outcome. Dirty child source remains preserved. Parent closure receipts survive a database restart.
 
