@@ -2,10 +2,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <link rel="stylesheet" href="../../web/style.css" />
 <main id="content"></main>
+<form id="editor-form"><label for="editor-body">Reason</label><textarea id="editor-body"></textarea></form>
 <pre id="result">PENDING</pre>
 <script type="module">
   import { triagePanel, triageDialog } from '../../web/dist/triage-ui.js';
   import { recoveryPanel } from '../../web/dist/recovery-ui.js';
+  import { resetConnectionFields } from '../../web/dist/organization-ui.js';
   const result = document.querySelector('#result');
   const check = (condition, message) => {
     if (!condition) throw new Error(message);
@@ -55,7 +57,7 @@
     const card = content.querySelector('.triage-card');
     check(card.querySelector('.triage-signal').textContent === '\u{203A}', 'asymmetric open/closed disclosure signal');
     card.open = true;
-    check(content.querySelectorAll('.triage-action').length === 7, 'seven explicit actions');
+    check(content.querySelectorAll('.triage-action').length === 8, 'eight explicit actions');
     check(
       content.querySelector('a').getAttribute('href') === 'https://github.com/fixture/app/issues/13',
       'connected issue reference',
@@ -130,6 +132,52 @@
       'uncertain retry keeps identity',
     );
     check(editor.action.input('Different intent').requestId !== request.requestId, 'changed payload gets new identity');
+    const adoption = triageDialog(task, 'adopt_merge');
+    adoption.description.mount();
+    const commit = document.querySelector('#triage-merge-commit');
+    check(commit.labels[0].textContent === 'External merge commit (full SHA)', 'native accessible commit field');
+    commit.focus();
+    check(document.activeElement === commit, 'commit field is focusable');
+    for (const invalid of ['', 'main', 'abc', 'g'.repeat(40), 'a'.repeat(41)]) {
+      commit.value = invalid;
+      let rejected = false;
+      try {
+        adoption.action.input('Verified scope');
+      } catch {
+        rejected = true;
+      }
+      check(rejected, `invalid commit rejected: ${invalid}`);
+    }
+    commit.value = 'a'.repeat(40);
+    const adopted = adoption.action.input('Verified scope');
+    check(
+      adopted.mergeCommit === commit.value && adopted.action === 'adopt_merge' && adopted.expectedVersion === 7,
+      'exact commit/version payload',
+    );
+    check(
+      adoption.action.input('Verified scope').requestId === adopted.requestId,
+      'uncertain adoption retry keeps identity',
+    );
+    commit.value = 'b'.repeat(40);
+    check(adoption.action.input('Verified scope').requestId !== adopted.requestId, 'changed commit is a new intent');
+    const merged = triagePanel(
+      { ...state, factory: { ...state.factory, tasks: [{ ...task, merge: 'a'.repeat(40) }] } },
+      actions,
+    );
+    check(
+      [...merged.querySelectorAll('button')].find((button) => button.textContent === 'Adopt external merge').disabled,
+      'recorded merges use verify instead',
+    );
+    const owned = triagePanel(
+      { ...state, factory: { ...state.factory, jobs: [{ state: 'running', taskId: task.id }] } },
+      actions,
+    );
+    check(
+      [...owned.querySelectorAll('button')].find((button) => button.textContent === 'Adopt external merge').disabled,
+      'live owner fences adoption',
+    );
+    resetConnectionFields(document.querySelector('#editor-body'));
+    check(document.querySelector('#triage-merge-commit') === null, 'custom fields retire before another control');
     const report = content.querySelector('.triage-evidence');
     report.open = true;
     check(
@@ -140,7 +188,8 @@
       'Markdown is formatted',
     );
     check(!content.querySelector('img') && !window.injected, 'HTML remains inert');
-    result.textContent = 'PASS: actions, exact identity/version, merge gate, formatted Markdown and hostile text';
+    result.textContent =
+      'PASS: actions, commit field/focus/validation, exact identity/version, replay, ownership, merge gate, formatted Markdown and hostile text';
   } catch (error) {
     result.textContent = `FAIL: ${error.message}`;
   }

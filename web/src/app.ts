@@ -59,7 +59,7 @@ import type { Snapshot, Data } from './api.js';
 import type { View } from './navigation.js';
 import type { OperatorEdit as Edit } from './recovery-ui.js';
 import type { Actions } from './views.js';
-import type { InstallEvent } from './worker-ui.js';
+import type { EditorDescription, InstallEvent } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
@@ -153,10 +153,7 @@ const freshness = new Freshness();
  * @param description - Editor title, explanation and initial input.
  * @param action - Validated operation and input conversion.
  */
-function editor(
-  description: { title: string; explanation: string; initial: string; evidence?: string },
-  action: Edit,
-): void {
+function editor(description: EditorDescription, action: Edit): void {
   if (state.current === null || !navigator.onLine || !state.isConnected) {
     notice('Reconnect to the local console before applying controls.');
     return;
@@ -171,6 +168,7 @@ function editor(
   node('editor-body', HTMLTextAreaElement).value = description.initial;
   node('editor-error', HTMLParagraphElement).textContent = '';
   node('editor', HTMLDialogElement).showModal();
+  description.mount?.();
 }
 
 /** Role and ticket interactions feed the durable server control path. */

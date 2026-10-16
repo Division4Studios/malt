@@ -10,9 +10,14 @@ import { element } from './worker-ui.js';
 
 import type { Data, Snapshot } from './api.js';
 import type { Actions } from './views.js';
+import type { EditorDescription } from './worker-ui.js';
 
 /** Typed choices correspond to server-side dispositions, never arbitrary commands. */
 export const TRIAGE_ACTIONS = {
+  adopt_merge: [
+    'Adopt external merge',
+    'Name the full commit already delivered on this project’s main and explain its scope. This queues mandatory merged-main verification; source, worktrees and missing QA evidence are preserved.',
+  ],
   approve_size: [
     'Approve this size exception',
     'Allow only this validated head/base and measured diff. Explain why splitting would be harmful. Tests, two QA reviews and merge gates remain required; changed source requires a new decision.',
@@ -45,6 +50,8 @@ export type TriageAction = keyof typeof TRIAGE_ACTIONS;
 const CARD_LIMIT = 40;
 /** Short human-readable card titles. */
 const TITLE_LIMIT = 160;
+/** Exact native Git SHA-1 identity accepted by the operator adoption gate. */
+const COMMIT_LENGTH = 40;
 
 /**
  * Latest durable disposition is distinct from actual task progress.
@@ -151,16 +158,20 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   const isOwned = records(state.factory['jobs']).some(
     (job) => text(job, 'state') === 'running' && text(job, 'taskId') === text(task, 'id'),
   );
-  for (const action of ['acknowledge', 'investigate', 'repair', 'review', 'verify', 'wait', 'approve_size'] as const) {
+  for (const action of [
+    'acknowledge',
+    'investigate',
+    'repair',
+    'review',
+    'verify',
+    'wait',
+    'approve_size',
+    'adopt_merge',
+  ] as const) {
     const button = element('button', 'triage-action', TRIAGE_ACTIONS[action][0]);
     button.type = 'button';
     button.title = TRIAGE_ACTIONS[action][1];
-    button.disabled =
-      isOwned ||
-      (action === 'approve_size' && (text(task, 'phase') !== 'blocked' || task['publicationGate'] === undefined)) ||
-      (action === 'verify'
-        ? task['merge'] === null
-        : action === 'review' && (task['pr'] === null || task['merge'] !== null));
+    button.disabled = isOwned || isActionUnavailable(task, action);
     button.addEventListener('click', () => {
       actions.triage(task, action);
     });
@@ -181,6 +192,23 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   body.append(controls, details);
   card.append(summary, body);
   return card;
+}
+
+/**
+ * Hide unsafe stage transitions while the backend remains authoritative.
+ *
+ * @param task - Selected delivery snapshot.
+ * @param action - Explicit disposition.
+ * @returns Whether required stage evidence is unavailable.
+ */
+function isActionUnavailable(task: Data, action: TriageAction): boolean {
+  return (
+    (action === 'adopt_merge' && task['merge'] !== null) ||
+    (action === 'approve_size' && (text(task, 'phase') !== 'blocked' || task['publicationGate'] === undefined)) ||
+    (action === 'verify'
+      ? task['merge'] === null
+      : action === 'review' && (task['pr'] === null || task['merge'] !== null))
+  );
 }
 
 /**
@@ -246,28 +274,85 @@ export function triageDialog(
   task: Data,
   action: TriageAction,
 ): {
-  description: { title: string; explanation: string; initial: string };
+  description: EditorDescription;
   action: { operation: string; input: (body: string) => unknown };
 } {
+  let readCommit = emptyCommit;
   return {
     description: {
       title: `${TRIAGE_ACTIONS[action][0]} · issue #${String(number(task, 'issue'))}`,
       explanation: TRIAGE_ACTIONS[action][1],
       initial: action === 'acknowledge' ? 'Reviewed the current blocker.' : '',
+      mount: () => {
+        if (action === 'adopt_merge') {
+          readCommit = mountAdoptionField();
+        }
+      },
     },
     action: {
       operation: 'factory_triage',
       input: (note) => {
+        const mergeCommit = readCommit().trim();
+        if (action === 'adopt_merge' && (!/^[\da-f]{40}$/v.test(mergeCommit) || note.trim() === '')) {
+          throw new TypeError('Enter a full 40-character lowercase commit SHA and explain why it delivers this issue.');
+        }
         return {
-          requestId: decisionIdentity(task, action, note),
+          requestId: decisionIdentity(task, action, JSON.stringify([note, mergeCommit])),
           taskId: text(task, 'id'),
           expectedVersion: number(task, 'version'),
           action,
           note,
+          ...(action === 'adopt_merge' && { mergeCommit }),
         };
       },
     },
   };
+}
+
+/**
+ * Collect an explicit commit without making operators edit a JSON payload.
+ *
+ * @returns Current native field value; the backend validates it again.
+ * @throws {TypeError} When the shared operator editor is unavailable.
+ */
+function mountAdoptionField(): () => string {
+  const body = document.querySelector('#editor-body');
+  if (!(body instanceof HTMLTextAreaElement)) {
+    throw new TypeError('The operator editor is unavailable.');
+  }
+  document.querySelector('[data-editor-fields]')?.remove();
+  const panel = element('section', 'connection-fields');
+  panel.dataset['editorFields'] = 'adopt-merge';
+  const input = element('input');
+  input.id = 'triage-merge-commit';
+  input.type = 'text';
+  input.pattern = '[0-9a-f]{40}';
+  input.maxLength = COMMIT_LENGTH;
+  input.required = true;
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  const label = element('label', '', 'External merge commit (full SHA)');
+  label.htmlFor = input.id;
+  panel.append(
+    label,
+    input,
+    element(
+      'p',
+      'subtle',
+      'Use the selected repository’s merged main. Verification must pass before completion; this does not grant an approval or merge a PR.',
+    ),
+  );
+  body.before(panel);
+  return () => input.value;
+}
+
+/**
+ * Other dispositions do not carry a commit identity.
+ *
+ * @returns Empty optional field.
+ */
+function emptyCommit(): string {
+  return '';
 }
 
 /** Exact retry identities survive closing/reopening an uncertain editor, bounded in memory only. */

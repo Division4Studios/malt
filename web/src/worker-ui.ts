@@ -8,6 +8,20 @@ import { records, text } from './api.js';
 
 import type { Data, Snapshot } from './api.js';
 
+/** Accessible metadata and optional native fields for an explicit operator control. */
+export interface EditorDescription {
+  /** Reviewed operation title. */
+  readonly title: string;
+  /** Effect and evidence requirements. */
+  readonly explanation: string;
+  /** Initial operator instruction. */
+  readonly initial: string;
+  /** Optional recorded evidence. */
+  readonly evidence?: string;
+  /** Mount additional native fields only after the authorized editor opens. */
+  readonly mount?: () => void;
+}
+
 /**
  * Require an actual typed shell node without accepting unsafe DOM casts.
  *
