@@ -75,6 +75,7 @@ function summary(record: Recommendation): Record<string, unknown> {
       kind: body.kind,
       tickets: body.tickets,
       observedIssues: body.observedIssues,
+      observedObjectives: body.observedObjectives,
       action: body.action.slice(0, SUMMARY_MAX),
       evidence: body.evidence.slice(0, EVIDENCE_MAX).map((item) => item.slice(0, SUMMARY_MAX)),
       preview: { before: body.preview.before.slice(0, SUMMARY_MAX), after: body.preview.after.slice(0, SUMMARY_MAX) },
@@ -184,7 +185,11 @@ export class RecommendationLedger {
    */
   public propose(input: RecommendationBody): Recommendation {
     const body = recommendationBodySchema.parse(input);
-    const id = digest([this.project, body.kind, body.tickets]);
+    const identity: unknown[] = [this.project, body.kind, body.tickets];
+    if (body.observedObjectives !== undefined) {
+      identity.push(body.observedObjectives.map((item) => item.id));
+    }
+    const id = digest(identity);
     const revision = digest(body);
     return this.store.transaction(() => {
       const replay = this.get(id, revision);

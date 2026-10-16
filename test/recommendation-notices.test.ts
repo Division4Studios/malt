@@ -66,7 +66,13 @@ await test('decision notices target owners and fresh context while retaining ful
     artifact: mesh.directory,
   });
   const old = recommendationNotices(store, assignment);
-  const record = repository.recommendations.propose(proposal);
+  assert.ok(task.featureId !== null);
+  const record = repository.recommendations.propose({
+    ...proposal,
+    tickets: [51, 52],
+    observedIssues: proposal.observedIssues.map((item) => ({ ...item, issue: item.issue + 50 })),
+    affectedAssignments: [task.featureId],
+  });
   repository.recommendations.transition({
     id: record.id,
     revision: record.revision,

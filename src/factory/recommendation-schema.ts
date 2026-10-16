@@ -1,7 +1,7 @@
 /** @file Bounded recommendation content/state contracts; historical public exports stay compatible. */
 import { z } from 'zod/v3';
 
-import { observedIssueSchema } from './recommendation-read-schema.ts';
+import { observedIssueSchema, recommendationAddress } from './recommendation-read-schema.ts';
 
 /** Maximum descriptive proposal field. */
 const TEXT_MAX = 32_000;
@@ -12,6 +12,8 @@ const textSchema = z.string().min(1).max(TEXT_MAX);
 
 /** Bound each proposal's collections and identifiers independently of text. */
 const RECOMMENDATION_ITEMS = 100;
+/** Local-only proposals need exact semantic objective revisions without inventing GitHub tickets. */
+const objectiveObservationSchema = z.object({ id: z.string().uuid(), revision: recommendationAddress }).strict();
 /** Opaque project, issue revision and assignment identifiers. */
 const recommendationKey = z.string().min(1).max(TITLE_MAX);
 /** Exact, bounded proposal content; no ticket body snapshots are retained. */
@@ -20,16 +22,24 @@ export const recommendationBodySchema = z
     kind: z.enum(['duplicate', 'related', 'consolidate', 'scope_change', 'guidance_suggestion']),
     tickets: z
       .array(z.number().int().safe().positive())
-      .min(1)
       .max(RECOMMENDATION_ITEMS)
       .transform((tickets) => [...new Set(tickets)].toSorted((a, b) => a - b)),
     action: textSchema,
     evidence: z.array(textSchema).min(1).max(RECOMMENDATION_ITEMS),
     observedIssues: z
       .array(observedIssueSchema)
-      .min(1)
       .max(RECOMMENDATION_ITEMS)
       .transform((issues) => issues.toSorted((a, b) => a.issue - b.issue)),
+    observedObjectives: z
+      .array(objectiveObservationSchema)
+      .min(1)
+      .max(RECOMMENDATION_ITEMS)
+      .refine((items) => {
+        const identities = new Set(items.map((item) => item.id));
+        return identities.size === items.length;
+      }, 'Duplicate local objective observation.')
+      .transform((items) => items.toSorted((a, b) => a.id.localeCompare(b.id)))
+      .optional(),
     survivor: z.number().int().safe().positive().nullable(),
     transferredAcceptance: z.array(textSchema).max(RECOMMENDATION_ITEMS),
     transferredDependencies: z.array(z.number().int().safe().positive()).max(RECOMMENDATION_ITEMS),
@@ -40,6 +50,8 @@ export const recommendationBodySchema = z
   .refine(
     (body) => {
       return (
+        (body.tickets.length > 0 ||
+          (['related', 'scope_change'].includes(body.kind) && (body.observedObjectives?.length ?? 0) > 0)) &&
         (body.survivor === null || body.tickets.includes(body.survivor)) &&
         body.observedIssues.length === body.tickets.length &&
         body.observedIssues.every((issue, index) => issue.issue === body.tickets[index])

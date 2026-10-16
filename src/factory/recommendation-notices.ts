@@ -73,9 +73,10 @@ function recipients(store: Store, record: Recommendation): Map<string, Recipient
   const tasks = selectAll(
     store.db,
     ownerSchema,
-    "SELECT json_extract(data,'$.developer') AS role,id AS taskId,json_extract(data,'$.featureId') AS featureId FROM factory_tasks WHERE id IN (SELECT value FROM json_each(?)) OR issue IN (SELECT value FROM json_each(?))",
+    "SELECT json_extract(data,'$.developer') AS role,id AS taskId,json_extract(data,'$.featureId') AS featureId FROM factory_tasks WHERE id IN (SELECT value FROM json_each(?)) OR issue IN (SELECT value FROM json_each(?)) OR json_extract(data,'$.featureId') IN (SELECT value FROM json_each(?))",
     assignments,
     JSON.stringify(record.body.tickets),
+    assignments,
   );
   const jobs = selectAll(
     store.db,
