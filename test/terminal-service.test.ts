@@ -36,6 +36,10 @@ await test('terminal service refuses resource/provider/cap gates before any nati
   let calls = 0;
   let sample = { ...healthy, cpuPercent: 100 };
   const options = {
+    inspectMcp: async () => {
+      await Promise.resolve();
+      return [];
+    },
     pool: new AdmissionPool(),
     resources: () => sample,
     preflight: async () => {
@@ -102,6 +106,10 @@ await test('operator terminal uses a fetched owned scratch tree and releases bro
   const pool = new AdmissionPool();
   const handles: TerminalProcess[] = [];
   const service = new TerminalService(mesh, repository, {
+    inspectMcp: async () => {
+      await Promise.resolve();
+      return [];
+    },
     pool,
     resources: () => healthy,
     preflight: async () => {

@@ -45,11 +45,11 @@ Assignments are one-shot. `src/factory/providers.ts` runs `codex exec --json --e
 ```text
 codex --sandbox workspace-write --ask-for-approval on-request --cd <scratch-worktree> --no-daemon
       -c forced_login_method="chatgpt" -c model_provider="openai"
-      -c history.persistence="none" -c mcp_servers.agentmesh.enabled=false
+      -c history.persistence="none"
 ```
 
 - `--no-daemon` keeps the TUI and its server inside the contained process tree. A shared daemon could outlive the Job or process group.
-- `-c` keys follow the assignment path in `src/factory/providers.ts`. Whether `mcp_servers.agentmesh.enabled=false` is accepted when no such server is configured is **unverified**. `terminal-pty-host` must confirm it from `--help`, the config schema or a fixture run before relying on it. If it is rejected, the descriptor omits it and `terminal-gate-isolation` must prove the bridge is absent another way.
+- Before launch, unpaid `codex mcp list --json` inspection runs in the exact scratch context. Only validated simple server names survive; command arguments, URLs and headers are discarded. The broker adds literal `-c mcp_servers.<name>.enabled=false` overrides for every discovered server. It fails closed if inspection or name validation fails. Codex 0.162.1 rejects an override for an absent server, so no phantom `agentmesh` or `malt` entry is added. The frozen descriptor disables actual configured names, including either MALT name, rather than assuming a global spelling. Fixture tests verify empty, multiple and invalid server lists without invoking a provider.
 - An optional model choice comes only from the project's existing provider settings, never from the browser.
 
 ### Claude Code (help, 2.1.296)

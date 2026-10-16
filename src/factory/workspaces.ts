@@ -139,6 +139,9 @@ export class WorkspaceManager {
    * @returns Latest remote base commit.
    */
   public async base(): Promise<string> {
+    if (this.config.baseBranch.startsWith('malt/terminal/')) {
+      throw new MeshError('FACTORY_GATED', 'A terminal scratch branch cannot be a delivery base.');
+    }
     await this.git([
       'fetch',
       this.config.remote,
@@ -261,6 +264,7 @@ export class WorkspaceManager {
    * @returns Directory, branch and freshly fetched base.
    */
   public async developer(task: FactoryTask): Promise<{ directory: string; branch: string; base: string }> {
+    this.assertDeliveryTask(task);
     const base = await this.base();
     const branch =
       task.branch ?? `malt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
@@ -289,6 +293,7 @@ export class WorkspaceManager {
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
   ): Promise<{ head: string; base: string; diff: string }> {
+    this.assertDeliveryTask(task);
     const record = task;
     if (record.worktree === null || record.branch === null) {
       throw new MeshError('FACTORY_GATED', 'The delivery has no owned developer worktree.');
@@ -304,6 +309,7 @@ export class WorkspaceManager {
     await this.git(['merge', '--no-edit', base], directory);
     await this.assertPrivateStateUntracked(directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.assertDeliveryHead(head, base);
     const diff = await this.git(['diff', '--numstat', `${base}...${head}`], directory);
     const entries = diff === '' ? [] : diff.split('\n');
     let lines = 0;
@@ -332,6 +338,7 @@ export class WorkspaceManager {
    * @throws {MeshError} For changed or missing owned source.
    */
   public async retryPublication(task: FactoryTask): Promise<void> {
+    this.assertDeliveryTask(task);
     if (task.worktree === null || task.branch === null || task.head === null) {
       throw new MeshError('FACTORY_GATED', 'Publication needs an owned validated branch checkpoint.');
     }
@@ -341,6 +348,7 @@ export class WorkspaceManager {
     if (source.status !== '' || source.head !== task.head || branch !== task.branch) {
       throw new MeshError('FACTORY_GATED', 'The validated branch changed; preserve it for developer repair.');
     }
+    await this.assertDeliveryHead(source.head, await this.base());
     await this.git(['push', '--set-upstream', this.config.remote, task.branch], task.worktree);
   }
 
@@ -459,6 +467,49 @@ export class WorkspaceManager {
         return [];
       }
       throw error;
+    }
+  }
+
+  /**
+   * Operator scratch resources cannot become a managed delivery assignment.
+   *
+   * @param task - Durable developer scope.
+   * @throws {MeshError} For a terminal branch/tree or a foreign owned path.
+   */
+  private assertDeliveryTask(task: FactoryTask): void {
+    if (task.worktree !== null) {
+      this.assertOwnedPath(task.worktree);
+    }
+    const isTerminal = this.ownership().some(
+      (record) => record.id.startsWith('terminal-') && record.directory === task.worktree,
+    );
+    if (isTerminal || task.branch?.startsWith('malt/terminal/') === true) {
+      throw new MeshError('FACTORY_GATED', 'Terminal scratch work cannot be adopted as a delivery branch or worktree.');
+    }
+  }
+
+  /**
+   * Reject operator-only commits even when copied onto a developer branch.
+   *
+   * @param head - Actual Git head about to be published.
+   * @param base - Fresh remote delivery base.
+   * @throws {MeshError} For a terminal-exclusive source head.
+   */
+  private async assertDeliveryHead(head: string, base: string): Promise<void> {
+    const common = await this.git(['merge-base', '--', head, base]);
+    if (common === head) {
+      return;
+    }
+    const terminal = await this.git([
+      'for-each-ref',
+      '--count=1',
+      `--contains=${head}`,
+      '--format=%(refname)',
+      'refs/heads/malt/terminal/',
+      'refs/malt/archive/terminal-',
+    ]);
+    if (terminal !== '') {
+      throw new MeshError('FACTORY_GATED', 'A terminal-only commit cannot satisfy a delivery head.');
     }
   }
 

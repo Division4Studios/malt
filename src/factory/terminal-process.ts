@@ -12,7 +12,7 @@ import { encodeFrame, FrameDecoder, MAX_FRAME_BODY } from './terminal-frames.ts'
 import { terminalLaunchSchema } from './terminal-launch.ts';
 
 import type { Frame } from './terminal-frames.ts';
-import type { TerminalLaunch } from './terminal-launch.ts';
+import type { TerminalLaunchInput } from './terminal-launch.ts';
 
 /** Grace for the wrapper to release its Job / both Linux process groups. */
 const STOP_MS = 8000;
@@ -35,7 +35,7 @@ export interface TerminalProcess {
 /** Server-only launch context. No field is accepted from a browser as a descriptor. */
 export interface TerminalProcessSpec {
   /** Validated provider and scratch-worktree metadata. */
-  readonly launch: TerminalLaunch;
+  readonly launch: TerminalLaunchInput;
   /** Private session metadata directory. */
   readonly artifact: string;
   /** Windows aggregate Job memory ceiling. */

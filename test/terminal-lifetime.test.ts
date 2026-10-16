@@ -89,6 +89,10 @@ await test('pause fences pending preflight and shutdown permanently refuses new 
   const pool = new AdmissionPool();
   const gate = Promise.withResolvers<undefined>();
   const service = new TerminalService(mesh, repository, {
+    inspectMcp: async () => {
+      await Promise.resolve();
+      return [];
+    },
     pool,
     resources: () => ({ freeMemoryMb: 20_000, totalMemoryMb: 32_000, cpuPercent: 0 }),
     preflight: async () => {
@@ -119,6 +123,10 @@ await test('timeout, pause and shutdown persist distinct causes despite late suc
   const timers = new Set<{ fire: () => void; ms: number }>();
   const results: ((frame: Frame) => void)[] = [];
   const service = new TerminalService(mesh, repository, {
+    inspectMcp: async () => {
+      await Promise.resolve();
+      return [];
+    },
     pool: new AdmissionPool(),
     resources: () => ({ freeMemoryMb: 20_000, totalMemoryMb: 32_000, cpuPercent: 0 }),
     preflight: async () => {
