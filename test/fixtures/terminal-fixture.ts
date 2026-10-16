@@ -135,7 +135,7 @@ async function interactive(): Promise<void> {
         flood ??= setInterval(() => {
           // Bound the fixture's own queue while exercising real native backpressure.
           if (process.stdout.writableLength < 65_536) {
-            process.stdout.write(`FLOOD ${'x'.repeat(1016)}\n`);
+            process.stdout.write(`FLOOD ${'x'.repeat(8184)}\n`);
           }
         }, 1);
         break;

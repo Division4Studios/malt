@@ -25,7 +25,7 @@ for (const action of ['close', 'pause'] as const) {
     `native terminal ${action} retires descendants during a bounded output flood`,
     { timeout: 60_000 },
     async (t) => {
-      const { control, read, headers, web, pool, timers, pids } = await terminalWebFixture(t);
+      const { control, read, headers, web, pool, timers, pids, failures, pressure } = await terminalWebFixture(t, true);
       const session = await control('terminal_start', { provider: 'codex', columns: 80, rows: 24 });
       const started = await read(session.id, 0, (_page, text) => text.includes('SIZE 80 24'));
       const cli = pids.get(session.id);
@@ -40,6 +40,24 @@ for (const action of ['close', 'pause'] as const) {
       assert.ok(Number.isSafeInteger(grandchild) && grandchild > 0 && isAlive(grandchild));
       await control('terminal_input', { id: session.id, text: 'flood\r' });
       const flooding = await read(session.id, family.page.nextCursor, (_page, text) => text.includes('FLOOD '));
+      const native = pressure.get(session.id);
+      assert.ok(native !== undefined);
+      native.stall();
+      // POSIX can pause the PTY; Windows may block synchronously inside the full native write.
+      try {
+        await until(native.isBackpressured, 20_000);
+      } catch {
+        const ended = await control('terminal_close', { id: session.id });
+        assert.fail(
+          `Native pressure was not observed: ${ended.state}, ${ended.reason}, ${failures.get(session.id) ?? ''}`,
+        );
+      }
+      if (!isAlive(cli) || !isAlive(grandchild)) {
+        const ended = await control('terminal_close', { id: session.id });
+        assert.fail(
+          `Native tree exited before cancellation: ${ended.state}, ${ended.reason}, ${failures.get(session.id) ?? ''}`,
+        );
+      }
       if (action === 'close') {
         const ended = await control('terminal_close', { id: session.id });
         assert.equal(ended.state, 'exited');
