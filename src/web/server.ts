@@ -446,6 +446,42 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
+ * Start one read-only JSON inspection for a fixed route.
+ *
+ * @param url - Parsed local URL with validated query parameters.
+ * @param gateway - Project services.
+ * @param project - Public selected project ID.
+ * @returns The pending read, or null for an unknown route.
+ */
+function inspection(url: URL, gateway: ProjectGateway, project: string): Promise<unknown> | null {
+  switch (url.pathname) {
+    case '/api/projects': {
+      return gateway.list();
+    }
+    case '/api/snapshot': {
+      return gateway.snapshot(project);
+    }
+    case '/api/skill': {
+      return gateway.skillProposal(project, url.searchParams.get('requestId') ?? '');
+    }
+    case '/api/history': {
+      const query = historyQuery(url);
+      return gateway.history(query.project, query.before, query.limit);
+    }
+    case '/api/local-pull': {
+      const number = z.coerce.number().int().positive().parse(url.searchParams.get('number'));
+      return gateway.localPull(project, number);
+    }
+    case '/api/artifact': {
+      return readArtifact(gateway.config(project), Object.fromEntries(url.searchParams));
+    }
+    default: {
+      return null;
+    }
+  }
+}
+
+/**
  * Dispatch operator API routes through existing broker controls.
  *
  * @param url - Parsed local URL.
@@ -466,37 +502,17 @@ async function api(
     return;
   }
   if (request.method === 'GET') {
-    switch (url.pathname) {
-      case '/api/projects': {
-        json(response, HTTP.ok, await gateway.list());
-        return;
-      }
-      case '/api/snapshot': {
-        json(response, HTTP.ok, await gateway.snapshot(project));
-        return;
-      }
-      case '/api/skill': {
-        json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
-        return;
-      }
-      case '/api/history': {
-        const query = historyQuery(url);
-        json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
-        return;
-      }
-      case '/api/stream': {
-        await streams.open(gateway, project, { request, response, sessions });
-        return;
-      }
-      case '/api/artifact': {
-        json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
-        return;
-      }
-      default: {
-        json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
-        return;
-      }
+    if (url.pathname === '/api/stream') {
+      await streams.open(gateway, project, { request, response, sessions });
+      return;
     }
+    const read = inspection(url, gateway, project);
+    if (read === null) {
+      json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
+      return;
+    }
+    json(response, HTTP.ok, await read);
+    return;
   }
   if (request.method !== 'POST') {
     json(response, HTTP.methodNotAllowed, { error: 'Method not allowed.' });

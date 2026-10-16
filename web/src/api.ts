@@ -149,6 +149,8 @@ export interface Snapshot {
   readonly github: Data;
   /** Reviewed project learning state. */
   readonly learning: Data;
+  /** Local delivery ledger summary, null when the project delivers through GitHub. */
+  readonly local: Data | null;
   /** Observation timestamp. */
   readonly observedAt: number;
 }
@@ -178,6 +180,7 @@ export function snapshot(value: unknown): Snapshot {
     events: records(child(root, 'events')['events']),
     github: child(root, 'github'),
     learning: child(root, 'learning'),
+    local: root['local'] === null || root['local'] === undefined ? null : child(root, 'local'),
     observedAt: number(root, 'observedAt'),
   };
 }
