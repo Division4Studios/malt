@@ -93,6 +93,19 @@
 }
 .terminal-pane {
   min-width: 0;
+  padding: 1rem;
+}
+.terminal-workspace > .notice:empty {
+  display: none;
+}
+.terminal-workspace select {
+  background: #171b23;
+  color: #dce5ee;
+  border: 1px solid #43505e;
+  border-radius: 0.4rem;
+  padding: 0.5rem;
+  font: inherit;
+  max-width: 100%;
 }
 .terminal-location {
   overflow-wrap: anywhere;
