@@ -19,6 +19,7 @@ import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
 import { assertPublicationSize } from './publication-size.ts';
+import { retainTerminalHistory } from './terminal-history.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -100,6 +101,11 @@ export class WorkspaceManager {
    */
   public async git(args: readonly string[], cwd = this.mesh.root): Promise<string> {
     return command('git', args, cwd);
+  }
+
+  /** Pin retained scratch reflog ancestry before publication or owned retirement. */
+  public async retainTerminalHistory(): Promise<void> {
+    await retainTerminalHistory(async (args) => this.git(args));
   }
 
   /**
@@ -500,6 +506,7 @@ export class WorkspaceManager {
     if (all === '0') {
       return;
     }
+    await this.retainTerminalHistory();
     const independent = await this.git([
       'rev-list',
       '--count',

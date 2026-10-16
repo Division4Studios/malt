@@ -98,14 +98,20 @@ await test('scratch branches, trees, commits and base refs cannot be adopted by 
   writeFileSync(file, 'Newer operator source.');
   await workspaces.git(['add', 'operator.txt'], scratch);
   await workspaces.git(['commit', '-m', 'Advance scratch branch'], scratch);
+  const terminalTip = await workspaces.git(['rev-parse', 'HEAD'], scratch);
+  // Rewrite before a publication audit can observe the terminal's current commit.
+  await workspaces.git(['reset', '--hard', base], scratch);
   await assert.rejects(
     workspaces.publish({ ...task, branch: developerBranch, worktree: developer }, async () => {
       await Promise.resolve();
-      assert.fail('Terminal source cannot create delivery evidence.');
+      assert.fail('Rewriting the terminal branch cannot launder its retained commits.');
     }),
     /terminal-only/v,
   );
-  const terminalTip = await workspaces.git(['rev-parse', 'HEAD'], scratch);
+  const preserved = await workspaces.git(['rev-parse', `refs/malt/archive/terminal-history-${head}`]);
+  assert.equal(preserved, head);
+  await workspaces.git(['reflog', 'expire', '--expire=now', '--all']);
+  // Once pinned, source isolation survives normal branch/reflog retirement.
   await workspaces.git(['update-ref', `refs/malt/archive/terminal-${id}`, terminalTip]);
   await workspaces.git(['update-ref', '-d', `refs/heads/${branch}`]);
   await assert.rejects(
