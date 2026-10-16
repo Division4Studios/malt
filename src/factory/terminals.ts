@@ -296,8 +296,10 @@ export class TerminalService {
     }
     if (session.state === 'starting' || session.state === 'running') {
       this.repository.terminals.change(id, session.state, 'closing');
-      live.reason = reason;
-      live.outcome = outcome;
+      if (live.outcome === null) {
+        live.reason = reason;
+        live.outcome = outcome;
+      }
     }
     live.lifetime.close();
     await live.process.stop();
