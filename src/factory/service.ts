@@ -7,10 +7,8 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
-import { writeAtomic } from '../summary.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
-import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -23,7 +21,7 @@ import {
   latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
-import { admittedProvider } from './dispatch-admission.ts';
+import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
@@ -35,6 +33,8 @@ import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
+import { policySetupBlocker } from './policy-blockers.ts';
+import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
@@ -50,7 +50,6 @@ import {
   resourceProbe,
   hasCriticalMemoryPressure,
 } from './resources.ts';
-import { routeAssignment } from './routing.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
@@ -201,6 +200,7 @@ export class FactoryService {
       home: this.options.home,
       repository: this.repository,
       settings,
+      providerVersions: this.options.agent === undefined ? {} : 'fixture',
       remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
@@ -405,9 +405,9 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
-    if (context.settings.modelPolicy !== undefined) {
-      this.error =
-        'Explicit model policy is saved but dispatch enforcement is not available in this delivery. No inference launched; complete policy enforcement before resuming.';
+    const setupBlocker = policySetupBlocker(context);
+    if (setupBlocker !== null) {
+      this.error = setupBlocker;
       return;
     }
     if (shouldParkForMemory(context, this.running, this.sampler.latest)) {
@@ -418,13 +418,13 @@ export class FactoryService {
     if (now >= this.nextReconcile) {
       this.nextReconcile = now + context.settings.reconcileMs;
       if (!this.connected) {
-        await context.remote.verify(await context.workspaces.origin());
-        if (this.options.agent === undefined) {
-          const providers = await providerPreflight(context.settings, this.mesh.root);
-          writeAtomic(
-            path.join(this.mesh.directory, 'factory', 'readiness.json'),
-            `${JSON.stringify({ providers, checkedAt: this.repository.store.now() }, null, 2)}\n`,
-          );
+        if (
+          !(await isPolicyContextVerified(
+            context,
+            () => this.context === context && canDispatch(this.repository, this.stopped),
+          ))
+        ) {
+          return;
         }
         this.connected = true;
       }
@@ -456,8 +456,8 @@ export class FactoryService {
       return;
     }
     for (const intent of intents) {
-      if (admittedProvider(context, this.sampler.latest, LOCAL_JOBS) === null) {
-        break;
+      if (admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null) {
+        continue;
       }
       // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
       await this.issueGuard.launch(context, intent, this.dispatch.bind(this, intent));
@@ -524,10 +524,11 @@ export class FactoryService {
       return;
     }
     const context = this.configured();
-    const provider = admittedProvider(context, this.sampler.latest, LOCAL_JOBS);
-    if (provider === null) {
+    const admitted = admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent);
+    if (admitted === null) {
       return;
     }
+    const { provider, routing } = admitted;
     const id = randomUUID();
     const now = this.repository.store.now();
     const job: FactoryJob = {
@@ -535,12 +536,7 @@ export class FactoryService {
       target: intent.target ?? null,
       id,
       provider,
-      routing: routeAssignment({
-        intent,
-        provider,
-        settings: context.settings,
-        task: intent.taskId === null ? null : this.repository.task(intent.taskId),
-      }),
+      routing,
       token: randomUUID(),
       state: 'running',
       startedAt: now,
@@ -767,6 +763,9 @@ export class FactoryService {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
     this.context = null;
+    this.connected = false;
+    this.error = null;
+    this.nextReconcile = 0;
     configureProject(this.mesh, this.repository, parsed);
     return this.status();
   }
