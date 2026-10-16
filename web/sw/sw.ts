@@ -26,6 +26,7 @@ const SHELL = [
   '/freshness.js',
   '/console-clock.js',
   '/capacity-details.js',
+  '/capacity-view.js',
   '/terminal-parser.js',
   '/terminal-style.js',
   '/terminal-grid.js',

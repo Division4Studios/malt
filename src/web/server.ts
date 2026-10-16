@@ -42,6 +42,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/freshness.js', ['dist/freshness.js', 'text/javascript; charset=utf-8']],
   ['/console-clock.js', ['dist/console-clock.js', 'text/javascript; charset=utf-8']],
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
+  ['/capacity-view.js', ['dist/capacity-view.js', 'text/javascript; charset=utf-8']],
   ['/api.js', ['dist/api.js', 'text/javascript; charset=utf-8']],
   ...[
     'terminal-parser',
