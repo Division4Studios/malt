@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { terminalPage } from '../web/src/terminal-contract.ts';
+import { terminalPage, terminalViews } from '../web/src/terminal-contract.ts';
 import { TerminalEventDecoder, TerminalStream } from '../web/src/terminal-stream.ts';
 
 /** Public fixture identity carries no native process capability. */
@@ -19,6 +19,14 @@ const session = {
   worktree: '/scratch',
   reason: 'fixture exit',
 };
+
+await test('workspace metadata rejects duplicate, malformed and unbounded session lists', () => {
+  assert.deepEqual(terminalViews([session]), [session]);
+  assert.throws(() => terminalViews([session, session]), /Duplicate/v);
+  assert.throws(() => terminalViews({ sessions: [] }), /list/v);
+  assert.throws(() => terminalViews(Array.from({ length: 101 }, () => session)), /list/v);
+  assert.throws(() => terminalViews([{ ...session, provider: 'shell' }]), /provider/v);
+});
 
 /**
  * Build a deterministic native SSE event.
