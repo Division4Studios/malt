@@ -122,6 +122,7 @@ export type ModelPolicy = z.output<typeof modelPolicySchema>;
 export const modelSelectionSchema = z
   .object({
     policyRevision: z.number().int().safe().positive(),
+    observedVersion: z.string().min(1).max(MODEL_MAX).optional(),
     entry: modelEntrySchema,
     effort: effortSchema.nullable(),
   })
