@@ -1,8 +1,8 @@
 # What MALT implements today
 
-Updated on 2026-10-16 against merged main `187dc5a` and the explicitly identified recovery/Activity source below. This is a capability map, not a declaration that the full factory roadmap is complete. The [95-issue audit](issue-audit-2026-10-15.md) remains historical; the [merged-main reconciliation](wiki/Current-status.md) and live Project describe subsequent work.
+Updated on 2026-10-16 against merged main `ee75c10`, including all 15 recovery/Activity PRs. This is a capability map, not a declaration that the full factory roadmap is complete. The [95-issue audit](issue-audit-2026-10-15.md) remains historical; the [merged-main reconciliation](wiki/Current-status.md) and live Project describe subsequent work.
 
-All 50 PRs in feature #101's native Stack #155 are merged into main `187dc5a`; that main's tree equals the final terminal stack source. Recovery/Activity [Stack #213, starting at PR #210](https://github.com/Division4Studios/malt/pull/210) adds the closed-issue dispatch guard, external-merge adoption, shared admission repair, stable capacity sampling and bounded Activity browsing. Its combined strict check at [Activity PR #224](https://github.com/Division4Studios/malt/pull/224) passed 341 tests; this source work is not a claim that a running broker has been upgraded. Merge and deliberately restart matching services before treating a new revision as deployed.
+All 50 PRs in feature #101's native Stack #155 are merged into main `187dc5a`; that main's tree equals the final terminal stack source. Recovery/Activity [Stack #213, starting at PR #210](https://github.com/Division4Studios/malt/pull/210) adds the closed-issue dispatch guard, external-merge adoption, shared admission repair, stable capacity sampling and bounded Activity browsing. All 15 PRs are merged into `ee75c10`, whose tree exactly equals the checked stack tip `de9c5e6`. The fresh full main check passed 342 tests. See the [scope, ticket and verification reconciliation](merged-source-reconciliation.md). Deliberately restart matching services before treating this revision as deployed; merging source does not upgrade a running broker.
 
 ## Capability map
 
@@ -25,7 +25,7 @@ Persistent mission supervision remains queued: [delivery manager #211](https://g
 
 ## Evidence and its limits
 
-The historical `0325f63` audit passed **236 tests**. Merged terminal main `187dc5a` passed a clean `npm ci --ignore-scripts` and `npm run check` with **312 tests**; Activity PR #224's combined source passed **341 tests**, three TypeScript targets, zero-warning ESLint, Prettier and the browser build. The merged stack passed Windows, Linux, macOS, Docker/MCP/PWA restart smoke, secret scanning, dependency audit/review and CodeQL. Documentation-only CI uses trusted immutable base source, retains required check names, runs formatting/security, and falls back to full checks when classification is unavailable.
+The historical `0325f63` audit passed **236 tests**. Merged terminal main `187dc5a` passed a clean `npm ci --ignore-scripts` and `npm run check` with **312 tests**; Activity PR #224's combined source passed **341 tests**. The fresh check on merged main `ee75c10` passed **342 tests**, three TypeScript targets, zero-warning ESLint, Prettier and the browser build. The merged stack passed Windows, Linux, macOS, Docker/MCP/PWA restart smoke, secret scanning, dependency audit/review and CodeQL. Documentation-only CI uses trusted immutable base source, retains required check names, runs formatting/security, and falls back to full checks when classification is unavailable.
 
 Model/GitHub regression boundaries use fixtures. Local Git/worktrees, validation processes and loopback broker/UI behavior are real. These inference/remote fixtures do not verify live account quotas, distinct protected-review identities, every installed-PWA lifecycle or complete accessibility. No paid agent turn was used for this audit.
 
