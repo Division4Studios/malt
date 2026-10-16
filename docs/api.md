@@ -285,3 +285,34 @@ The delivery adapter's read-only `issueState(issue)` contract reads the connecte
 The validated completion intent commits atomically with the publication checkpoint, before pushing. A rejected or ambiguous push retries publication without losing the completion update or repeating paid implementation.
 
 `factory_recover({requestId,featureId,expectedUpdatedAt,action,note})` is an operator-only, durable objective recovery. `lead` retains the diagnosis as a lead handoff; `owner` resumes product refinement; `existing` enables existing-deliveries-only admission across objectives while holding new planning. The objective remains blocked in clearance mode until its outcomes are independently verified. Requests require a nonempty reason, exact displayed revision and no live owner; changed request identities reject reuse. The queue exposes durable `existingOnly` (default false); saving a normal queue control explicitly releases clearance mode. `factory_triage` action `approve_size` records a human explanation and exact validated head/base/size, resumes unpaid publication, and changes no other gate or project default.
+
+## Explicit model/effort policy (prepared delivery)
+
+`mesh_factory_model_policy` and the paired `factory_model_policy` control accept `{expectedRevision, policy}`. Initial `expectedRevision` is `null`; subsequent edits name the current revision and submit its consecutive successor. The existing project authorization applies; no project identifier in this payload can select another workspace. Updates require paused and settled managed/terminal work, preserve unrelated configuration, and reject stale writes atomically. `factory_setup` cannot silently remove or overwrite an explicit policy. Accepted revisions are archived in the project-local SQLite metadata alongside current settings and survive restart.
+
+A policy contains `revision`, up to 24 unique `entries`, and up to six `defaults`. Entries name `id`, `provider`, literal native `model`, declared `capability` (`small`, `standard`, `advanced`), `effortSupport` (`unknown`, `none`, `codex-config`, `claude-effort`), allowed `efforts`, and nullable `evidence` (`source`, `version`, `observedAt`). Known support requires evidence; unknown support is never certified implicitly. Defaults map provider/tier to `entryId` and an allowed effort or `null`. Duplicate identities, contradictory interfaces, insufficient capability and invalid references are rejected. Capability is operator-declared; configuration alone does not prove a provider/model supports an interface.
+
+Legacy projects without `modelPolicy` retain implicit CLI routing and unchanged history. In this foundation delivery, **any explicit policy parks dispatch before inference** with an unsupported-enforcement explanation. The dependent adapter/enforcement deliveries must land before explicit selection can run. This is a safe migration gate, not a claim that routing or the editor is complete.
+
+```json
+{
+  "expectedRevision": null,
+  "policy": {
+    "revision": 1,
+    "entries": [
+      {
+        "id": "project-normal",
+        "provider": "codex",
+        "model": "account-available-model",
+        "capability": "standard",
+        "effortSupport": "unknown",
+        "efforts": [],
+        "evidence": null
+      }
+    ],
+    "defaults": [{ "provider": "codex", "tier": "standard", "entryId": "project-normal", "effort": null }]
+  }
+}
+```
+
+The symbolic model above is not a recommendation or verified installed model. No credential, API key or inferred subscription entitlement belongs in this policy.

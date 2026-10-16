@@ -52,6 +52,7 @@ export const controlSchema = z
       'factory_export_maintenance',
       'factory_skill_decide',
       'factory_setup',
+      'factory_model_policy',
       'factory_start',
       'factory_pause',
       'factory_request',
