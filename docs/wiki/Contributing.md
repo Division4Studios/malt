@@ -2,6 +2,10 @@
 
 Start with the repository's contribution policy and issue chooser. Search open and relevant closed issues before proposing work. Use Q&A for setup, Ideas for substantial proposals and private reporting for security. Do not include credentials, model transcripts or private runtime state in a public example.
 
+The [community operations guide](https://github.com/Division4Studios/malt/blob/main/docs/community-operations.md) explains the type/area label taxonomy, short bug/feature/documentation/performance/accessibility forms, Discussion categories and optional-service decisions. Labels describe scope; Project columns describe progress. Historical closure does not establish that an entire current feature is delivered.
+
+Read the [welcome](https://github.com/Division4Studios/malt/discussions/240) and [funding announcement](https://github.com/Division4Studios/malt/discussions/241). The [sponsorship guide](https://github.com/Division4Studios/malt/blob/main/SPONSORING.md) describes support for subscription access, verification, security and sustainable maintenance. No donation is needed to contribute, and donations do not purchase a support SLA or guaranteed roadmap. Account payout readiness remains separate from a public funding link.
+
 ```mermaid
 flowchart LR
   Search[Search and cross-link existing work] --> Scope[One verifiable scope]

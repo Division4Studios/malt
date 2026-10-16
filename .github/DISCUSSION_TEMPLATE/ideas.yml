@@ -1,4 +1,7 @@
 body:
+  - type: markdown
+    attributes:
+      value: Search related issues and discussions first. Share the outcome you want; a full design is not required. Never include credentials, pairing codes or private .malt state. Security reports belong in private vulnerability reporting.
   - type: textarea
     id: outcome
     attributes:

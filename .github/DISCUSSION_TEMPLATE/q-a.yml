@@ -14,3 +14,8 @@ body:
     attributes:
       label: What have you tried?
       description: Include commit, platform, runtime mode and sanitized relevant evidence.
+  - type: input
+    id: related
+    attributes:
+      label: Related issue or documentation (optional)
+      description: A link helps keep answers connected; unknown environment details are fine.

@@ -9,3 +9,7 @@
 Include the MALT commit, OS, Node version, native/container mode, expected result and a minimal reproduction. State whether the failure concerns an attached MCP session, managed role, or browser operator session. Redact local paths as appropriate, pairing codes, tokens and transcripts; do not upload `.malt` or provider homes. A job ID and a short sanitized error are usually more useful than an entire log archive.
 
 Support is community best effort. Do not post the same request repeatedly across channels. Sponsoring development does not create an SLA or guaranteed feature commitment.
+
+For worktree/input questions, distinguish **Scratch terminals** (explicitly started operator sessions) from captured managed-job logs; scratch output cannot satisfy delivery gates. Check the [terminal support contract](docs/interactive-terminals.md) and [current capability map](docs/current-status.md) before assuming a requested integration is implemented. Source merges and wiki updates do not redeploy your daemon.
+
+To support continued development, see [sponsorship](SPONSORING.md). Donations do not create a support SLA or privileged security-reporting route.
