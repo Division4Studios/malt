@@ -64,6 +64,9 @@ jobs:
       - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low
+          # Runtime packages ship with MALT and must stay MIT-compatible; see docs/dependency-policy.md.
+          fail-on-scopes: runtime
+          allow-licenses: MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD
   security-gate:
     name: Security gate
     if: always()
