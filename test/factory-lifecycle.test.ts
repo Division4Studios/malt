@@ -192,6 +192,8 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   const stages: string[] = [];
   const completionUpdates: string[] = [];
   const remote: DeliveryRemote = {
+    issueCorpus: async () =>
+      delay(0, { repositoryId: 'fixture-repository', items: [], nextCursor: null, complete: true }),
     verify: async () => {
       /* Fixture remote verified by isolated ownership. */
     },

@@ -76,6 +76,7 @@ function summary(record: Recommendation): Record<string, unknown> {
       tickets: body.tickets,
       observedIssues: body.observedIssues,
       observedObjectives: body.observedObjectives,
+      originObjective: body.originObjective,
       action: body.action.slice(0, SUMMARY_MAX),
       evidence: body.evidence.slice(0, EVIDENCE_MAX).map((item) => item.slice(0, SUMMARY_MAX)),
       preview: { before: body.preview.before.slice(0, SUMMARY_MAX), after: body.preview.after.slice(0, SUMMARY_MAX) },
@@ -188,6 +189,9 @@ export class RecommendationLedger {
     const identity: unknown[] = [this.project, body.kind, body.tickets];
     if (body.observedObjectives !== undefined) {
       identity.push(body.observedObjectives.map((item) => item.id));
+    }
+    if (body.originObjective !== undefined) {
+      identity.push(body.originObjective);
     }
     const id = digest(identity);
     const revision = digest(body);

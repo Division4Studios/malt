@@ -23,7 +23,7 @@ import {
 } from './controls.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
-import { executeJob, retireSnapshot } from './execution.ts';
+import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
@@ -39,6 +39,7 @@ import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
+import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
 import { recoverObjective, retryBlocked } from './recovery.ts';
@@ -437,12 +438,16 @@ export class FactoryService {
     if (!this.connected || this.stopped || !this.repository.active()) {
       return;
     }
-    this.cancelStale();
+    await reconcileIntake(context);
+    if (!canDispatch(this.repository, this.stopped)) {
+      return;
+    }
+    cancelStaleAssignments(this.repository, this.running);
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
       tasks: this.repository.tasks(),
-      features: this.repository.features(),
+      features: this.repository.features().filter((feature) => !isIntakeParked(context, feature)),
       objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
@@ -481,39 +486,6 @@ export class FactoryService {
       return;
     }
     await this.quota.observe(context);
-  }
-
-  /** Stop reviewers whose exact source or assigned stage was invalidated. */
-  private cancelStale(): void {
-    const candidates3 = this.repository
-      .jobs()
-      .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
-    for (const job of candidates3) {
-      if (job.taskId === null || job.kind === 'develop') {
-        continue;
-      }
-      const task = this.repository.task(job.taskId);
-      if (job.kind === 'triage') {
-        if (!triage.isCurrentTriage(this.repository, job)) {
-          this.running.get(job.id)?.controller.abort();
-        }
-        continue;
-      }
-      const phases = {
-        review: 'review',
-        final: 'merge_ready',
-        verify: 'verifying',
-        plan: '',
-        refine: '',
-        develop: '',
-        learn: '',
-        skill: '',
-        triage: '',
-      } as const;
-      if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
-        this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
-      }
-    }
   }
 
   /**

@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { MeshError } from '../protocol.ts';
 
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
@@ -450,6 +451,9 @@ export async function reconcile(context: FactoryContext): Promise<void> {
  * @throws {MeshError} For invalid scope or dependency mappings.
  */
 async function provisionFeature(context: FactoryContext, feature: Feature): Promise<void> {
+  if (isIntakeParked(context, feature)) {
+    return;
+  }
   const mappings = await context.remote.provision(feature);
   const current = context.repository.features().find((candidate) => candidate.id === feature.id);
   if (current?.phase !== 'provisioning') {
