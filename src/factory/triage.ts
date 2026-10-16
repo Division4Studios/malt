@@ -10,11 +10,12 @@ import { z } from 'zod/v3';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { approvePublicationSize } from './publication-size.ts';
 import { factorySchemas } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
-import type { AgentResult, FactoryJob } from './schema.ts';
+import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
 
 /** Bounded operator-visible decision history. */
 const HISTORY = 100;
@@ -33,6 +34,17 @@ const decisionSchema = z.object({
 const rowSchema = z.object({ data: z.string() });
 /** One durable operator decision. */
 export type TriageDecision = z.output<typeof decisionSchema>;
+/** GitHub and main evidence re-read before an operator adopts a delivered issue. */
+export interface DeliveredEvidence {
+  /** Fetched main head at adoption. */
+  readonly head: string;
+  /** Merge commit contained in that head, or null when none is supplied or recorded. */
+  readonly merge: string | null;
+  /** GitHub close reason; completed unless closed without delivery. */
+  readonly reason: string;
+  /** False when the issue was closed as not planned or duplicate. */
+  readonly isDelivered: boolean;
+}
 
 /**
  * Read bounded project-local decisions.
@@ -55,7 +67,7 @@ export function triageStatus(repository: FactoryRepository): TriageDecision[] {
  * @param id - Claimed decision identity.
  * @returns Exact receipt or absent.
  */
-function decisionById(repository: FactoryRepository, id: string | null): TriageDecision | undefined {
+export function decisionById(repository: FactoryRepository, id: string | null): TriageDecision | undefined {
   const row = selectOne(repository.store.db, rowSchema, 'SELECT data FROM factory_triage WHERE id=?', id);
   return row === undefined ? undefined : decisionSchema.parse(JSON.parse(row.data));
 }
@@ -83,6 +95,7 @@ export function pendingTriage(repository: FactoryRepository, focus: string | nul
  * @param repository - Project ledger.
  * @param input - Untrusted control.
  * @param actorId - Attached agent identity; null denotes the operator or supervisor.
+ * @param evidence - Re-read GitHub and main evidence, required only for adopt_delivered.
  * @returns Durable receipt.
  * @throws {MeshError} When the request is stale, changed or not actionable.
  */
@@ -90,17 +103,11 @@ export function decideTriage(
   repository: FactoryRepository,
   input: unknown,
   actorId: string | null = null,
+  evidence?: DeliveredEvidence,
 ): TriageDecision {
   const value = factorySchemas.factory_triage.parse(input);
-  if ((value.action === 'adopt_merge') !== (value.mergeCommit !== undefined)) {
-    throw new MeshError('INVALID_INPUT', 'mergeCommit is required for adopt_merge and accepted by no other action.');
-  }
-  if (actorId !== null && value.action === 'approve_size') {
-    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may approve a publication size exception.');
-  }
-  if (actorId !== null && value.action === 'adopt_merge') {
-    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may adopt an external merge commit.');
-  }
+  assertControl(value, actorId);
+  const isAdoption = isAdoptionAction(value);
   return repository.store.transaction(() => {
     const prior = selectOne(
       repository.store.db,
@@ -114,7 +121,7 @@ export function decideTriage(
       }
       return decisionSchema.parse(JSON.parse(prior.data));
     }
-    if (value.action === 'adopt_merge' && value.note === '') {
+    if (isAdoption && value.note === '') {
       throw new MeshError('INVALID_INPUT', 'Explain why this external merge delivers the issue before adoption.');
     }
     const task = repository.task(value.taskId);
@@ -137,12 +144,7 @@ export function decideTriage(
       summary: '',
       createdAt: repository.store.now(),
     };
-    if (value.action === 'approve_size') {
-      approvePublicationSize(repository, task, value.note);
-      decision.state = 'applied';
-      decision.version = repository.task(task.id).version;
-    } else if (value.action === 'adopt_merge') {
-      adoptMerge(repository, value);
+    if (didApplyOperatorAction(repository, value, evidence)) {
       decision.state = 'applied';
       decision.version = repository.task(task.id).version;
     }
@@ -167,6 +169,74 @@ export function decideTriage(
 
 /** Validated operator mutation. */
 type Input = z.output<typeof factorySchemas.factory_triage>;
+
+/**
+ * Whether a decision adopts external or delivered work.
+ *
+ * @param value - Validated decision.
+ * @returns Whether it is an operator-only adoption.
+ */
+function isAdoptionAction(value: Input): boolean {
+  return value.action === 'adopt_merge' || value.action === 'adopt_delivered';
+}
+
+/**
+ * Reject malformed commit fields and agent attempts at operator-only actions.
+ *
+ * @param value - Validated decision.
+ * @param actorId - Attached agent identity; null denotes the operator or supervisor.
+ * @throws {MeshError} For an invalid commit field or an agent caller.
+ */
+function assertControl(value: Input, actorId: string | null): void {
+  const isAdoption = isAdoptionAction(value);
+  if (value.mergeCommit === undefined ? value.action === 'adopt_merge' : !isAdoption) {
+    throw new MeshError('INVALID_INPUT', 'mergeCommit is required for adopt_merge and accepted only by adoptions.');
+  }
+  if (actorId !== null && value.action === 'approve_size') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may approve a publication size exception.');
+  }
+  if (actorId !== null && isAdoption) {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the human operator may adopt external or delivered work.');
+  }
+}
+
+/**
+ * Apply an operator-only action inside the decision transaction.
+ *
+ * @param repository - Project ledger.
+ * @param value - Exact decision.
+ * @param evidence - Re-read GitHub and main evidence for adopt_delivered.
+ * @returns Whether an operator-only action was applied.
+ * @throws {MeshError} When delivered-issue evidence is missing.
+ */
+function didApplyOperatorAction(repository: FactoryRepository, value: Input, evidence?: DeliveredEvidence): boolean {
+  const task = repository.task(value.taskId);
+  switch (value.action) {
+    case 'approve_size': {
+      approvePublicationSize(repository, task, value.note);
+      return true;
+    }
+    case 'adopt_merge': {
+      adoptMerge(repository, value);
+      return true;
+    }
+    case 'adopt_delivered': {
+      if (evidence === undefined) {
+        throw new MeshError('FACTORY_GATED', 'Adopting a delivered issue requires re-reading GitHub and main first.');
+      }
+      adoptDelivered(repository, value, evidence);
+      return true;
+    }
+    case 'acknowledge':
+    case 'investigate':
+    case 'repair':
+    case 'review':
+    case 'verify':
+    case 'wait': {
+      return false;
+    }
+  }
+}
 
 /**
  * Preserve source ownership and never invent approvals.
@@ -195,6 +265,7 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
     investigate: null,
     approve_size: null,
     adopt_merge: null,
+    adopt_delivered: null,
   } as const;
   const nextPhase = phase[input.action];
   if (nextPhase === null) {
@@ -246,6 +317,38 @@ function adoptMerge(repository: FactoryRepository, input: Input): void {
         ...current.feedback,
         `Operator adopt_merge: adopted external merge ${commit} for merged-main verification. ${note} No factory QA approvals are implied.`,
       ],
+    };
+  });
+}
+
+/**
+ * Record unpaid operator proof for a closed issue and hand it to closing.
+ * The merge, when any, was already proven contained in the recorded main head; no approval is inferred.
+ *
+ * @param repository - Project ledger inside the decision transaction.
+ * @param input - Exact operator decision.
+ * @param evidence - Re-read issue and main evidence.
+ * @returns Closing task.
+ */
+function adoptDelivered(repository: FactoryRepository, input: Input, evidence: DeliveredEvidence): FactoryTask {
+  const task = repository.task(input.taskId);
+  const issue = `issue #${String(task.issue)}`;
+  const merge =
+    evidence.merge === null
+      ? ' with no recorded merge'
+      : `; merge ${evidence.merge} is contained in main ${evidence.head}`;
+  const summary = evidence.isDelivered
+    ? `Operator adopted ${issue} closed as ${evidence.reason}${merge}. ${input.note} No factory job ran.`
+    : `Closed without delivery: ${issue} was closed as ${evidence.reason}. ${input.note} Nothing was merged or verified.`;
+  return repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'closing',
+      merge: evidence.merge,
+      attempts: 0,
+      error: null,
+      verifiedMain: { head: evidence.head, jobId: OPERATOR_ADOPTED, summary },
+      feedback: [...current.feedback, `Operator adopt_delivered: ${summary}`],
     };
   });
 }

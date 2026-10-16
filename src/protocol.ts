@@ -670,13 +670,15 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead only: atomically reorder unfinished objectives using an expected project order revision.',
   factory_retry: 'Designated lead only: resume a blocked delivery or product objective after its blocker is resolved.',
   factory_recover:
-    'Operator only: recover a blocked objective or authorize existing-delivery clearance without new objectives.',
+    'Operator only: recover a blocked objective, authorize existing-delivery clearance without new objectives, or retire a finished objective whose parent issue is closed (ledger only).',
   factory_triage:
-    'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, explicitly authorize verification of a confirmed external merge, or (operator only) adopt an external merge commit for merged-main verification. Never creates approvals.',
+    'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, explicitly authorize verification of a confirmed external merge, or (operator only) adopt an external merge commit for merged-main verification or adopt a closed issue as done without a job. Never creates approvals.',
   factory_enqueue:
     'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',
   factory_capacity:
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
+  factory_reconcile_github:
+    'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   learning_status:

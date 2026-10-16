@@ -9,10 +9,12 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { run } from '../src/database.ts';
+import { OPERATOR_ADOPTED } from '../src/factory/adoption-schema.ts';
+import { adoptDeliveredIssue, reconcileGitHub, retireObjective, triageControl } from '../src/factory/adoption.ts';
 import { hasParkedPRUpdate } from '../src/factory/blocked-pr.ts';
 import { recordCancellation } from '../src/factory/controls.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
-import { factoryConfigSchema, taskSchema, jobSchema, factorySchemas } from '../src/factory/schema.ts';
+import { factoryConfigSchema, featureSchema, taskSchema, jobSchema, factorySchemas } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
 import {
   decideTriage,
@@ -581,4 +583,217 @@ await test('adoption is gated for recorded merges, completed or superseded scope
   });
   assert.equal(repository.task(task.id).merge, null);
   assert.ok(triageStatus(repository).every((decision) => decision.action !== 'adopt_merge'));
+});
+
+/**
+ * Mock unpaid GitHub and Git evidence for operator reconciliation.
+ *
+ * @param t - Test mocks.
+ * @param context - Factory services.
+ * @param states - Close reason by closed issue number; unspecified issues are open.
+ * @returns Recorded containment checks and issue reads.
+ */
+function mockEvidence(
+  t: TestContext,
+  context: ReturnType<typeof fixture>,
+  states: Record<number, string>,
+): { contained: string[][]; reads: number[] } {
+  const contained: string[][] = [];
+  const reads: number[] = [];
+  t.mock.method(context.remote, 'issueState', async (issue: number) => {
+    await delay(0);
+    reads.push(issue);
+    const reason = states[issue];
+    return reason === undefined ? { state: 'open', stateReason: null } : { state: 'closed', stateReason: reason };
+  });
+  t.mock.method(context.workspaces, 'base', async () => {
+    await delay(0);
+    return 'main-head';
+  });
+  t.mock.method(context.workspaces, 'contains', async (merge: string, base: string) => {
+    await delay(0);
+    contained.push([merge, base]);
+    if (merge !== adopted) {
+      throw new Error(`Merge ${merge} is not contained in fetched main ${base}.`);
+    }
+  });
+  return { contained, reads };
+}
+
+await test('adopt_delivered closes a merged closed issue as done without a job, comment or replayed I/O', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const evidence = mockEvidence(t, context, { 1: 'completed' });
+  const input = {
+    requestId: randomUUID(),
+    taskId: task.id,
+    expectedVersion: task.version,
+    action: 'adopt_delivered',
+    mergeCommit: adopted,
+    note: 'Delivered by PR #3.',
+  };
+  await assert.rejects(adoptDeliveredIssue(context, { ...input, mergeCommit: 'b'.repeat(40) }, null), /contained/v);
+  assert.deepEqual(repository.task(task.id), task, 'A merge outside main must persist nothing.');
+  const receipt = await adoptDeliveredIssue(context, input, null);
+  assert.equal(receipt.state, 'applied');
+  assert.equal(receipt.action, 'adopt_delivered');
+  const done = repository.task(task.id);
+  assert.equal(done.phase, 'done');
+  assert.equal(done.merge, adopted);
+  assert.equal(done.verifiedMain?.jobId, OPERATOR_ADOPTED);
+  assert.equal(done.verifiedMain.head, 'main-head');
+  assert.deepEqual(done.reviews, [], 'No approval is fabricated.');
+  assert.deepEqual(evidence.contained.at(-1), [adopted, 'main-head']);
+  assert.deepEqual(repository.jobs(), []);
+  assert.ok(
+    repository.effects().every((effect) => effect.kind === 'status'),
+    'The closed issue is never edited.',
+  );
+  const reads = evidence.reads.length;
+  assert.deepEqual(await adoptDeliveredIssue(context, input, null), receipt);
+  assert.equal(evidence.reads.length, reads, 'An exact replay performs no GitHub I/O.');
+  assert.equal(repository.task(task.id).version, done.version);
+  await assert.rejects(adoptDeliveredIssue(context, { ...input, note: 'Changed.' }, null), /identity/v);
+});
+
+await test('adopt_delivered records not-planned closures as done without delivery, never merged', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  mockEvidence(t, context, { 1: 'not_planned' });
+  const base = { taskId: task.id, expectedVersion: task.version, action: 'adopt_delivered', note: 'Dropped.' };
+  await assert.rejects(adoptDeliveredIssue(context, { ...base, requestId: randomUUID(), mergeCommit: adopted }, null), {
+    code: 'FACTORY_GATED',
+  });
+  await adoptDeliveredIssue(context, { ...base, requestId: randomUUID() }, null);
+  const done = repository.task(task.id);
+  assert.equal(done.phase, 'done');
+  assert.equal(done.merge, null);
+  assert.match(done.verifiedMain?.summary ?? '', /^Closed without delivery: issue #1 was closed as not_planned/v);
+  assert.ok(done.feedback.at(-1)?.includes('Nothing was merged') === true);
+});
+
+await test('adopt_delivered rejects open issues, running assignments and every agent including the lead', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const states: Record<number, string> = {};
+  const evidence = mockEvidence(t, context, states);
+  const adopt = (): Record<string, unknown> => {
+    return {
+      requestId: randomUUID(),
+      taskId: task.id,
+      expectedVersion: repository.task(task.id).version,
+      action: 'adopt_delivered',
+      note: 'Closed upstream.',
+    };
+  };
+  await assert.rejects(adoptDeliveredIssue(context, adopt(), null), { code: 'FACTORY_GATED', message: /open/v });
+  for (const actor of ['agent', 'lead']) {
+    await assert.rejects(
+      triageControl(repository, () => context, adopt(), actor),
+      { code: 'NOT_ORCHESTRATOR' },
+    );
+    await assert.rejects(adoptDeliveredIssue(context, adopt(), actor), { code: 'NOT_ORCHESTRATOR' });
+  }
+  assert.deepEqual(evidence.reads, [1], 'Agents are rejected before any GitHub read.');
+  states[1] = 'completed';
+  const investigation = decideTriage(repository, { ...adopt(), action: 'investigate', note: 'Diagnose' });
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    role: 'team-lead',
+    kind: 'triage',
+    target: investigation.id,
+    taskId: task.id,
+    featureId: null,
+    head: null,
+    base: null,
+    provider: 'codex',
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: Date.now() + 1000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: 'fixture',
+  });
+  assert.equal(repository.claim(job, config), true);
+  await assert.rejects(adoptDeliveredIssue(context, adopt(), null), { code: 'FACTORY_GATED', message: /assignment/v });
+  assert.equal(repository.task(task.id).phase, 'blocked');
+  assert.ok(triageStatus(repository).every((decision) => decision.action !== 'adopt_delivered'));
+});
+
+await test('GitHub reconciliation dry-runs without writes, then applies adoption before ledger-only retirement', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const feature = featureSchema.parse({
+    id: randomUUID(),
+    objective: 'Existing feature #2',
+    phase: 'active',
+    productPlan: null,
+    plan: null,
+    parentIssue: 2,
+    error: null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  repository.saveFeature(feature);
+  const linked = repository.editTask(task.id, (current) => ({ ...current, featureId: feature.id }));
+  const states: Record<number, string> = { 1: 'completed' };
+  mockEvidence(t, context, states);
+  t.mock.method(context.remote, 'inspect', async () => {
+    await delay(0);
+    return { state: 'MERGED', mergeCommit: { oid: adopted } };
+  });
+  const retire = {
+    requestId: randomUUID(),
+    featureId: feature.id,
+    expectedUpdatedAt: 1,
+    action: 'retire',
+    note: 'Parent closed.',
+  };
+  await assert.rejects(retireObjective(context, retire, 'lead'), { code: 'NOT_ORCHESTRATOR' });
+  const dry = await reconcileGitHub(context, {});
+  assert.equal(dry.applied, false);
+  assert.deepEqual(
+    dry.proposals.map((proposal) => proposal.input['action']),
+    ['adopt_delivered'],
+    'An open parent is not proposed for retirement.',
+  );
+  assert.equal(dry.proposals[0]?.input['expectedVersion'], linked.version);
+  assert.equal(dry.proposals[0].input['mergeCommit'], adopted);
+  assert.deepEqual(repository.task(task.id), linked, 'A dry run writes nothing.');
+  assert.deepEqual(triageStatus(repository), []);
+  states[2] = 'completed';
+  const applied = await reconcileGitHub(context, { apply: true });
+  assert.deepEqual(
+    applied.outcomes.map((outcome) => [outcome.input['action'], outcome.error]),
+    [
+      ['adopt_delivered', undefined],
+      ['retire', undefined],
+    ],
+  );
+  assert.equal(repository.task(task.id).phase, 'done');
+  const retired = repository.features().find((item) => item.id === feature.id);
+  assert.equal(retired?.phase, 'done');
+  assert.deepEqual(await retireObjective(context, applied.outcomes[1]?.input, null), { featureId: feature.id });
+  assert.deepEqual(await reconcileGitHub(context, { apply: true }), {
+    applied: true,
+    proposals: [],
+    outcomes: [],
+    unresolved: [],
+    remaining: 0,
+  });
+  await assert.rejects(retireObjective(context, { ...retire, expectedUpdatedAt: retired.updatedAt }, null), {
+    code: 'FACTORY_GATED',
+  });
 });
