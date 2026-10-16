@@ -104,6 +104,43 @@
 .terminal-status {
   min-height: 1.5em;
 }
+.terminal-compact {
+  height: 16rem;
+}
+.terminal-standard {
+  height: 24rem;
+}
+.terminal-tall {
+  height: 36rem;
+}
+.terminal-screen {
+  resize: vertical;
+  min-height: 10rem;
+  max-height: 75vh;
+}
+.terminal-input-controls {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+.terminal-keyboard {
+  width: 100%;
+  min-height: 2.5rem;
+  resize: none;
+  font-family: ui-monospace, Consolas, monospace;
+}
+.terminal-keyboard:enabled {
+  border-color: #79dbde;
+  box-shadow: 0 0 0.7rem #79dbde1a;
+}
+.terminal-geometry input[type='number'] {
+  width: 6rem;
+}
+.terminal-geometry label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
 .terminal-pane .toolbar {
   flex-wrap: wrap;
 }

@@ -43,6 +43,9 @@ const FILES = [
   'dist/terminal-stream.js',
   'dist/terminal-pane.js',
   'dist/terminal-workspace.js',
+  'dist/terminal-keys.js',
+  'dist/terminal-writes.js',
+  'dist/terminal-input.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
