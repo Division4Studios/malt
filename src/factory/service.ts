@@ -60,6 +60,7 @@ import { factoryStatus } from './status.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
+import { workflowLibrary } from './workflows.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -376,6 +377,11 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
+      factory_workflow_save: () => workflowLibrary(this.repository.store).save(parsed),
+      factory_workflow_default: async () => {
+        workflowLibrary(this.repository.store).setDefault(parsed);
+        return this.status();
+      },
     };
     return await handlers[operation]();
   }

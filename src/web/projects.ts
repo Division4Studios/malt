@@ -15,6 +15,7 @@ import { baselineSkill } from '../factory/skills.ts';
 import { terminalPageSchema } from '../factory/terminal-reads.ts';
 import { isTerminalOperation } from '../factory/terminal-schema.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
+import { DEFAULT_WORKFLOW_ID, workflowLibrarySchema } from '../factory/workflows.ts';
 import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -40,6 +41,7 @@ const factoryViewSchema = dashboardSchema.extend({
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
   triage: z.array(triageRecordSchema).default([]),
+  workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -61,6 +63,8 @@ export const controlSchema = z
       'factory_triage',
       'factory_recover',
       'factory_reorder_objective',
+      'factory_workflow_save',
+      'factory_workflow_default',
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',

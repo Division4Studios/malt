@@ -31,6 +31,11 @@ const DEFAULT_JOB_CPU = 50;
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
+/**
+ * Specialist seats used by configurable workflows. Projects saved before these
+ * existed receive default members for them, so older settings stay valid.
+ */
+export const SPECIALIST_ROLES = ['plan-reviewer', 'fixer', 'librarian', 'regression-verifier'] as const;
 /** Roles have independent process slots even when they use the same provider. */
 export const FACTORY_ROLES = [
   'product-owner',
@@ -41,6 +46,7 @@ export const FACTORY_ROLES = [
   'qa-2',
   'final-tester',
   'learning-steward',
+  ...SPECIALIST_ROLES,
 ] as const;
 /** Provider CLI families supported by the managed runtime. */
 export const PROVIDERS = ['codex', 'claude'] as const;
@@ -221,7 +227,7 @@ export function isTokenCapExceeded(budget: number | null, usage: number): boolea
 export const factoryConfigSchema = z
   .object({
     version: z.literal(1).default(1),
-    organization: organizationSchema(FACTORY_ROLES),
+    organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
@@ -570,6 +576,11 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  /** The library validates the definition; any revision other than the stored one is stale. */
+  factory_workflow_save: z
+    .object({ workflow: z.unknown(), expectedRevision: z.string().max(TITLE_MAX).nullable() })
+    .strict(),
+  factory_workflow_default: z.object({ workflowId: keySchema }).strict(),
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -593,6 +604,8 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_workflow_save',
+  'factory_workflow_default',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {

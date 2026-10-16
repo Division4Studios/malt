@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "id": "direct",
+  "name": "Direct delivery",
+  "description": "For a change you can describe completely in one brief. No planning: the objective is the single delivery. Two cross-family reviews (one blind) feed a fixer who rules on every finding, and an independent regression check confirms the fixes before the final check, merge and main verification.",
+  "planning": [],
+  "delivery": [
+    { "id": "implement", "kind": "implement", "title": "Implementation", "roles": ["developer-1", "developer-2"] },
+    {
+      "id": "review",
+      "kind": "review",
+      "title": "Code review",
+      "roles": ["qa-1"],
+      "after": ["implement"],
+      "provider": "codex"
+    },
+    {
+      "id": "blind-review",
+      "kind": "review",
+      "title": "Blind code review",
+      "roles": ["qa-2"],
+      "after": ["implement"],
+      "blind": true,
+      "provider": "claude"
+    },
+    {
+      "id": "fix",
+      "kind": "adjudicate",
+      "title": "Rule on findings and fix",
+      "roles": ["fixer"],
+      "after": ["review", "blind-review"]
+    },
+    {
+      "id": "regress",
+      "kind": "regress",
+      "title": "Regression verification",
+      "roles": ["regression-verifier"],
+      "after": ["fix"]
+    },
+    {
+      "id": "final",
+      "kind": "final",
+      "title": "Final end-to-end check",
+      "roles": ["final-tester"],
+      "after": ["regress"]
+    },
+    { "id": "verify", "kind": "verify", "title": "Verify merged main", "roles": ["final-tester"], "after": ["final"] }
+  ]
+}

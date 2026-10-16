@@ -8,6 +8,7 @@ import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
 import { triageStatus } from './triage.ts';
 import { workflowState } from './workflow.ts';
+import { workflowLibrary } from './workflows.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -46,6 +47,7 @@ export async function factoryStatus(
     instructions: repository.instructionLedger.recent(),
     conversations: conversationWindow(repository.store, mesh),
     workflow: workflowState(repository),
+    workflows: workflowLibrary(repository.store).status(),
     capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
 }
