@@ -352,6 +352,8 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
+      factory_recommendations: () => this.repository.recommendations.inspect(parsed),
+      factory_recommendation_read: () => this.repository.recommendations.readReceipt(parsed),
       factory_setup: () => this.controlSetup(parsed),
       factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {

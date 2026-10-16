@@ -654,6 +654,10 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: persist instructions for a role, optionally for a specific task. Interrupt its current pipeline safely and deliver the instruction on its next assignment. Set replan for scope changes requiring product-owner and team-lead planning.',
   factory_status:
     'Inspect live project jobs, parked roles, delivery stages, review gates, resource pressure and provider capacity. Unknown subscription quota remains unknown.',
+  factory_recommendations:
+    'Read a bounded current-project recommendation page or exact historical detail. This does not acknowledge, approve or execute a proposal.',
+  factory_recommendation_read:
+    'Human operator only: mark one exact current recommendation revision read. This receipt never approves a proposal or starts work.',
   factory_read_source:
     'Managed readonly assignment only: read its exact pinned Git source. Omit path to list tracked files or supply a nonprivate relative path for a bounded file. Runtime state and secrets are excluded, and the live role claim is enforced by the backend.',
   factory_setup:
