@@ -10,7 +10,7 @@ import path from 'node:path';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
-import { AdmissionPool } from './admission.ts';
+import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -95,8 +95,6 @@ interface AttemptState {
   /** Supervisor-observed failure or cancellation reason for the manager report. */
   reason: string | null;
 }
-/** All factories in this broker share local process admission. */
-const LOCAL_JOBS = new AdmissionPool();
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
   /** Public durable ledger for inspection and operator commands. */

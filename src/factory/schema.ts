@@ -264,6 +264,10 @@ export const factoryConfigSchema = z
         jobProcessLimit: z.number().int().min(2).max(MAX_JOB_PROCESSES).default(DEFAULT_JOB_PROCESSES),
       })
       .default({}),
+    terminals: z
+      .object({ max: z.number().int().min(0).max(2).default(1) })
+      .strict()
+      .default({}),
   })
   .strict();
 /** A configured project factory. */

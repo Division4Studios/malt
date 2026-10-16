@@ -153,10 +153,11 @@ export class WorkspaceManager {
    * @param id - Internal task/job key.
    * @param reference - Exact commit, or fetched base reference.
    * @param branch - New developer branch; null for a read-only snapshot.
+   * @param isMemoryShared - Managed assignments share memory; operator scratch terminals never do.
    * @returns Owned directory.
    * @throws {MeshError} If another directory or branch is encountered.
    */
-  public async create(id: string, reference: string, branch: string | null): Promise<string> {
+  public async create(id: string, reference: string, branch: string | null, isMemoryShared = true): Promise<string> {
     if (!/^[\d\-a-z]+$/v.test(id)) {
       throw new MeshError('INVALID_INPUT', 'Unsafe worktree key.');
     }
@@ -188,13 +189,7 @@ export class WorkspaceManager {
     if ((await normalize(common)) !== (await normalize(original))) {
       throw new MeshError('INVALID_INPUT', 'The recorded worktree belongs to another repository.');
     }
-    const link = path.join(directory, '.malt');
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Link only the current project's shared .malt library into its owned worktree.
-    if (!existsSync(link)) {
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Link only the generated owned worktree to its canonical project-local memory.
-      await symlink(this.mesh.directory, link, process.platform === 'win32' ? 'junction' : 'dir');
-    }
-    await verifyMemoryLink(link, this.mesh.directory);
+    await this.attachMemory(directory, isMemoryShared);
     // Every worktree uses this repository's shared local exclude file. Do not
     // commit credentials or recursively add the linked memory directory.
     const exclude = path.join(original, 'info', 'exclude');
@@ -215,6 +210,18 @@ export class WorkspaceManager {
       writeAtomic(exclude, `${contents}\n${missing.join('\n')}\n`);
     }
     return directory;
+  }
+
+  /**
+   * Retained terminal trees come from ownership records, never a bounded history page.
+   *
+   * @returns Owned terminal worktrees, oldest intent first.
+   */
+  public terminalTrees(): z.output<typeof ownershipSchema> {
+    return this.ownership().filter(
+      (record) =>
+        !record.removed && record.id.startsWith('terminal-') && record.branch?.startsWith('malt/terminal/') === true,
+    );
   }
 
   /**
@@ -453,6 +460,25 @@ export class WorkspaceManager {
       }
       throw error;
     }
+  }
+
+  /**
+   * Only managed assignments receive the private project memory link.
+   *
+   * @param directory - Owned Git checkout.
+   * @param isShared - Whether this checkout is a managed assignment.
+   */
+  private async attachMemory(directory: string, isShared: boolean): Promise<void> {
+    if (!isShared) {
+      return;
+    }
+    const link = path.join(directory, '.malt');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only the generated owned memory link.
+    if (!existsSync(link)) {
+      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only managed assignments link the verified project's memory.
+      await symlink(this.mesh.directory, link, process.platform === 'win32' ? 'junction' : 'dir');
+    }
+    await verifyMemoryLink(link, this.mesh.directory);
   }
 
   /**
