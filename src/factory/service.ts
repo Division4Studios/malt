@@ -58,6 +58,7 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
+import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
@@ -381,6 +382,10 @@ export class FactoryService {
       factory_workflow_save: () => saveWorkflow(this.repository, input),
       factory_workflow_default: () => chooseDefaultWorkflow(this.repository, input),
       factory_approve: () => decideApproval(this.repository, input),
+      factory_attempts: async () => telemetry.attempts(this.repository, this.mesh, input),
+      factory_transcript: async () => telemetry.transcript(this.repository, this.mesh, input),
+      factory_costs: async () => telemetry.costs(this.repository, this.mesh, input),
+      factory_prices: () => telemetry.prices(this.repository, input),
     };
     return await handlers[operation]();
   }
