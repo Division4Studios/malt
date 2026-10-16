@@ -186,8 +186,83 @@ await test('local ledger validates input, deduplicates comments and rejects reus
     { code: 'INVALID_INPUT' },
   );
   await assert.rejects(
+    tracker.createIssue({
+      requestId: 'f',
+      kind: 'feature',
+      title: 'Feature',
+      body: 'Changed scope',
+      acceptanceCriteria: ['Done'],
+      parent: null,
+    }),
+    { code: 'INVALID_INPUT' },
+    'A retry with changed scope is not the original request.',
+  );
+  await assert.rejects(
+    tracker.createIssue({
+      requestId: 'f',
+      kind: 'feature',
+      title: 'Feature',
+      body: 'Scope',
+      acceptanceCriteria: ['Done', 'More'],
+      parent: null,
+    }),
+    { code: 'INVALID_INPUT' },
+  );
+  await tracker.setStatus(feature.number, 'Development');
+  assert.equal(
+    (
+      await tracker.createIssue({
+        requestId: 'f',
+        kind: 'feature',
+        title: 'Feature',
+        body: 'Scope',
+        acceptanceCriteria: ['Done'],
+        parent: null,
+      })
+    ).number,
+    feature.number,
+    'A later status change does not make the original request differ.',
+  );
+  await assert.rejects(
+    tracker.createIssue({
+      requestId: 'f',
+      kind: 'feature',
+      title: 'Feature',
+      body: 'Scope',
+      acceptanceCriteria: ['Done'],
+      parent: null,
+      status: 'Ready',
+    }),
+    { code: 'INVALID_INPUT' },
+    'A retry requesting another initial status is not the original request.',
+  );
+  await assert.rejects(
     tracker.createIssue({ requestId: 'x', kind: 'delivery', title: 'D', body: '', acceptanceCriteria: [], parent: 99 }),
     { code: 'INVALID_INPUT' },
+  );
+  await assert.rejects(
+    tracker.createIssue({
+      requestId: 'y',
+      kind: 'delivery',
+      title: 'D',
+      body: '',
+      acceptanceCriteria: [],
+      parent: null,
+    }),
+    { code: 'INVALID_INPUT' },
+    'A delivery requires a feature parent.',
+  );
+  await assert.rejects(
+    tracker.createIssue({
+      requestId: 'z',
+      kind: 'feature',
+      title: 'Nested',
+      body: '',
+      acceptanceCriteria: [],
+      parent: feature.number,
+    }),
+    { code: 'INVALID_INPUT' },
+    'A feature must not have a parent.',
   );
   now = 2;
   assert.equal(await tracker.comment(feature.number, 'effect-1', 'Hello'), true);
@@ -314,4 +389,20 @@ await test('factory delivers end to end through the local hub without any hosted
   assert.equal(snapshot.state, 'MERGED');
   assert.equal(snapshot.mergeCommit?.oid, pull.mergeCommit);
   assert.ok((snapshot.statusCheckRollup ?? []).every((check) => check.name !== MERGEABLE_CHECK));
+});
+
+await test('local ledger accepts only an identical retried merge settlement', async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), 'malt-ledger-'));
+  const tracker = new LocalTracker(directory, () => 1);
+  const pull = await tracker.openPull({ issue: 1, title: 'T', body: '', head: 'feature/a', base: 'main' });
+  const merged = { state: 'MERGED', mergeCommit: 'a'.repeat(40), mergedHead: 'b'.repeat(40) } as const;
+  await tracker.settlePull(pull.number, merged);
+  assert.equal((await tracker.settlePull(pull.number, merged)).state, 'MERGED', 'An identical retry is idempotent.');
+  await assert.rejects(tracker.settlePull(pull.number, { ...merged, mergeCommit: 'c'.repeat(40) }), {
+    code: 'FACTORY_GATED',
+  });
+  await assert.rejects(tracker.settlePull(pull.number, { ...merged, mergedHead: 'c'.repeat(40) }), {
+    code: 'FACTORY_GATED',
+  });
+  await assert.rejects(tracker.settlePull(pull.number, { state: 'CLOSED' }), { code: 'FACTORY_GATED' });
 });
