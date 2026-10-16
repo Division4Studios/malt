@@ -4,7 +4,7 @@ import { test } from 'node:test';
 
 import { BLANK_CELL } from '../web/src/terminal-grid.ts';
 import { TerminalParser } from '../web/src/terminal-parser.ts';
-import { TerminalRenderer, terminalLink, terminalRuns } from '../web/src/terminal-render.ts';
+import { TerminalRenderer, terminalLink, terminalRuns } from '../web/src/terminal-render-model.ts';
 import { TerminalScreen } from '../web/src/terminal-screen.ts';
 
 import type { TerminalCell } from '../web/src/terminal-grid.ts';
