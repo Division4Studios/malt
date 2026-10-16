@@ -57,7 +57,7 @@ import { Waiters } from './waiters.ts';
 import type { MeshConfig } from './config.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
-import type { TerminalOperation } from './factory/terminal-schema.ts';
+import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
 import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
@@ -164,6 +164,8 @@ export interface Team {
 
 /** A running broker. */
 export interface Broker {
+  /** Memory-only authority for a colocated, paired operator service; never an RPC result. */
+  readonly operatorTerminalControl: TerminalOperator;
   /** The home project's store. */
   readonly store: Store;
   /** The HTTP server. */
@@ -418,38 +420,6 @@ function executeOperation(
 }
 
 /**
- * Reject all agent authority before forwarding an operator-only terminal control.
- *
- * @param team - Authenticated project.
- * @param operation - Validated terminal operation.
- * @param envelope - Untrusted input and optional presented credentials.
- * @param response - Owned HTTP response.
- * @returns Project-fenced terminal result.
- * @throws {MeshError} For agent-credentialed calls.
- */
-async function handleTerminal(
-  team: Team,
-  operation: TerminalOperation,
-  envelope: { input?: unknown; credentials?: unknown },
-  response: ServerResponse,
-): Promise<unknown> {
-  const input = envelope.input ?? {};
-  parseInput(operation, input);
-  if (envelope.credentials !== undefined) {
-    throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Terminal controls require an operator, never an agent session.');
-  }
-  response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
-  if (operation !== 'terminal_read') {
-    return team.factory.terminalControl(operation, input);
-  }
-  const controller = new AbortController();
-  response.once('close', () => {
-    controller.abort();
-  });
-  return team.factory.terminals.control(operation, input, controller.signal);
-}
-
-/**
  * Handle one `POST /rpc` request: authenticate its team, then run it.
  *
  * @param context - The broker context.
@@ -484,7 +454,10 @@ async function handleRpc(
     return operation === 'open_team' ? openWorkspaceTeam(context, input) : listTeams(context.home.config);
   }
   if (isTerminalOperation(operation)) {
-    return handleTerminal(team, operation, envelope.data, response);
+    throw new MeshError(
+      'HUMAN_CONTROL_REQUIRED',
+      'Terminal controls require the owning paired console, never broker RPC.',
+    );
   }
   const credentials = readCredentials(envelope.data.credentials);
 
@@ -780,6 +753,19 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   log('info', 'broker', 'listening', { host, port: boundPort });
 
   return {
+    operatorTerminalControl: async (selected, operation, input, signal) => {
+      if (!server.listening) {
+        throw new MeshError('BROKER_UNAVAILABLE', 'The owning broker has stopped.');
+      }
+      const team = selected.team === undefined ? context.home : context.teams.get(selected.team);
+      if (team?.config.projectId !== selected.projectId) {
+        throw new MeshError('NOT_FOUND', 'The selected project is not owned by this broker.');
+      }
+      parseInput(operation, input);
+      return operation === 'terminal_read'
+        ? team.factory.terminals.control(operation, input, signal)
+        : team.factory.terminalControl(operation, input);
+    },
     store,
     server,
     waiters,

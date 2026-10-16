@@ -27,7 +27,7 @@ await test('terminal controls are operator-only, project-fenced and absent from 
       endToEndCommands: [{ file: 'node' }],
     }),
   );
-  const operator = await startWebConsole(mesh, 0);
+  const operator = await startWebConsole(mesh, 0, undefined, broker.operatorTerminalControl);
   defer(async () => operator.close());
   const pair = await fetch(`${operator.url}/api/pair`, {
     method: 'POST',
@@ -66,6 +66,7 @@ await test('terminal controls are operator-only, project-fenced and absent from 
     });
     assert.equal(response.status, 403);
     assert.match(await response.text(), /HUMAN_CONTROL_REQUIRED/v);
+    await assert.rejects(rpc(mesh, operation, input), { code: 'HUMAN_CONTROL_REQUIRED' });
   }
   const list = await fetch(`${operator.url}/api/terminals?project=home`, { headers });
   assert.equal(list.status, 200);
@@ -80,8 +81,12 @@ await test('terminal controls are operator-only, project-fenced and absent from 
     body: JSON.stringify({ operation: 'terminal_start', input: request }),
   });
   assert.equal(start.status, 409, 'Disabled policy must refuse before invoking a CLI.');
-  await assert.rejects(rpc(mesh, 'terminal_start', { ...request, file: 'powershell' }), { code: 'INVALID_INPUT' });
-  await assert.rejects(rpc(mesh, 'terminal_close', { id: randomUUID() }), { code: 'NOT_FOUND' });
+  await assert.rejects(broker.operatorTerminalControl(mesh, 'terminal_start', { ...request, file: 'powershell' }), {
+    code: 'INVALID_INPUT',
+  });
+  await assert.rejects(broker.operatorTerminalControl(mesh, 'terminal_close', { id: randomUUID() }), {
+    code: 'NOT_FOUND',
+  });
   assert.deepEqual(repository.terminals.list(), []);
   const id = randomUUID();
   repository.terminals.create({
@@ -107,5 +112,7 @@ await test('terminal controls are operator-only, project-fenced and absent from 
   assert.equal((await fetch(streamUrl, { headers: { ...headers, Origin: 'https://hostile.invalid' } })).status, 403);
   assert.equal((await fetch(`${streamUrl}&after=1&after=2`, { headers })).status, 400);
   assert.equal((await fetch(streamUrl, { headers: { ...headers, 'Last-Event-ID': '-1' } })).status, 400);
-  await assert.rejects(rpc(mesh, 'terminal_read', { id, waitMs: 25_001 }), { code: 'INVALID_INPUT' });
+  await assert.rejects(broker.operatorTerminalControl(mesh, 'terminal_read', { id, waitMs: 25_001 }), {
+    code: 'INVALID_INPUT',
+  });
 });
