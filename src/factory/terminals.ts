@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-
 import { log } from '../log.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -14,6 +13,7 @@ import { TerminalBuffer } from './terminal-buffer.ts';
 import { terminalLaunchSchema, terminalMcpServers } from './terminal-launch.ts';
 import { TerminalLifetime, terminalClock } from './terminal-lifetime.ts';
 import { startTerminalProcess } from './terminal-process.ts';
+import { TerminalReads } from './terminal-reads.ts';
 import { terminalSchemas, terminalStartSchema } from './terminal-schema.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
@@ -81,6 +81,8 @@ async function preflight(settings: FactoryConfig, provider: Provider, cwd: strin
 
 /** A single broker-owned service, never an MCP tool or assignment result consumer. */
 export class TerminalService {
+  /** Bounded transient operator output, independent of job logs. */
+  public readonly reads: TerminalReads;
   /** Runtime handles exist only for explicitly requested sessions. */
   private readonly live = new Map<string, LiveTerminal>();
   /** Reservations cover unpaid asynchronous preparation too. */
@@ -110,6 +112,7 @@ export class TerminalService {
   public constructor(mesh: MeshConfig, repository: FactoryRepository, options: TerminalOptions = {}) {
     this.mesh = mesh;
     this.repository = repository;
+    this.reads = new TerminalReads(repository.terminals);
     this.pool = options.pool ?? brokerAdmission;
     this.options = {
       resources: options.resources ?? resourceProbe(),
@@ -134,9 +137,14 @@ export class TerminalService {
    *
    * @param operation - Authenticated HTTP-only operation name.
    * @param input - Untrusted wire input.
+   * @param signal - Owned request cancellation for bounded output reads.
    * @returns Persisted session metadata.
    */
-  public async control(operation: TerminalOperation, input: unknown): Promise<unknown> {
+  public async control(operation: TerminalOperation, input: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (operation === 'terminal_read') {
+      const value = terminalSchemas.terminal_read.parse(input);
+      return this.reads.read(value.id, value.after, value.waitMs, signal);
+    }
     if (operation === 'terminal_start') {
       return this.start(terminalSchemas.terminal_start.parse(input));
     }
@@ -239,6 +247,7 @@ export class TerminalService {
         exitCode: null,
         reason: '',
       });
+      this.reads.attach(id, buffer);
       void this.watch(id, native);
       return this.repository.terminals.get(session.id) ?? session;
     } catch (error) {
@@ -400,6 +409,7 @@ export class TerminalService {
         break;
       }
     }
+    this.reads.notify(id);
   }
 
   /**
@@ -439,6 +449,7 @@ export class TerminalService {
       reason: live.reason === '' ? 'provider exited' : live.reason,
       outputBytes: live.outputBytes,
     });
+    this.reads.finish(id);
   }
 
   /**

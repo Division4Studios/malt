@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
 import { OperatorSessions } from './security.ts';
+import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -175,12 +176,15 @@ class EventCursor {
 }
 /** Bound streaming lifecycle and backpressure. */
 class Streams {
+  /** Interactive output has separate transient buffers and per-session limits. */
+  public readonly terminals = new TerminalStreams();
   /** Managed responses only. */
   private readonly clients = new Set<ServerResponse>();
   /** Single-flight reads prevent overlapping snapshots and unbounded work. */
   private readonly refreshing = new Set<ServerResponse>();
   /** End every owned browser stream on UI shutdown. */
   public close(): void {
+    this.terminals.close();
     for (const client of this.clients) {
       client.end();
     }
@@ -437,6 +441,10 @@ async function api(
 ): Promise<void> {
   const { sessions, gateway, streams } = context;
   const project = url.searchParams.get('project') ?? 'home';
+  if (url.pathname.startsWith('/api/terminal')) {
+    await streams.terminals.route(gateway, url, { request, response, sessions });
+    return;
+  }
   if (request.method === 'GET') {
     switch (url.pathname) {
       case '/api/projects': {
@@ -445,10 +453,6 @@ async function api(
       }
       case '/api/snapshot': {
         json(response, HTTP.ok, await gateway.snapshot(project));
-        return;
-      }
-      case '/api/terminals': {
-        json(response, HTTP.ok, await gateway.terminals(project));
         return;
       }
       case '/api/skill': {

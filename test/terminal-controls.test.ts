@@ -46,7 +46,7 @@ await test('terminal controls are operator-only, project-fenced and absent from 
   defer(async () => lead.close());
   for (const operation of TERMINAL_OPERATIONS) {
     assert.ok(TOOL_OPERATIONS.every((tool: string) => tool !== operation));
-    const closeInput = operation === 'terminal_close' ? { id: randomUUID() } : {};
+    const closeInput = operation === 'terminal_close' || operation === 'terminal_read' ? { id: randomUUID() } : {};
     const input = operation === 'terminal_start' ? request : closeInput;
     const response = await fetch(new URL('/rpc', mesh.url), {
       method: 'POST',
@@ -76,4 +76,29 @@ await test('terminal controls are operator-only, project-fenced and absent from 
   await assert.rejects(rpc(mesh, 'terminal_start', { ...request, file: 'powershell' }), { code: 'INVALID_INPUT' });
   await assert.rejects(rpc(mesh, 'terminal_close', { id: randomUUID() }), { code: 'NOT_FOUND' });
   assert.deepEqual(repository.terminals.list(), []);
+  const id = randomUUID();
+  repository.terminals.create({
+    id,
+    provider: 'codex',
+    worktree: mesh.root,
+    branch: 'malt/terminal/metadata',
+    base: 'a'.repeat(40),
+    baseBranch: 'main',
+    columns: 80,
+    rows: 24,
+  });
+  repository.terminals.change(id, 'requested', 'failed', { reason: 'broker restarted' });
+  const streamUrl = `${operator.url}/api/terminal-stream?project=home&id=${id}`;
+  const stream = await fetch(streamUrl, { headers });
+  assert.equal(stream.status, 200);
+  assert.equal(stream.headers.get('cache-control'), 'no-store');
+  const content = await stream.text();
+  assert.match(content, /event: terminal/v);
+  assert.match(content, /"unavailable":true/v);
+  assert.match(content, /: heartbeat/v);
+  assert.ok(!content.includes(mesh.token));
+  assert.equal((await fetch(streamUrl, { headers: { ...headers, Origin: 'https://hostile.invalid' } })).status, 403);
+  assert.equal((await fetch(`${streamUrl}&after=1&after=2`, { headers })).status, 400);
+  assert.equal((await fetch(streamUrl, { headers: { ...headers, 'Last-Event-ID': '-1' } })).status, 400);
+  await assert.rejects(rpc(mesh, 'terminal_read', { id, waitMs: 25_001 }), { code: 'INVALID_INPUT' });
 });

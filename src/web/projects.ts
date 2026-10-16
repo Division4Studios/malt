@@ -12,11 +12,13 @@ import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
+import { terminalPageSchema } from '../factory/terminal-reads.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
 import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { Operation } from '../protocol.ts';
 
 /** Public team routing metadata. */
@@ -204,6 +206,21 @@ export class ProjectGateway {
       .array(terminalSessionSchema)
       .max(TERMINAL_HISTORY)
       .parse(await rpc(this.config(id), 'terminal_list', {}));
+  }
+
+  /**
+   * Long-poll transient output through the project-authenticated backend.
+   *
+   * @param project - Explicit operator scope.
+   * @param id - Owned terminal identity.
+   * @param after - Last received sequence.
+   * @param signal - Browser stream cancellation.
+   * @returns Validated bounded replay and current metadata.
+   */
+  public async terminalRead(project: string, id: string, after: number, signal: AbortSignal): Promise<TerminalPage> {
+    return terminalPageSchema.parse(
+      await rpc(this.config(project), 'terminal_read', { id, after, waitMs: 10_000 }, { signal }),
+    );
   }
 
   /**
