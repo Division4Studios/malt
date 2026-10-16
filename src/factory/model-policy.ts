@@ -118,6 +118,14 @@ export const modelPolicySchema = z
   });
 /** Validated explicit policy. */
 export type ModelPolicy = z.output<typeof modelPolicySchema>;
+/** Assignment-local native selection, including its exact evidence revision. */
+export const modelSelectionSchema = z
+  .object({
+    policyRevision: z.number().int().safe().positive(),
+    entry: modelEntrySchema,
+    effort: effortSchema.nullable(),
+  })
+  .strict();
 /** Project authorization is supplied by the existing transport, never the payload. */
 export const modelPolicyUpdateSchema = z
   .object({ expectedRevision: z.number().int().safe().positive().nullable(), policy: modelPolicySchema })
