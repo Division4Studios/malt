@@ -1,5 +1,5 @@
 /** @file Native text-only terminal DOM adapter with bounded numeric CSS classes. */
-import { terminalLink } from './terminal-render-model.ts';
+import { nextTerminalRow, terminalLink } from './terminal-render-model.ts';
 
 import type { TerminalRun, TerminalSurface } from './terminal-render-model.ts';
 import type { TerminalStyle } from './terminal-style.ts';
@@ -154,7 +154,8 @@ export function terminalSurface(root: HTMLElement, liveRegion: HTMLElement): Ter
         row = document.createElement('div');
         row.classList.add('terminal-row');
         nodes.set(index, row);
-        const next = nodes.get(index + 1);
+        const nextIndex = nextTerminalRow(nodes.keys(), index);
+        const next = nextIndex === null ? undefined : nodes.get(nextIndex);
         root.insertBefore(row, next ?? null);
       }
       row.replaceChildren(...runs.map((run) => runNode(run)));

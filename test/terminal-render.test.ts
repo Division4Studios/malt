@@ -4,10 +4,19 @@ import { test } from 'node:test';
 
 import { BLANK_CELL } from '../web/src/terminal-grid.ts';
 import { TerminalParser } from '../web/src/terminal-parser.ts';
-import { TerminalRenderer, terminalLink, terminalRuns } from '../web/src/terminal-render-model.ts';
+import { nextTerminalRow, TerminalRenderer, terminalLink, terminalRuns } from '../web/src/terminal-render-model.ts';
 import { TerminalScreen } from '../web/src/terminal-screen.ts';
 
 import type { TerminalCell } from '../web/src/terminal-grid.ts';
+
+await test('out-of-order dirty rows retain numeric DOM insertion order', () => {
+  const mounted: number[] = [];
+  for (const index of [9, 7, 0, 4, 11, 1]) {
+    const next = nextTerminalRow(mounted, index);
+    mounted.splice(next === null ? mounted.length : mounted.indexOf(next), 0, index);
+  }
+  assert.deepEqual(mounted, [0, 1, 4, 7, 9, 11]);
+});
 
 await test('terminal targets accept only absolute HTTP(S) without controls or userinfo', () => {
   for (const target of [
