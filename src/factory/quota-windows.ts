@@ -5,6 +5,8 @@
  */
 import { z } from 'zod/v3';
 
+import type { Capacity, Provider } from './schema.ts';
+
 /** Time conversion for native Unix-second reset deadlines. */
 const SECOND_MS = 1000;
 /** Maximum normalized quota percentage. */
@@ -271,4 +273,39 @@ function restrictiveQuota(input: (NativeWindow | null)[], now: number): QuotaRea
         usedPercent: Math.min(PERCENT_MAX, selected.usedPercent),
         resetAt: selected.resetsAt === null ? null : selected.resetsAt * SECOND_MS,
       };
+}
+
+/**
+ * Fixed window boundary enclosing a time, used to observe a never-used provider
+ * without inventing a new window on every read.
+ *
+ * @param now - Current time.
+ * @param windowMs - Configured accounting window.
+ * @returns Start of the enclosing fixed window.
+ */
+export function fixedWindowStart(now: number, windowMs: number): number {
+  return Math.floor(now / windowMs) * windowMs;
+}
+
+/**
+ * Accounting record for a provider with no stored usage.
+ *
+ * @param provider - Provider family.
+ * @param start - Window start.
+ * @param windowMs - Configured accounting window.
+ * @returns Empty capacity for that window.
+ */
+export function unusedCapacity(provider: Provider, start: number, windowMs: number): Capacity {
+  return {
+    provider,
+    usedTokens: 0,
+    reservedTokens: 0,
+    resetAt: start + windowMs,
+    cooldownUntil: 0,
+    subscriptionUsedPercent: null,
+    subscriptionResetAt: null,
+    subscriptionWindows: [],
+    telemetrySource: null,
+    updatedAt: start,
+  };
 }
