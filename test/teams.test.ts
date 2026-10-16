@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { ServerResponse } from 'node:http';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -23,6 +24,7 @@ import { z } from 'zod/v3';
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, openTeamConfig, rpc } from '../src/client.ts';
 import { selectOne, valueRowSchema } from '../src/database.ts';
+import { PROJECT_OPERATION_TIMEOUT_MS } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 import { normalizeWorkspace, teamSlug } from '../src/teams.ts';
 
@@ -227,6 +229,23 @@ await test('schema 2 databases migrate to schema 3 with durable identities', (t)
   assert.equal(version?.value, '3');
 });
 
+await test('workspace creation uses the project deadline while ordinary RPC remains short', async (t) => {
+  const config = createProject(createCleanup(t));
+  const deadlines: number[] = [];
+  const timeout = AbortSignal.timeout.bind(AbortSignal);
+  t.mock.method(AbortSignal, 'timeout', (milliseconds: number) => {
+    deadlines.push(milliseconds);
+    return timeout(milliseconds);
+  });
+  t.mock.method(globalThis, 'fetch', async () => {
+    await Promise.resolve();
+    return Response.json({ result: true });
+  });
+  await rpc(config, 'open_team', { workspace: config.root });
+  await rpc(config, 'list_teams', {});
+  assert.deepEqual(deadlines, [PROJECT_OPERATION_TIMEOUT_MS, 5000]);
+});
+
 await test('each workspace has its own team; tokens never cross teams; teams survive restart', async (t) => {
   const defer = createCleanup(t);
   const fixture = await brokerFixture(t);
@@ -236,7 +255,9 @@ await test('each workspace has its own team; tokens never cross teams; teams sur
 
   const alphaRoot = createWorkspace(config, 'Alpha');
   const betaRoot = createWorkspace(config, 'beta');
+  const serverDeadlines = t.mock.method(ServerResponse.prototype, 'setTimeout');
   const alpha = await openTeamConfig(config, pathToFileURL(alphaRoot).href);
+  assert.ok(serverDeadlines.mock.calls.some((call) => call.arguments[0] === PROJECT_OPERATION_TIMEOUT_MS));
   const alphaAgain = await openTeamConfig(config, `${alphaRoot}/`);
   assert.equal(alphaAgain.team, alpha.team);
   assert.equal(alphaAgain.projectId, alpha.projectId);
