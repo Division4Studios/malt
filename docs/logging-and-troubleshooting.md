@@ -56,7 +56,7 @@ The logger intentionally excludes project/agent secrets, message bodies, complet
 
 Confirm the source revision of the running broker and UI, not only the checkout or GitHub PR state. Main `ee75c10` includes the merged recovery/Activity stack; older processes keep their loaded code until deliberately restarted. Follow [safe deployment](operating-malt-on-itself.md#deploy-deliberately), preserve project memory and provider credentials, and pair again when the owning UI restarts. Updating the PWA shell alone cannot upgrade the broker.
 
-A completed GitHub issue does not automatically verify a retained local attempt. For already-delivered work, inspect the exact merge and use **Adopt external merge** with its full commit and a reason; actual-main containment and acceptance verification still follow. Never force a task to Done to clear a historical blocker. See [dispatcher decisions](operator-console.md#dispatcher-decisions).
+A completed GitHub issue does not automatically verify a retained local attempt. If the retained attempt has no recorded merge, inspect the exact external merge and use **Adopt external merge** with its full commit and a reason. If it already has a recorded merge, use **Verify merged main** instead; adoption deliberately rejects an existing merge. Both paths retain actual-main containment and acceptance verification. Never force a task to Done to clear a historical blocker. See [dispatcher decisions](operator-console.md#dispatcher-decisions).
 
 ## A worker is waiting forever
 
