@@ -12,6 +12,8 @@ import { credentialValues } from './authentication.ts';
 
 /** Bound transient decoding and redaction work even for one oversized write. */
 const DECODE_BYTES = 4096;
+/** Tiny writes cannot turn a small text ring into unbounded object/iteration overhead. */
+const MAX_CHUNKS = 4096;
 /** UTF-8 continuation bytes start with these two high bits. */
 const CONTINUATION_MIN = 128;
 /** First byte after the UTF-8 continuation range. */
@@ -37,6 +39,32 @@ export interface TerminalTruncation {
 
 /** Replay content or an explicit gap marker. */
 export type TerminalOutput = TerminalChunk | TerminalTruncation;
+
+/**
+ * Validate materialization limits before touching the retained ring.
+ *
+ * @param limits - Requested page bounds.
+ * @param capacity - Configured text retention ceiling.
+ * @returns Bounds permitting a gap marker and one decoding chunk.
+ * @throws {RangeError} For an impossible page.
+ */
+function replayLimits(
+  limits: { bytes?: number; entries?: number },
+  capacity: number,
+): { bytes: number; entries: number } {
+  const entries = limits.entries ?? MAX_CHUNKS + 1;
+  const bytes = limits.bytes ?? capacity;
+  if (
+    !Number.isSafeInteger(entries) ||
+    entries < 2 ||
+    entries > MAX_CHUNKS + 1 ||
+    !Number.isSafeInteger(bytes) ||
+    bytes < Math.min(capacity, DECODE_BYTES)
+  ) {
+    throw new RangeError('Terminal replay limits must permit one bounded native entry and a gap marker.');
+  }
+  return { bytes, entries };
+}
 
 /**
  * Retain only redacted text, never disk content, input or transport state.
@@ -119,21 +147,39 @@ export class TerminalBuffer {
    * marker. Future cursors return no content. Reading never flushes raw state.
    *
    * @param sequence - Last received cursor, or zero for the stream start.
-   * @returns Independent replay entries in emission order.
+   * @param limits - Bounded materialization; enough byte room for one native decoding chunk.
+   * @returns Independent replay entries in emission order, without scanning discarded history.
    * @throws {RangeError} When the cursor is not a nonnegative safe integer.
    */
-  public readAfter(sequence: number): TerminalOutput[] {
+  public readAfter(sequence: number, limits: { bytes?: number; entries?: number } = {}): TerminalOutput[] {
     if (!Number.isSafeInteger(sequence) || sequence < 0) {
       throw new RangeError('Terminal replay cursor must be a nonnegative safe integer.');
     }
     const output: TerminalOutput[] = [];
+    const { entries: maxEntries, bytes: maxBytes } = replayLimits(limits, this.maxBytes);
     if (sequence < this.evictedThrough) {
       output.push({ type: 'truncated', sequence: this.evictedThrough });
     }
-    for (const chunk of this.chunks.values()) {
-      if (chunk.sequence > sequence) {
-        output.push({ ...chunk });
+    const first = this.chunks.keys().next().value;
+    if (first === undefined) {
+      return output;
+    }
+    let bytes = 0;
+    for (
+      let cursor = Math.max(first, sequence + 1);
+      cursor <= this.sequence && output.length < maxEntries;
+      cursor += 1
+    ) {
+      const chunk = this.chunks.get(cursor);
+      if (chunk === undefined) {
+        continue;
       }
+      const size = Buffer.byteLength(chunk.text);
+      if (bytes + size > maxBytes) {
+        break;
+      }
+      output.push({ ...chunk });
+      bytes += size;
     }
     return output;
   }
@@ -147,8 +193,24 @@ export class TerminalBuffer {
     if (text === '') {
       return;
     }
-    this.sequence += 1;
     const bytes = Buffer.from(text);
+    for (let start = 0; start < bytes.length;) {
+      let end = Math.min(start + DECODE_BYTES, bytes.length);
+      while (end < bytes.length && (bytes[end] ?? 0) >= CONTINUATION_MIN && (bytes[end] ?? 0) < CONTINUATION_END) {
+        end -= 1;
+      }
+      this.storeChunk(bytes.subarray(start, end));
+      start = end;
+    }
+  }
+
+  /**
+   * Store one already-redacted UTF-8 entry within both text and metadata bounds.
+   *
+   * @param bytes - At most one bounded native decoding chunk.
+   */
+  private storeChunk(bytes: Buffer): void {
+    this.sequence += 1;
     let start = Math.max(0, bytes.length - this.maxBytes);
     while (start < bytes.length && (bytes[start] ?? 0) >= CONTINUATION_MIN && (bytes[start] ?? 0) < CONTINUATION_END) {
       start += 1;
@@ -160,7 +222,7 @@ export class TerminalBuffer {
       this.retainedBytes = 0;
       this.evictedThrough = this.sequence;
     }
-    while (this.retainedBytes + retained.length > this.maxBytes) {
+    while (this.retainedBytes + retained.length > this.maxBytes || this.chunks.size >= MAX_CHUNKS) {
       const oldest = this.chunks.values().next().value;
       if (oldest === undefined) {
         break;

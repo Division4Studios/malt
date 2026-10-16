@@ -162,7 +162,7 @@ export class TerminalReads {
     const output: TerminalOutput[] = [];
     let bytes = 0;
     let nextCursor = after;
-    const chunks = buffer === undefined ? [] : buffer.readAfter(after);
+    const chunks = buffer === undefined ? [] : buffer.readAfter(after, { bytes: PAGE_BYTES, entries: PAGE_ENTRIES });
     for (const chunk of chunks) {
       const size = chunk.type === 'data' ? Buffer.byteLength(chunk.text) : 0;
       if (output.length >= PAGE_ENTRIES || bytes + size > PAGE_BYTES) {
