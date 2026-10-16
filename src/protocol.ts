@@ -22,6 +22,7 @@
 import { z } from 'zod/v3';
 
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
+import { terminalSchemas } from './factory/terminal-schema.ts';
 
 import type { FactoryOperation } from './factory/schema.ts';
 
@@ -334,6 +335,7 @@ export class MeshError extends Error {
  * so a typo in a field name is an error instead of a silently dropped value.
  */
 export const schemas = {
+  ...terminalSchemas,
   ...factorySchemas,
   learning_status: z.object({}).strict(),
   learning_record: z

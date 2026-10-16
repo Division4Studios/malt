@@ -48,6 +48,7 @@ import {
   valueRowSchema,
 } from './database.ts';
 import { readEvents } from './event-log.ts';
+import { TERMINAL_OPERATIONS } from './factory/terminal-schema.ts';
 import { log } from './log.ts';
 import {
   AGENT_STATES,
@@ -85,6 +86,7 @@ import type { AgentLifetime, AgentStatus, Handoff, Operation, OperationInput, Op
  * operations span projects, so the broker handles them above any one store.
  */
 const NON_STORE_OPERATIONS = [
+  ...TERMINAL_OPERATIONS,
   ...FACTORY_OPERATIONS,
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,

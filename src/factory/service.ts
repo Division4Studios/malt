@@ -4,7 +4,6 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
@@ -14,7 +13,8 @@ import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { providerPreflight } from './authentication.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
-  recordCancellation,
+  cancelOwnedJob,
+  configureProject,
   shouldParkForMemory,
   recoverUnownedClaims,
   recordScopeFeedback,
@@ -47,7 +47,7 @@ import {
 } from './resources.ts';
 import { routeAssignment } from './routing.ts';
 import { chooseProvider, jobIntents } from './scheduler.ts';
-import { LEASE_MS, PROVIDERS, factoryConfigSchema, factorySchemas } from './schema.ts';
+import { LEASE_MS, PROVIDERS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
@@ -68,6 +68,7 @@ import type { DeliveryRemote } from './remote.ts';
 import type { ResourceProbe } from './resources.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryJob, FactoryOperation } from './schema.ts';
+import type { TerminalOperation } from './terminal-schema.ts';
 import type { TerminalOptions } from './terminals.ts';
 
 /** Unpaid scheduler heartbeat interval. */
@@ -222,6 +223,30 @@ export class FactoryService {
     }
   }
 
+  /**
+   * Operator controls share the sole supervisor lease, never managed-job authority.
+   *
+   * @param operation - Authenticated HTTP-only operation.
+   * @param input - Untrusted wire input.
+   * @returns Project-fenced terminal metadata.
+   * @throws {MeshError} When another broker owns this project's processes.
+   */
+  public async terminalControl(operation: TerminalOperation, input: unknown): Promise<unknown> {
+    if (operation === 'terminal_list') {
+      return this.terminals.control(operation, input);
+    }
+    if (!this.repository.lease(this.owner)) {
+      throw new MeshError('FACTORY_GATED', 'Another supervisor owns this project; reconnect to its console.');
+    }
+    if (!this.hasLease) {
+      recoverUnownedClaims(this.repository, this.running);
+      this.terminals.recover();
+      this.hasLease = true;
+    }
+    this.begin();
+    return this.terminals.control(operation, input);
+  }
+
   /** Heartbeat remains independent of slow network calls and paid turns. */
   public async tick(): Promise<void> {
     if (this.stopped || (!this.repository.active() && this.running.size === 0 && this.terminals.size === 0)) {
@@ -332,7 +357,10 @@ export class FactoryService {
         recordCapacity(this.configured(), parsed);
         return this.status();
       },
-      factory_cancel_job: () => this.controlCancelJob(parsed),
+      factory_cancel_job: async () => {
+        cancelOwnedJob(this.repository, this.running, parsed);
+        return this.status();
+      },
       factory_reorder_objective: () => reorderObjective(this.repository.store, parsed),
       factory_retry: async () => {
         retryBlocked(this.repository, parsed);
@@ -739,34 +767,11 @@ export class FactoryService {
    * @throws {MeshError} When setup, role or task gates reject the request.
    */
   private controlSetup(parsed: unknown): unknown {
-    if (this.repository.active() || this.running.size > 0) {
+    if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
-    const settings = factoryConfigSchema.parse(parsed);
-    this.repository.configure(settings);
+    configureProject(this.mesh, this.repository, parsed);
     this.context = null;
-    installFactorySkills(this.mesh);
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Factory policy and execution artifacts are stored in this project's managed directory.
-    mkdirSync(path.join(this.mesh.directory, 'factory'), { recursive: true, mode: 0o700 });
-    writeAtomic(path.join(this.mesh.directory, 'factory', 'config.json'), `${JSON.stringify(settings, null, 2)}\n`);
-    return this.status();
-  }
-
-  /**
-   * Handle the validated factory_cancel_job operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlCancelJob(parsed: unknown): unknown {
-    const { jobId } = factorySchemas.factory_cancel_job.parse(parsed);
-    const job = this.repository.jobs().find((candidate) => candidate.id === jobId);
-    if (job?.state !== 'running' || !this.running.has(jobId)) {
-      throw new MeshError('FACTORY_GATED', 'Only a live job owned by this supervisor can be cancelled.');
-    }
-    recordCancellation(this.repository, job);
-    this.running.get(jobId)?.controller.abort(new Error('Operator cancelled this attempt; explicit retry required.'));
     return this.status();
   }
 }

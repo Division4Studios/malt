@@ -36,6 +36,7 @@ import http from 'node:http';
 import { z } from 'zod/v3';
 
 import { FactoryService } from './factory/service.ts';
+import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
@@ -55,6 +56,7 @@ import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { FactoryOperation } from './factory/schema.ts';
+import type { TerminalOperation } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
 import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
@@ -375,7 +377,13 @@ function executeOperation(
   context: Team,
   operation: Exclude<
     Operation,
-    FactoryOperation | GitHubOperation | LearningOperation | 'list_teams' | 'open_team' | 'wait_for_work'
+    | FactoryOperation
+    | TerminalOperation
+    | GitHubOperation
+    | LearningOperation
+    | 'list_teams'
+    | 'open_team'
+    | 'wait_for_work'
   >,
   input: unknown,
   credentials: PresentedCredentials | undefined,
@@ -432,6 +440,14 @@ async function handleRpc(
       throw new MeshError('UNKNOWN_OPERATION', 'Team operations are available only on the home project.');
     }
     return operation === 'open_team' ? openWorkspaceTeam(context, input) : listTeams(context.home.config);
+  }
+  if (isTerminalOperation(operation)) {
+    parseInput(operation, input);
+    if (envelope.data.credentials !== undefined) {
+      throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Terminal controls require an operator, never an agent session.');
+    }
+    response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
+    return team.factory.terminalControl(operation, input);
   }
   const credentials = readCredentials(envelope.data.credentials);
 

@@ -4,17 +4,61 @@
  * @file
  */
 
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
+
 import { MeshError } from '../protocol.ts';
+import { writeAtomic } from '../summary.ts';
 
 import { hasCriticalMemoryPressure } from './resources.ts';
-import { factorySchemas } from './schema.ts';
+import { factoryConfigSchema, factorySchemas } from './schema.ts';
+import { installFactorySkills } from './skills.ts';
 import { isCurrentTriage, cancelTriage } from './triage.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { ResourceSnapshot } from './resources.ts';
 import type { FactoryJob } from './schema.ts';
+import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
+
+/**
+ * Persist verified project policy without starting any agent.
+ *
+ * @param mesh - Selected project.
+ * @param repository - Durable policy owner.
+ * @param input - Untrusted operator policy.
+ */
+export function configureProject(mesh: MeshConfig, repository: FactoryRepository, input: unknown): void {
+  const settings = factoryConfigSchema.parse(input);
+  repository.configure(settings);
+  installFactorySkills(mesh);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Private project policy directory.
+  mkdirSync(path.join(mesh.directory, 'factory'), { recursive: true, mode: 0o700 });
+  writeAtomic(path.join(mesh.directory, 'factory', 'config.json'), `${JSON.stringify(settings, null, 2)}\n`);
+}
+
+/**
+ * Cancel only a currently owned managed assignment.
+ *
+ * @param repository - Durable claim owner.
+ * @param running - Live handles in this supervisor.
+ * @param input - Operator request.
+ * @throws {MeshError} For absent or unowned jobs.
+ */
+export function cancelOwnedJob(
+  repository: FactoryRepository,
+  running: ReadonlyMap<string, { controller: AbortController }>,
+  input: unknown,
+): void {
+  const { jobId } = factorySchemas.factory_cancel_job.parse(input);
+  const job = repository.jobs().find((candidate) => candidate.id === jobId);
+  if (job?.state !== 'running' || !running.has(jobId)) {
+    throw new MeshError('FACTORY_GATED', 'Only a live job owned by this supervisor can be cancelled.');
+  }
+  recordCancellation(repository, job);
+  running.get(jobId)?.controller.abort(new Error('Operator cancelled this attempt; explicit retry required.'));
+}
 
 /**
  * Persist explicitly sourced provider telemetry without fabricating a quota.

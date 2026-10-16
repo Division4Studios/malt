@@ -94,7 +94,12 @@ const waitTimeoutSchema = z.object({ timeoutMs: z.number() }).partial();
  * @returns The deadline in milliseconds.
  */
 function deadlineFor(operation: Operation, input: unknown): number {
-  if (operation.startsWith('github_') || operation.startsWith('learning_') || operation.startsWith('factory_')) {
+  if (
+    operation.startsWith('github_') ||
+    operation.startsWith('learning_') ||
+    operation.startsWith('factory_') ||
+    operation.startsWith('terminal_')
+  ) {
     return PROJECT_OPERATION_TIMEOUT_MS;
   }
   if (operation !== 'wait_for_work') {
