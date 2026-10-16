@@ -70,6 +70,27 @@ call GitHub without a capability check. Dependency edges are only reachable afte
 the same plan's `relationships`-gated issue creation. Labels, milestones, views
 and Jira are separate capabilities with their own deliveries.
 
+## Denials in the factory
+
+A `CAPABILITY_DENIED` from the supervisor's outbox, its pre-assignment tracking
+gate or objective provisioning parks the owning scope once, with no retry loop:
+
+- The denied effect is held (never retried) under its identity. A delivery moves
+  to `blocked` and an objective to `blocked`, each with one blocker that names
+  the capability, its mode and the human action. The interrupted phase is
+  remembered as `capabilityBlock`.
+- No assignment is admitted for the parked scope, and no paid blocker
+  investigation is queued for it, because its cause and remedy are already known.
+  Unrelated work keeps dispatching.
+- Every reconcile compares the policy revision. After any policy edit, parked
+  effects are released and parked scopes return to their remembered phase. A
+  still-denied capability parks again with the same single blocker. A human can
+  also resolve the blocker directly with `factory_retry`.
+
+Board status is coalesced per issue by the outbox, so a resumed delivery's
+transition carries the board state of its restored phase. Provisioning resumes
+with the original issue `requestId`s, so it creates no duplicates.
+
 ## Initialization
 
 On first access the store seeds, once, with `migration` history entries:

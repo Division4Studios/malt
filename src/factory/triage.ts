@@ -257,7 +257,13 @@ function adoptMerge(repository: FactoryRepository, input: Input): void {
  */
 export function queueBlockerInvestigations(repository: FactoryRepository): void {
   for (const task of repository.tasks()) {
-    if (task.phase !== 'blocked' || task.scopeReplacement !== undefined || task.merge !== null) {
+    // A capability block already names its human action; diagnosing it would spend a paid turn.
+    if (
+      task.phase !== 'blocked' ||
+      task.scopeReplacement !== undefined ||
+      task.merge !== null ||
+      task.capabilityBlock !== undefined
+    ) {
       continue;
     }
     const prior = selectOne(

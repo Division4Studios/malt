@@ -158,6 +158,30 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
   }
 }
 
+/**
+ * Read the project's latest policy revision without initializing the store.
+ * Parked factory scopes resume when it changes.
+ *
+ * @param store - Project store shared with the broker's policy store.
+ * @returns Highest history ID, or 0 before any policy exists.
+ */
+export function policyRevision(store: Store): number {
+  const table = selectOne(
+    store.db,
+    valueRowSchema,
+    "SELECT name AS value FROM sqlite_master WHERE type='table' AND name='capability_policy_history'",
+  );
+  const latest =
+    table === undefined
+      ? undefined
+      : selectOne(
+          store.db,
+          z.object({ revision: z.number() }),
+          'SELECT COALESCE(MAX(id), 0) AS revision FROM capability_policy_history',
+        );
+  return latest?.revision ?? 0;
+}
+
 /** The policy decision a project's GitHub integration consults before mutating. */
 export type CapabilityGate = Pick<CapabilityPolicyStore, 'authorize' | 'grantConnectionDefaults'>;
 
