@@ -7,7 +7,7 @@ MALT can run its whole delivery loop on one machine. Issues, pull requests, revi
 ```text
 Your machine                                         Leaves the machine
 -----------------------------------------------      ----------------------------
-Delivery manager (supervisor) + broker + console
+Supervisor + delivery manager + broker + console
   product owner → lead → developer → 2 × QA →        model turns, through each
   final tester → merge → verify on main              CLI's own subscription login
 .malt/local/hub.git      protected bare hub
@@ -108,7 +108,7 @@ Copilot has no output-schema flag, so the final message must be a single JSON ob
 
 ## Cloud developer sessions
 
-The delivery manager can send developer assignments to **Codex Cloud** on your ChatGPT subscription, keeping review, merge and verification local:
+The supervisor can send developer assignments to **Codex Cloud** on your ChatGPT subscription, keeping review, merge and verification local:
 
 ```json
 { "cloud": { "developers": "advanced", "environment": "<codex-cloud-environment-id>", "remote": "origin" } }
@@ -141,7 +141,8 @@ Compared with OpenHands (Agent Canvas and the software agent SDK, read on 2026-1
 | OpenHands                                                 | MALT                                                                                                                    |
 | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | Conversations with run, pause, resume and stop            | Objectives and deliveries with start/pause, cancel, retry and recovery; managed roles end after each bounded assignment |
-| Task/delegate tools, child conversations (local or cloud) | A delivery manager running a role team: product owner, lead, two developers, two QA, final tester, learning steward     |
+| A persistent agent conversation you steer                 | The [delivery manager](delivery-manager.md): one resumable session with acknowledged messages and gated tools           |
+| Task/delegate tools, child conversations (local or cloud) | The supervisor running a role team: product owner, lead, two developers, two QA, final tester, learning steward         |
 | Per-conversation git worktrees                            | Owned worktrees per delivery, with dirty-work preservation and archived source                                          |
 | Git changes/diff API and commits drawer                   | Local pull requests with a reviewed diff, gate checks and discussion                                                    |
 | Resolver: issue to PR via GitHub/GitLab/Jira automations  | Local issues to reviewed, merged and verified PRs with no hosted tracker; GitHub Projects optional                      |

@@ -216,6 +216,10 @@ Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` mus
 
 Full queue replacements and `factory-reorder-objective` share the same durable ranks and revision. Either control invalidates stale inputs to the other; relative moves retain the current focus. Existing saved queue order/focus is migrated once without discarding history. Status reads use a deferred read-only SQLite snapshot and do not regenerate the README or reserve the writer lock.
 
+## Delivery manager
+
+**Mission → Manager** is the conversation with the project's persistent delivery manager. The status bar shows its true session state, model, generation, process, last activity and any rate-limit pause, with **Start manager**, **Stop** and **Export transcript**. Every message shows whether it is queued, sent, received, answered or failed; failed messages are never resent automatically. **Needs your decision** lists the manager's questions with one-click answers alongside blocked deliveries, triage, blocked objectives and skill approvals, each naming where to resolve it. **Mission** lists objectives and open deliveries with stage, owner and model, branch and head, progress evidence, possible stalls and next action. The composer keeps its draft and focus across refreshes. See [delivery manager](delivery-manager.md) for authority, efficiency and limits.
+
 ## Mission handoff previews
 
 Mission's **Latest handoffs and messages** panel displays six entries from the bounded `factory_status.handoffs` feed, rather than relabeling generic Activity events. Each native disclosure shows the recorded sender, intended recipient, available issue/stage and purpose, meaningful summary and timestamp. Expand with the pointer, Enter or Space to inspect bounded stored text and assignment context. Missing origins and context stay unavailable; report outcomes and process success never become independent delivery verification. Factory instruction transport is distinguished from the originating worker, and peer messages retain their actual broker sender.
