@@ -239,6 +239,14 @@ Each `factory_status.instructions` entry has a `handoff` field. It is `null` for
 
 Operator-only `adopt_merge` requires a nonempty explanation and `mergeCommit`, the full lowercase 40-character commit SHA. Other actions reject that field. Adoption preserves source identity, worktrees and ownership, clears stale reviews and queues merged-main verification; it grants no historical approval and never marks the delivery complete. Git containment and acceptance checks must pass before closure. Already-closed remote issues retain their original closure reason.
 
+## Operator handoff feed
+
+`factory_status.handoffs` combines at most 40 actual peer messages and explicitly associated manager reports, newest first with stable source-qualified IDs (`message:<seq>` or `report:<instruction-id>`). Each entry includes `kind`, `recordedAt`, recorded `sender`/`recipient`, `transport`, `transportSender`, available `assignment` context, bounded `body`/`summary`, reported `outcome`/`processState`, `truncated` and `verifiedDelivery: false`. Source ties use a deterministic identity ordering. Complete records remain in their original project tables; this is not a new history store.
+
+Manager origins come only from matching structured reporting provenance, checked against the linked durable job's task ID and recorded instruction destination. Reporting instructions are team-wide, so their own task field is not the source-job assignment. Legacy, malformed, oversized or mismatched metadata retains factual destination/job/task associations but exposes unknown origin/outcome as null and `hasOriginEvidence: false`. A factory instruction has no broker sender ID; a peer message retains its actual transport sender even when its prose names another worker. General Activity events and arbitrary instructions never become reports by text matching.
+
+Every added text field is known-secret-redacted and bounded to at most 4,000 UTF-16 units; clipping preserves Unicode pairs and exposes truncation. Reads create no identity, acknowledge no inbox, apply no instruction and launch no process. Existing `factory_status.conversations` remains available for worker-specific peer views. The feed is available through the authenticated factory/snapshot boundary; Mission preview integration is a separate delivery.
+
 ## Operator scratch terminals
 
 Terminal operations require the owning broker's **in-process operator capability**, handed directly to its colocated paired console. Every normal broker RPC attempt is rejected, including project-token calls with omitted agent credentials. They are absent from MCP tools, and lead credentials cannot authorize them. No operator capability is serialized into project memory, logs, browser storage or URLs. The broker continues to reject browser-origin RPC.
