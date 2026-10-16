@@ -451,6 +451,9 @@ async function handleRpc(
     if (team !== context.home) {
       throw new MeshError('UNKNOWN_OPERATION', 'Team operations are available only on the home project.');
     }
+    if (operation === 'open_team') {
+      response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
+    }
     return operation === 'open_team' ? openWorkspaceTeam(context, input) : listTeams(context.home.config);
   }
   if (isTerminalOperation(operation)) {

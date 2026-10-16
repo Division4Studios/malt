@@ -51,6 +51,8 @@ See the official [Codex CLI contract](https://learn.chatgpt.com/docs/developer-c
 
 The combined `--with-broker` lifetime is required for native terminal controls. When switching from separate services, stop both the existing broker for this store and the UI occupying port 4318 before starting it. A separate UI still supports factory/log views but has no terminal capability. Docker already colocates these services.
 
+Opening a selected workspace creates its durable project state and uses the existing bounded two-minute project-operation deadline on client and broker. Ordinary RPC retains its five-second client deadline; request-body/header security limits are unchanged. Slow Windows storage must not turn a successfully created workspace into an ordinary-RPC timeout.
+
 ## Ownership, limits and recovery
 
 The backend's `terminals` policy is separate from subscription quota:
