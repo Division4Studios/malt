@@ -264,7 +264,7 @@ Replay pages also cap the number of entries at 128, independently of their 64 Ki
 
 ## Operator terminal input and resize
 
-Paired browsers use `POST /api/control` with `operation: "terminal_input"` and `input: {id, text}`, or `operation: "terminal_resize"` and `input: {id, columns, rows}`. Both return metadata and numeric counters only. The corresponding broker operations retain the project-token-only authority described above.
+Paired browsers use `POST /api/control` with `operation: "terminal_input"` and `input: {id, text}`, or `operation: "terminal_resize"` and `input: {id, columns, rows}`. Both return metadata and numeric counters only. The gateway invokes these operations through the colocated broker's in-process operator capability described above. Ordinary broker RPC rejects them, including calls using a project token; a separate UI process cannot acquire native terminal authority that way.
 
 Input is accepted only while the owned PTY is running: at most 16 KiB UTF-8 per write, a 64 KiB burst and 16 KiB/second refill. Resizes have an independent 20-event/second allowance and the same 1–500 column / 1–200 row bounds as startup. Rejections leave the session running. Closing/exited sessions reject further input. Accepted input resets idle time; output and resize do not. Keystrokes are never logged, persisted or automatically retried. After an ambiguous network failure, inspect the terminal before deciding whether to send again.
 

@@ -1,31 +1,32 @@
 # Current implementation and remaining work
 
-Audited on **2026-10-15** against main [0325f63](https://github.com/Division4Studios/malt/tree/0325f63). All **95 initially open issues** were examined individually: **27 implemented scopes**, **22 partial scopes**, and **46 queued scopes**. See the [complete issue audit](Issue-audit-2026-10-15) and [live Project](https://github.com/users/Division4Studios/projects/10). This is a dated snapshot, not a completion claim for the entire product.
+Updated **2026-10-16**. Merged main [187dc5a](https://github.com/Division4Studios/malt/tree/187dc5a) includes all 50 PRs in terminal Stack #155 and exactly matches that stack's final source tree. Its clean full check passed **312 tests**. The earlier [95-issue audit](Issue-audit-2026-10-15) remains a dated record; later reconciliation examined all 68 then-open issues and closed 18 verified scopes. These counts do not establish that the entire roadmap is complete.
 
-Documentation Stack #151 subsequently merged at e925bb5, completing #45 and parent #40. The final audit retains #28 for an actual admission-sampling redraw regression and #51 until its state-machine guide correction merges. No historical approval is invented.
+[Recovery/Activity Stack #213, starting at PR #210](https://github.com/Division4Studios/malt/pull/210) adds closed-issue dispatch fencing, explicit external-merge adoption, Docker validation preparation, shared admission rechecks, stable capacity sampling and bounded Activity browsing. The combined check at [Activity PR #224](https://github.com/Division4Studios/malt/pull/224) passed **341 tests**, strict types/lint/format and browser build. Native Chrome checks cover paging, retry, project switches, hostile text and actual Enter/Tab focus behavior. Follow-up PR evidence and current checks remain visible on the stack.
 
-## Implemented
+## Implemented source
 
-- Durable project-local MCP communication, SQLite claims/instructions and restart recovery; idle roles have no model process.
-- Managed subscription CLI delivery, owned worktrees/processes, two QA roles, defect return, expected-head merge and actual-main verification.
-- All-objective queue visibility, durable ordering/focus, existing-delivery clearance and actionable blocker/size-exception decisions.
-- Backward event **API**, durable handoff provenance, observed quota windows/freshness and owned process telemetry.
-- Atomic planning up to 100 meaningful children, focused per-stage skills, lead-reviewed tier/effort metadata and risk/rework floors.
-- GitHub Project URL form, v2 tracker/source records, typed-key migration, capability policy **store**, recommendation **store/classifier**, and terminal **fixture/frames/buffer**.
+- Project-local MCP communication, SQLite claims/instructions, bounded handoffs and restart recovery.
+- Subscription CLI delivery, owned worktrees/processes, independent QA roles, defect return, expected-head merge and actual-main verification gates.
+- Objective ordering/focus, existing-delivery clearance, actionable blocker decisions and head-specific size exceptions.
+- Bounded Activity live/history state and native Older/Retry/Return-to-recent controls, with independent SSE cursors and no persisted browser transcripts.
+- Real operator scratch PTYs, owned scratch branches, browser screen/input/resize, replay bounds, cancellation and restart metadata. Ordinary project-token RPC has no terminal authority.
+- Observed quota windows, CPU/memory/PID telemetry, focused lifecycle skills and reviewed tier/effort metadata.
+- GitHub Project form and tracker/source records; capability and recommendation stores are foundations, not completed connector/approval consoles.
 
 ## Partial or queued
 
-| Feature                                                                           | Remaining boundary                                                                            |
-| --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| [Activity history #12](https://github.com/Division4Studios/malt/issues/12)        | Client paging model and older-page UI; API alone does not provide browsing                    |
-| [Handoffs #17](https://github.com/Division4Studios/malt/issues/17)                | Unified report/message feed and meaningful Mission previews                                   |
-| [Subscription capacity #21](https://github.com/Division4Studios/malt/issues/21)   | Legacy Claude windows and subscription-first presentation                                     |
-| [Parallel capacity #27](https://github.com/Division4Studios/malt/issues/27)       | Admission redraw/focus repair, complete admission UI and deferred-supervisor overlap fixtures |
-| [Model policy #32](https://github.com/Division4Studios/malt/issues/32)            | Revisioned allowed provider/model/effort combinations, enforcement and editor                 |
-| [Project management #50](https://github.com/Division4Studios/malt/issues/50)      | Observed issue corpus, human decision routes/pane, intake/execution/notifications             |
-| [Project connectors #72](https://github.com/Division4Studios/malt/issues/72)      | Discovery, universal capability enforcement, labels/milestones/views, real Jira               |
-| [Interactive terminals #101](https://github.com/Division4Studios/malt/issues/101) | Real PTY host/service, routes, browser screen/input and platform e2e                          |
+| Feature                                                                                 | Remaining boundary                                                                 |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [Handoffs #17](https://github.com/Division4Studios/malt/issues/17)                      | Unified report/message feed and meaningful Mission previews                        |
+| [Subscription capacity #21](https://github.com/Division4Studios/malt/issues/21)         | Legacy Claude windows and subscription-first presentation                          |
+| [Parallel capacity #27](https://github.com/Division4Studios/malt/issues/27)             | Complete admission UI and deferred-supervisor overlap fixtures                     |
+| [Model policy #32](https://github.com/Division4Studios/malt/issues/32)                  | Revisioned allowed provider/model/effort combinations, enforcement and editor      |
+| [Project management #50](https://github.com/Division4Studios/malt/issues/50)            | Observed issue corpus, human decision routes/pane, intake/execution/notifications  |
+| [Project connectors #72](https://github.com/Division4Studios/malt/issues/72)            | Discovery, universal capability enforcement, labels/milestones/views and real Jira |
+| [Progress-aware checkpoints #209](https://github.com/Division4Studios/malt/issues/209)  | Coordinated bounded continuation, real progress/quota evidence and human decisions |
+| [Persistent delivery manager #211](https://github.com/Division4Studios/malt/issues/211) | Always-available primary manager session and complete lifecycle supervision        |
 
-The complete main check passed **236 tests**, strict types/lint/format and web build. The merged stack passed Windows/Linux/macOS, actual Docker/MCP/PWA restart smoke and security/CodeQL checks. Regression inference/GitHub are fixtures; no paid agent was launched for this audit. The pinned official container reports Node **24.22.0 LTS**; the browser has zero production npm dependencies.
+Managed-session terminal attachment is separate from implemented scratch terminals. Complete provider inference/architecture certification, protected-review live delivery and installed-PWA lifecycle/accessibility audits remain unverified. Regression inference/GitHub use fixtures; native process, Git, loopback and Docker boundaries are real. The browser has zero production npm dependencies.
 
-A complete live protected-review delivery, installed-PWA lifecycle/accessibility audit and integrated PTY/provider support remain unverified. A merged PR, passed fixture, closed issue or published wiki does not deploy the running daemon. Use [Operations](Operations) for safe queue/recovery/restart behavior.
+The published wiki, merged source and running daemon are distinct. Recovery/Activity changes require merging and deliberately restarting the matching runtime; the factory remains paused during this manual clearance. No closed source issue fabricates local approvals or automatically reconciles a stale objective ledger. Use [Operations](Operations) for safe recovery/restart and the [live Project](https://github.com/users/Division4Studios/projects/10) for delivery status.
