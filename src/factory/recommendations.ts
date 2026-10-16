@@ -117,7 +117,8 @@ export class RecommendationLedger {
         throw new MeshError('NOT_FOUND', 'The recommendation revision is not available in this project.');
       }
       const recommendation = { ...record, audit: record.audit.slice(-AUDIT_MAX), auditTotal: record.audit.length };
-      const response = { recommendation, contentRevision: record.revision };
+      const contentRevision = digest({ id: record.id, revision: record.revision, state: record.state });
+      const response = { recommendation, contentRevision };
       if (Buffer.byteLength(JSON.stringify(response)) > RECOMMENDATION_DETAIL_MAX) {
         throw new MeshError(
           'FACTORY_GATED',

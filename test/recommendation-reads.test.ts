@@ -122,6 +122,29 @@ await test('paired pages and exact read receipts reject foreign scopes and inter
   assert.equal(after.counts.unread, 0);
   assert.equal(after.contentRevision, before.contentRevision, 'Read counters cannot invalidate stable page content.');
   assert.equal(ledger.get(record.id)?.audit.length, 1);
+  const firstDetail = z
+    .object({ contentRevision: z.string() })
+    .parse(await ledger.inspect({ kind: 'get', id: record.id }));
+  ledger.transition({
+    id: record.id,
+    revision: record.revision,
+    state: 'proposed',
+    next: 'awaiting_human',
+    reason: 'Fixture review queue',
+  });
+  const changedDetail = z
+    .object({ contentRevision: z.string() })
+    .parse(await ledger.inspect({ kind: 'get', id: record.id }));
+  assert.notEqual(
+    changedDetail.contentRevision,
+    firstDetail.contentRevision,
+    'Lifecycle changes invalidate detail content.',
+  );
+  ledger.readReceipt(receipt);
+  const readDetail = z
+    .object({ contentRevision: z.string() })
+    .parse(await ledger.inspect({ kind: 'get', id: record.id }));
+  assert.equal(readDetail.contentRevision, changedDetail.contentRevision, 'Read-only counters stay separate.');
   const unknown = '0'.repeat(64);
   assert.equal((await fetch(`${web.url}/api/recommendation?project=home&id=${unknown}`, { headers })).status, 404);
   assert.equal((await fetch(`${web.url}/api/recommendations?project=foreign`, { headers })).status, 403);
