@@ -56,6 +56,17 @@ await test('bounded terminal replay resumes without duplicates, reports gaps and
   const restarted = new TerminalReads(ledger);
   assert.equal((await restarted.read(id, 0, 0)).unavailable, true);
   await assert.rejects(reads.read(randomUUID(), 0, 0), { code: 'NOT_FOUND' });
+  const fine = new TerminalBuffer(100_000, {});
+  const fineReads = new TerminalReads(ledger);
+  fineReads.attach(id, fine);
+  for (let index = 0; index < 1000; index += 1) {
+    fine.write(Buffer.from('x'));
+  }
+  const tinyPage = await fineReads.read(id, 0, 0);
+  assert.equal(tinyPage.output.length, 128);
+  const nextTinyPage = await fineReads.read(id, tinyPage.nextCursor, 0);
+  assert.equal(nextTinyPage.output.length, 128);
+  assert.ok(nextTinyPage.output.every((chunk) => chunk.sequence > tinyPage.nextCursor));
 });
 
 await test('long polls cap subscribers and release them on cancellation, wake, timeout and exit', async (t) => {
