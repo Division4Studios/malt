@@ -30,6 +30,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
+import { deliveryFor, prepareDelivery } from './local-delivery.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
@@ -40,7 +41,6 @@ import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { reconcile } from './reconcile.ts';
 import { recoverObjective, retryBlocked } from './recovery.ts';
-import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
   ResourceSampler,
@@ -200,7 +200,7 @@ export class FactoryService {
       home: this.options.home,
       repository: this.repository,
       settings,
-      remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
+      remote: this.options.remote ?? deliveryFor(this.mesh, settings, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
@@ -349,7 +349,7 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
-      factory_setup: () => this.controlSetup(parsed),
+      factory_setup: async () => this.controlSetup(parsed),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -755,10 +755,12 @@ export class FactoryService {
    * @returns Durable control result.
    * @throws {MeshError} When setup, role or task gates reject the request.
    */
-  private controlSetup(parsed: unknown): unknown {
+  private async controlSetup(parsed: unknown): Promise<unknown> {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
+    // A rejected local hub remote must leave saved settings unchanged.
+    await prepareDelivery(this.mesh, parsed, this.options.remote !== undefined);
     configureProject(this.mesh, this.repository, parsed);
     this.context = null;
     return this.status();
