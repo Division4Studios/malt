@@ -20,6 +20,7 @@ import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
 import { pendingTriage } from './triage.ts';
+import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
@@ -65,11 +66,7 @@ export async function runChecks(
       cpuPercent: context.settings.resources.jobCpuPercent,
       processLimit: context.settings.resources.jobProcessLimit,
       signal: options.signal,
-      env: {
-        NPM_CONFIG_CACHE: path.join(context.mesh.directory, 'cache', 'npm'),
-        GIT_TERMINAL_PROMPT: '0',
-        GH_PROMPT_DISABLED: '1',
-      },
+      env: validationEnvironment(context.mesh.directory),
     });
     const record = {
       ...command,
