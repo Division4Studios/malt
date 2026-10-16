@@ -96,27 +96,27 @@ public static class MltWindowsJob {
     var stream=new NamedPipeClientStream(".",name.Substring(prefix.Length),PipeDirection.In,PipeOptions.Asynchronous);
     try { stream.Connect(5000); return stream; } catch { stream.Dispose(); throw; }
   }
-  static IntPtr TargetEnvironment(string[] modules) {
+  static IntPtr TargetEnvironment(string[] modules,bool[] present) {
     if(modules==null) return IntPtr.Zero;
     var environment=new SortedDictionary<string,string>(StringComparer.OrdinalIgnoreCase);
     foreach(System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables()) environment[(string)entry.Key]=(string)entry.Value;
     string[] names={"PSModulePath","PSModuleAnalysisCachePath","PSDisableModuleAnalysisCacheCleanup"};
     for(int i=0;i<names.Length;i++) {
-      if(String.IsNullOrEmpty(modules[i])) environment.Remove(names[i]); else environment[names[i]]=modules[i];
+      if(!present[i]) environment.Remove(names[i]); else environment[names[i]]=modules[i];
     }
     var block=new StringBuilder();
     foreach(var entry in environment) block.Append(entry.Key).Append('=').Append(entry.Value).Append('\0');
     block.Append('\0');
     return Marshal.StringToHGlobalUni(block.ToString());
   }
-  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry,string cancel,string owner,string[] modules) {
+  public static int Run(string file,string[] args,string cwd,ulong memoryMb,uint cpuPercent,uint processLimit,string telemetry,string cancel,string owner,string[] modules,bool[] present) {
     using(var lifetime=Owner(owner)) {
     Task<int> disconnected=lifetime==null ? null : lifetime.ReadAsync(new byte[1],0,1);
     IntPtr job=CreateJobObject(IntPtr.Zero,null); if(job==IntPtr.Zero) throw new System.ComponentModel.Win32Exception();
     ProcessInfo pi=new ProcessInfo();
     IntPtr environment=IntPtr.Zero;
     try {
-      environment=TargetEnvironment(modules);
+      environment=TargetEnvironment(modules,present);
       var limits=new ExtendedLimits(); limits.BasicLimitInformation.LimitFlags=0x2000;
       if(processLimit>0) { limits.BasicLimitInformation.LimitFlags|=0x8; limits.BasicLimitInformation.ActiveProcessLimit=processLimit; }
       if(memoryMb>0) { limits.BasicLimitInformation.LimitFlags|=0x200; limits.JobMemoryLimit=new UIntPtr(memoryMb*1048576); }
@@ -147,7 +147,9 @@ public static class MltWindowsJob {
 $telemetry = [System.IO.Path]::Combine([System.IO.Path]::GetDirectoryName($Descriptor), 'resources.json')
 [System.IO.File]::WriteAllText($startup, '{"stage":"entering-native-job"}')
 $modules = $null
+$modulePresent = $null
 if ($null -ne $launch.moduleEnvironment) {
   $modules = [string[]]@($launch.moduleEnvironment.PSModulePath, $launch.moduleEnvironment.PSModuleAnalysisCachePath, $launch.moduleEnvironment.PSDisableModuleAnalysisCacheCleanup)
+  $modulePresent = [bool[]]@(($null -ne $launch.moduleEnvironment.PSModulePath), ($null -ne $launch.moduleEnvironment.PSModuleAnalysisCachePath), ($null -ne $launch.moduleEnvironment.PSDisableModuleAnalysisCacheCleanup))
 }
-exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile, $OwnerPipe, $modules)
+exit [MltWindowsJob]::Run([string]$launch.file, [string[]]$launch.args, [string]$launch.cwd, [uint64]$launch.memoryMb, [uint32]$launch.cpuPercent, [uint32]$launch.processLimit, $telemetry, $CancelFile, $OwnerPipe, $modules, $modulePresent)
