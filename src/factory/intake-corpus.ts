@@ -2,7 +2,7 @@
 import { z } from 'zod/v3';
 
 import { run, selectOne } from '../database.ts';
-import { observedIssueSchema } from '../github-issues.ts';
+import { ISSUE_CORPUS_PAGE_MAX, observedIssueSchema } from '../github-issues.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -12,8 +12,6 @@ import type { FactoryRepository } from './repository.ts';
 const CACHE_MS = 300_000;
 /** Maximum retained observations. */
 const ISSUE_MAX = 1000;
-/** One native page per unpaid call. */
-const PAGE_MAX = 100;
 /** Private metadata wrapper. */
 const rowSchema = z.object({ value: z.string() });
 /** Native corpus progress is separate from human recommendation state. */
@@ -83,7 +81,7 @@ export async function intakeCorpus(
     );
   }
   const page = await context.remote.issueCorpus({
-    limit: Math.min(PAGE_MAX, ISSUE_MAX - current.items.length),
+    limit: Math.min(ISSUE_CORPUS_PAGE_MAX, ISSUE_MAX - current.items.length),
     cursor: current.cursor,
   });
   if ((currentRepository(context.remote) ?? page.repositoryId) !== page.repositoryId) {
@@ -99,11 +97,12 @@ export async function intakeCorpus(
   for (const item of page.items) {
     items.set(item.number, observedIssueSchema.parse(item));
   }
+  const isComplete = page.complete && items.values().every((item) => item.complete);
   const next = intakeCorpusSchema.parse({
     items: items.values().toArray(),
     cursor: page.nextCursor,
-    complete: page.complete && items.values().every((item) => item.complete),
-    checkedAt: current.checkedAt,
+    complete: isComplete,
+    checkedAt: isComplete ? now : current.checkedAt,
     repositoryId: page.repositoryId,
   });
   saveIntakeMetadata(repository, 'pm_intake_corpus', next);
@@ -128,9 +127,22 @@ export type IntakeCorpus = z.output<typeof intakeCorpusSchema>;
  * @returns Reusable progress or a new empty scoped observation campaign.
  */
 function startingCheckpoint(prior: IntakeCorpus | null, now: number, expected: string | null): IntakeCorpus {
-  return prior !== null && prior.checkedAt + CACHE_MS > now && (expected === null || prior.repositoryId === expected)
+  return prior !== null &&
+    (!prior.complete || isIntakeEvidenceFresh(prior.checkedAt, now)) &&
+    (expected === null || prior.repositoryId === expected)
     ? prior
     : { items: [], cursor: null, complete: false, checkedAt: now, repositoryId: expected };
+}
+
+/**
+ * Bound completed observation age, including conservative clock-rollback handling.
+ *
+ * @param checkedAt - Committed completion time.
+ * @param now - Current project clock.
+ * @returns Whether complete evidence may still authorize an intake inspection.
+ */
+export function isIntakeEvidenceFresh(checkedAt: number, now: number): boolean {
+  return checkedAt <= now && now - checkedAt < CACHE_MS;
 }
 
 /**

@@ -9,6 +9,7 @@ import { intakeCorpus, readIntakeMetadata, saveIntakeMetadata } from '../src/fac
 import { deliveryOperationIdentity, readProvisioningOperations } from '../src/factory/provisioning-identity.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
+import { ISSUE_CORPUS_PAGE_MAX, readIssueCorpus } from '../src/github-issues.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { Store } from '../src/store.ts';
 
@@ -16,12 +17,13 @@ import { readObservation } from './fixtures/recommendations.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
 /** Fixture read requests must retain the saved cursor across process replacement. */
-const inputSchema = z.object({ cursor: z.unknown(), limit: z.number() });
+const inputSchema = z.object({ cursor: z.unknown(), limit: z.number().max(ISSUE_CORPUS_PAGE_MAX) });
 
 await test('bounded corpus resumes its scoped page after SQLite restart and rejects incomplete or changed sources', async (t) => {
   const defer = createCleanup(t);
   const mesh = createProject(defer);
-  let store = new Store(mesh);
+  let clock = Date.now();
+  let store = new Store(mesh, { now: () => clock });
   defer(() => {
     store.close();
   });
@@ -51,12 +53,14 @@ await test('bounded corpus resumes its scoped page after SQLite restart and reje
   };
   assert.equal(await intakeCorpus({ repository, remote }), null);
   assert.equal(reads, 1, 'One call starts only one native page.');
+  clock += 600_000;
   store.close();
-  store = new Store(mesh);
+  store = new Store(mesh, { now: () => clock });
   repository = new FactoryRepository(store);
   const complete = await intakeCorpus({ repository, remote });
   assert.equal(complete?.complete, true);
   assert.equal(complete.items.length, 1, 'Repeated issue observations are retained once.');
+  assert.equal(complete.checkedAt, clock, 'Completed freshness starts when the campaign completes.');
   assert.deepEqual(await intakeCorpus({ repository, remote }), complete);
   assert.equal(reads, 2, 'Fresh completed observations do not spawn repeated native commands.');
   remote.issueRepositoryId = () => 'reconnected-repository';
@@ -105,5 +109,39 @@ await test('native operation inspection reads original unresolved identities wit
     id,
     'delivery-a9e52c2298353239822194553373cdd8',
     'Captured from the original provisioning identity algorithm.',
+  );
+});
+
+await test('intake uses the production issue-reader input contract and scoped open/closed continuation', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const remote = new GitHubDelivery(mesh, new ProjectGitHub(mesh));
+  remote.issueRepositoryId = () => 'R_fixture';
+  let nativeReads = 0;
+  remote.issueCorpus = async (input) => {
+    return readIssueCorpus(
+      async (_query, variables) => {
+        const requested = z.object({ limit: z.number().max(ISSUE_CORPUS_PAGE_MAX) }).parse(variables);
+        assert.equal(requested.limit, ISSUE_CORPUS_PAGE_MAX);
+        nativeReads += 1;
+        return await delay(0, {
+          node: { id: 'R_fixture', issues: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } } },
+        });
+      },
+      'R_fixture',
+      input,
+    );
+  };
+  assert.equal(await intakeCorpus({ repository, remote }), null);
+  assert.equal((await intakeCorpus({ repository, remote }))?.complete, true);
+  assert.equal(
+    nativeReads,
+    2,
+    'Both production-validated issue phases execute once without paid inference or a live GitHub call.',
   );
 });

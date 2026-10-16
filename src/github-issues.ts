@@ -8,7 +8,7 @@ import { MeshError } from './protocol.ts';
 import type { SourceConnection } from './connector.ts';
 
 /** Finite pages; the native runner independently enforces its response byte ceiling. */
-const PAGE_MAX = 10;
+export const ISSUE_CORPUS_PAGE_MAX = 10;
 /** Native nested relationships are independently bounded and report truncation. */
 const RELATED_MAX = 100;
 /** GitHub issue bodies are bounded before observation or hashing. */
@@ -96,7 +96,7 @@ const cursorSchema = z
 /** Bounded page request; callers decide how many pages their intake budget permits. */
 const pageInputSchema = z
   .object({
-    limit: z.number().int().min(1).max(PAGE_MAX).default(PAGE_MAX),
+    limit: z.number().int().min(1).max(ISSUE_CORPUS_PAGE_MAX).default(ISSUE_CORPUS_PAGE_MAX),
     cursor: cursorSchema.nullable().optional(),
     closedSince: z.number().int().safe().positive().optional(),
   })
@@ -124,7 +124,10 @@ const ONE_QUERY = `query MaltObservedIssue($id:ID!,$number:Int!){node(id:$id){..
 /** Explicit native cursor progress. */
 const pageInfoSchema = z.object({ hasNextPage: z.boolean(), endCursor: z.string().min(1).max(CURSOR_MAX).nullable() });
 /** Bounded issue page within the verified repository. */
-const issuePageSchema = z.object({ nodes: z.array(nativeIssueSchema).max(PAGE_MAX), pageInfo: pageInfoSchema });
+const issuePageSchema = z.object({
+  nodes: z.array(nativeIssueSchema).max(ISSUE_CORPUS_PAGE_MAX),
+  pageInfo: pageInfoSchema,
+});
 /** Repository node envelope, absent for inaccessible or deleted sources. */
 const repositoryPageSchema = z.object({ id: z.string(), issues: issuePageSchema });
 /** Validate the page before iterating or retaining any response data. */
