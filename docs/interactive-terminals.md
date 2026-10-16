@@ -19,9 +19,7 @@ Install Node 24, Git and the intended subscription-authenticated provider CLI. F
 ```powershell
 npm ci --ignore-scripts
 npm run build:web
-node src/cli.ts start --project "C:\work\target" --port 4319
-# In a second console, using the same checkout and target:
-node src/cli.ts ui --project "C:\work\target" --port 4318
+node src/cli.ts ui --with-broker --project "C:\work\target" --port 4318
 ```
 
 Pair at `http://127.0.0.1:4318/` using the code printed by `malt ui`. Configure the target repository's actual GitHub connection, base branch and enabled providers using [the operator guide](operator-console.md). On Windows use the actual native `.exe` path, not an npm `.cmd` shim; administrator elevation is not required. Typical installed paths are `C:\Users\<user>\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe` and `C:\Users\<user>\.local\bin\claude.exe`; verify your installation instead of copying another user's path.
@@ -51,6 +49,8 @@ These interactive permissions differ from bounded managed assignments. Neither t
 
 See the official [Codex CLI contract](https://learn.chatgpt.com/docs/developer-commands), [Codex configuration reference](https://learn.chatgpt.com/docs/config-file/config-reference) and [Claude CLI reference](https://code.claude.com/docs/en/cli-reference). Installed help is checked for the pinned versions. Codex interactive mode has no supported `--ephemeral` equivalent; provider-owned session records/settings/diagnostics may remain in its home. Claude's prompt-history exclusion does not promise that the vendor writes no diagnostics. MALT does not copy provider credentials or vendor session histories into project memory.
 
+The combined `--with-broker` lifetime is required for native terminal controls. When switching from separate services, stop both the existing broker for this store and the UI occupying port 4318 before starting it. A separate UI still supports factory/log views but has no terminal capability. Docker already colocates these services.
+
 ## Ownership, limits and recovery
 
 The backend's `terminals` policy is separate from subscription quota:
@@ -76,31 +76,31 @@ SQLite retains session metadata and counters, not keystrokes or transcripts. Gra
 ```mermaid
 flowchart LR
   Operator[Paired browser] -->|HttpOnly cookie / same origin| Gateway[Loopback PWA gateway]
-  Gateway -->|Backend project credential only| Service[TerminalService]
+  Gateway -->|Memory-only operator capability| Service[TerminalService]
   Service --> Lease[Shared admission lease]
   Service --> Scratch[Owned scratch worktree]
   Service --> Host[Contained native PTY host]
   Host --> CLI[Subscription CLI]
   CLI --> Redact[Streaming redaction / bounded RAM]
   Redact -->|Cursor SSE| Operator
-  Agent[Managed MCP agent] -->|Rejected| Service
+  Agent[Managed MCP agent / project-token RPC] -->|Rejected| Service
 ```
 
-The existing browser-origin broker RPC rejection remains intact. Terminal controls require a paired operator, authorized project, exact session and validated schemas. Presented agent credentials are rejected, including the lead's; these operations are absent from MCP tools. Host, Origin and Fetch Metadata checks, private `no-store` responses, restrictive CSP and project fences apply. The service worker caches only public shell assets, never authenticated API responses or output.
+The existing browser-origin broker RPC rejection remains intact. Terminal controls require a paired operator, authorized project, exact session and validated schemas. All ordinary terminal RPC is rejected, including project-token calls with omitted agent credentials. The owning broker supplies a nonserializable project-scoped function capability to its colocated gateway, revoked on shutdown. It is never persisted or sent to the browser. These operations are absent from MCP tools. Host, Origin and Fetch Metadata checks, private `no-store` responses, restrictive CSP and project fences apply. The service worker caches only public shell assets, never authenticated API responses or output.
 
-| Boundary          | Enforced limit                                                      |
-| ----------------- | ------------------------------------------------------------------- |
-| Native frame body | 64 KiB                                                              |
-| Redacted replay   | 256 KiB per buffer; live sessions plus last three ended buffers     |
-| Read page         | 64 KiB text and 128 entries; long poll at most 25 seconds           |
-| Subscribers       | Two polls/session; eight terminal SSE streams globally, two/session |
-| SSE connection    | 120-second lifetime, bounded write/drain and reconnect backoff      |
-| Native input      | 16 KiB UTF-8/write; 16 KiB/second with 64 KiB burst                 |
-| Native resize     | 20/second; 1–500 columns and 1–200 rows                             |
+| Boundary          | Enforced limit                                                       |
+| ----------------- | -------------------------------------------------------------------- |
+| Native frame body | 64 KiB                                                               |
+| Redacted replay   | 256 KiB / 4096 chunks per buffer; live plus last three ended buffers |
+| Read page         | 64 KiB text and 128 entries; long poll at most 25 seconds            |
+| Subscribers       | Two polls/session; eight terminal SSE streams globally, two/session  |
+| SSE connection    | 120-second lifetime, bounded write/drain and reconnect backoff       |
+| Native input      | 16 KiB UTF-8/write; 16 KiB/second with 64 KiB burst                  |
+| Native resize     | 20/second; 1–500 columns and 1–200 rows                              |
 
 Input/output never enters request logs, SQLite, browser storage or service-worker caches. Numeric counts and state transitions are durable. Streaming redaction covers known credential values and split secret patterns, but cannot identify every arbitrary secret a user types or a provider prints: treat the local screen as private. ANSI controls are parsed as a bounded subset, not executed as HTML or browser commands. Title/clipboard/device/image controls do not grant browser authority; links permit validated HTTP(S) only.
 
-Evicted output produces an explicit gap warning. Backend restart produces replay-unavailable metadata. Neither is a complete terminal recording; repaint after a gap/resize may require native redraw. Unicode width is approximate; this renderer is not full xterm/grapheme/mouse/device emulation. Two panes, capture controls and read-only recent scrollback are supported; attaching to managed jobs, persistent transcripts and arbitrary remote shells are excluded.
+Evicted output produces an explicit gap warning. Backend restart produces replay-unavailable metadata. Neither is a complete terminal recording; repaint after a gap/resize may require native redraw. Unicode width is approximate; this renderer is not full xterm/grapheme/mouse/device emulation. Emoji ZWJ families and skin-tone sequences can occupy more columns than the provider expects; use ordinary text when precise alignment matters. Two panes, capture controls and read-only recent scrollback are supported; attaching to managed jobs, persistent transcripts and arbitrary remote shells are excluded.
 
 ## Executed support evidence
 
@@ -126,6 +126,8 @@ node --test test/terminal-preview.ts
 ```
 
 The optional preview prints a new loopback URL/code and visibly names its token-free project. It substitutes only the native provider with the fixed Node PTY fixture and rejects every inference-runner call. Production pairing codes must remain private.
+
+Replay reads materialize only the bounded requested page. Exited sessions drain through an empty final page. Open recent scrollback follows the current bounded display. Releasing focus stops new key capture while already-authorized keys remain ordered ahead of explicit Tab/Escape controls; disconnecting or changing scope discards unsent input.
 
 ## Dependency and platform maintenance
 
