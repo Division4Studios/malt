@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
-
 import { log } from '../log.ts';
 import { MeshError } from '../protocol.ts';
 
