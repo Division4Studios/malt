@@ -1,5 +1,7 @@
 # Project coordination and learning
 
+Claude's supported completed-stream rate-limit observations retain unified windows and an explicit `legacy-reported` window for scalar utilization. Legacy duration and missing reset deadlines remain unknown; zero usage is an actual observation. Observations use completion-read time, not inferred live-event time. Credit/API balances never become subscription quota. Expired or malformed windows cannot refresh allowance; persisted observation timestamps age independently of token accounting.
+
 The [current capability map](current-status.md) and [95-issue audit](issue-audit-2026-10-15.md) distinguish implemented foundations from unfinished integrations.
 
 MALT is an MCP server used by independent Claude and Codex sessions. Its own source repository is not the project those sessions are delivering. The session's workspace selects the team, its local `.malt` directory, its GitHub Project connection and its skill library.
