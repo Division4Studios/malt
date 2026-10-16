@@ -4,7 +4,9 @@
  * @file
  */
 import { organizationRevision } from './organization.ts';
+import { resolvePolicy } from './policy-routing.ts';
 
+import type { FactoryContext } from './context.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryConfig, FactoryJob, FactoryTask, Provider } from './schema.ts';
 
@@ -102,6 +104,7 @@ export function routeAssignment(context: {
   provider: Provider;
   settings: FactoryConfig;
   task: FactoryTask | null;
+  versions?: FactoryContext['providerVersions'];
 }): NonNullable<FactoryJob['routing']> {
   const decision = taskTier(context.intent, context.task);
   const member = context.settings.organization.members[context.intent.role];
@@ -110,13 +113,19 @@ export function routeAssignment(context: {
   const floor = profile?.minimumTier ?? 'small';
   const tier = tiers.indexOf(floor) > tiers.indexOf(decision.tier) ? floor : decision.tier;
   const provider = context.settings.providers[context.provider];
-  const { model, effort } = resolveProfile(provider, context.task, context.intent.role, tier);
+  const legacy = resolveProfile(provider, context.task, context.intent.role, tier);
+  const selected = resolvePolicy({
+    ...legacy,
+    settings: context.settings,
+    provider: context.provider,
+    tier,
+    versions: context.versions,
+  });
   return {
     ...decision,
     tier,
-    model,
-    effort,
-    reason: routingReason(decision.reason, tier !== decision.tier, floor, model),
+    ...selected,
+    reason: routingReason(decision.reason, tier !== decision.tier, floor, selected.model),
     skillNames: [
       ...new Set([
         SHARED_SKILL,
