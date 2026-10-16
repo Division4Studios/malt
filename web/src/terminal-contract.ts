@@ -181,3 +181,23 @@ export function terminalPage(value: unknown, expected: { id: string; after: numb
 export function hasTerminalEnded(page: TerminalPage): boolean {
   return page.unavailable || !ACTIVE.has(page.session.state);
 }
+
+/**
+ * Validate a bounded project-scoped metadata list before creating native controls.
+ *
+ * @param value - Untrusted gateway response.
+ * @returns Unique validated session observations.
+ * @throws {TypeError} For malformed, oversized or duplicate identities.
+ */
+export function terminalViews(value: unknown): TerminalView[] {
+  const maximum = 100;
+  if (!Array.isArray(value) || value.length > maximum) {
+    throw new TypeError('Invalid terminal session list.');
+  }
+  const sessions = value.map((entry: unknown) => terminalView(entry));
+  const identities = new Set(sessions.map((session) => session.id));
+  if (identities.size !== sessions.length) {
+    throw new TypeError('Duplicate terminal session.');
+  }
+  return sessions;
+}
