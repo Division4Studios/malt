@@ -654,6 +654,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: persist instructions for a role, optionally for a specific task. Interrupt its current pipeline safely and deliver the instruction on its next assignment. Set replan for scope changes requiring product-owner and team-lead planning.',
   factory_status:
     'Inspect live project jobs, parked roles, delivery stages, review gates, resource pressure and provider capacity. Unknown subscription quota remains unknown.',
+  factory_recommendation_propose:
+    'Live managed product owner or team lead only: submit a bounded evidence-backed recommendation with a stable key and exact observed native issue revisions. Queue it for human review; never approve or execute it.',
   factory_recommendations:
     'Read a bounded current-project recommendation page or exact historical detail. This does not acknowledge, approve or execute a proposal.',
   factory_recommendation_read:

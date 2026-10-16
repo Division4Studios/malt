@@ -1,6 +1,8 @@
 /** @file Bounded recommendation content/state contracts; historical public exports stay compatible. */
 import { z } from 'zod/v3';
 
+import { observedIssueSchema } from './recommendation-read-schema.ts';
+
 /** Maximum descriptive proposal field. */
 const TEXT_MAX = 32_000;
 /** Opaque bounded proposal key. */
@@ -12,10 +14,6 @@ const textSchema = z.string().min(1).max(TEXT_MAX);
 const RECOMMENDATION_ITEMS = 100;
 /** Opaque project, issue revision and assignment identifiers. */
 const recommendationKey = z.string().min(1).max(TITLE_MAX);
-/** One observed issue identifier and freshness token. */
-const observedIssueSchema = z
-  .object({ issue: z.number().int().safe().positive(), revision: recommendationKey })
-  .strict();
 /** Exact, bounded proposal content; no ticket body snapshots are retained. */
 export const recommendationBodySchema = z
   .object({

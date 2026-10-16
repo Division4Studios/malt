@@ -144,6 +144,12 @@ Authenticated `GET /api/recommendations?project=ID&limit=20&after=HASH` lists cu
 
 Only an explicit paired operator `POST /api/recommendation/read?project=ID` with `{ "id": "HASH", "revision": "HASH" }` marks the exact current revision read. This is idempotent and neither approves nor executes it. Missing/foreign IDs, stale receipts, duplicate/unrelated query fields and unauthorized origins/projects fail without mutation. The underlying MCP operations are `mesh_factory_recommendations` (`kind: "list"` or `"get"`) and human-only `mesh_factory_recommendation_read`; agent credentials cannot change human read receipts. The existing broker ledger is authoritative across restart. Decision and execution controls remain separate deliveries.
 
+### Managed recommendation submissions
+
+`mesh_factory_recommendation_propose({key, proposal})` is exposed to managed product-owner and team-lead sessions only. A current unexpired claim and active factory are required. Proposals use the bounded recommendation body with one exact SHA-256 issue-corpus revision per referenced ticket. The server redacts current project/job credentials from prose, caps the canonical body at 128 KiB and permits at most twenty submissions per assignment. Provenance names the authenticated role and original assignment; callers cannot supply those identities.
+
+The project ledger moves new proposals to `awaiting_human` and leaves them unread. A stable per-job key returns its original receipt on replay; changed content under that key is refused. Identical content retains its canonical recommendation identity across roles, without reactivating rejected or completed content. The receipt's `recordedState` describes submission time; inspect the ledger for current state. This tool neither decides nor executes a recommendation, creates no remote effect, and does not change planner/provider result schemas. Developer, QA, unmanaged, expired, paused and foreign-project sessions cannot submit.
+
 ### Read-only issue corpus foundation
 
 `ProjectGitHub.issues()` and `GitHubDelivery.issueCorpus` / `observedIssue` expose internal read capabilities for the selected connection's verified repository node. Legacy or unverified source identity requires reconnecting first. This foundation adds no ticket mutation, detector, work queue or public operator control.

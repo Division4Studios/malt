@@ -1,6 +1,12 @@
 /** @file Bounded recommendation inspection/read receipts, separate from human decisions. */
 import { z } from 'zod/v3';
 
+/** Maximum external freshness-token length; matches bounded proposal identifiers. */
+const REVISION_MAX = 200;
+/** One native issue and its observed revision, shared by proposal and inspection boundaries. */
+export const observedIssueSchema = z
+  .object({ issue: z.number().int().safe().positive(), revision: z.string().min(1).max(REVISION_MAX) })
+  .strict();
 /** Finite operator pages; large private proposal bodies are inspected individually. */
 export const RECOMMENDATION_PAGE_MAX = 20;
 /** Bounded inline detail; oversized historical records remain preserved in the ledger. */

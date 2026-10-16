@@ -522,6 +522,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (
     operation !== 'factory_status' &&
     operation !== 'factory_recommendations' &&
+    operation !== 'factory_recommendation_propose' &&
     operation !== 'factory_read_source' &&
     operation !== 'factory_progress' &&
     actor !== team.store.coordination.leadId()
