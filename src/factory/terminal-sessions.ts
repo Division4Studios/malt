@@ -139,13 +139,13 @@ export class TerminalSessions {
   /**
    * Read a bounded page of recent metadata, without terminal content.
    *
-   * @returns At most the latest hundred session records.
+   * @returns At most a hundred records, active sessions first, then recent history.
    */
   public list(): TerminalSession[] {
     return selectAll(
       this.store.db,
       terminalSessionSchema,
-      `SELECT ${COLUMNS} FROM terminal_sessions WHERE project = ? ORDER BY createdAt DESC, id LIMIT 100`,
+      `SELECT ${COLUMNS} FROM terminal_sessions WHERE project = ? ORDER BY state IN ('requested','starting','running','closing') DESC, createdAt DESC, id LIMIT 100`,
       this.project,
     );
   }

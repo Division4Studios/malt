@@ -1,6 +1,7 @@
 /** @file Terminal admission and scratch ownership with real Git and token-free native fixtures. */
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -14,11 +15,44 @@ import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject, until } from './helpers.ts';
+import { terminalProject } from './terminal-project.ts';
 
 import type { TerminalProcess } from '../src/factory/terminal-process.ts';
 
 const request = { provider: 'codex' as const, columns: 80, rows: 24 };
 const healthy = { freeMemoryMb: 20_000, totalMemoryMb: 32_000, cpuPercent: 0 };
+
+await test('failed worktree creation intents cannot permanently exhaust terminal retention', async (t) => {
+  const { mesh, workspaces, repository, defer } = await terminalProject(t);
+  for (let index = 0; index < 3; index += 1) {
+    const id = randomUUID();
+    await assert.rejects(workspaces.create(`terminal-${id}`, 'f'.repeat(40), `malt/terminal/${id}`, false));
+  }
+  const intents = workspaces.terminalTrees();
+  assert.equal(intents.length, 3);
+  for (const intent of intents) {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only failed test-owned worktree creation intents are inspected.
+    assert.equal(existsSync(intent.directory), false);
+  }
+  const service = new TerminalService(mesh, repository, {
+    pool: new AdmissionPool(),
+    resources: () => healthy,
+    preflight: async () => {
+      await Promise.resolve();
+    },
+    inspectMcp: async () => {
+      await Promise.resolve();
+      return [];
+    },
+    spawn: (spec) => startTerminalProcess({ ...spec, fixture: true }),
+  });
+  defer(async () => service.closeAll('test cleanup', true));
+  const session = await service.start(request);
+  await until(() => repository.terminals.get(session.id)?.state === 'running', 30_000);
+  assert.equal(workspaces.terminalTrees().length, 3);
+  assert.ok(workspaces.terminalTrees().some((entry) => entry.directory === session.worktree));
+  assert.equal((await service.close(session.id)).state, 'exited');
+});
 
 /**
  * Reassemble safe native output independently of arbitrary PTY/redaction chunking.

@@ -25,6 +25,7 @@ import {
 import { enqueueDelivery } from './enqueue.ts';
 import { executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
+import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -53,6 +54,7 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
+import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
 import { WorkspaceManager } from './workspaces.ts';
@@ -228,12 +230,14 @@ export class FactoryService {
    *
    * @param operation - Authenticated HTTP-only operation.
    * @param input - Untrusted wire input.
+   * @param signal - Exact operator read lifetime.
    * @returns Project-fenced terminal metadata.
    * @throws {MeshError} When another broker owns this project's processes.
    */
-  public async terminalControl(operation: TerminalOperation, input: unknown): Promise<unknown> {
-    if (operation === 'terminal_list') {
-      return this.terminals.control(operation, input);
+  public async terminalControl(operation: TerminalOperation, input: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (operation === 'terminal_list' || operation === 'terminal_read') {
+      recoverTerminalMetadata(this.repository, this.terminals, this.owner, this.hasLease);
+      return this.terminals.control(operation, input, signal);
     }
     if (!this.repository.lease(this.owner)) {
       throw new MeshError('FACTORY_GATED', 'Another supervisor owns this project; reconnect to its console.');
@@ -389,11 +393,7 @@ export class FactoryService {
   private begin(): void {
     this.configured();
     this.stopped = false;
-    this.timer ??= setInterval(() => {
-      void this.tick();
-    }, TICK_MS);
-    this.timer.unref();
-    void this.tick();
+    this.timer = heartbeat(this.timer, TICK_MS, this.tick.bind(this));
   }
 
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */

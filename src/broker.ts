@@ -762,9 +762,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
         throw new MeshError('NOT_FOUND', 'The selected project is not owned by this broker.');
       }
       parseInput(operation, input);
-      return operation === 'terminal_read'
-        ? team.factory.terminals.control(operation, input, signal)
-        : team.factory.terminalControl(operation, input);
+      return team.factory.terminalControl(operation, input, signal);
     },
     store,
     server,
