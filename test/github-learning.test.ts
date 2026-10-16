@@ -469,7 +469,9 @@ await test('the actual factory delivery adapter provisions a valid native featur
   });
   remote.shouldLoseDependencyResponse = true;
   let store = new Store(config);
-  defer(() => { store.close(); });
+  defer(() => {
+    store.close();
+  });
   let repository = new FactoryRepository(store);
   adapter.issueRepositoryId = () => 'R_provisioning_fixture';
   const checkpoint = (
