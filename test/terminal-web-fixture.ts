@@ -55,6 +55,8 @@ export interface TerminalWebFixture {
     after: number,
     shouldAccept: (page: TerminalPage, text: string) => boolean,
   ) => Promise<Evidence>;
+  /** Idempotently close the actual HTTP/broker lifecycle before an explicit restart. */
+  readonly close: () => Promise<void>;
 }
 
 /**
@@ -144,10 +146,20 @@ export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFix
       };
     },
   });
-  project.defer(async () => broker.close());
+  let brokerClosing: Promise<void> | null = null;
+  const closeBroker = async (): Promise<void> => {
+    brokerClosing ??= broker.close();
+    await brokerClosing;
+  };
+  project.defer(closeBroker);
   const mesh = { ...project.mesh, url: brokerUrl(broker.port) };
   const web = await startWebConsole(mesh, 0);
-  project.defer(async () => web.close());
+  let webClosing: Promise<void> | null = null;
+  const closeWeb = async (): Promise<void> => {
+    webClosing ??= web.close();
+    await webClosing;
+  };
+  project.defer(closeWeb);
   const pair = await fetch(`${web.url}/api/pair`, {
     method: 'POST',
     headers: { Origin: web.url, 'Content-Type': 'application/json' },
@@ -204,5 +216,12 @@ export async function terminalWebFixture(t: TestContext): Promise<TerminalWebFix
     }
   }
 
-  return { broker, mesh, web, headers, pids, pool, timers, control, read };
+  const close = async (): Promise<void> => {
+    try {
+      await closeWeb();
+    } finally {
+      await closeBroker();
+    }
+  };
+  return { broker, mesh, web, headers, pids, pool, timers, control, read, close };
 }
