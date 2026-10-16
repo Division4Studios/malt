@@ -85,8 +85,10 @@ The current worker workspaces display real process logs and durable messages;
 they are not interactive terminals. The separately queued terminal feature
 requires real native PTY/ConPTY integration, authenticated project/job fencing,
 input and resize, bounded buffers and reconnect cursors, resource admission,
-owned descendant cleanup, and native subscription authentication. Backend
-dependencies may be justified; the browser stays dependency-free.
+owned descendant cleanup, and native subscription authentication. The native
+PTY requirement is met by the exactly pinned, contained `node-pty` backend
+package; no other runtime package is permitted and the browser stays
+dependency-free. See the [dependency policy](dependency-policy.md).
 
 Live output, agent conversation/instructions and interactive terminal input
 must be distinct controls. An idle role does not acquire a process merely to
