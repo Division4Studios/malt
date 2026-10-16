@@ -17,6 +17,47 @@ export const MODEL_TIERS = ['small', 'standard', 'advanced'] as const;
 export const effortSchema = z.enum(['low', 'medium', 'high']);
 /** Safe policy-local identity. */
 const idSchema = z.string().regex(/^[a-z][\-0-9a-z]{0,63}$/v);
+/** Independent lead selection references one immutable policy revision and entry. */
+export const modelChoiceSchema = z
+  .object({ policyRevision: z.number().int().safe().positive(), entryId: idSchema })
+  .strict();
+/** Native CLI structured-output equivalent; null preserves stage-default routing. */
+export const MODEL_CHOICE_OUTPUT_SCHEMA = {
+  anyOf: [
+    { type: 'null' },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['policyRevision', 'entryId'],
+      properties: {
+        policyRevision: { type: 'integer', minimum: 1 },
+        entryId: { type: 'string', pattern: '^[a-z][-0-9a-z]{0,63}$' },
+      },
+    },
+  ],
+};
+
+/**
+ * Keep the native role-recommendation contract beside its exact model choice.
+ *
+ * @param roles - Actual managed seats, supplied by the lifecycle schema.
+ * @param reasonMax - Shared bounded rationale limit.
+ * @returns Native structured-output object, with explicit nullable choice.
+ */
+export function roleChoiceOutput(roles: readonly string[], reasonMax: number): Record<string, unknown> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['role', 'tier', 'effort', 'reason', 'modelChoice'],
+    properties: {
+      role: { type: 'string', enum: roles },
+      tier: { type: 'string', enum: MODEL_TIERS },
+      effort: { type: 'string', enum: ['low', 'medium', 'high'] },
+      reason: { type: 'string', minLength: 1, maxLength: reasonMax },
+      modelChoice: MODEL_CHOICE_OUTPUT_SCHEMA,
+    },
+  };
+}
 /** An exact provider/model with declared capability and interface evidence. */
 export const modelEntrySchema = z
   .object({

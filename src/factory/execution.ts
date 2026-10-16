@@ -393,6 +393,25 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
         codex: context.settings.providers.codex.models,
         claude: context.settings.providers.claude.models,
       },
+      allowedModelPolicy:
+        context.settings.modelPolicy === undefined
+          ? null
+          : {
+              revision: context.settings.modelPolicy.revision,
+              entries: context.settings.modelPolicy.entries.map(
+                ({ id, provider, model, capability, effortSupport, efforts }) => {
+                  return {
+                    id,
+                    provider,
+                    model,
+                    capability,
+                    effortSupport,
+                    efforts,
+                  };
+                },
+              ),
+              defaults: context.settings.modelPolicy.defaults,
+            },
     };
   } else if (record.kind === 'learn') {
     evidence = {

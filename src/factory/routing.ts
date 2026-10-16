@@ -49,15 +49,15 @@ function taskTier(
   ) {
     return { tier: 'advanced', reason: 'Recorded rework or a high-risk scope requires deeper reasoning.' };
   }
-  const assignment = task?.assignmentProfiles?.find((profile) => profile.role === intent.role);
-  if (assignment !== undefined) {
-    return { tier: assignment.tier, reason: `Lead-reviewed role assignment: ${assignment.reason}` };
-  }
   if (['refine', 'final', 'skill'].includes(intent.kind)) {
     return {
       tier: 'advanced',
       reason: 'Architecture, integration and independent adoption decisions require advanced review.',
     };
+  }
+  const assignment = task?.assignmentProfiles?.find((profile) => profile.role === intent.role);
+  if (assignment !== undefined) {
+    return { tier: assignment.tier, reason: `Lead-reviewed role assignment: ${assignment.reason}` };
   }
   if (task?.capabilityTier === 'advanced') {
     return { tier: 'advanced', reason: 'The independently reviewed delivery plan requires advanced capability.' };
@@ -120,12 +120,14 @@ export function routeAssignment(context: {
     provider: context.provider,
     tier,
     versions: context.versions,
+    modelChoice: context.task?.assignmentProfiles?.find((assignment) => assignment.role === context.intent.role)
+      ?.modelChoice,
   });
   return {
     ...decision,
     tier,
     ...selected,
-    reason: routingReason(decision.reason, tier !== decision.tier, floor, selected.model),
+    reason: `${routingReason(decision.reason, tier !== decision.tier, floor, selected.model)} ${choiceReason(selected.selection, context.task, context.intent.role)}`,
     skillNames: [
       ...new Set([
         SHARED_SKILL,
@@ -146,6 +148,30 @@ export function routeAssignment(context: {
         },
       }),
   };
+}
+
+/**
+ * Distinguish a lead's exact choice from deterministic stage defaults.
+ *
+ * @param selection - Frozen native request, absent for legacy profiles.
+ * @param task - Persisted independently reviewed delivery.
+ * @param role - Exact scheduled role.
+ * @returns Bounded auditable explanation.
+ */
+function choiceReason(
+  selection: NonNullable<FactoryJob['routing']>['selection'],
+  task: FactoryTask | null,
+  role: FactoryJob['role'],
+): string {
+  if (selection === undefined) {
+    return 'Legacy CLI profile routing.';
+  }
+  const requested = task?.assignmentProfiles?.find((assignment) => assignment.role === role)?.modelChoice;
+  const origin =
+    requested === undefined || requested === null
+      ? 'project default for this stage'
+      : 'independently reviewed exact choice';
+  return `Policy revision ${String(selection.policyRevision)}, entry ${selection.entry.id}; ${origin}.`;
 }
 
 /**

@@ -21,9 +21,11 @@ import { ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
+import { policySettings } from './fixtures/model-policy.ts';
+
 import type { AgentRequest, AgentCompletion } from '../src/factory/providers.ts';
 import type { DeliveryRemote, PullRequest } from '../src/factory/remote.ts';
-import type { FactoryTask, AgentResult } from '../src/factory/schema.ts';
+import type { FactoryJob, FactoryTask, AgentResult } from '../src/factory/schema.ts';
 
 /** Valid structured output from fixture roles. */
 const success: AgentResult = {
@@ -34,6 +36,25 @@ const success: AgentResult = {
   skillActions: [],
   instructionReceipts: [],
 };
+
+/**
+ * Deliberately revise the product proposal during independent lead planning.
+ *
+ * @param kind - Actual bounded planning stage.
+ * @returns One reviewed stage recommendation, with differing product/lead entries.
+ */
+function plannedProfile(
+  kind: FactoryJob['kind'],
+): NonNullable<AgentResult['deliveries'][number]['assignmentProfiles']>[number] {
+  const isProposal = kind === 'plan';
+  return {
+    role: 'developer-1',
+    tier: isProposal ? 'small' : 'standard',
+    effort: isProposal ? 'low' : 'medium',
+    reason: isProposal ? 'Product proposal only.' : 'Independent lead reviewed the implementation.',
+    modelChoice: { policyRevision: 1, entryId: isProposal ? 'codex' : 'claude' },
+  };
+}
 
 /**
  * Complete job response with actual fixture usage.
@@ -191,6 +212,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
     assert.ok(request.prompt.includes('Adapted from'));
     if (request.job.kind === 'plan' || request.job.kind === 'refine') {
       assert.match(request.prompt, /"deliveryLimits":\s*\{\s*"maxDiffLines": 123,\s*"maxFiles": 7\s*\}/v);
+      assert.match(request.prompt, /"allowedModelPolicy":\s*\{\s*"revision": 1/v);
       return completion({
         ...success,
         deliveries: [
@@ -202,11 +224,22 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
             dependencies: [],
             capabilityTier: 'small',
             skills: [],
+            assignmentProfiles: [plannedProfile(request.job.kind)],
           },
         ],
       });
     }
     if (request.job.kind === 'develop') {
+      assert.equal(
+        request.job.routing?.selection?.entry.id,
+        'claude',
+        'Only the independent lead choice reaches provisioning/launch.',
+      );
+      assert.equal(
+        request.job.routing.effort,
+        writes === 0 ? 'medium' : 'high',
+        'Rework raises effort without losing the reviewed model.',
+      );
       assert.match(await command('git', ['branch', '--show-current'], request.cwd), /^malt\/issue-/v);
       if (owner === null) {
         owner = request.job.role;
@@ -252,6 +285,7 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   lifecycle.factory = factory;
   try {
     await factory.execute('factory_setup', {
+      modelPolicy: policySettings.modelPolicy,
       maxAttempts: 3,
       maxDiffLines: 123,
       maxFiles: 7,
