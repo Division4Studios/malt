@@ -26,12 +26,16 @@ Terminal transcripts stay in bounded redacted RAM, while metadata/counters survi
 
 Pause before changing policy. Restart recovery restores durable claims/handoffs and checks actual Git state. Preserve dirty or newer worktrees; never delete them merely because a job ended. Stop the broker before a private backup and restore the entire coherent `.malt` store. See [troubleshooting](https://github.com/Division4Studios/malt/blob/main/docs/logging-and-troubleshooting.md).
 
+## Reading Activity and handoffs
+
+Activity keeps recent live events separate from bounded older pages. Use Older, Retry or Return to recent; reading a page never changes an agent inbox. Mission previews show up to six real reports/conversations with route, issue, stage and time. Expand a preview with its native disclosure control; unknown or stale associations are labeled rather than inferred. An agent-reported result is not independent delivery verification. Workers retain the actual logs and full relevant artifacts.
+
 ## Priority, blockers and deployment
 
 Product queue shows all unfinished objectives; completed/superseded work is collapsed. Move first/up/down changes durable order for future reservations. Focus only this objective holds unrelated new assignments without preempting running work.
 
 Mission recovery offers Continue with team lead, Clarify with product owner, and Work existing deliveries. The last permits retained tickets across objectives while holding new product planning. Clear the path provides exact-revision acknowledge/diagnose/repair/review/verify/wait decisions. Acknowledge is not a fix. A validated source-specific size exception never waives QA, tests or protected merge.
 
-Before retrying, inspect actual PR/main state and the [audit](Issue-audit-2026-10-15). Old failed attempts can describe code already merged. Do not replay implementation or force the private factory ledger to Done merely to match a board label.
+Before retrying, inspect actual PR/main state and the [audit](Issue-audit-2026-10-15). Old failed attempts can describe code already merged. Do not replay implementation or force the private factory ledger to Done merely to match a board label. For a merge already recorded locally, use Verify merged main. If no merge is recorded, Adopt external merge requires the actual full commit SHA and a reason, then queues actual-main verification; neither action invents missing QA.
 
 Pause stops owned attempts and preserves edits; it does not certify success. Settle work and stop the specific owning broker/UI, update the intended source without overwriting edits, install locked dependencies and build the web shell, then restart matching services and pair again. A browser refresh or a merged PR does not hot-reload a broker. Never run native and container brokers against the same .malt.

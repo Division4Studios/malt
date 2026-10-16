@@ -20,6 +20,8 @@ MALT coordinates real subscription-authenticated Codex and Claude Code sessions 
 > [!IMPORTANT]
 > MALT is pre-1.0 and runs with the permissions you grant locally. Start with a disposable target project and review its commands and resource policy. A PWA installation does not install the native daemon. No inference API credits or API-key fallback are used by managed subscription jobs.
 
+The console includes bounded Activity history, traceable handoff/conversation previews and explicitly started native scratch terminals. These are distinct from gated managed jobs. See the [current capability map](docs/current-status.md) for merged behavior, evidence and remaining roadmap; merging source does not restart your local daemon.
+
 ## Start natively
 
 Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
