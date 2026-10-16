@@ -1,6 +1,7 @@
 name: Feature or atomic delivery
 description: Propose a measurable outcome with clear boundaries.
 title: 'feat: '
+labels: [enhancement]
 body:
   - type: input
     id: related

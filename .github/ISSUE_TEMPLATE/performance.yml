@@ -1,0 +1,27 @@
+name: Performance or resource problem
+description: Report excessive CPU/memory, stalled work or slow interaction.
+title: 'perf: '
+labels: [performance, 'area:resources']
+body:
+  - type: markdown
+    attributes:
+      value: Rough observations are useful; a profiler is not required. Search existing tickets first. Share no credentials, private paths, .malt archives or complete process command lines.
+  - type: textarea
+    id: behavior
+    attributes:
+      label: What slowed down, grew or stopped?
+      description: What were you doing, what did you expect, and can you repeat it?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment and observations
+      description: MALT commit, OS, Node, native/Docker mode, approximate active jobs and CPU/memory if known. Unknown values are fine.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized measurements or related tickets (optional)
+      description: Include timing, resource-policy values or a small redacted excerpt. Do not upload full private logs.

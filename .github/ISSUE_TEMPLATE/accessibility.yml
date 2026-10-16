@@ -1,0 +1,25 @@
+name: Accessibility or interaction barrier
+description: Report keyboard, screen-reader, motion, contrast or zoom problems.
+title: 'a11y: '
+labels: [accessibility, 'area:console']
+body:
+  - type: markdown
+    attributes:
+      value: Describe the barrier in your own words; technical terminology or medical information is not needed. Never include pairing codes, credentials or private project state.
+  - type: textarea
+    id: barrier
+    attributes:
+      label: Where did you encounter a barrier?
+      description: Name the view/control, what you tried and what you expected to happen.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser or assistive setup (optional)
+      description: Browser/OS, keyboard, screen reader, zoom or motion preference, only if relevant.
+  - type: textarea
+    id: related
+    attributes:
+      label: Related issues or sanitized evidence (optional)
+      description: A short reproduction is enough; no diagnostic recording is required.
