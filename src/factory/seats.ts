@@ -25,6 +25,18 @@ export const FACTORY_ROLES = [
   'learning-steward',
   ...SPECIALIST_ROLES,
 ] as const;
+/** Managed assignment kinds; each job and assignment-skill stage is one of these. */
+export const JOB_KINDS = [
+  'plan',
+  'refine',
+  'develop',
+  'review',
+  'final',
+  'verify',
+  'learn',
+  'skill',
+  'triage',
+] as const;
 /** Provider CLI families supported by the managed runtime. */
 export const PROVIDERS = ['codex', 'claude'] as const;
 /** A safe internal key, used in branch and artifact names. */
