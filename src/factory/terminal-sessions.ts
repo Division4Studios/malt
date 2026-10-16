@@ -201,9 +201,10 @@ export class TerminalSessions {
   /**
    * Called once after broker ownership is acquired, never by metadata readers.
    *
+   * @param owned - Current live identities which must not be mistaken for old rows.
    * @returns Number of orphaned rows recovered.
    */
-  public recover(): number {
+  public recover(owned: ReadonlySet<string> = new Set()): number {
     return this.store.transaction(() => {
       const rows = selectAll(
         this.store.db,
@@ -211,10 +212,11 @@ export class TerminalSessions {
         `SELECT ${COLUMNS} FROM terminal_sessions WHERE project=? AND state IN ('requested','starting','running','closing')`,
         this.project,
       );
-      for (const row of rows) {
+      const orphaned = rows.filter((row) => !owned.has(row.id));
+      for (const row of orphaned) {
         this.change(row.id, row.state, 'failed', { reason: 'broker restarted' });
       }
-      return rows.length;
+      return orphaned.length;
     });
   }
 }
