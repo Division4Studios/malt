@@ -249,9 +249,18 @@ await test('the blocker follows dispatch order for every admission gate', (t) =>
 
 await test('provider categories distinguish caps, cooldowns and unavailable families', () => {
   assert.equal(admissionBlocker(policy, idle, 0, { codex: null, claude: 'disabled', copilot: 'disabled' }), 'none');
-  assert.equal(admissionBlocker(policy, idle, 0, { codex: 'concurrency', claude: 'cooldown', copilot: 'disabled' }), 'provider_cap');
-  assert.equal(admissionBlocker(policy, idle, 0, { codex: 'subscription', claude: 'disabled', copilot: 'disabled' }), 'provider_cooldown');
-  assert.equal(admissionBlocker(policy, idle, 0, { codex: 'budget', claude: 'disabled', copilot: 'disabled' }), 'provider_unavailable');
+  assert.equal(
+    admissionBlocker(policy, idle, 0, { codex: 'concurrency', claude: 'cooldown', copilot: 'disabled' }),
+    'provider_cap',
+  );
+  assert.equal(
+    admissionBlocker(policy, idle, 0, { codex: 'subscription', claude: 'disabled', copilot: 'disabled' }),
+    'provider_cooldown',
+  );
+  assert.equal(
+    admissionBlocker(policy, idle, 0, { codex: 'budget', claude: 'disabled', copilot: 'disabled' }),
+    'provider_unavailable',
+  );
   assert.equal(admissionBlocker(policy, idle, 4, { codex: null, claude: null, copilot: 'disabled' }), 'job_cap');
 });
 
