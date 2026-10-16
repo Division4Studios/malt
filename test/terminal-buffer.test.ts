@@ -28,6 +28,33 @@ await test('replay preserves sequence order and marks an evicted start', () => {
   assert.equal(buffer.readAfter(1).length, 2);
 });
 
+await test('fragmented replay bounds metadata and materializes only the requested page', () => {
+  const buffer = new TerminalBuffer(262_144, {});
+  for (let index = 0; index < 262_144; index += 1) {
+    buffer.write(Buffer.from('q'));
+  }
+  assert.ok(buffer.byteLength <= 4096, 'Entry overhead has its own retention ceiling.');
+  let cursor = 0;
+  let received = 0;
+  let pages = 0;
+  for (;;) {
+    const previous = cursor;
+    const page = buffer.readAfter(cursor, { bytes: 65_536, entries: 128 });
+    assert.ok(page.length <= 128);
+    if (page.length === 0) {
+      break;
+    }
+    assert.ok(page.every((entry) => entry.sequence >= previous));
+    cursor = page.at(-1)?.sequence ?? cursor;
+    received += page.filter((entry) => entry.type === 'data').length;
+    pages += 1;
+    assert.ok(pages <= 33, 'Pagination cannot repeatedly scan or materialize the discarded 262k entries.');
+  }
+  assert.equal(received, 4096);
+  assert.equal(cursor, 262_144);
+  assert.throws(() => buffer.readAfter(0, { entries: 1 }), RangeError);
+});
+
 await test('a flood and oversized Unicode chunks stay byte bounded', () => {
   const buffer = new TerminalBuffer(7, {});
   for (let index = 0; index < 1000; index += 1) {
