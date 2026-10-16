@@ -240,3 +240,108 @@ await test('each mode decides human, agent and supervisor principals independent
     });
   }
 });
+
+/**
+ * Recreate the version 1 seed contract: an initialization marker, no seed
+ * version, and the four legacy lead grants when the project was connected.
+ *
+ * @param store - Project store whose policy tables already exist.
+ * @param isConnected - Whether version 1 found a connection.
+ */
+function seedVersionOne(store: Store, isConnected: boolean): void {
+  store.db.exec('INSERT INTO capability_policy_initialized(id) VALUES (1)');
+  if (!isConnected) {
+    return;
+  }
+  const now = new Date();
+  const time = now.toISOString();
+  for (const capability of ['issue-create', 'relationships', 'membership', 'transition']) {
+    const next = { mode: 'approved-agent-roles', roles: ['team-lead'] };
+    const entry = {
+      capability,
+      kind: 'migration',
+      actor: { kind: 'migration', id: 'existing-github-connection' },
+      previous: { mode: 'disabled', roles: [] },
+      next,
+      time,
+    };
+    store.db
+      .prepare('INSERT INTO capability_policy_history(capability,next,data) VALUES (?,?,?)')
+      .run(capability, JSON.stringify(next), JSON.stringify(entry));
+  }
+}
+
+await test('a version 1 seed is upgraded once without overriding any existing decision', (t) => {
+  const defer = createCleanup(t);
+  const cases = [
+    { isConnected: true, edit: false, connect: 'approved-agent-roles' },
+    { isConnected: false, edit: false, connect: 'human-only' },
+    { isConnected: false, edit: true, connect: 'disabled' },
+  ];
+  for (const { isConnected, edit, connect } of cases) {
+    const config = createProject(defer);
+    const store = new Store(config);
+    defer(() => {
+      store.close();
+    });
+    const raw = new CapabilityPolicyStore(store, config);
+    seedVersionOne(store, isConnected);
+    if (edit) {
+      const edited = new Date();
+      // A human decision recorded under version 1 must survive the upgrade.
+      const next = { mode: 'disabled', roles: [] };
+      const entry = {
+        capability: 'project-connect',
+        kind: 'human',
+        actor: human,
+        previous: next,
+        next,
+        time: edited.toISOString(),
+      };
+      store.db
+        .prepare('INSERT INTO capability_policy_history(capability,next,data) VALUES (?,?,?)')
+        .run('project-connect', JSON.stringify(next), JSON.stringify(entry));
+    }
+    assert.equal(raw.get('project-connect').mode, connect);
+    assert.equal(raw.get('project-create').mode, 'human-only');
+    assert.equal(raw.get('issue-create').mode, isConnected ? 'approved-agent-roles' : 'disabled');
+    const upgraded = raw.history().length;
+    const reopened = new CapabilityPolicyStore(store, config);
+    assert.equal(reopened.history().length, upgraded, 'upgrade runs once');
+  }
+});
+
+await test('a human connection grants the lead its delivery capabilities once, never over a human decision', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const store = new Store(config);
+  defer(() => {
+    store.close();
+  });
+  const policies = new CapabilityPolicyStore(store, config);
+  const delivery = ['project-connect', 'issue-create', 'relationships', 'membership', 'transition'];
+  policies.grantConnectionDefaults({ kind: 'agent', id: 'ag_lead', role: 'team-lead' });
+  policies.grantConnectionDefaults({ kind: 'supervisor', role: 'team-lead' });
+  assert.equal(policies.get('issue-create').mode, 'disabled', 'agents never grant themselves capabilities');
+
+  policies.set(human, 'transition', { mode: 'human-only', roles: [] });
+  policies.grantConnectionDefaults(human);
+  for (const capability of delivery) {
+    assert.deepEqual(
+      policies.get(capability),
+      capability === 'transition'
+        ? { mode: 'human-only', roles: [] }
+        : { mode: 'approved-agent-roles', roles: ['team-lead'] },
+    );
+  }
+  const grants = policies.history().filter((entry) => entry.kind === 'human' && entry.capability !== 'transition');
+  assert.equal(grants.length, 4);
+  assert.ok(grants.every((entry) => entry.actor.kind === 'human' && entry.actor.id === 'operator'));
+  assert.equal(policies.get('project-create').mode, 'human-only');
+
+  policies.set(human, 'issue-create', { mode: 'disabled', roles: [] });
+  const before = policies.history().length;
+  policies.grantConnectionDefaults(human);
+  assert.equal(policies.get('issue-create').mode, 'disabled', 'reconnecting never undoes a revocation');
+  assert.equal(policies.history().length, before);
+});

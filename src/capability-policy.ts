@@ -94,6 +94,10 @@ const dataSchema = z.object({ data: z.string() });
 const LEGACY_CAPABILITIES = ['project-connect', 'issue-create', 'relationships', 'membership', 'transition'] as const;
 /** Human setup that every project keeps, so first connection needs no prior edit. */
 const HUMAN_SETUP_CAPABILITIES = ['project-create', 'project-connect'] as const;
+/** One-time seed contract; projects seeded by an older version are upgraded once. */
+const SEED_VERSION = 2;
+/** Row ID only. */
+const idRowSchema = z.object({ id: z.number() });
 
 /**
  * Decide one capability for one principal. Disabled denies everyone; humans
@@ -147,6 +151,7 @@ export class CapabilityPolicyStore {
     this.connectionFile = path.join(config.directory, 'github', 'connection.json');
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS capability_policy_initialized (id INTEGER PRIMARY KEY CHECK(id=1));
+      CREATE TABLE IF NOT EXISTS capability_policy_seed (id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS capability_policy_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT, capability TEXT NOT NULL, next TEXT NOT NULL, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS capability_policy_latest ON capability_policy_history(capability,id);
@@ -195,6 +200,45 @@ export class CapabilityPolicyStore {
             `Capability ${capability} is ${policy.mode} for this project; ${describe(caller)} may not use it. A human can change it with capability-set.`,
           );
         }
+      }
+    });
+  }
+
+  /**
+   * Grant the lead the delivery capabilities a human just enabled by
+   * connecting the project, as the connection did before policies existed.
+   * Only a human principal grants, and any capability a human ever set keeps
+   * that decision, so a revocation is never undone by reconnecting.
+   *
+   * @param principal - Authenticated caller whose connect succeeded.
+   */
+  public grantConnectionDefaults(principal: unknown): void {
+    const caller = principalSchema.parse(principal);
+    if (caller.kind !== 'human') {
+      return;
+    }
+    this.store.transaction(() => {
+      this.initialize();
+      for (const capability of LEGACY_CAPABILITIES) {
+        const previous = this.current(capability);
+        const isHumanSet =
+          selectOne(
+            this.store.db,
+            idRowSchema,
+            "SELECT id FROM capability_policy_history WHERE capability=? AND json_extract(data,'$.kind')='human' LIMIT 1",
+            capability,
+          ) !== undefined;
+        if (isHumanSet || previous.mode === 'approved-agent-roles') {
+          continue;
+        }
+        this.append({
+          capability,
+          kind: 'human',
+          actor: caller,
+          previous,
+          next: { mode: 'approved-agent-roles', roles: ['team-lead'] },
+          time: this.time(),
+        });
       }
     });
   }
@@ -286,12 +330,29 @@ export class CapabilityPolicyStore {
    * @throws {unknown} When the existing connection cannot be read or validated.
    */
   private initialize(): void {
-    if (
-      selectOne(this.store.db, z.object({ id: z.number() }), 'SELECT id FROM capability_policy_initialized') !==
-      undefined
-    ) {
+    const seeded = selectOne(
+      this.store.db,
+      z.object({ version: z.number() }),
+      'SELECT version FROM capability_policy_seed',
+    );
+    if (seeded !== undefined && seeded.version >= SEED_VERSION) {
       return;
     }
+    if (selectOne(this.store.db, idRowSchema, 'SELECT id FROM capability_policy_initialized') === undefined) {
+      this.seed();
+      run(this.store.db, 'INSERT INTO capability_policy_initialized(id) VALUES (1)');
+    } else {
+      this.upgrade();
+    }
+    run(this.store.db, 'INSERT OR REPLACE INTO capability_policy_seed(id, version) VALUES (1, ?)', SEED_VERSION);
+  }
+
+  /**
+   * Seed a never-initialized project from its current connection.
+   *
+   * @throws {unknown} When the existing connection cannot be read or validated.
+   */
+  private seed(): void {
     let isConnected = false;
     try {
       parseConnection(readJsonFile(this.connectionFile));
@@ -304,25 +365,58 @@ export class CapabilityPolicyStore {
     const legacy = new Set<Capability>(isConnected ? LEGACY_CAPABILITIES : []);
     const humanSetup = HUMAN_SETUP_CAPABILITIES.filter((name) => !legacy.has(name));
     for (const capability of humanSetup) {
-      this.append({
-        capability,
-        kind: 'migration',
-        actor: { kind: 'migration', id: 'default-human-setup' },
-        previous: { mode: 'disabled', roles: [] },
-        next: { mode: 'human-only', roles: [] },
-        time: this.time(),
-      });
+      this.appendSeed(capability, 'default-human-setup');
     }
     for (const capability of legacy) {
-      this.append({
-        capability,
-        kind: 'migration',
-        actor: { kind: 'migration', id: 'existing-github-connection' },
-        previous: { mode: 'disabled', roles: [] },
-        next: { mode: 'approved-agent-roles', roles: ['team-lead'] },
-        time: this.time(),
-      });
+      this.appendSeed(capability, 'existing-github-connection');
     }
-    run(this.store.db, 'INSERT INTO capability_policy_initialized(id) VALUES (1)');
+  }
+
+  /**
+   * Bring a version 1 seed (four legacy grants, or nothing) up to date: add
+   * the setup grants for capabilities that have no decision at all yet.
+   */
+  private upgrade(): void {
+    const hasLegacy =
+      selectOne(
+        this.store.db,
+        idRowSchema,
+        "SELECT id FROM capability_policy_history WHERE json_extract(data,'$.actor.id')='existing-github-connection' LIMIT 1",
+      ) !== undefined;
+    for (const capability of HUMAN_SETUP_CAPABILITIES) {
+      const isDecided =
+        selectOne(
+          this.store.db,
+          idRowSchema,
+          'SELECT id FROM capability_policy_history WHERE capability=? LIMIT 1',
+          capability,
+        ) !== undefined;
+      if (!isDecided) {
+        this.appendSeed(
+          capability,
+          capability === 'project-connect' && hasLegacy ? 'existing-github-connection' : 'default-human-setup',
+        );
+      }
+    }
+  }
+
+  /**
+   * Record one initialization grant.
+   *
+   * @param capability - Capability to seed.
+   * @param source - Legacy connection grant to the lead, or human-only setup.
+   */
+  private appendSeed(capability: Capability, source: 'existing-github-connection' | 'default-human-setup'): void {
+    this.append({
+      capability,
+      kind: 'migration',
+      actor: { kind: 'migration', id: source },
+      previous: { mode: 'disabled', roles: [] },
+      next:
+        source === 'existing-github-connection'
+          ? { mode: 'approved-agent-roles', roles: ['team-lead'] }
+          : { mode: 'human-only', roles: [] },
+      time: this.time(),
+    });
   }
 }

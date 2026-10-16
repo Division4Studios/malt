@@ -53,5 +53,18 @@ On first access the store seeds, once, with `migration` history entries:
 
 All other capabilities remain disabled. A durable initialization marker prevents
 reseeding, including after human revocation or a later connection on a fresh
-project. A malformed connection fails initialization without granting access or
+project. The seed is versioned: a project seeded by version 1 (four legacy grants
+or nothing) is upgraded once by adding the setup grants for capabilities with no
+decision yet. Its existing grants and human edits are never changed.
+
+## Connection grants
+
+When a **human** connect succeeds, `grantConnectionDefaults` grants
+`project-connect`, `issue-create`, `relationships`, `membership` and
+`transition` to `team-lead`. The grants are recorded as human history entries
+attributed to that operator. This is what connecting a project already enabled
+before policies existed, so a newly connected project can be planned and
+delivered without manual policy edits. A capability a human ever set keeps that
+decision, so reconnecting never undoes a revocation. An agent or the supervisor
+never grants itself anything by connecting. A malformed connection fails initialization without granting access or
 marking migration complete. No remote requests are made.
