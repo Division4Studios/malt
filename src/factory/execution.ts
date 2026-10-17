@@ -19,6 +19,7 @@ import { stepAnswers } from './questions.ts';
 import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
 import { openRepair, recordConflict } from './repairs.ts';
+import { revalidationEvidence } from './revalidation.ts';
 import { publicJobSchema } from './schema.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, PLANNING_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
@@ -467,6 +468,8 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
         }),
       skillReviewHistory: repository.skillRequests().slice(-RECENT_EVIDENCE_COUNT),
     };
+  } else if (record.kind === 'revalidate' && record.taskId !== null) {
+    evidence = revalidationEvidence(repository, repository.task(record.taskId));
   }
   if (skill !== null && record.kind === 'skill') {
     evidence = readJsonFile(path.join(context.mesh.directory, 'knowledge', 'candidates', `${skill.revision}.json`));

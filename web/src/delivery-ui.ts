@@ -66,7 +66,7 @@ function fact(list: HTMLDListElement, term: string, value: string | HTMLElement)
 }
 
 /**
- * Describe the delivery's step overrides, when it has any.
+ * Describe the delivery's step overrides and brief revalidation, when it has them.
  *
  * @param facts - Header facts.
  * @param delivery - Delivery shown.
@@ -77,6 +77,12 @@ function customizedFact(facts: HTMLDListElement, delivery: Delivery): void {
   if (summary !== '') {
     fact(facts, 'Customized', summary);
   }
+  const verdict = delivery.revalidation;
+  if (verdict === null) {
+    return;
+  }
+  const label = verdict.outcome === 'confirmed' ? 'Confirmed' : 'Needs revising';
+  fact(facts, 'Brief revalidation', verdict.summary === '' ? label : `${label}: ${verdict.summary}`);
 }
 
 /**

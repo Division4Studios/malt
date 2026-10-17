@@ -21,6 +21,7 @@ import { completePlanning } from './planning-stage.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { attemptBudget } from './repair-schema.ts';
 import { recordConflict } from './repairs.ts';
+import { completeRevalidation } from './revalidation.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, isPlanningKind } from './seats.ts';
 import { completeTriage } from './triage.ts';
@@ -179,6 +180,10 @@ async function applyOutcome(
   }
   if (record.kind === 'learn') {
     completeLearning(context, result);
+    return;
+  }
+  if (record.kind === 'revalidate') {
+    completeRevalidation(context, record, result);
     return;
   }
   if (record.kind === 'skill') {

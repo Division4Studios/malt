@@ -32,6 +32,12 @@ function taskTier(
   intent: JobIntent,
   task: FactoryTask | null,
 ): { tier: 'small' | 'standard' | 'advanced'; reason: string } {
+  if (intent.kind === 'revalidate') {
+    return {
+      tier: 'small',
+      reason: 'Brief revalidation is a bounded comparison of a reviewed brief with merged code.',
+    };
+  }
   if (
     task !== null &&
     (task.feedback.length > 0 || task.attempts > 1 || HIGH_RISK.test(`${task.title} ${task.description}`))

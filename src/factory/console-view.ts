@@ -147,6 +147,8 @@ export interface DeliveryView {
   readonly isKept: boolean;
   /** Step override editor state, while its steps can still change. */
   readonly customization: CustomizationView | null;
+  /** The lead's brief revalidation verdict, when one was recorded. */
+  readonly revalidation: { readonly outcome: string; readonly summary: string; readonly at: number } | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -487,6 +489,10 @@ function deliveryView(
     }),
     isKept: task.archive?.state === 'kept',
     customization: customizationView(task, context.features, context.attempted),
+    revalidation:
+      task.revalidation === null
+        ? null
+        : { outcome: task.revalidation.outcome, summary: task.revalidation.summary, at: task.revalidation.at },
     updatedAt: task.updatedAt,
   };
 }
