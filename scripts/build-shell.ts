@@ -65,6 +65,7 @@ const FILES = [
   'dist/catalog-zh-board.js',
   'dist/catalog-zh-workflows.js',
   'dist/catalog-zh-project.js',
+  'dist/catalog-zh-costs.js',
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',

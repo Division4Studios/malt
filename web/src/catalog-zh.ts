@@ -6,6 +6,7 @@
  * @file
  */
 import { ZH_BOARD } from './catalog-zh-board.js';
+import { ZH_COSTS } from './catalog-zh-costs.js';
 import { ZH_FACTORY } from './catalog-zh-factory.js';
 import { ZH_PROJECT } from './catalog-zh-project.js';
 import { ZH_SHELL } from './catalog-zh-shell.js';
@@ -18,6 +19,7 @@ export const ZH_PARTS: Readonly<Record<string, Readonly<Record<string, string>>>
   board: ZH_BOARD,
   workflows: ZH_WORKFLOWS,
   project: ZH_PROJECT,
+  costs: ZH_COSTS,
 };
 
 /** Every Simplified Chinese message. */
@@ -27,4 +29,5 @@ export const ZH_CN: Readonly<Record<string, string>> = {
   ...ZH_BOARD,
   ...ZH_WORKFLOWS,
   ...ZH_PROJECT,
+  ...ZH_COSTS,
 };
