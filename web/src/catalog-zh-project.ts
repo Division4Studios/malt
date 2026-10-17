@@ -305,4 +305,12 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Proposals to link, merge or change tickets from the product owner and team lead appear here.':
     '产品负责人和团队负责人关于关联、合并或变更工单的提议会显示在这里。',
   'Show more recommendations': '显示更多建议',
+  Revision: '修订',
+  Tickets: '工单',
+  Survivor: '保留工单',
+  None: '无',
+  'Transferred acceptance': '转移的验收标准',
+  'Transferred dependencies': '转移的依赖',
+  'Affected assignments': '受影响的任务',
+  'The recommendation could not be read.': '无法读取该建议。',
 };

@@ -101,6 +101,18 @@ export interface RecommendationPage {
   readonly nextCursor: string | null;
 }
 
+/** One recommendation with the context a decision rests on. */
+export interface RecommendationDetail extends RecommendationSummary {
+  /** Surviving ticket of a merge, if any. */
+  readonly survivor: number | null;
+  /** Acceptance criteria moved to the survivor. */
+  readonly transferredAcceptance: readonly string[];
+  /** Dependencies moved to the survivor. */
+  readonly transferredDependencies: readonly number[];
+  /** Running assignments the change would affect. */
+  readonly affectedAssignments: readonly string[];
+}
+
 /**
  * The members of an untrusted array that pass a type check.
  *
@@ -202,6 +214,29 @@ export function readPage(value: unknown): RecommendationPage | null {
     },
     contentRevision: page['contentRevision'],
     nextCursor: typeof cursor === 'string' && cursor !== '' ? cursor : null,
+  };
+}
+
+/**
+ * Validate one detail response from `/api/recommendation`.
+ *
+ * @param value - Untrusted response.
+ * @returns The recommendation with its decision context, or `null` when malformed.
+ */
+export function readDetail(value: unknown): RecommendationDetail | null {
+  const record = asData(asData(value)?.['recommendation']);
+  const summary = readSummary(record);
+  if (record === null || summary === null) {
+    return null;
+  }
+  const body = asData(record['body']) ?? {};
+  const { survivor } = body;
+  return {
+    ...summary,
+    survivor: typeof survivor === 'number' && Number.isSafeInteger(survivor) ? survivor : null,
+    transferredAcceptance: members(body['transferredAcceptance'], isText),
+    transferredDependencies: members(body['transferredDependencies'], isIssue),
+    affectedAssignments: members(body['affectedAssignments'], isText),
   };
 }
 

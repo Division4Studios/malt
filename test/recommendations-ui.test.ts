@@ -8,6 +8,16 @@ import { createRecommendationsView } from '../web/dist/recommendations-ui.js';
 
 import { FakeElement, fake, installDom } from './dom-shim.ts';
 
+/**
+ * A detail route these tests never reach.
+ *
+ * @returns Never; always rejects.
+ */
+async function unusedDetail(): Promise<never> {
+  await Promise.resolve();
+  throw new Error('Not needed here.');
+}
+
 /** Markup and markdown a proposal could carry; both must stay text. */
 const HOSTILE = '<img src=x onerror="globalThis.pwnedRecommendation=true"> **merge** [link](javascript:alert(1))';
 
@@ -69,6 +79,10 @@ function mount(t: Parameters<typeof installDom>[0]): {
       state.isUnread = false;
       await Promise.resolve();
       return {};
+    },
+    detail: async () => {
+      await Promise.resolve();
+      throw new Error('Not needed here.');
     },
   });
   const root = fake(pane.element);
@@ -141,6 +155,7 @@ await test('a read started for the previous project is discarded after a reset',
       await Promise.resolve();
       return {};
     },
+    detail: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -162,6 +177,7 @@ await test('a failed read receipt stays visible after the refresh', async (t) =>
       await Promise.resolve();
       throw new Error('Receipt refused.');
     },
+    detail: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -189,6 +205,7 @@ await test('more than one page is reachable through the cursor', async (t) => {
       await Promise.resolve();
       return {};
     },
+    detail: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -244,6 +261,7 @@ await test('a language change relabels the pane but keeps proposal text exactly 
       await Promise.resolve();
       return {};
     },
+    detail: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
