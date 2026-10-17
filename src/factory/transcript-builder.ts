@@ -321,8 +321,9 @@ export class TranscriptBuilder {
    * Append a file change node and count each named path.
    *
    * @param changes - Paths and change kinds reported by the provider.
+   * @param _id - Provider item identity; the transcript shows every change event, so it is unused here.
    */
-  public fileChange(changes: readonly { path: string; kind: string }[]): void {
+  public fileChange(changes: readonly { path: string; kind: string }[], _id?: string): void {
     for (const change of changes) {
       this.touch(change.path);
     }

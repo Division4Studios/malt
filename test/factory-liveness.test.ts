@@ -448,6 +448,39 @@ await test('the sampler sees edits, commits, check-ins and decoded tool completi
   assert.equal((await sampler.sample()).progress, 'tool Read');
   append(path.join(artifact, 'stdout.log'), '{"type":"assistant","message":{"content":[]}}\n'.repeat(20));
   assert.equal((await sampler.sample()).progress, null, 'log growth alone is not progress');
+  const asked = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't2', name: 'Grep', input: { pattern: 'two' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'a.txt' }] } },
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't3', name: 'AskUserQuestion', input: { question: 'Which?' } }] },
+    },
+  ];
+  append(path.join(artifact, 'stdout.log'), `${asked.map((event) => JSON.stringify(event)).join('\n')}\n`);
+  const sampled = await sampler.sample();
+  assert.equal(sampled.progress, 'tool Grep');
+  assert.notEqual(sampled.awaiting, null, 'a wait after progress in the same sample is kept');
+});
+
+/**
+ * A completed Codex patch event.
+ *
+ * @param id - Item identity.
+ * @returns Stream event.
+ */
+function patch(id: string): unknown {
+  return {
+    type: 'item.completed',
+    item: { id, type: 'file_change', status: 'completed', changes: [{ path: 'a.ts', kind: 'update' }] },
+  };
+}
+
+await test('separate Codex patches to the same file each count as progress', () => {
+  assert.equal(decodeAll(codexLine, [patch('p1'), patch('p2')]).meaningful, 2);
+  assert.equal(decodeAll(codexLine, [patch('p1'), patch('p1')]).meaningful, 1, 'a replayed patch counts once');
 });
 
 await test('failures are classified and retried with per-class backoff and caps', () => {
@@ -536,4 +569,48 @@ await test('failures are classified and retried with per-class backoff and caps'
   assert.ok(!isBackingOff([attempt(0, 'cancelled')], scope, timing), 'cancelled work retries as soon as it resumes');
   const mixed = [attempt(0, 'stalled'), attempt(1, 'stalled'), attempt(2, 'transient')];
   assert.equal(retryState(mixed, scope, timing.reconcileMs)?.failures, 1, 'a different class starts a new count');
+});
+
+/**
+ * A sample that never settles.
+ *
+ * @returns A promise that stays pending.
+ */
+async function hungSample(): Promise<ProgressObservation> {
+  return await new Promise<ProgressObservation>(() => {
+    // Never settles, like an unresponsive sampler.
+  });
+}
+
+/** Ignore a record or a cancellation. */
+function ignore(): void {
+  // Nothing to observe in this test.
+}
+
+await test('a hung sampler cannot stop the hard ceiling from being enforced', async () => {
+  let clock = 0;
+  const wakeUps: (() => void)[] = [];
+  const stops: string[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => clock,
+    sample: hungSample,
+    record: ignore,
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (wake) => {
+      wakeUps.push(wake);
+      return ignore;
+    },
+  });
+  monitor.start();
+  clock = POLICY.maxMs + MINUTE;
+  const checking = monitor.check();
+  for (const wake of wakeUps.splice(0)) {
+    wake();
+  }
+  await checking;
+  assert.deepEqual(stops, ['hard ceiling']);
 });

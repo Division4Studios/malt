@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
@@ -50,7 +51,11 @@ function shortSha(sha: string): string {
  * @param featureId - Owning product request.
  * @returns Initial dependency-ready task state.
  */
-export function deliveryTask(context: FactoryContext, issue: ReadyIssue, featureId: string | null): FactoryTask {
+export function deliveryTask(
+  context: Pick<FactoryContext, 'repository'>,
+  issue: ReadyIssue,
+  featureId: string | null,
+): FactoryTask {
   const feature = context.repository.features().find((candidate) => candidate.id === featureId);
   return {
     id: randomUUID(),
@@ -88,7 +93,8 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     repairs: [],
     revalidation: null,
     workflow: feature?.workflow,
-    ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
+    // Always frozen, so a later change to the objective's gate affects only deliveries provisioned after it.
+    gates: { merge: feature?.gates?.merge ?? false },
     ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
     updatedAt: context.repository.store.now(),
   };
@@ -149,6 +155,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         createdAt: now,
         updatedAt: now,
         approvals: [],
+        gates: objectiveGates(context.repository),
       };
       context.repository.saveFeature(feature);
     }

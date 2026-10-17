@@ -490,7 +490,7 @@ function codexCompleted(builder: TranscriptSink, item: Item): void {
   } else if (item.type === 'file_change' && changes.success && changes.data.status === 'failed') {
     builder.text('status', 'Patch failed', 'The provider could not apply a patch; no files changed.', 'warning');
   } else if (item.type === 'file_change' && changes.success) {
-    builder.fileChange(changes.data.changes);
+    builder.fileChange(changes.data.changes, item.id);
   } else if (item.type === 'todo_list' && todo.success) {
     const lines = todo.data.items.map((entry) => `${entry.completed ? '[x]' : '[ ]'} ${entry.text}`);
     builder.text('status', 'Plan', lines.join('\n'));
