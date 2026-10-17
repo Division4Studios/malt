@@ -395,6 +395,8 @@ export const taskSchema = z.object({
   revalidation: revalidationSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
   repairs: z.array(repairRoundSchema).default([]),
+  /** Last operator retry; repair rounds before it no longer count toward the caps. */
+  repairsResetAt: z.number().optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),

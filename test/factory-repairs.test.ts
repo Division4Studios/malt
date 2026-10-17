@@ -19,7 +19,7 @@ import { MergeConflictError } from '../src/factory/merge-conflict.ts';
 import { runProcess } from '../src/factory/processes.ts';
 import { assignmentPrompt } from '../src/factory/prompts.ts';
 import { reconcile } from '../src/factory/reconcile.ts';
-import { REPAIR_FINDING_MAX, attemptBudget } from '../src/factory/repair-schema.ts';
+import { REPAIR_FINDING_MAX, attemptBudget, countedRepairs } from '../src/factory/repair-schema.ts';
 import { openRepair, recordConflict } from '../src/factory/repairs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
@@ -504,6 +504,14 @@ await test('each repair round grants the developer one more attempt', () => {
   };
   assert.deepEqual(intents([exhausted]), []);
   assert.deepEqual(intents([repaired]), ['developer-1']);
+});
+
+await test('an operator retry starts the repair caps and the extra attempts afresh', () => {
+  const rounds = [{ at: 10 }, { at: 20 }, { at: 30 }];
+  assert.equal(countedRepairs({ repairs: rounds }).length, 3);
+  assert.deepEqual(countedRepairs({ repairs: rounds, repairsResetAt: 20 }), [{ at: 30 }]);
+  assert.equal(attemptBudget({ repairs: rounds }, { maxAttempts: 2 }), 5);
+  assert.equal(attemptBudget({ repairs: rounds, repairsResetAt: 30 }, { maxAttempts: 2 }), 2);
 });
 
 await test('conflict errors keep a bounded path list for the round', () => {
