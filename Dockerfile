@@ -60,6 +60,10 @@ COPY --from=web-build /app/web/dist ./web/dist
 # /data holds the project's configuration, identities and SQLite state; it is
 # bind-mounted from the broker-home folder. Workspaces have a separate host
 # bind mount so their .malt data is written into each actual project.
+# The commit this image was built from, reported on /health; pass it with
+# MALT_SOURCE_REVISION=$(git rev-parse HEAD) docker compose build.
+ARG MALT_SOURCE_REVISION=
+ENV MALT_SOURCE_REVISION=${MALT_SOURCE_REVISION}
 RUN mkdir /data && chown node:node /data
 USER node
 ENV DISABLE_AUTOUPDATER=1

@@ -274,7 +274,7 @@ Each settled attempt's cost (provider reported, or estimated from the price tabl
 
 `factory_preflight` runs, inside the broker, the [`doctor`](../README.md#start-natively) checks that matter where managed jobs run: Node.js against `engines`, Git, each provider CLI's presence and subscription login (using the saved provider executables), GitHub CLI authentication and a writable `.malt`. Ports are skipped because the broker is already listening. The result is `{ok, checks: [{id, label, status, detail, fix}]}` with `status` `pass`, `fail` or `fix-it` and one `fix` line for anything that did not pass; `ok` is false when a check failed. Provider checks spend no inference and return no account details. Managed role bridges do not expose it.
 
-The paired console reads it as `GET /api/preflight?project=<id>`, and reads `GET /api/version?project=<id>` for `{malt, node, platform, broker}`: the MALT package version and runtime of the console process, and the broker's `/health` version, or `null` when the broker does not answer. Both use the usual pairing session and origin checks.
+The paired console reads it as `GET /api/preflight?project=<id>`, and reads `GET /api/version?project=<id>` for `{malt, node, platform, broker, brokerRevision, consoleRevision}`: the MALT package version, runtime and source revision of the console process, and the broker's `/health` version and revision, or `null` when the broker does not answer. Both use the usual pairing session and origin checks.
 
 ### Roles and secrets
 
@@ -312,7 +312,7 @@ Headers carry `Authorization: Bearer <project token>` and `X-AgentMesh-Project: 
 
 Operations mostly match tool names without `mesh_`. Additional internal operations are register, heartbeat, disconnect, events and set_lead. `register` accepts `ephemeral: true` for a session identity, which `disconnect` then ends; a session registering with role `lead` claims the orchestrator role in the same transaction. Two operations exist only on the home project and need only its token: `open_team` (`workspace`: an absolute path or `file:` URI) returns `team`, `name`, `workspace`, `projectId` and `token`, creating the team on first use; `list_teams` returns each team's slug, name and folder. Project-authenticated CLI readers can request aggregate status/roster/events without agent credentials. Project-authenticated `set_lead` is the human control path and rejects agent credentials. Local administrators can read the project secret; this is not a security boundary against a hostile OS user.
 
-`GET /health` is unauthenticated and returns service health/version only. Errors contain a stable code and message, not a traceback or credential dump.
+`GET /health` is unauthenticated and returns `{ok, version, revision}`: service health, the package version and the source commit the broker was started from (see [compatibility](compatibility.md)). Errors contain a stable code and message, not a traceback or credential dump.
 
 ## Event history pages
 

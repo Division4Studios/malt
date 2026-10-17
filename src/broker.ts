@@ -9,7 +9,8 @@
  *
  * HTTP surface:
  *
- * - `GET /health` returns `{ ok: true, version }` for health checks.
+ * - `GET /health` returns `{ ok: true, version, revision }` for health checks;
+ *   `revision` is the source commit this broker was started from.
  * - `POST /rpc` takes `{ operation, input, credentials }` and returns either
  *   `{ result }` or `{ error: { code, message } }` with a matching status.
  *   An `x-agentmesh-team` header addresses a workspace team; without it the
@@ -53,6 +54,7 @@ import {
   isOperation,
   parseInput,
 } from './protocol.ts';
+import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
@@ -673,7 +675,7 @@ async function respond(
     throw new MeshError('FORBIDDEN_ORIGIN', 'Browser requests are not supported.');
   }
   if (record.method === 'GET' && record.url === '/health') {
-    sendJson(response, HTTP_OK, { ok: true, version: VERSION });
+    sendJson(response, HTTP_OK, { ok: true, version: VERSION, revision: SOURCE_REVISION });
     return;
   }
   const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
