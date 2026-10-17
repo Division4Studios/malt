@@ -80,6 +80,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'console-dom',
     'approval-dialog',
     'inbox-ui',
+    'board-ui',
   ].map((name): [string, [string, string]] => [`/${name}.js`, [`dist/${name}.js`, 'text/javascript; charset=utf-8']]),
   ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
   ['/sessions.css', ['sessions.css', 'text/css; charset=utf-8']],
