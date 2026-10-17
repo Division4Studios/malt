@@ -99,17 +99,19 @@ export async function createJiraIssue(
   },
 ): Promise<{ id: string; key: JiraIssueKey }> {
   const hasParent = input.parentKey !== undefined;
-  context.gate.authorize(
-    context.principal,
-    hasParent ? JIRA_WRITE_CAPABILITIES.createChild : JIRA_WRITE_CAPABILITIES.createIssue,
-  );
+  const hasLabels = input.labels !== undefined && input.labels.length > 0;
+  // Labels set at creation are still label use, so they need that capability too.
+  context.gate.authorize(context.principal, [
+    ...(hasParent ? JIRA_WRITE_CAPABILITIES.createChild : JIRA_WRITE_CAPABILITIES.createIssue),
+    ...(hasLabels ? JIRA_WRITE_CAPABILITIES.labels : []),
+  ]);
   const fields = {
     project: { key: input.projectKey },
     issuetype: { id: input.issueTypeId },
     summary: input.summary,
     description: adfDocument(input.description),
     ...(hasParent && { parent: { key: input.parentKey } }),
-    ...(input.labels !== undefined && input.labels.length > 0 && { labels: [...input.labels] }),
+    ...(hasLabels && { labels: [...(input.labels ?? [])] }),
   };
   return createdSchema.parse(await jiraSend(context.transport, 'POST', '/rest/api/3/issue', { fields }));
 }
