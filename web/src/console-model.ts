@@ -147,6 +147,8 @@ export interface Delivery {
   readonly isKept: boolean;
   /** Step override editor state, while its steps can still change. */
   readonly customization: Customization | null;
+  /** The lead's brief revalidation verdict, when recorded. */
+  readonly revalidation: { readonly outcome: string; readonly summary: string; readonly at: number } | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -547,8 +549,22 @@ function parseDelivery(record: Data): Delivery | null {
     }),
     isKept: record['isKept'] === true,
     customization: parseCustomization(record['customization']),
+    revalidation: parseRevalidation(record['revalidation']),
     updatedAt: number(record, 'updatedAt'),
   };
+}
+
+/**
+ * Validate a brief revalidation verdict.
+ *
+ * @param value - Untrusted verdict.
+ * @returns Outcome, summary and time, or `null` when none was recorded.
+ */
+function parseRevalidation(value: unknown): Delivery['revalidation'] {
+  const verdict = asData(value);
+  return verdict === null
+    ? null
+    : { outcome: text(verdict, 'outcome'), summary: text(verdict, 'summary'), at: number(verdict, 'at') };
 }
 
 /**

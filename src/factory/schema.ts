@@ -39,6 +39,7 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
+import { revalidationSchema } from './revalidation-schema.ts';
 import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
@@ -178,6 +179,8 @@ export const factoryConfigSchema = z
     organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
     /** Gates new objectives freeze unless they override them. */
     defaultGates: gatesSchema.default({}),
+    /** Recheck a dependent delivery's brief against its merged predecessors before it starts. */
+    briefRevalidation: z.boolean().default(false),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
@@ -388,6 +391,8 @@ export const taskSchema = z.object({
   stepOverrides: stepOverridesSchema.optional(),
   /** Operator hold: no new attempt starts while set. */
   hold: holdSchema.nullable().default(null),
+  /** The lead's verdict on this brief after its predecessors merged, when revalidated. */
+  revalidation: revalidationSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
   repairs: z.array(repairRoundSchema).default([]),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
