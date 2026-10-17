@@ -15,6 +15,8 @@ import { z } from 'zod/v3';
 import { MeshError } from './protocol.ts';
 import { registerResolvedSecret } from './secrets.ts';
 
+import type { ConnectionV2 } from './connector.ts';
+
 /** Deadline for the local `gh auth status` presence probe. */
 const PROBE_TIMEOUT_MS = 10_000;
 /** How long one presence answer is reused, so status reads stay cheap. */
@@ -97,6 +99,24 @@ export async function credentialPresence(handle: CredentialHandle, probe: Presen
     return 'unverified';
   }
   return authenticated ? 'present' : 'missing';
+}
+
+/**
+ * Check each section's credential handle; records saved before handles use the gh session.
+ *
+ * @param record - Saved connection.
+ * @param probe - Local presence sources.
+ * @returns Presence per section.
+ */
+export async function connectionCredentials(
+  record: ConnectionV2,
+  probe: PresenceProbe,
+): Promise<Record<'tracker' | 'source', CredentialPresence>> {
+  const fallback = { kind: 'github-cli' } as const;
+  return {
+    tracker: await credentialPresence(record.tracker.credential ?? fallback, probe),
+    source: await credentialPresence(record.source.credential ?? fallback, probe),
+  };
 }
 
 /**
