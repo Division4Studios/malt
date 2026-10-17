@@ -62,6 +62,8 @@ const automationRecordsSchema = z.array(z.record(z.unknown()));
 const secretRecordsSchema = z.array(z.record(z.unknown()));
 /** Broker address local scripts POST webhook triggers to. */
 const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
+/** One identity's unread backlog. */
+const unreadSchema = z.object({ name: z.string(), role: z.string(), runtime: z.string(), unread: z.number() }).strict();
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   orderRevision: z.number().int().nonnegative(),
@@ -78,6 +80,8 @@ const factoryViewSchema = dashboardSchema.extend({
   console: z.record(z.unknown()).default({}),
   /** Schedules and triggers without secrets; the browser validates each record it shows. */
   automations: automationRecordsSchema.default([]),
+  /** Identities with unread messages, largest backlog first. */
+  unread: z.array(unreadSchema).default([]),
   /** Broker address local scripts call to fire a trigger. */
   triggerEndpoint: triggerEndpointSchema.nullable().default(null),
   /** Roles editor choices; the browser validates what it shows. */

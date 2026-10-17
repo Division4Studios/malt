@@ -50,6 +50,7 @@ import {
 import { readEvents } from './event-log.ts';
 import { TERMINAL_OPERATIONS } from './factory/terminal-schema.ts';
 import { retireExpiredSessions, SESSION_RETIRE_MS } from './identity-retirement.ts';
+import { ensureInboxReads, recordRead } from './inbox-reads.ts';
 import { log } from './log.ts';
 import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from './message-dedup.ts';
 import {
@@ -364,6 +365,7 @@ export class Store implements CoordinationHost {
     this.dedupMs = options.messageDedupMs ?? messageDedupWindow();
     this.createBaseSchema();
     ensureDedupTables(this.db);
+    ensureInboxReads(this.db);
     this.verifyProject();
     const version = this.schemaVersion();
     this.coordination = new Coordination(this);
@@ -711,7 +713,8 @@ export class Store implements CoordinationHost {
           });
         });
       },
-      get_messages: (input, actor) => this.inbox(requireActor(actor), input),
+      get_messages: (input, actor) =>
+        recordRead(this.db, requireActor(actor), this.inbox(requireActor(actor), input), this.now()),
       ack_message: (input, actor) => this.acknowledge(requireActor(actor), input.id),
       reply: (input, actor) => {
         const id = requireActor(actor);
