@@ -18,6 +18,7 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
+import { claudeBoundServers, claudeBoundTools, codexBoundServers, launchBindings } from './bound-tools.ts';
 import { livenessPolicy } from './liveness-schema.ts';
 import { nativeModelArguments } from './provider-selection.ts';
 import { claudeQuota, claudeWindows } from './quota-windows.ts';
@@ -222,6 +223,7 @@ export function agentLaunch(
   }
   const limits = settings.providers[record.provider];
   const native = nativeTools(record);
+  const bindings = launchBindings(mesh.directory, record);
   if (record.provider === 'codex') {
     const codexArguments = [
       'exec',
@@ -267,6 +269,7 @@ export function agentLaunch(
       '-c',
       'mcp_servers.agentmesh.tool_timeout_sec=120',
       ...codexServers(record),
+      ...codexBoundServers(bindings),
     ];
     if (native.canEdit) {
       codexArguments.push('--add-dir', record.artifact, '-c', 'sandbox_workspace_write.network_access=true');
@@ -277,7 +280,7 @@ export function agentLaunch(
   const mcpFile = path.join(record.artifact, 'claude-mcp.json');
   writeAtomic(
     mcpFile,
-    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...roleServers(record) } }, null, 2)}\n`,
+    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...claudeBoundServers(bindings), ...roleServers(record) } }, null, 2)}\n`,
   );
   const tools = native.claude;
   const learningTools =
@@ -293,6 +296,7 @@ export function agentLaunch(
       .split(',')
       .filter((tool) => tool !== '' && denied.every((operation) => tool !== `mcp__agentmesh__mesh_${operation}`)),
     ...(record.routing?.organization?.mcpServers ?? []).map((server) => `mcp__${server.name}`),
+    ...claudeBoundTools(bindings),
   ].join(',');
   const args = [
     ...selectionArguments,
