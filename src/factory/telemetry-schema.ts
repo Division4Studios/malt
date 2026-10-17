@@ -8,6 +8,7 @@
  */
 import { z } from 'zod/v3';
 
+import { FAILURE_CLASSES, LIVENESS_STATES } from './liveness-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from './seats.ts';
 
 /** Largest transcript page returned by one read. */
@@ -277,6 +278,18 @@ export const attemptRowSchema = z
     task: z.object({ issue: z.number().int().positive(), title: z.string() }).strict().nullable(),
     objective: z.string().nullable(),
     metrics: attemptMetricsSchema,
+    /** Checkpoint liveness: extensions and, once stopped, `stalled N min` or `hard ceiling`. */
+    liveness: z
+      .object({
+        state: z.enum(LIVENESS_STATES),
+        lastSignal: z.string().nullable(),
+        extensions: z.number().int().nonnegative(),
+        stopReason: z.string().nullable(),
+      })
+      .strict()
+      .nullable(),
+    /** Why a finished attempt did not succeed. */
+    failureClass: z.enum(FAILURE_CLASSES).nullable(),
   })
   .strict();
 /** One attempt listing row. */

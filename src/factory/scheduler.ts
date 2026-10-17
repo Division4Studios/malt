@@ -16,6 +16,7 @@ import {
   startableSteps,
   taskWorkflow,
 } from './pipeline.ts';
+import { isBackingOff } from './retry-policy.ts';
 import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
@@ -257,16 +258,8 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     ) {
       return;
     }
-    const recent = input.jobs.findLast((job) => {
-      return (
-        job.kind === kind &&
-        job.taskId === task.id &&
-        job.head === task.head &&
-        job.state === 'failed' &&
-        (job.step === null || job.step === step.id)
-      );
-    });
-    if (recent !== undefined && (recent.finishedAt ?? input.now) + input.config.reconcileMs > input.now) {
+    const scope = { kind, taskId: task.id, featureId: task.featureId, head: task.head, step: step.id };
+    if (isBackingOff(input.jobs, scope, { now: input.now, reconcileMs: input.config.reconcileMs })) {
       return;
     }
     intents.push({
@@ -600,7 +593,19 @@ function scheduleGroup4(
   for (const feature of candidates) {
     const next = planningStep(feature, featureWorkflow(feature));
     const role = next === null ? null : seatFor(next.step, [...live, ...intents]);
-    if (next !== null && role !== null && live.every((job) => job.featureId !== feature.id)) {
+    const scope = {
+      kind: next?.kind ?? 'plan',
+      taskId: null,
+      featureId: feature.id,
+      head: null,
+      step: next?.step.id ?? null,
+    };
+    if (
+      next !== null &&
+      role !== null &&
+      live.every((job) => job.featureId !== feature.id) &&
+      !isBackingOff(input.jobs, scope, { now: input.now, reconcileMs: input.config.reconcileMs })
+    ) {
       intents.push({
         role,
         kind: next.kind,

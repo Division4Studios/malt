@@ -73,6 +73,31 @@ const BOARD_STATES = {
   blocked: 'Blocked',
 } as const;
 
+/**
+ * The stored record of a settled attempt.
+ *
+ * @param job - Running record.
+ * @param outcome - Settlement facts.
+ * @param outcome.state - Final state.
+ * @param outcome.usage - Actual usage, or null when unknown.
+ * @param outcome.finishedAt - Settlement time.
+ * @param outcome.settlement - Evidence carrying the failure class.
+ * @returns Finished record.
+ */
+function settledJob(
+  job: FactoryJob,
+  outcome: { state: FactoryJob['state']; usage: number | null; finishedAt: number; settlement: HandoffEvidence },
+): FactoryJob {
+  const failureClass = outcome.settlement.failureClass ?? undefined;
+  return {
+    ...job,
+    state: outcome.state,
+    usageTokens: outcome.usage,
+    finishedAt: outcome.finishedAt,
+    ...(failureClass !== undefined && { failureClass }),
+  };
+}
+
 /** Durable, transactional workspace factory state. */
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
@@ -676,13 +701,8 @@ export class FactoryRepository {
         cooldownUntil: Math.max(capacity.cooldownUntil, settlement.cooldown ?? 0),
         updatedAt: this.store.now(),
       });
-      run(
-        this.store.db,
-        'UPDATE factory_jobs SET state=?,data=? WHERE id=?',
-        state,
-        JSON.stringify({ ...current, state, usageTokens: usage, finishedAt: this.store.now() }),
-        job.id,
-      );
+      const finished = settledJob(current, { state, usage, finishedAt: this.store.now(), settlement });
+      run(this.store.db, 'UPDATE factory_jobs SET state=?,data=? WHERE id=?', state, JSON.stringify(finished), job.id);
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
