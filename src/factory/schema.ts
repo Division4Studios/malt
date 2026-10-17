@@ -8,8 +8,8 @@
 import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
+import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
 import {
-  roleChoiceOutput,
   modelChoiceSchema,
   modelPolicySchema,
   modelPolicyUpdateSchema,
@@ -29,18 +29,18 @@ import {
   defaultWorkflowRequestSchema,
   frozenWorkflowSchema,
   saveWorkflowRequestSchema,
+  stepResultSchema,
+  planningResultSchema,
+  dispositionsSchema,
 } from './workflow-schema.ts';
 
+export { AGENT_OUTPUT_SCHEMA } from './agent-output.ts';
 export { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 
 /** Bound operator triage context independently of model transcripts. */
 const TRIAGE_NOTE_MAX = 4000;
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
-/** Extra reviewed project skills attached to one stage. */
-const MAX_ASSIGNMENT_SKILLS = 4;
-/** Bound the lead's per-role routing explanation. */
-const ROUTING_REASON_MAX = 1000;
 /** Absolute operator-selected workspace path bound. */
 const WORKSPACE_MAX = 4096;
 /** Maximum explicitly configured descendants in a Windows managed process job. */
@@ -56,8 +56,6 @@ const PERCENT_MAX = 100;
 const TEXT_MAX = 32_000;
 /** Longest public title. */
 const TITLE_MAX = 200;
-/** Largest atomic plan accepted at once. */
-const PLAN_MAX = 100;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -235,8 +233,6 @@ const instructionReceiptSchema = z
   .refine((receipt) => !receipt.applied || receipt.acknowledged, {
     message: 'Applied instructions require explicit acknowledgement.',
   });
-/** Maximum focused instruction receipts per assignment. */
-const MAX_INSTRUCTION_RECEIPTS = 20;
 /** A provider's structured result; irrelevant fields must be empty arrays. */
 export const resultSchema = z
   .object({
@@ -246,6 +242,7 @@ export const resultSchema = z
     deliveries: z.array(deliverySchema).max(PLAN_MAX),
     skillActions: z.array(skillActionSchema).default([]),
     instructionReceipts: z.array(instructionReceiptSchema).max(MAX_INSTRUCTION_RECEIPTS).default([]),
+    dispositions: dispositionsSchema.optional(),
   })
   .strict();
 /** Validated managed agent output. */
@@ -267,6 +264,9 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** When the plan step last produced a plan; plan reviews must postdate it. */
+  planAt: z.number().nullable().optional(),
+  planningResults: z.array(planningResultSchema).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
@@ -279,6 +279,7 @@ export const reviewSchema = z.object({
   outcome: z.enum(['success', 'changes_requested', 'blocked']),
   summary: textSchema,
   jobId: z.string().uuid(),
+  findings: z.array(textSchema).optional(),
 });
 /** Exact source and size measured after successful delivery validation. */
 const publicationSizeSchema = z.object({
@@ -343,6 +344,9 @@ export const taskSchema = z.object({
     .nullable()
     .default(null),
   approvals: z.array(approvalSchema).default([]),
+  /** Source published by the implementation step; fixes and regressions build on it. */
+  implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
+  stepResults: z.array(stepResultSchema).default([]),
   /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
   workflow: frozenWorkflowSchema.optional(),
   version: z.number().int().nonnegative(),
@@ -554,75 +558,3 @@ export const FACTORY_OPERATIONS = [
   'factory_approve',
   'factory_reconcile_github',
 ] as const;
-/** Strict JSON Schema passed to both providers for their final result. */
-export const AGENT_OUTPUT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['outcome', 'summary', 'findings', 'deliveries', 'skillActions', 'instructionReceipts'],
-  properties: {
-    outcome: { type: 'string', enum: ['success', 'changes_requested', 'blocked'] },
-    summary: { type: 'string' },
-    findings: { type: 'array', items: { type: 'string' } },
-    instructionReceipts: {
-      type: 'array',
-      maxItems: MAX_INSTRUCTION_RECEIPTS,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['id', 'acknowledged', 'applied', 'evidence'],
-        properties: {
-          id: { type: 'string' },
-          acknowledged: { type: 'boolean' },
-          applied: { type: 'boolean' },
-          evidence: { type: 'string' },
-        },
-      },
-    },
-    skillActions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'revision', 'state', 'reason'],
-        properties: {
-          name: { type: 'string' },
-          revision: { type: 'string' },
-          state: { type: 'string', enum: ['active', 'archived'] },
-          reason: { type: 'string' },
-        },
-      },
-    },
-    deliveries: {
-      type: 'array',
-      maxItems: PLAN_MAX,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'key',
-          'title',
-          'description',
-          'acceptanceCriteria',
-          'dependencies',
-          'capabilityTier',
-          'assignmentProfiles',
-          'skills',
-        ],
-        properties: {
-          key: { type: 'string' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          acceptanceCriteria: { type: 'array', items: { type: 'string' } },
-          dependencies: { type: 'array', items: { type: 'string' } },
-          capabilityTier: { type: ['string', 'null'], enum: ['small', 'standard', 'advanced', null] },
-          assignmentProfiles: {
-            type: 'array',
-            maxItems: FACTORY_ROLES.length,
-            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
-          },
-          skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
-        },
-      },
-    },
-  },
-};
