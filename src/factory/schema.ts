@@ -8,6 +8,7 @@
 import { z } from 'zod/v3';
 
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
 import {
   archiveMarkSchema,
   DELIVERY_CONTROL_OPERATIONS,
@@ -592,6 +593,7 @@ export const factorySchemas = {
   factory_workflow_default: defaultWorkflowRequestSchema,
   ...telemetrySchemas,
   ...deliveryControlSchemas,
+  ...automationSchemas,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -620,4 +622,5 @@ export const FACTORY_OPERATIONS = [
   'factory_approve',
   ...TELEMETRY_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
+  ...AUTOMATION_OPERATIONS,
 ] as const;

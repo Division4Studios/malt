@@ -3,6 +3,7 @@
  *
  * @file
  */
+import { automationsStatus } from './automations.ts';
 import { consoleView } from './console-view.ts';
 import { conversationWindow } from './conversations.ts';
 import { ownedProcessUsage } from './process-usage.ts';
@@ -53,6 +54,7 @@ export async function factoryStatus(
     conversations: conversationWindow(repository.store, mesh),
     workflow: workflowState(repository),
     workflows: workflowLibrary(repository.store).status(),
+    automations: automationsStatus(repository.store),
     capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
 }

@@ -323,6 +323,42 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+/** Loopback webhook path: `/triggers/<trigger id>`. */
+const TRIGGER_PATH = /^\/triggers\/(?<id>[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/v;
+/** Authorization scheme a trigger secret is presented with. */
+const BEARER = 'Bearer ';
+
+/**
+ * Fire a webhook trigger. The caller proves itself with the trigger's own
+ * secret, not the project token, so a local script can hold one narrowly
+ * scoped credential. Only the home team and teams already open are addressable.
+ *
+ * @param context - The broker context.
+ * @param request - The incoming request.
+ * @param id - Trigger id from the path.
+ * @returns The objective filed or matched by idempotency key.
+ * @throws {MeshError} For an unknown team or trigger, a wrong secret, bad JSON or too many calls.
+ */
+async function handleTrigger(context: BrokerContext, request: IncomingMessage, id: string): Promise<unknown> {
+  const slug = request.headers['x-agentmesh-team'];
+  const team = typeof slug === 'string' ? context.teams.get(slug) : context.home;
+  if (team === undefined) {
+    throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
+  }
+  const authorization = request.headers.authorization ?? '';
+  const key = request.headers['idempotency-key'];
+  const body = await readJson(request);
+  const isEmpty = typeof body === 'object' && body !== null && Object.keys(body).length === 0;
+  const result = team.factory.fireTrigger({
+    id,
+    secret: authorization.startsWith(BEARER) ? authorization.slice(BEARER.length) : '',
+    idempotencyKey: typeof key === 'string' ? key : null,
+    payload: isEmpty ? '' : JSON.stringify(body, null, 2),
+  });
+  team.waiters.notify();
+  return result;
+}
+
 /**
  * Write a JSON response unless the client has already gone away.
  *
@@ -504,12 +540,21 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     return;
   }
   if (
-    ['factory_skill_decide', 'factory_export_maintenance', 'factory_recover', 'factory_approve'].includes(operation)
+    [
+      'factory_skill_decide',
+      'factory_export_maintenance',
+      'factory_recover',
+      'factory_approve',
+      'factory_schedule_save',
+      'factory_trigger_save',
+      'factory_automation_delete',
+      'factory_automation_run',
+    ].includes(operation)
   ) {
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may approve skill changes, workflow approvals, objective recovery or cross-project maintenance.',
+      'Only the human operator may approve skill changes, workflow approvals, objective recovery, cross-project maintenance or automations.',
     );
   }
   const actor = team.store.authenticate(credentials);
@@ -639,7 +684,11 @@ async function respond(
     sendJson(response, HTTP_OK, { ok: true, version: VERSION });
     return;
   }
-  const result = await handleRpc(context, record, response, setOperation);
+  const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
+  const result =
+    triggerId === undefined
+      ? await handleRpc(context, record, response, setOperation)
+      : await handleTrigger(context, record, triggerId);
   sendJson(response, HTTP_OK, { result });
 }
 

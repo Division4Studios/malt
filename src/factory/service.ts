@@ -12,6 +12,7 @@ import { writeAtomic } from '../summary.ts';
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { decideApproval } from './approvals.ts';
 import { providerPreflight } from './authentication.ts';
+import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -331,6 +332,16 @@ export class FactoryService {
   }
 
   /**
+   * Fire a loopback webhook trigger presented with its own secret.
+   *
+   * @param call - Trigger id, presented secret, optional idempotency key and payload text.
+   * @returns The objective filed or matched by key.
+   */
+  public fireTrigger(call: Parameters<typeof automation.fireTrigger>[1]): { featureId: string } {
+    return automation.fireTrigger(this.repository, call);
+  }
+
+  /**
    * Execute validated human/designated-lead factory controls.
    *
    * @param operation - Project factory operation.
@@ -390,6 +401,10 @@ export class FactoryService {
       factory_prices: () => telemetry.prices(this.repository, input),
       factory_hold: () => holdDeliveries(this.repository, input),
       factory_archive: () => archiveDeliveries(this.repository, input),
+      factory_schedule_save: () => automation.saveSchedule(this.repository, input),
+      factory_trigger_save: () => automation.saveTrigger(this.repository, input),
+      factory_automation_delete: () => automation.deleteAutomation(this.repository, input),
+      factory_automation_run: () => automation.runAutomation(this.repository, input),
     };
     return await handlers[operation]();
   }
@@ -442,6 +457,7 @@ export class FactoryService {
     if (!this.connected || this.stopped || !this.repository.active()) {
       return;
     }
+    automation.fireDueSchedules(this.repository);
     this.cancelStale();
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
