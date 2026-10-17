@@ -1,35 +1,28 @@
 /**
- * Unpaid execution of approved duplicate and consolidation recommendations.
- *
- * An approved record first re-reads every observed issue; any changed revision
- * makes it stale with no mutation. Otherwise it moves to applying and queues
- * ordinary outbox effects with deterministic identities: a marked comment on
- * the survivor carrying the transferred acceptance and dependencies, then a
- * marked comment and a not-planned closure on each retired ticket. The
- * outbox's comment markers and closed-state checks make a lost response safe
- * to retry, so ambiguous results move the record to reconciling until every
- * receipt exists. Permission failures, or effects that keep failing, settle
- * the record as failed with the error and remove its pending effects. Revisions are only checked before the first effect,
- * because the record's own comments change each issue's observed revision.
+ * Unpaid execution of approved duplicate and consolidation recommendations:
+ * re-read the observed issues (any change makes the record stale), then queue
+ * marked survivor and retired-ticket comments and not-planned closures as
+ * ordinary outbox effects with deterministic ids. Markers and closed-state
+ * checks keep retries idempotent; revisions are only checked before the first
+ * effect, because the record's own comments change each issue's revision.
  *
  * @file
  */
+import { MeshError } from '../protocol.ts';
+
+import type { ObservedIssue } from '../github-issues.ts';
 import type { DeliveryRemote } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryEffect, Recommendation } from './schema.ts';
 
-/** Attempts one effect may fail before its record settles as failed. */
-const MAX_EFFECT_ATTEMPTS = 5;
-/** Errors that retrying cannot fix without operator action. */
-const PERMISSION_ERROR = /\b(?:401|403|forbidden|not accessible|permission|unauthorized)\b/iv;
 /** Recommendation kinds that change remote tickets. */
 const EXECUTED_KINDS: ReadonlySet<string> = new Set(['duplicate', 'consolidate']);
 /** Characters of a recommendation identity shown in public comments. */
 const SHORT_ID = 12;
-/** Longest audit reason the ledger accepts. */
-const REASON_MAX = 4000;
+/** Read errors that mean the observed issue is gone from the selected repository. */
+const MISSING_ISSUE: ReadonlySet<string> = new Set(['NOT_FOUND', 'WRONG_PROJECT']);
 /** States the executor advances. */
-const ACTIVE_STATES: ReadonlySet<string> = new Set(['approved', 'applying', 'reconciling']);
+const ACTIVE_STATES = ['approved', 'applying', 'reconciling'] as const;
 
 /** What the executor needs from the project: its ledger and the native issue reader. */
 export interface ExecutionContext {
@@ -98,6 +91,25 @@ function plannedEffects(record: Recommendation): Pick<FactoryEffect, 'id' | 'kin
 }
 
 /**
+ * Read one issue. A missing, transferred or inaccessible issue is permanent
+ * evidence; any other failure is retried on the next pass.
+ *
+ * @param read - Native issue reader.
+ * @param number - Issue number.
+ * @returns The observation, `missing`, or `unavailable` for a retryable failure.
+ */
+async function readOne(
+  read: NonNullable<DeliveryRemote['observedIssue']>,
+  number: number,
+): Promise<ObservedIssue | 'missing' | 'unavailable'> {
+  try {
+    return await read(number);
+  } catch (error) {
+    return error instanceof MeshError && MISSING_ISSUE.has(error.code) ? 'missing' : 'unavailable';
+  }
+}
+
+/**
  * Re-read every observed issue; any difference, or no reader, keeps the record from executing.
  *
  * @param context - Remote observation capability.
@@ -114,8 +126,11 @@ async function freshness(
   }
   for (const observed of record.body.observedIssues) {
     // eslint-disable-next-line no-await-in-loop -- Stop at the first changed issue; later reads cannot change the outcome.
-    const issue = await read(observed.issue);
-    if (!issue.complete || issue.revision !== observed.revision || issue.state !== 'open') {
+    const issue = await readOne(read, observed.issue);
+    if (issue === 'unavailable') {
+      return { state: 'unavailable' };
+    }
+    if (issue === 'missing' || !issue.complete || issue.revision !== observed.revision || issue.state !== 'open') {
       return { state: 'stale', issue: observed.issue };
     }
   }
@@ -123,30 +138,29 @@ async function freshness(
 }
 
 /**
- * Queue effects whose predecessors have receipts; each retired closure follows its comment.
+ * Queue effects whose predecessors have receipts. The survivor comment comes
+ * first, so no retired ticket changes before the survivor carries the
+ * transferred acceptance; each retired closure then follows its own comment.
  *
  * @param context - Project outbox.
  * @param record - Applying record.
  */
 function queueReady(context: ExecutionContext, record: Recommendation): void {
   const { repository } = context;
-  for (const effect of plannedEffects(record)) {
+  const [survivor, ...retired] = plannedEffects(record);
+  if (survivor === undefined) {
+    return;
+  }
+  if (!repository.effectCompleted(survivor.id)) {
+    repository.enqueueEffect({ ...survivor, attempts: 0, retryAt: 0, error: null });
+    return;
+  }
+  for (const effect of retired) {
     const predecessor = effect.kind === 'close_not_planned' ? effect.id.replace(/:close$/v, ':comment') : null;
     if (!repository.effectCompleted(effect.id) && (predecessor === null || repository.effectCompleted(predecessor))) {
       repository.enqueueEffect({ ...effect, attempts: 0, retryAt: 0, error: null });
     }
   }
-}
-
-/**
- * Whether every effect of a record has a receipt.
- *
- * @param context - Project outbox receipts.
- * @param record - Applying or reconciling record.
- * @returns True once the record's ticket changes are all confirmed.
- */
-function isApplied(context: ExecutionContext, record: Recommendation): boolean {
-  return plannedEffects(record).every((effect) => context.repository.effectCompleted(effect.id));
 }
 
 /**
@@ -159,7 +173,7 @@ function settle(context: ExecutionContext, record: Recommendation): void {
   const { repository } = context;
   const fence = { id: record.id, revision: record.revision, state: record.state };
   queueReady(context, record);
-  if (isApplied(context, record)) {
+  if (plannedEffects(record).every((effect) => repository.effectCompleted(effect.id))) {
     repository.recommendations.transition({
       ...fence,
       next: 'completed',
@@ -169,23 +183,6 @@ function settle(context: ExecutionContext, record: Recommendation): void {
   }
   const ids = new Set(plannedEffects(record).map((effect) => effect.id));
   const failing = repository.effects().filter((effect) => ids.has(effect.id) && effect.error !== null);
-  const fatal = failing.find(
-    (effect) => PERMISSION_ERROR.test(effect.error ?? '') || effect.attempts >= MAX_EFFECT_ATTEMPTS,
-  );
-  if (fatal !== undefined) {
-    const pending = repository.effects().filter((effect) => ids.has(effect.id));
-    repository.store.transaction(() => {
-      for (const effect of pending) {
-        repository.discardEffect(effect.id, `Recommendation ${record.id} failed; the operator can retry it.`);
-      }
-      repository.recommendations.transition({
-        ...fence,
-        next: 'failed',
-        reason: `Issue #${String(fatal.issue)}: ${fatal.error ?? 'remote effect failed'}`.slice(0, REASON_MAX),
-      });
-    });
-    return;
-  }
   if (failing.length > 0 && record.state === 'applying') {
     repository.recommendations.transition({
       ...fence,
@@ -204,9 +201,7 @@ function settle(context: ExecutionContext, record: Recommendation): void {
  */
 export async function advanceRecommendations(context: ExecutionContext): Promise<void> {
   const { repository } = context;
-  const records = repository.recommendations
-    .current()
-    .filter((record) => ACTIVE_STATES.has(record.state) && isExecutable(record));
+  const records = repository.recommendations.current(ACTIVE_STATES).filter((record) => isExecutable(record));
   for (const record of records) {
     if (record.state !== 'approved') {
       settle(context, record);

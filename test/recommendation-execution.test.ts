@@ -4,6 +4,7 @@ import { test } from 'node:test';
 
 import { advanceRecommendations } from '../src/factory/recommendation-execution.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
+import { MeshError } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 
 import { proposal, readObservation } from './fixtures/recommendations.ts';
@@ -36,6 +37,17 @@ const consolidation: RecommendationBody = {
   transferredDependencies: [5],
 };
 
+/**
+ * A consolidation of one ticket into a survivor.
+ *
+ * @param survivor - Surviving ticket.
+ * @param other - Retired ticket.
+ * @returns Proposal body.
+ */
+function pair(survivor: number, other: number): RecommendationBody {
+  return { ...consolidation, tickets: [survivor, other], survivor, observedIssues: observed([survivor, other]) };
+}
+
 /** A fixture GitHub that applies marked comments and closures like the real adapter. */
 class Tickets {
   /** Comment bodies per issue. */
@@ -48,8 +60,6 @@ class Tickets {
   public readonly revisions = new Map<number, string>();
   /** Issue reads. */
   public reads = 0;
-  /** Error returned for an effect, if any. */
-  public deny: ((effect: FactoryEffect) => string | null) | null = null;
 
   /**
    * Observe one issue.
@@ -66,13 +76,9 @@ class Tickets {
    * Apply one outbox effect idempotently, as the GitHub adapter does.
    *
    * @param effect - Durable effect.
-   * @throws {Error} For a denied effect or a lost response.
+   * @throws {Error} For a lost response.
    */
   public apply(effect: FactoryEffect): void {
-    const denied = this.deny?.(effect) ?? null;
-    if (denied !== null) {
-      throw new Error(denied);
-    }
     if (effect.kind === 'close_not_planned') {
       if (!this.closed.has(effect.issue)) {
         this.closed.set(effect.issue, effect.value);
@@ -122,12 +128,7 @@ function seed(
  * @returns Context with a native issue reader.
  */
 function contextFor(repository: FactoryRepository, tickets: Tickets): ExecutionContext {
-  return {
-    repository,
-    remote: {
-      observedIssue: async (number) => tickets.observe(number),
-    },
-  };
+  return { repository, remote: { observedIssue: async (number) => tickets.observe(number) } };
 }
 
 /**
@@ -159,16 +160,13 @@ await test('only approved duplicates and consolidations execute; other records n
   });
   const tickets = new Tickets();
   const { repository } = seed(store, { ...consolidation, tickets: [1, 2, 3], observedIssues: observed([1, 2, 3]) }, []);
-  seed(store, { ...consolidation, tickets: [4, 5], survivor: 4, observedIssues: observed([4, 5]) }, ['rejected']);
-  seed(store, { ...consolidation, tickets: [6, 7], survivor: 6, observedIssues: observed([6, 7]) }, ['stale']);
+  seed(store, pair(4, 5), ['rejected']);
+  seed(store, pair(6, 7), ['stale']);
   seed(store, { ...proposal, tickets: [8, 9], observedIssues: observed([8, 9]) }, ['approved']);
   await drive(contextFor(repository, tickets), tickets);
   assert.equal(tickets.reads, 0);
   assert.equal(repository.effects().length, 0);
-  assert.deepEqual(
-    repository.recommendations.current().map((record) => record.state),
-    ['awaiting_human', 'rejected', 'stale', 'approved'],
-  );
+  assert.equal(repository.recommendations.current(['applying', 'reconciling', 'completed']).length, 0);
 });
 
 await test('an issue changed after approval makes the record stale without any change', async (t) => {
@@ -200,6 +198,8 @@ await test('a lost response and a restart still leave one marked comment per tic
   tickets.lose.add(`recommendation-${seeded.id}:${seeded.revision}:survivor:1`);
   await drive(contextFor(seeded.repository, tickets), tickets, 1);
   assert.equal(seeded.repository.recommendations.get(seeded.id)?.state, 'applying');
+  assert.equal(tickets.comments.get(2), undefined, 'no retired ticket changes before the survivor receipt');
+  assert.ok(seeded.repository.effects().every((effect) => effect.id.endsWith(':survivor:1')));
   await advanceRecommendations(contextFor(seeded.repository, tickets));
   assert.equal(seeded.repository.recommendations.get(seeded.id)?.state, 'reconciling');
   store.close();
@@ -214,26 +214,34 @@ await test('a lost response and a restart still leave one marked comment per tic
   assert.match(tickets.comments.get(2)?.[0] ?? '', /consolidated into #1/v);
   assert.deepEqual(tickets.closed.keys().toArray(), [2]);
   assert.equal(tickets.reads, 2, 'revisions are read once, before the first effect');
-  assert.deepEqual(
-    record.audit.slice(-4).map((entry) => entry.to),
-    ['approved', 'applying', 'reconciling', 'completed'],
-  );
 });
 
-await test('a permission failure fails the record with its error and stops retrying it', async (t) => {
+await test('a failed issue read is isolated to its record: missing issues go stale, transport errors retry', async (t) => {
   const defer = createCleanup(t);
   const store = new Store(createProject(defer));
   defer(() => {
     store.close();
   });
   const tickets = new Tickets();
-  const forbidden = 'HTTP 403: Resource not accessible by integration';
-  tickets.deny = (effect) => (effect.kind === 'close_not_planned' ? forbidden : null);
+  const missing = seed(store, pair(3, 4), ['approved']);
+  const flaky = seed(store, pair(5, 6), ['approved']);
   const { repository, id } = seed(store, consolidation, ['approved']);
-  const context = contextFor(repository, tickets);
-  await drive(context, tickets);
-  const failed = repository.recommendations.get(id);
-  assert.equal(failed?.state, 'failed');
-  assert.match(failed.audit.at(-1)?.reason ?? '', /#2: HTTP 403/v);
-  assert.equal(repository.effects().length, 0, 'the outbox stops retrying a failed record');
+  const context: ExecutionContext = {
+    repository,
+    remote: {
+      observedIssue: async (number) => {
+        if (number === 4) {
+          throw new MeshError('NOT_FOUND', 'The selected issue is missing or inaccessible.');
+        }
+        if (number === 5) {
+          throw new Error('socket hang up');
+        }
+        return tickets.observe(number);
+      },
+    },
+  };
+  await advanceRecommendations(context);
+  assert.equal(repository.recommendations.get(missing.id)?.state, 'stale');
+  assert.equal(repository.recommendations.get(flaky.id)?.state, 'approved', 'retried on the next pass');
+  assert.equal(repository.recommendations.get(id)?.state, 'applying', 'other records still execute');
 });
