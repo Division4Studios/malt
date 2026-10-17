@@ -8,12 +8,13 @@
  *
  * @file
  */
-
 import { asData } from './console-model.js';
 
 import type { Data } from './api.js';
+
 /** What caused a fire. */
 export type FireKind = 'schedule' | 'trigger' | 'manual';
+
 /** One recorded fire. */
 export interface FireView {
   /** Fire id. */
@@ -27,6 +28,7 @@ export interface FireView {
   /** Why no objective was filed. */
   readonly error: string | null;
 }
+
 /** Fields both kinds share. */
 interface AutomationBase {
   /** Automation id. */
@@ -46,6 +48,7 @@ interface AutomationBase {
   /** Recent fires, newest first. */
   readonly fires: readonly FireView[];
 }
+
 /** A cron schedule. */
 export interface ScheduleView extends AutomationBase {
   /** Kind. */
@@ -59,6 +62,7 @@ export interface ScheduleView extends AutomationBase {
   /** Upcoming fires the broker computed. */
   readonly upcoming: readonly number[];
 }
+
 /** A webhook trigger; its secret never reaches the browser after it is issued. */
 export interface TriggerView extends AutomationBase {
   /** Kind. */
@@ -66,8 +70,10 @@ export interface TriggerView extends AutomationBase {
   /** Broker path a script POSTs to. */
   readonly path: string;
 }
+
 /** Any automation. */
 export type AutomationView = ScheduleView | TriggerView;
+
 /** Where scripts reach the broker. */
 export interface TriggerEndpoint {
   /** Broker base URL. */
@@ -75,6 +81,7 @@ export interface TriggerEndpoint {
   /** Workspace team header value, or `null` for the home project. */
   readonly team: string | null;
 }
+
 /** Everything the view shows. */
 export interface AutomationsModel {
   /** Schedules, oldest first. */
@@ -84,6 +91,7 @@ export interface AutomationsModel {
   /** Broker address for examples, when known. */
   readonly endpoint: TriggerEndpoint | null;
 }
+
 /** Fields the editor collects. */
 export interface AutomationDraft {
   /** Display name. */
@@ -99,6 +107,7 @@ export interface AutomationDraft {
   /** IANA zone (schedules only). */
   readonly timeZone: string;
 }
+
 /** Ready-made schedules offered in the editor. */
 export const CRON_PRESETS: readonly (readonly [string, string])[] = [
   ['0 * * * *', 'Every hour'],
@@ -107,12 +116,14 @@ export const CRON_PRESETS: readonly (readonly [string, string])[] = [
   ['0 9 * * 1', 'Mondays at 09:00'],
   ['0 9 1 * *', 'First of the month at 09:00'],
 ];
+
 /** Longest name the broker accepts. */
 export const NAME_MAX = 120;
 /** Longest objective the broker accepts. */
 export const OBJECTIVE_MAX = 20_000;
 /** Placeholder shown wherever a secret belongs in an example. */
 export const SECRET_PLACEHOLDER = '<trigger secret>';
+
 /** Shorthand schedules, as the broker expands them. */
 const MACROS: Readonly<Record<string, string>> = {
   '@hourly': '0 * * * *',
@@ -171,6 +182,7 @@ const SUNDAY_ALIAS = 7;
 const SPLIT_LIMIT = 3;
 /** Values listed before a description falls back to a count. */
 const LIST_MAX = 6;
+
 /** A parsed expression: sorted values per field and whether each was restricted. */
 interface ParsedCron {
   /** Sorted values for minute, hour, day, month and weekday. */
@@ -550,4 +562,241 @@ export function describeCron(expression: string): { readonly text: string; reado
   const [minutes = [], hours = []] = parsed.values;
   const [, isHourRestricted = false] = parsed.restricted;
   return { text: `${timeText(minutes, hours, isHourRestricted)}, ${dayText(parsed)}.`, isValid: true };
+}
+
+/** Fire times show weekday, date and a 24-hour clock. */
+const FIRE_FORMAT: Intl.DateTimeFormatOptions = {
+  weekday: 'short',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+};
+
+/**
+ * Format a fire time in a schedule's own zone.
+ *
+ * @param at - Epoch milliseconds.
+ * @param timeZone - IANA zone; the browser's zone when empty or unknown.
+ * @returns For example "Mon, 19 Oct, 09:00".
+ */
+export function zonedTime(at: number, timeZone: string): string {
+  let format: Intl.DateTimeFormat;
+  try {
+    format = new Intl.DateTimeFormat(undefined, { ...FIRE_FORMAT, ...(timeZone !== '' && { timeZone }) });
+  } catch {
+    format = new Intl.DateTimeFormat(undefined, FIRE_FORMAT);
+  }
+  return format.format(at);
+}
+
+/**
+ * The browser's own zone, offered as the default for new schedules.
+ *
+ * @returns IANA zone, or UTC when the browser does not say.
+ */
+export function browserZone(): string {
+  const format = new Intl.DateTimeFormat();
+  const zone = format.resolvedOptions().timeZone;
+  return zone === '' ? 'UTC' : zone;
+}
+
+/**
+ * Describe one fire's result.
+ *
+ * @param fire - Recorded fire.
+ * @returns Plain status text.
+ */
+export function fireText(fire: FireView): string {
+  const cause = { schedule: 'Scheduled', trigger: 'Webhook', manual: 'Run now' }[fire.kind];
+  return fire.error === null ? `${cause}: objective filed` : `${cause}: not filed. ${fire.error}`;
+}
+
+/**
+ * The draft an editor starts from.
+ *
+ * @param automation - Automation being edited, or `null` for a new one.
+ * @returns Editor fields.
+ */
+export function draftOf(automation: AutomationView | null): AutomationDraft {
+  return {
+    name: automation?.name ?? '',
+    objective: automation?.objective ?? '',
+    workflowId: automation?.workflowId ?? '',
+    isEnabled: automation?.isEnabled ?? true,
+    cron: automation?.kind === 'schedule' ? automation.cron : (CRON_PRESETS[1]?.[0] ?? '0 9 * * *'),
+    timeZone: automation?.kind === 'schedule' ? automation.timeZone : browserZone(),
+  };
+}
+
+/**
+ * Check a draft before it is sent.
+ *
+ * @param kind - Which kind is being saved.
+ * @param draft - Editor fields.
+ * @returns The first problem, or `null` when it may be sent.
+ */
+export function draftProblem(kind: AutomationView['kind'], draft: AutomationDraft): string | null {
+  if (draft.name.trim() === '' || draft.name.length > NAME_MAX) {
+    return `Give it a name of 1–${String(NAME_MAX)} characters.`;
+  }
+  if (draft.objective.trim() === '' || draft.objective.length > OBJECTIVE_MAX) {
+    return 'Describe the objective it files.';
+  }
+  if (kind === 'trigger') {
+    return null;
+  }
+  const cron = describeCron(draft.cron);
+  if (!cron.isValid) {
+    return cron.text;
+  }
+  return draft.timeZone.trim() === '' ? 'Choose a time zone, such as Europe/Berlin.' : null;
+}
+
+/**
+ * The control input that saves a draft.
+ *
+ * @param kind - Which kind is being saved.
+ * @param draft - Editor fields.
+ * @param editing - Automation being edited, or `null` to create one.
+ * @param shouldRotate - Issue a new trigger secret and revoke the old one.
+ * @returns Operation name and input for the broker.
+ */
+export function saveInput(
+  kind: AutomationView['kind'],
+  draft: AutomationDraft,
+  editing: AutomationView | null,
+  shouldRotate = false,
+): { readonly operation: string; readonly input: Data } {
+  const shared: Data = {
+    ...(editing !== null && { id: editing.id, expectedRevision: editing.revision }),
+    name: draft.name.trim(),
+    objective: draft.objective.trim(),
+    workflowId: draft.workflowId === '' ? null : draft.workflowId,
+    isEnabled: draft.isEnabled,
+  };
+  return kind === 'schedule'
+    ? {
+        operation: 'factory_schedule_save',
+        input: { ...shared, cron: draft.cron.trim(), timeZone: draft.timeZone.trim() },
+      }
+    : { operation: 'factory_trigger_save', input: { ...shared, rotateSecret: shouldRotate } };
+}
+
+/**
+ * The input that flips an automation on or off, keeping everything else.
+ *
+ * @param automation - Automation to toggle.
+ * @returns Save operation with the enabled flag inverted.
+ */
+export function toggleInput(automation: AutomationView): { readonly operation: string; readonly input: Data } {
+  return saveInput(automation.kind, { ...draftOf(automation), isEnabled: !automation.isEnabled }, automation);
+}
+
+/**
+ * Read the secret a trigger save returned, with the saved trigger's name and path.
+ *
+ * @param result - Untrusted control result.
+ * @returns Secret and trigger, or `null` when no secret was issued.
+ */
+export function issuedSecret(
+  result: unknown,
+): { readonly secret: string; readonly trigger: Pick<TriggerView, 'name' | 'path'> } | null {
+  const record = asData(result);
+  const secret = record?.['secret'];
+  if (typeof secret !== 'string' || secret === '') {
+    return null;
+  }
+  const trigger = asData(record?.['trigger']) ?? {};
+  const id = textOf(trigger, 'id');
+  const name = textOf(trigger, 'name');
+  const path = textOf(trigger, 'path');
+  const fallbackPath = `/triggers/${id === '' ? '<id>' : id}`;
+  return { secret, trigger: { name: name === '' ? 'the trigger' : name, path: path === '' ? fallbackPath : path } };
+}
+
+/**
+ * Quote text for a POSIX shell.
+ *
+ * @param value - Text to quote.
+ * @returns Single-quoted text with embedded quotes escaped.
+ */
+function shellQuote(value: string): string {
+  const escaped = value.replaceAll("'", String.raw`'\''`);
+  return `'${escaped}'`;
+}
+
+/**
+ * Quote text for PowerShell.
+ *
+ * @param value - Text to quote.
+ * @returns Single-quoted text with embedded quotes doubled.
+ */
+function powerShellQuote(value: string): string {
+  const escaped = value.replaceAll("'", "''");
+  return `'${escaped}'`;
+}
+
+/**
+ * Drop trailing slashes from a base URL without a backtracking pattern.
+ *
+ * @param url - Base URL.
+ * @returns URL ending in its last non-slash character.
+ */
+function trimSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') {
+    end -= 1;
+  }
+  return url.slice(0, end);
+}
+
+/**
+ * The full trigger URL scripts call.
+ *
+ * @param endpoint - Broker address, or `null` when unknown.
+ * @param path - Trigger path, such as `/triggers/<id>`.
+ * @returns Absolute URL, with a placeholder port when the broker address is unknown.
+ */
+export function triggerUrl(endpoint: TriggerEndpoint | null, path: string): string {
+  return trimSlashes(endpoint?.url ?? 'http://127.0.0.1:<broker port>') + path;
+}
+
+/**
+ * Example commands that fire a trigger from a local script.
+ *
+ * @param endpoint - Broker address, or `null` when unknown.
+ * @param path - Trigger path, such as `/triggers/<id>`.
+ * @param secret - Secret to show, or the placeholder.
+ * @returns A curl command and a PowerShell command.
+ */
+export function triggerExamples(
+  endpoint: TriggerEndpoint | null,
+  path: string,
+  secret = SECRET_PLACEHOLDER,
+): { readonly curl: string; readonly powershell: string } {
+  const url = triggerUrl(endpoint, path);
+  const body = '{"note":"why this ran"}';
+  const team = endpoint?.team ?? null;
+  const bearer = `Bearer ${secret}`;
+  const curlHeaders = [
+    `Authorization: ${bearer}`,
+    'Idempotency-Key: build-123',
+    ...(team === null ? [] : [`x-agentmesh-team: ${team}`]),
+    'Content-Type: application/json',
+  ];
+  const curl = [
+    `curl -X POST ${shellQuote(url)}`,
+    ...curlHeaders.map((header) => `-H ${shellQuote(header)}`),
+    `-d ${shellQuote(body)}`,
+  ].join(' \\\n  ');
+  const teamHeader = team === null ? [] : [`'x-agentmesh-team' = ${powerShellQuote(team)}`];
+  const headers = [`Authorization = ${powerShellQuote(bearer)}`, `'Idempotency-Key' = 'build-123'`, ...teamHeader];
+  const powershell = [
+    `Invoke-RestMethod -Method Post -Uri ${powerShellQuote(url)}`,
+    `-Headers @{ ${headers.join('; ')} }`,
+    `-ContentType 'application/json' -Body ${powerShellQuote(body)}`,
+  ].join(' `\n  ');
+  return { curl, powershell };
 }
