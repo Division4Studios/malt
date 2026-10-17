@@ -54,6 +54,7 @@ const FILES = [
   'dist/terminal-input.js',
   'dist/telemetry-format.js',
   'dist/transcript-ui.js',
+  'dist/sessions-ui.js',
   'dist/price-editor.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */

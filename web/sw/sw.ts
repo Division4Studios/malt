@@ -46,6 +46,7 @@ const SHELL = [
   '/terminal-input.js',
   '/telemetry-format.js',
   '/transcript-ui.js',
+  '/sessions-ui.js',
   '/price-editor.js',
   '/terminal.css',
   '/style.css',
