@@ -68,6 +68,7 @@ const SHELL = [
   '/automations-model.js',
   '/automations-ui.js',
   '/delivery-ui.js',
+  '/goal-model.js',
   '/sessions.css',
   '/board.css',
   '/workflow-model.js',

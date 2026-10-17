@@ -76,6 +76,7 @@ const FILES = [
   'dist/automations-model.js',
   'dist/automations-ui.js',
   'dist/delivery-ui.js',
+  'dist/goal-model.js',
   'sessions.css',
   'board.css',
   'dist/workflow-model.js',
