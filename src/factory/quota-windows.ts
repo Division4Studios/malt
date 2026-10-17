@@ -5,6 +5,8 @@
  */
 import { z } from 'zod/v3';
 
+import type { Capacity, Provider } from './schema.ts';
+
 /** Time conversion for native Unix-second reset deadlines. */
 const SECOND_MS = 1000;
 /** Maximum normalized quota percentage. */
@@ -69,13 +71,22 @@ const bucketSchema = z.object({ primary: windowSchema.nullable(), secondary: win
 const accountSchema = z.object({ rateLimits: bucketSchema.nullable().optional() });
 /** One native Claude utilization fraction and reset deadline. */
 const claudeWindowSchema = z.object({
-  utilization: z.number().nonnegative(),
-  resetsAt: z.number().int().nonnegative(),
+  utilization: z.number().finite().nonnegative(),
+  resetsAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER / SECOND_MS),
 });
 /** Supported stream telemetry, including current unified subscription windows. */
 const claudeInfoSchema = z.object({
-  utilization: z.number().nonnegative().optional(),
-  resetsAt: z.number().int().nonnegative().optional(),
+  utilization: z.number().finite().nonnegative().optional(),
+  resetsAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER / SECOND_MS)
+    .optional(),
   unifiedWindows: z.record(claudeWindowSchema).optional(),
 });
 /** Validated native percentage window. */
@@ -181,8 +192,10 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
   if (!parsed.success) {
     return [];
   }
-  return Object.entries(parsed.data.unifiedWindows ?? {})
-    .slice(0, MAX_WINDOWS)
+  const { utilization, resetsAt } = parsed.data;
+  const hasLegacy = utilization !== undefined && (resetsAt === undefined || resetsAt * SECOND_MS > now);
+  const windows = Object.entries(parsed.data.unifiedWindows ?? {})
+    .filter(([id]) => id !== 'legacy-reported' || !hasLegacy)
     .flatMap(([id, window]) => {
       const minutes = id === 'five_hour' ? FIVE_HOUR_MINUTES : null;
       const observation = subscriptionWindowSchema.safeParse({
@@ -194,7 +207,22 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
         source: 'claude-stream',
       });
       return observation.success && window.resetsAt * SECOND_MS > now ? [observation.data] : [];
+    })
+    .slice(0, hasLegacy ? MAX_WINDOWS - 1 : MAX_WINDOWS);
+  if (hasLegacy) {
+    const legacy = subscriptionWindowSchema.safeParse({
+      id: 'legacy-reported',
+      minutes: null,
+      usedPercent: Math.min(PERCENT_MAX, utilization * PERCENT_MAX),
+      resetAt: resetsAt === undefined ? null : resetsAt * SECOND_MS,
+      observedAt: now,
+      source: 'claude-stream',
     });
+    if (legacy.success) {
+      windows.push(legacy.data);
+    }
+  }
+  return windows;
 }
 
 /**
@@ -245,4 +273,39 @@ function restrictiveQuota(input: (NativeWindow | null)[], now: number): QuotaRea
         usedPercent: Math.min(PERCENT_MAX, selected.usedPercent),
         resetAt: selected.resetsAt === null ? null : selected.resetsAt * SECOND_MS,
       };
+}
+
+/**
+ * Fixed window boundary enclosing a time, used to observe a never-used provider
+ * without inventing a new window on every read.
+ *
+ * @param now - Current time.
+ * @param windowMs - Configured accounting window.
+ * @returns Start of the enclosing fixed window.
+ */
+export function fixedWindowStart(now: number, windowMs: number): number {
+  return Math.floor(now / windowMs) * windowMs;
+}
+
+/**
+ * Accounting record for a provider with no stored usage.
+ *
+ * @param provider - Provider family.
+ * @param start - Window start.
+ * @param windowMs - Configured accounting window.
+ * @returns Empty capacity for that window.
+ */
+export function unusedCapacity(provider: Provider, start: number, windowMs: number): Capacity {
+  return {
+    provider,
+    usedTokens: 0,
+    reservedTokens: 0,
+    resetAt: start + windowMs,
+    cooldownUntil: 0,
+    subscriptionUsedPercent: null,
+    subscriptionResetAt: null,
+    subscriptionWindows: [],
+    telemetrySource: null,
+    updatedAt: start,
+  };
 }

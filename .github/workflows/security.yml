@@ -61,9 +61,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - id: review
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: low
+          # Runtime packages ship with MALT and must stay MIT-compatible; see docs/dependency-policy.md.
+          fail-on-scopes: runtime
+          allow-licenses: MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD
+      # The action only reports runtime packages with no detected license; fail closed on them.
+      - name: Reject runtime packages without a detected license
+        env:
+          INVALID: ${{ steps.review.outputs.invalid-license-changes }}
+        run: |
+          if [ -z "$INVALID" ]; then exit 0; fi
+          unlicensed="$(printf '%s' "$INVALID" | jq -r '(.unlicensed // [])[] | "\(.name)@\(.version) (\(.ecosystem))"')"
+          if [ -n "$unlicensed" ]; then
+            echo "Runtime packages without a detected license:" >&2
+            echo "$unlicensed" >&2
+            exit 1
+          fi
   security-gate:
     name: Security gate
     if: always()
