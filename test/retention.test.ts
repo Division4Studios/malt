@@ -117,6 +117,19 @@ await test('messages to ended identities go after the window; the sweep runs onc
   assert.notEqual(sweepRetention(store), null);
 });
 
+await test('a message a worker check-in still references survives retention', (t) => {
+  const { store, clock, lead, worker } = fixture(t);
+  const request = store.execute('send_message', { to: 'claude-lead', body: 'Work request' }, worker);
+  store.execute('ack_message', { id: request.id }, lead);
+  store.db
+    .prepare("UPDATE worker_coordination SET request_message_id = ?, phase = 'IDLE_APPROVED' WHERE agent_id = ?")
+    .run(request.id, worker);
+  clock.now += 3 * DAY;
+  assert.doesNotThrow(() => applyRetention(store, POLICY));
+  const kept = selectOne(store.db, idSchema, 'SELECT id FROM messages WHERE id = ?', request.id);
+  assert.ok(kept !== undefined, 'the referenced work request stays');
+});
+
 await test('the windows read their environment variables', () => {
   process.env['AGENTMESH_MESSAGE_RETENTION_DAYS'] = '7';
   process.env['AGENTMESH_EVENT_RETENTION_DAYS'] = '';
