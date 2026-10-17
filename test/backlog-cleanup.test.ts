@@ -73,8 +73,11 @@ await test('the backlog is cleaned once without losing audit history', (t) => {
     z.object({ data: z.string() }),
     "SELECT data FROM events WHERE type = 'BACKLOG_CLEANED' ORDER BY seq",
   );
-  // A new project records an empty cleanup when it is created; the schema 3 upgrade records the real one.
-  assert.equal(cleaned.at(-1)?.data, JSON.stringify({ acknowledged: 5, retired: 2 }));
+  assert.deepEqual(
+    cleaned.map((row) => row.data),
+    [JSON.stringify({ acknowledged: 5, retired: 2 })],
+    'a new database records nothing; the upgrade records one entry',
+  );
 
   const left = selectAll(
     migrated.db,
@@ -94,10 +97,11 @@ await test('the backlog is cleaned once without losing audit history', (t) => {
   );
 });
 
-await test('a migration with nothing to clean still records its audit event', (t) => {
+await test('an upgrade with nothing to clean still records its audit event', (t) => {
   const defer = createCleanup(t);
   const config = createProject(defer);
   const store = new Store(config);
+  store.register(registration('codex-1'));
   store.db.exec("UPDATE metadata SET value = '3' WHERE key = 'schema_version'");
   store.close();
   const migrated = new Store(config);

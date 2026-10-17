@@ -7,7 +7,8 @@
  * - observer session identities and the supervisor's system identities are
  *   retired, and so is every session whose lease expired before the cutoff,
  *   each through the normal departure path;
- * - one `BACKLOG_CLEANED` event records the counts, even when they are zero.
+ * - one `BACKLOG_CLEANED` event records the counts, even when they are zero,
+ *   for every project that already had agents.
  *
  * No message or event row is deleted, so the audit trail stays intact (age is
  * retention's job), unread messages from real agents stay unread, and durable
@@ -15,7 +16,7 @@
  *
  * @file
  */
-import { idRowSchema, run, selectAll } from './database.ts';
+import { idRowSchema, run, selectAll, selectCount } from './database.ts';
 import { SYSTEM_NAME_PREFIX, SYSTEM_RUNTIME } from './identity-retirement.ts';
 
 import type { DatabaseSync } from 'node:sqlite';
@@ -62,12 +63,14 @@ export function cleanBacklog(
   for (const { id } of retiring) {
     depart(id);
   }
-  // Recorded even when nothing changed, so the migration always leaves its audit entry.
-  run(
-    db,
-    "INSERT INTO events(type, actor, data, created_at) VALUES ('BACKLOG_CLEANED', NULL, ?, ?)",
-    JSON.stringify({ acknowledged, retired: retiring.length }),
-    now,
-  );
+  // Every upgraded project records its audit entry, even with nothing to clean; a brand-new database has nothing to audit.
+  if (selectCount(db, 'SELECT COUNT(*) AS count FROM agents') > 0) {
+    run(
+      db,
+      "INSERT INTO events(type, actor, data, created_at) VALUES ('BACKLOG_CLEANED', NULL, ?, ?)",
+      JSON.stringify({ acknowledged, retired: retiring.length }),
+      now,
+    );
+  }
   return { acknowledged, retired: retiring.length };
 }
