@@ -29,7 +29,8 @@ const TRANSITIONS: Record<RecommendationState, readonly RecommendationState[]> =
   rejected: [],
   stale: [],
   completed: [],
-  failed: [],
+  // An operator retry re-queues the same idempotent effects.
+  failed: ['applying'],
 };
 /** Only undecided or invalidated content may be superseded. */
 const REPLACEABLE = new Set<RecommendationState>(['proposed', 'awaiting_human', 'stale', 'rejected']);

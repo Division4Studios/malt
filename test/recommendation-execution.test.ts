@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { advanceRecommendations } from '../src/factory/recommendation-execution.ts';
+import { advanceRecommendations, retryRecommendation } from '../src/factory/recommendation-execution.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { Store } from '../src/store.ts';
 
@@ -236,4 +236,27 @@ await test('a permission failure fails the record with its error and stops retry
   assert.equal(failed?.state, 'failed');
   assert.match(failed.audit.at(-1)?.reason ?? '', /#2: HTTP 403/v);
   assert.equal(repository.effects().length, 0, 'the outbox stops retrying a failed record');
+});
+
+await test('an operator retry re-queues a failed record and finishes it without repeating ticket changes', async (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const tickets = new Tickets();
+  tickets.deny = (effect) => (effect.kind === 'close_not_planned' ? 'HTTP 403: forbidden' : null);
+  const { repository, id, revision } = seed(store, consolidation, ['approved']);
+  const context = contextFor(repository, tickets);
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'failed');
+  assert.throws(() => retryRecommendation(context, { id, revision: '0'.repeat(64) }), { code: 'FACTORY_GATED' });
+  tickets.deny = null;
+  assert.deepEqual(retryRecommendation(context, { id, revision }), { state: 'applying' });
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'completed');
+  assert.equal(tickets.comments.get(1)?.length, 1);
+  assert.equal(tickets.comments.get(2)?.length, 1);
+  assert.deepEqual(tickets.closed.keys().toArray(), [2]);
+  assert.throws(() => retryRecommendation(context, { id, revision }), { code: 'FACTORY_GATED' });
 });

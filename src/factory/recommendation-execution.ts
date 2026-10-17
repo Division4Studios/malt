@@ -9,11 +9,16 @@
  * outbox's comment markers and closed-state checks make a lost response safe
  * to retry, so ambiguous results move the record to reconciling until every
  * receipt exists. Permission failures, or effects that keep failing, settle
- * the record as failed with the error and remove its pending effects. Revisions are only checked before the first effect,
+ * the record as failed with the error; the operator's retry re-queues the same
+ * idempotent effects. Revisions are only checked before the first effect,
  * because the record's own comments change each issue's observed revision.
  *
  * @file
  */
+import { MeshError } from '../protocol.ts';
+
+import { recommendationRetrySchema } from './recommendation-read-schema.ts';
+
 import type { DeliveryRemote } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryEffect, Recommendation } from './schema.ts';
@@ -232,4 +237,31 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
       });
     }
   }
+}
+
+/**
+ * Operator retry of a failed record: back to applying, re-queueing its idempotent effects.
+ *
+ * @param context - Project ledger.
+ * @param input - Exact failed revision.
+ * @returns The record's new state.
+ * @throws {MeshError} When the record is not failed at that revision.
+ */
+export function retryRecommendation(context: ExecutionContext, input: unknown): { state: string } {
+  const request = recommendationRetrySchema.parse(input);
+  const record = context.repository.recommendations.get(request.id);
+  if (record?.revision !== request.revision || record.state !== 'failed' || !isExecutable(record)) {
+    throw new MeshError('FACTORY_GATED', 'Only a failed duplicate or consolidation can be retried at its revision.');
+  }
+  return context.repository.store.transaction(() => {
+    const applying = context.repository.recommendations.transition({
+      id: record.id,
+      revision: record.revision,
+      state: 'failed',
+      next: 'applying',
+      reason: 'Operator retry.',
+    });
+    queueReady(context, applying);
+    return { state: applying.state };
+  });
 }
