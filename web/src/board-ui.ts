@@ -153,6 +153,17 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
 }
 
 /**
+ * Build an objective card's definition-of-done line.
+ *
+ * @param objective - Objective shown.
+ * @returns Paragraph, or nothing without a checklist.
+ */
+function criteriaLine(objective: Objective): HTMLElement[] {
+  const { met, total } = objective.definition;
+  return total === 0 ? [] : [element('p', 'card-progress', `${String(met)} of ${String(total)} done criteria met`)];
+}
+
+/**
  * Build an objective card.
  *
  * @param objective - Objective to show.
@@ -198,6 +209,7 @@ function objectiveCard(objective: Objective, key: string, hooks: BoardHooks): HT
     element('p', 'card-workflow', objective.workflow.name),
     chips,
     progress,
+    ...criteriaLine(objective),
     ...errorLine(objective.error),
   );
   return card;

@@ -11,6 +11,7 @@
 import { MeshError } from '../protocol.ts';
 
 import { archiveRequestSchema, holdRequestSchema } from './delivery-control-schema.ts';
+import { spendGate } from './spend.ts';
 import { isCurrentTriage } from './triage.ts';
 
 import type { ArchiveRequest, HoldRequest } from './delivery-control-schema.ts';
@@ -54,8 +55,9 @@ export function isAdmissible(task: FactoryTask): boolean {
 }
 
 /**
- * Fence superseded, out-of-focus and held work inside the same transaction as
- * role admission, so a hold placed after scheduling still stops the claim.
+ * Fence superseded, out-of-focus, held and over-budget work inside the same
+ * transaction as role admission, so a hold or reached spend cap after
+ * scheduling still stops the claim.
  *
  * @param repository - Project ledger, inside the admission transaction.
  * @param job - Proposed claim.
@@ -67,7 +69,8 @@ export function isClaimEligible(repository: FactoryRepository, job: FactoryJob):
   return (
     (job.kind !== 'triage' || isCurrentTriage(repository, job)) &&
     (queue.existingOnly ? job.taskId !== null : focus === null || job.featureId === focus) &&
-    (job.taskId === null || isAdmissible(repository.task(job.taskId)))
+    (job.taskId === null || isAdmissible(repository.task(job.taskId))) &&
+    spendGate(repository).block(job) === null
   );
 }
 

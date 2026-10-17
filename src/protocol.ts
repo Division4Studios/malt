@@ -720,6 +720,15 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: hold deliveries so no new attempt starts on them (a running attempt finishes normally), or resume them with hold false. Name deliveries, one objective, or all; finished deliveries are skipped.',
   factory_archive:
     'Operator or designated lead: archive finished deliveries off the board, or unarchive to keep them on it. Finished deliveries archive automatically after seven days unless kept. Name deliveries, one objective, or all.',
+  factory_spend_caps:
+    'Human operator only: replace the USD spend caps at the revision you read: a project cap over a rolling window, default objective and delivery caps with per-scope overrides, and whether unpriced attempts in a capped scope block new attempts. A reached cap stops new attempts on its scope; running ones finish.',
+  factory_objective_done:
+    "Human operator only: replace an objective's definition-of-done checklist at the objective version you read. Items are open, checked or waived, with optional evidence; omitted proposals are dismissed. An objective whose deliveries are done completes only when every item is checked or waived.",
+  factory_objective_check:
+    'Managed planning or verification assignment: propose a definition-of-done item for your objective (text plus evidence), or check an accepted item you verified (itemId plus concrete evidence). The operator reviews proposals and can override any check.',
+  factory_objective_note: "Human operator only: append a note to an objective's progress log.",
+  factory_objective_log:
+    "Operator or designated lead: read an objective's append-only progress log newest first: plans, merged and verified deliveries, check-ins, checklist changes, notes and completion. Page with the returned cursor.",
   factory_prices:
     'Operator or designated lead: replace the local model price table (USD per million input, cached-input, cache-write and output tokens) at the revision you read. No prices are built in; provider-reported costs always take precedence.',
   learning_status:

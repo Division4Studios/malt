@@ -10,6 +10,7 @@
 
 import { isArchived } from './delivery-controls.ts';
 import { livenessView, retryView } from './liveness-view.ts';
+import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import {
   approvalSource,
   awaitingApproval,
@@ -22,9 +23,11 @@ import {
   taskWorkflow,
 } from './pipeline.ts';
 import { questionsStatus } from './questions.ts';
+import { openBlocks, spendGate } from './spend.ts';
 import { stepLayers } from './workflows.ts';
 
 import type { LivenessView, RetryView } from './liveness-view.ts';
+import type { DoneItem } from './objective-goal-schema.ts';
 import type { Question } from './question-schema.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
@@ -40,6 +43,8 @@ const ANSWERED_LIMIT = 50;
 const TITLE_MAX = 120;
 /** Phases before a delivery is published for review. */
 const BUILDING_PHASES: ReadonlySet<string> = new Set(['development', 'publishing']);
+/** Finished objectives kept in the objective list. */
+const DONE_GOALS = 50;
 /** Objective phases shown as planning cards. */
 const PLANNING_PHASES: ReadonlySet<string> = new Set(['queued', 'refining', 'provisioning', 'blocked']);
 /** Repair rounds shown per delivery, newest. */
@@ -171,6 +176,8 @@ export interface ObjectiveView {
   readonly steps: readonly StepView[];
   /** Delivery progress once provisioned. */
   readonly deliveries: { readonly total: number; readonly done: number };
+  /** Definition-of-done progress. */
+  readonly definition: { readonly met: number; readonly total: number };
   /** Blocker or last error. */
   readonly error: string | null;
   /** Creation time. */
@@ -179,13 +186,45 @@ export interface ObjectiveView {
 
 /** Inbox lane: decisions that need a reply, or notices to look into. */
 export type InboxLane = 'reply' | 'notice';
+/** An objective with its definition of done, for the objective view. */
+export interface GoalView {
+  /** Objective id. */
+  readonly featureId: string;
+  /** First line of the objective. */
+  readonly title: string;
+  /** Full objective text. */
+  readonly objective: string;
+  /** Ledger phase. */
+  readonly phase: string;
+  /** Version the checklist editor must present to save. */
+  readonly updatedAt: number;
+  /** Delivery progress. */
+  readonly deliveries: { readonly total: number; readonly done: number };
+  /** Checklist and counts. */
+  readonly definition: {
+    readonly items: readonly DoneItem[];
+    readonly met: number;
+    readonly proposed: number;
+    readonly total: number;
+  };
+  /** Whether every delivery is done but the checklist is not met yet. */
+  readonly awaitsDefinition: boolean;
+}
 
 /** Something waiting on the human. */
 export interface InboxItem {
   /** Stable item id. */
   readonly id: string;
   /** What kind of decision it is. */
-  readonly kind: 'approval' | 'plan_approval' | 'question' | 'blocked_delivery' | 'blocked_objective' | 'skill';
+  readonly kind:
+    | 'approval'
+    | 'plan_approval'
+    | 'question'
+    | 'blocked_delivery'
+    | 'blocked_objective'
+    | 'skill'
+    | 'spend_cap'
+    | 'done_criteria';
   /** Lane it is listed in. */
   readonly lane: InboxLane;
   /** Headline. */
@@ -230,6 +269,8 @@ export interface ConsoleView {
   readonly deliveries: readonly DeliveryView[];
   /** Objective cards while planning. */
   readonly objectives: readonly ObjectiveView[];
+  /** Every current objective with its definition of done, newest last. */
+  readonly goals: readonly GoalView[];
   /** Finished deliveries archived off the board: how many, and the latest to restore from. */
   readonly archived: {
     readonly total: number;
@@ -495,9 +536,92 @@ function objectiveView(feature: Feature, tasks: readonly FactoryTask[], live: re
     workflow: { id: workflow.id, name: workflow.name },
     steps: workflow.planning.map((step) => ({ ...stepShape(step, layers), state: stateOf(step), result: null })),
     deliveries: { total: children.length, done: children.filter((task) => task.phase === 'done').length },
+    definition: definitionProgress(feature),
     error: feature.error,
     createdAt: feature.createdAt,
   };
+}
+
+/**
+ * Project one objective with its definition of done.
+ *
+ * @param feature - Objective to describe.
+ * @param tasks - Current deliveries.
+ * @returns Objective view entry.
+ */
+function goalView(feature: Feature, tasks: readonly FactoryTask[]): GoalView {
+  const children = tasks.filter((task) => task.featureId === feature.id);
+  const done = children.filter((task) => task.phase === 'done').length;
+  return {
+    featureId: feature.id,
+    title: titleOf(feature.objective),
+    objective: feature.objective,
+    phase: feature.phase,
+    updatedAt: feature.updatedAt,
+    deliveries: { total: children.length, done },
+    definition: { items: feature.definitionOfDone ?? [], ...definitionProgress(feature) },
+    awaitsDefinition:
+      feature.phase === 'active' && children.length > 0 && done === children.length && !isDefinitionMet(feature),
+  };
+}
+
+/**
+ * Decisions waiting on an objective's definition of done.
+ *
+ * @param goal - Objective view entry.
+ * @returns Proposal review or completion items.
+ */
+function definitionItems(goal: GoalView): InboxItem[] {
+  const { met, proposed, total } = goal.definition;
+  if (proposed === 0 && !goal.awaitsDefinition) {
+    return [];
+  }
+  const proposals = proposed === 0 ? '' : ` ${String(proposed)} proposed by agents to review.`;
+  return [
+    {
+      ...NO_TARGET,
+      id: `done:${goal.featureId}`,
+      kind: 'done_criteria',
+      title: `Definition of done · ${goal.title}`,
+      detail: goal.awaitsDefinition
+        ? `Every delivery is done; ${String(met)} of ${String(total)} criteria are met. Check or waive the rest to complete the objective.${proposals}`
+        : `${String(met)} of ${String(total)} criteria met.${proposals}`,
+      since: goal.updatedAt,
+      featureId: goal.featureId,
+    },
+  ];
+}
+
+/**
+ * Scopes a reached spend cap stops.
+ *
+ * @param repository - Project ledger.
+ * @returns One item per stopped scope.
+ */
+function spendItems(repository: FactoryRepository): InboxItem[] {
+  const tasks = new Map(repository.tasks().map((task) => [task.id, task]));
+  const features = new Map(repository.features().map((feature) => [feature.id, feature]));
+  const now = repository.store.now();
+  return openBlocks(repository, spendGate(repository)).map((block): InboxItem => {
+    const task = block.scope === 'delivery' ? tasks.get(block.id) : undefined;
+    const feature = block.scope === 'objective' ? features.get(block.id) : undefined;
+    let name = 'Project';
+    if (task !== undefined) {
+      name = `#${String(task.issue)} ${task.title}`;
+    } else if (feature !== undefined) {
+      name = titleOf(feature.objective);
+    }
+    return {
+      ...NO_TARGET,
+      id: `spend:${block.scope}:${block.id}:${block.reason}`,
+      kind: 'spend_cap',
+      title: `Spend cap · ${name}`,
+      detail: block.message,
+      since: task?.updatedAt ?? feature?.updatedAt ?? now,
+      taskId: task?.id ?? null,
+      featureId: feature?.id ?? null,
+    };
+  });
 }
 
 /**
@@ -634,6 +758,8 @@ function openItems(
     ...questions,
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
+    ...current.flatMap((feature) => definitionItems(goalView(feature, tasks))),
+    ...spendItems(repository),
     ...skills,
   ].toSorted((left, right) => left.since - right.since);
 }
@@ -730,12 +856,15 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const archived = tasks.filter((task) => isArchived(task, now));
   const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
-  const planning = features.filter(
-    (feature) => feature.scopeReplacement === undefined && PLANNING_PHASES.has(feature.phase),
-  );
+  const current = features.filter((feature) => feature.scopeReplacement === undefined);
+  const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
   return {
     deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing })),
     objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
+    goals: [
+      ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),
+      ...current.filter((feature) => feature.phase !== 'done'),
+    ].map((feature) => goalView(feature, tasks)),
     archived: {
       total: archived.length,
       recent: archived

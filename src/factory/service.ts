@@ -35,6 +35,8 @@ import { attemptRecord } from './job-records.ts';
 import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
+import { checkDefinition, noteObjective, saveDefinition } from './objective-goals.ts';
+import { readObjectiveLog } from './objective-log.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
@@ -64,6 +66,7 @@ import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
+import { announceSpendBlocks, refreshSpend, saveCaps, spendGate } from './spend.ts';
 import { factoryStatus } from './status.ts';
 import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
@@ -416,6 +419,11 @@ export class FactoryService {
       factory_prices: () => telemetry.prices(this.repository, input),
       factory_hold: () => holdDeliveries(this.repository, input),
       factory_archive: () => archiveDeliveries(this.repository, input),
+      factory_spend_caps: () => saveCaps(this.repository, input),
+      factory_objective_done: () => saveDefinition(this.repository, input),
+      factory_objective_check: () => checkDefinition(this.configured(), input, actorId),
+      factory_objective_note: () => noteObjective(this.repository, input),
+      factory_objective_log: () => readObjectiveLog(this.repository, input),
       factory_schedule_save: () => automation.saveSchedule(this.repository, input),
       factory_trigger_save: () => automation.saveTrigger(this.repository, input),
       factory_automation_delete: () => automation.deleteAutomation(this.repository, input),
@@ -483,7 +491,11 @@ export class FactoryService {
     }
     automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
+    await refreshSpend(this.repository, this.mesh);
+    const spend = spendGate(this.repository);
+    announceSpendBlocks(this.repository, spend);
     const scheduling = {
+      isSpendBlocked: (target: { taskId: string | null; featureId: string | null }) => spend.block(target) !== null,
       feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
       tasks: this.repository.tasks(),

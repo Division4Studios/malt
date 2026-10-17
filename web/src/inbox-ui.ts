@@ -33,6 +33,10 @@ export interface InboxHooks {
   readonly openRecovery: (featureId: string) => void;
   /** Open review of a skill adoption or retirement request. */
   readonly openSkill: (requestId: string) => void;
+  /** Open an objective's definition of done; the item has no action without it. */
+  readonly openObjective?: (featureId: string) => void;
+  /** Open the costs view to raise or lift a spend cap; the item has no action without it. */
+  readonly openCosts?: () => void;
   /** Current time; defaults to `Date.now`. */
   readonly now?: () => number;
   /** Controls shown above the lanes, such as the notification toggle. */
@@ -47,6 +51,8 @@ const KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   blocked_delivery: 'Blocked delivery',
   blocked_objective: 'Planning stopped',
   skill: 'Skill decision',
+  spend_cap: 'Spend cap',
+  done_criteria: 'Definition of done',
 };
 
 /**
@@ -253,7 +259,15 @@ class InboxView {
         }),
       ];
     }
-    return [];
+    const { openObjective, openCosts } = hooks;
+    if (featureId !== null && openObjective !== undefined && item.kind === 'done_criteria') {
+      return [
+        action('Review…', 'review', () => {
+          openObjective(featureId);
+        }),
+      ];
+    }
+    return openCosts !== undefined && item.kind === 'spend_cap' ? [action('Open costs', 'costs', openCosts)] : [];
   }
 }
 

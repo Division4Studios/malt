@@ -23,6 +23,8 @@ export const INBOX_KINDS = [
   'blocked_delivery',
   'blocked_objective',
   'skill',
+  'spend_cap',
+  'done_criteria',
 ] as const;
 /** Inbox lanes: decisions that need a reply, and notices to look into. */
 export const INBOX_LANES = ['reply', 'notice'] as const;
@@ -211,6 +213,8 @@ export interface Objective {
   readonly steps: readonly Step[];
   /** Provisioned delivery progress. */
   readonly deliveries: { readonly total: number; readonly done: number };
+  /** Definition-of-done progress. */
+  readonly definition: { readonly met: number; readonly total: number };
   /** Blocker or last error. */
   readonly error: string | null;
   /** Creation time. */
@@ -579,6 +583,7 @@ function parseObjective(record: Data): Objective | null {
     return null;
   }
   const deliveries = asData(record['deliveries']) ?? {};
+  const definition = asData(record['definition']) ?? {};
   return {
     featureId,
     title: text(record, 'title'),
@@ -587,6 +592,7 @@ function parseObjective(record: Data): Objective | null {
     workflow: parseWorkflow(record['workflow']),
     steps: parseSteps(record['steps']),
     deliveries: { total: number(deliveries, 'total'), done: number(deliveries, 'done') },
+    definition: { met: number(definition, 'met'), total: number(definition, 'total') },
     error: nullableText(record, 'error'),
     createdAt: number(record, 'createdAt'),
   };

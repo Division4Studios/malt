@@ -926,3 +926,92 @@ select {
     align-items: stretch;
   }
 }
+/* ---------- objectives: definition of done and progress log ---------- */
+.goal-view {
+  display: grid;
+  gap: var(--card-gap);
+}
+.goal-list,
+.goal-items,
+.goal-log,
+.checklist-rows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-card,
+.goal-item,
+.goal-log-entry {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.goal-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.goal-item-text {
+  flex: 1 1 16rem;
+}
+.goal-mark {
+  font-family: var(--font-terminal);
+}
+.goal-item.state-checked .goal-mark {
+  color: var(--state-done);
+}
+.goal-item.state-proposed {
+  border-style: dashed;
+}
+.goal-evidence,
+.goal-objective {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+.goal-note {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.checklist-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 2fr) auto minmax(8rem, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.checklist-row.is-proposed {
+  padding: 6px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+.checklist-origin {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .checklist-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- spend caps ---------- */
+.spend-table meter {
+  width: 8rem;
+  vertical-align: middle;
+}
+.spend-row.spend-reached .spend-text,
+.spend-row.spend-unpriced .spend-text {
+  color: var(--state-needs);
+  font-weight: 600;
+}
+.spend-row.spend-near .spend-text {
+  color: var(--state-ready);
+}
+.spend-table input {
+  width: 7rem;
+}

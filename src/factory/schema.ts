@@ -25,6 +25,12 @@ import {
   modelSelectionSchema,
   reviewedRecommendationSchema,
 } from './model-policy.ts';
+import {
+  doneItemSchema,
+  DONE_ITEMS_MAX,
+  OBJECTIVE_GOAL_OPERATIONS,
+  objectiveGoalSchemas,
+} from './objective-goal-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
@@ -33,6 +39,7 @@ import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
@@ -282,6 +289,8 @@ export const featureSchema = z.object({
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
+  /** Operator-owned definition of done; agents propose or check items only with evidence. */
+  definitionOfDone: z.array(doneItemSchema).max(DONE_ITEMS_MAX).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
@@ -562,6 +571,8 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...spendSchemas,
+  ...objectiveGoalSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -598,5 +609,7 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  ...SPEND_OPERATIONS,
+  ...OBJECTIVE_GOAL_OPERATIONS,
   'factory_reconcile_github',
 ] as const;

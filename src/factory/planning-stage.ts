@@ -9,6 +9,7 @@
 
 import { MeshError } from '../protocol.ts';
 
+import { logObjective } from './objective-log.ts';
 import { dispositionProblems, featureWorkflow, planFindings, planningStep, stepOf } from './pipeline.ts';
 import { validatePlan } from './scheduler.ts';
 
@@ -59,6 +60,11 @@ export function completePlanning(context: FactoryContext, job: FactoryJob, resul
     phase: next === null ? 'provisioning' : 'refining',
     error: null,
     updatedAt: now,
+  });
+  logObjective(context.repository.store, feature.id, {
+    kind: 'plan',
+    actor: job.role,
+    body: `${step?.title ?? job.kind}: ${result.outcome}. ${result.summary}`,
   });
 }
 

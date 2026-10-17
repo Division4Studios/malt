@@ -7,7 +7,7 @@
 const GROUPS = {
   mission: ['overview', 'activity'],
   inbox: ['inbox'],
-  board: ['board', 'automations', 'delivery', 'deliveries'],
+  board: ['board', 'objective', 'automations', 'delivery', 'deliveries'],
   workflow: ['workflow', 'team', 'workflows'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
@@ -59,6 +59,7 @@ export type View =
   | 'board'
   | 'automations'
   | 'delivery'
+  | 'objective'
   | 'workflows'
   | 'team'
   | 'workflow'
@@ -80,6 +81,7 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
     'Objectives filed on a cron schedule or by a local script, through the same review gates.',
   ],
   delivery: ['Delivery.', 'Its pipeline, findings, rulings and source, step by step.'],
+  objective: ['Objectives.', 'What done means for each objective, who checked it, and everything that happened.'],
   workflows: ['Workflow library.', 'How objectives become verified deliveries: steps, seats, gates and reviews.'],
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
