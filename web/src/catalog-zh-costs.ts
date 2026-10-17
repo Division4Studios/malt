@@ -152,4 +152,13 @@ export const ZH_COSTS: Readonly<Record<string, string>> = {
   'No provider log was recorded for this attempt.': '此尝试没有记录提供方日志。',
   '{malformed} unrecognized log lines were skipped.': '已跳过 {malformed} 行无法识别的日志。',
   'Files touched ({length})': '涉及的文件（{length}）',
+  'Specification and plan': '规格与计划',
+  'Plan refinement': '计划细化',
+  Development: '开发',
+  'Fix and rulings': '修复与裁定',
+  Documentation: '文档',
+  'Merge verification': '合并验证',
+  'Learning research': '学习研究',
+  'Skill review': '技能评审',
+  Triage: '分诊',
 };
