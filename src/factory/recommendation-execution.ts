@@ -15,9 +15,11 @@
 import { MeshError } from '../protocol.ts';
 
 import { applyTransfer, planTransfer } from './recommendation-graph.ts';
+import { advanceGuidance } from './recommendation-guidance.ts';
 import { recommendationRetrySchema } from './recommendation-read-schema.ts';
 
 import type { ObservedIssue } from '../github-issues.ts';
+import type { ProjectLearning } from '../learning.ts';
 import type { DeliveryRemote } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryEffect, Recommendation } from './schema.ts';
@@ -43,6 +45,8 @@ export interface ExecutionContext {
   readonly repository: FactoryRepository;
   /** Remote adapter; only observation is used here, the outbox applies effects. */
   readonly remote: Pick<DeliveryRemote, 'observedIssue'>;
+  /** Project learning service, for guidance suggestions; they wait without it. */
+  readonly learning?: Pick<ProjectLearning, 'execute' | 'recordLesson' | 'skillLibrary'>;
 }
 
 /**
@@ -51,8 +55,18 @@ export interface ExecutionContext {
  * @param record - Current recommendation revision.
  * @returns True for duplicates and consolidations with a survivor.
  */
-function isExecutable(record: Recommendation): boolean {
+function isTicketOperation(record: Recommendation): boolean {
   return EXECUTED_KINDS.has(record.body.kind) && record.body.survivor !== null && record.body.tickets.length > 1;
+}
+
+/**
+ * Whether the executor advances a record: ticket operations and guidance suggestions.
+ *
+ * @param record - Current recommendation revision.
+ * @returns True for records with an executable approved outcome.
+ */
+function isExecutable(record: Recommendation): boolean {
+  return isTicketOperation(record) || record.body.kind === 'guidance_suggestion';
 }
 
 /**
@@ -261,7 +275,12 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
   const records = repository.recommendations.current(ACTIVE_STATES).filter((record) => isExecutable(record));
   for (const record of records) {
     if (record.state !== 'approved') {
-      settle(context, record);
+      if (isTicketOperation(record)) {
+        settle(context, record);
+      } else {
+        // eslint-disable-next-line no-await-in-loop -- Bridge steps write the learning library one record at a time.
+        await advanceGuidance(context, record);
+      }
       continue;
     }
     // eslint-disable-next-line no-await-in-loop -- Records execute one at a time so remote reads stay serialized.
@@ -273,8 +292,14 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
         next: 'stale',
         reason: `Issue #${String(fresh.issue)} changed after approval; nothing was changed. Refresh the proposal.`,
       });
-    } else if (fresh.state === 'fresh') {
+    } else if (fresh.state === 'fresh' && isTicketOperation(record)) {
       start(context, record);
+    } else if (fresh.state === 'fresh') {
+      repository.recommendations.transition({
+        ...fence,
+        next: 'applying',
+        reason: 'Observed revisions confirmed; proposing a skill candidate.',
+      });
     }
   }
 }
@@ -293,7 +318,7 @@ export async function retryRecommendation(context: ExecutionContext, input: unkn
   const { repository } = context;
   const request = recommendationRetrySchema.parse(input);
   const record = repository.recommendations.get(request.id);
-  if (record?.revision !== request.revision || record.state !== 'failed' || !isExecutable(record)) {
+  if (record?.revision !== request.revision || record.state !== 'failed' || !isTicketOperation(record)) {
     throw new MeshError('FACTORY_GATED', 'Only a failed duplicate or consolidation can be retried at its revision.');
   }
   const fence = { id: record.id, revision: record.revision, state: 'failed' as const };
