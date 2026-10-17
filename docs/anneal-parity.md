@@ -138,3 +138,18 @@ Slices are ordered by dependency. Each keeps `npm run check` green.
 | P3    | Local encrypted secrets granted to roles                                                                  | Done   |
 | P4    | English and Simplified Chinese catalog                                                                    | Done   |
 | O1    | First-run onboarding with preflight                                                                       | Done   |
+
+## Release scope
+
+Every slice above is implemented and lands for 1.0 through the stacked PRs that #262 tracks; none is deferred. The
+rows marked **Declined** stay out of 1.0 by design, each for the reason given in its row:
+
+- **Merge train**: one serialized, head-bound merge per project is enough for a single operator; revisit only when merges
+  queue for more than one reconcile cycle.
+- **Merge lease as a Git ref with a separate executor account and GitHub App**: single-operator deployments do not need
+  separated principals; the supervisor's SQLite lease and the operator's `gh` authority remain the merge authority.
+- **Pi runner**: it authenticates through Codex, so it adds a third CLI without a new subscription.
+- **Feishu relay**: a third-party chat service breaks local-first; installed-PWA notifications (I2) replace it.
+
+Follow-ups that are part of other 1.0 issues rather than this ledger: quota and resource gates on liveness extensions
+(#304), operator continue/wait decisions at checkpoints (#305), Docker build caching and fresh-machine runs (#258).
