@@ -35,12 +35,14 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
+import { assertManagedTool } from './managed-tools.ts';
 import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
@@ -327,6 +329,42 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
+/** Loopback webhook path: `/triggers/<trigger id>`. */
+const TRIGGER_PATH = /^\/triggers\/(?<id>[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/v;
+/** Authorization scheme a trigger secret is presented with. */
+const BEARER = 'Bearer ';
+
+/**
+ * Fire a webhook trigger. The caller proves itself with the trigger's own
+ * secret, not the project token, so a local script can hold one narrowly
+ * scoped credential. Only the home team and teams already open are addressable.
+ *
+ * @param context - The broker context.
+ * @param request - The incoming request.
+ * @param id - Trigger id from the path.
+ * @returns The objective filed or matched by idempotency key.
+ * @throws {MeshError} For an unknown team or trigger, a wrong secret, bad JSON or too many calls.
+ */
+async function handleTrigger(context: BrokerContext, request: IncomingMessage, id: string): Promise<unknown> {
+  const slug = request.headers['x-agentmesh-team'];
+  const team = typeof slug === 'string' ? context.teams.get(slug) : context.home;
+  if (team === undefined) {
+    throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
+  }
+  const authorization = request.headers.authorization ?? '';
+  const key = request.headers['idempotency-key'];
+  const body = await readJson(request);
+  const isEmpty = typeof body === 'object' && body !== null && Object.keys(body).length === 0;
+  const result = team.factory.fireTrigger({
+    id,
+    secret: authorization.startsWith(BEARER) ? authorization.slice(BEARER.length) : '',
+    idempotencyKey: typeof key === 'string' ? key : null,
+    payload: isEmpty ? '' : JSON.stringify(body, null, 2),
+  });
+  team.waiters.notify();
+  return result;
+}
+
 /**
  * Write a JSON response unless the client has already gone away.
  *
@@ -471,6 +509,11 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  const gate = {
+    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
+    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
+  };
+  assertManagedTool(gate, operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
     assertFactoryAuthority(team, operation, credentials);
@@ -507,30 +550,12 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (credentials === undefined) {
     return;
   }
-  if (
-    [
-      'factory_skill_decide',
-      'factory_export_maintenance',
-      'factory_recover',
-      'factory_reconcile_github',
-      'factory_recommendation_read',
-    ].includes(operation)
-  ) {
+  if (OPERATOR_ONLY_OPERATIONS.has(operation)) {
     team.store.authenticate(credentials);
-    throw new MeshError(
-      'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, objective recovery, GitHub reconciliation or cross-project maintenance.',
-    );
+    throw new MeshError('NOT_ORCHESTRATOR', OPERATOR_ONLY_MESSAGE);
   }
   const actor = team.store.authenticate(credentials);
-  if (
-    operation !== 'factory_status' &&
-    operation !== 'factory_recommendations' &&
-    operation !== 'factory_recommendation_propose' &&
-    operation !== 'factory_read_source' &&
-    operation !== 'factory_progress' &&
-    actor !== team.store.coordination.leadId()
-  ) {
+  if (!AGENT_OPERATIONS.has(operation) && actor !== team.store.coordination.leadId()) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
 }
@@ -651,7 +676,11 @@ async function respond(
     sendJson(response, HTTP_OK, { ok: true, version: VERSION });
     return;
   }
-  const result = await handleRpc(context, record, response, setOperation);
+  const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
+  const result =
+    triggerId === undefined
+      ? await handleRpc(context, record, response, setOperation)
+      : await handleTrigger(context, record, triggerId);
   sendJson(response, HTTP_OK, { result });
 }
 

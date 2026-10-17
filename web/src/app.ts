@@ -20,16 +20,22 @@ import {
 import { QueueState } from './brand-ui.js';
 import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
 import { startConsoleClock } from './console-clock.js';
+import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
+import { t } from './i18n.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
+import { LogTails } from './log-tails.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
+import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
+import { ProjectViews } from './project-views.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
 import { TerminalWorkspace } from './terminal-workspace.ts';
+import { bindThemeToggle } from './theme.js';
 import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
@@ -61,8 +67,6 @@ import type { EditorDescription, InstallEvent } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
-/** Captured output histories retained in memory only. */
-const MAX_LOGS = 8;
 /** HTTP status requiring a fresh local pairing. */
 const UNAUTHORIZED = 401;
 /** Stop a failed stream rather than retrying the daemon indefinitely. */
@@ -70,8 +74,6 @@ const MAX_RECONNECTS = 5;
 
 /** Only public layout choices may persist in browser storage. */
 const layoutKey = 'malt-worker-layout-v1';
-/** Bounded read-only stdout cache, never persisted in browser storage. */
-const LOG_LIMIT = 20_000;
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
@@ -124,21 +126,31 @@ function syncTerminals(): void {
   node('content', HTMLDivElement).hidden = isVisible && terminalWorkspace.selected;
 }
 
-/** Read-only log tails for selected panes. */
-const logs = new Map<string, string>();
+/** Read-only log tails for selected panes, held in memory only. */
+const tails = new LogTails();
 /** Public artifact tab choices; captured contents remain memory-only. */
 const files = new Map<string, string>();
-/** Durable byte cursor per captured output. */
-const cursors = new Map<string, number>();
 /** Explicit mutations run one at a time and are never automatically retried. */
 const control = createOperatorControl({
   scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
   openProject,
   refresh,
-  notice,
+  notice: controlNotice,
 });
-/** Prevent overlapping reads from duplicating a captured output chunk. */
-const pendingLogs = new Set<string>();
+/** Stable views that survive snapshot pushes; their hooks reuse the shell's dialogs. */
+const owned = new ConsoleViews({
+  project: () => state.project,
+  control,
+  select: go,
+  triage: investigate,
+  recover: () => {
+    go('overview');
+  },
+  skill: () => {
+    go('learning');
+  },
+  rerender: render,
+});
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
@@ -152,12 +164,13 @@ const freshness = new Freshness();
  */
 function editor(description: EditorDescription, action: Edit): void {
   if (state.current === null || !navigator.onLine || !state.isConnected) {
-    notice('Reconnect to the local console before applying controls.');
+    notice(t('Reconnect to the local console before applying controls.'));
     return;
   }
   state.edit = action;
   state.editProject = state.project;
   resetConnectionFields(node('editor-body', HTMLTextAreaElement));
+  hideWorkflowPicker();
   node('editor-title', HTMLHeadingElement).textContent = description.title;
   node('editor-description', HTMLParagraphElement).textContent = description.explanation;
   const evidence = node('editor-evidence', HTMLPreElement);
@@ -215,10 +228,12 @@ const actions: Actions = {
     const requestId = crypto.randomUUID();
     editor(
       {
-        title: shouldReplan ? 'Coordinate a scope change' : `Instruct ${role}`,
-        explanation: shouldReplan
-          ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
-          : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        title: shouldReplan ? t('Coordinate a scope change') : t('Instruct {role}', { role }),
+        explanation: t(
+          shouldReplan
+            ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
+            : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        ),
         initial: '',
       },
       {
@@ -247,6 +262,17 @@ const actions: Actions = {
   },
 };
 
+/** Get started and Settings; both reuse the shell's dialogs. */
+const projectViews = new ProjectViews({
+  project: () => state.project,
+  select: go,
+  setup: actions.setup,
+  policy: actions.modelPolicy,
+  organization: actions.organization,
+  objective,
+  control,
+});
+
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
  *
@@ -263,7 +289,7 @@ async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<v
     const dialog = skillDialog(data(response), requestId, shouldApprove);
     editor(dialog.description, dialog.action);
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Could not retrieve the skill proposal.');
+    notice(error instanceof Error ? error.message : t('Could not retrieve the skill proposal.'));
   }
 }
 /** Render the selected native view without touching an open operator editor. */
@@ -275,6 +301,8 @@ function render(): void {
     return;
   }
   const observed = state.current;
+  owned.update(observed);
+  projectViews.update(observed);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
@@ -298,13 +326,14 @@ function render(): void {
   node('view-title', HTMLHeadingElement).textContent = HEADINGS[state.view][0];
   node('view-description', HTMLParagraphElement).textContent = HEADINGS[state.view][1];
   updateNavigation(state.view);
+  const panes = { roles: state.panes, logs: tails.logs, files, actions };
   const builders: Record<View, () => HTMLElement> = {
+    ...owned.builders(),
     overview: () => overviewView(observed, actions, state.isConnected),
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
-    workers: () =>
-      terminalWorkspace.selected ? element('div') : workerView(observed, { roles: state.panes, logs, files, actions }),
+    workers: () => (terminalWorkspace.selected ? element('div') : workerView(observed, panes)),
     activity: () => {
       return activityPanel(
         observed,
@@ -321,12 +350,14 @@ function render(): void {
     },
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
+    settings: () => projectViews.element('settings'),
+    onboarding: () => projectViews.element('onboarding'),
   };
   queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
-  run.textContent = hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory';
+  run.textContent = t(hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory');
   node('new-objective', HTMLButtonElement).disabled = false;
 }
 
@@ -342,9 +373,8 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  node('connection-text', HTMLSpanElement).textContent = isConnected
-    ? 'LOCAL CONSOLE CONNECTED'
-    : 'DISCONNECTED · STATE IS STALE';
+  const connectionText = t(isConnected ? 'LOCAL CONSOLE CONNECTED' : 'DISCONNECTED · STATE IS STALE');
+  node('connection-text', HTMLSpanElement).textContent = connectionText;
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
   refreshHandoffConnection(isConnected);
@@ -380,7 +410,7 @@ async function refresh(): Promise<void> {
         dialog.showModal();
       }
     } else {
-      notice(error instanceof Error ? error.message : 'The broker is unavailable.');
+      notice(error instanceof Error ? error.message : t('The broker is unavailable.'));
     }
   }
 }
@@ -398,6 +428,9 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  if (state.view === 'overview' && projectViews.offer(observed, projectId)) {
+    state.view = 'onboarding';
+  }
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
@@ -423,7 +456,7 @@ function subscribe(): void {
       render();
     } catch {
       connection(false);
-      notice('Invalid live state received. Refresh the local console.');
+      notice(t('Invalid live state received. Refresh the local console.'));
     }
   });
   stream.addEventListener('disconnected', () => {
@@ -464,81 +497,12 @@ async function readLogs(): Promise<void> {
   const artifacts = state.panes
     .map((role) => ({ id: text(roleJob(observed, role), 'id'), file: files.get(role) ?? 'stdout.log' }))
     .filter((entry) => entry.id !== '');
-  await Promise.all(artifacts.map(async (entry) => readLog(projectId, entry)));
-  while (logs.size > MAX_LOGS) {
-    const first = logs.keys().next().value;
-    if (first === undefined) {
-      continue;
-    }
-
-    logs.delete(first);
-    cursors.delete(first);
-  }
+  await tails.read(projectId, artifacts, () => state.project);
 }
 
-/**
- * Fetch one owned log tail with a single-flight cursor and a project fence.
- *
- * @param projectId - Scope captured before the read.
- * @param entry - Actual owned job identity and allowlisted artifact.
- */
-async function readLog(projectId: string, entry: { id: string; file: string }): Promise<void> {
-  const artifactKey = `${entry.id}:${entry.file}`;
-  const key = `${projectId}:${artifactKey}`;
-  if (pendingLogs.has(key)) {
-    return;
-  }
-  pendingLogs.add(key);
-  const after = entry.file.endsWith('.log') ? (cursors.get(artifactKey) ?? 0) : 0;
-  const route = `${scoped(projectId, '/api/artifact')}&job=${encodeURIComponent(entry.id)}&file=${encodeURIComponent(entry.file)}&after=${String(after)}`;
-  try {
-    const response = await request(route);
-    if (state.project !== projectId) {
-      return;
-    }
-    applyLog(artifactKey, data(response));
-  } catch {
-    /* A log may not yet exist; the last observed tail remains available. */
-  } finally {
-    pendingLogs.delete(key);
-  }
-}
-
-/**
- * Apply actual captured output once, rendering project text through textContent.
- *
- * @param id - Owned job and allowlisted artifact cache key.
- * @param value - Validated log response.
- * @throws {TypeError} When the captured output cursor is invalid.
- */
-function applyLog(id: string, value: ReturnType<typeof data>): void {
-  const cursor = value['nextCursor'];
-  if (typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0) {
-    throw new TypeError('Invalid captured output cursor.');
-  }
-  cursors.set(id, cursor);
-  const file = text(value, 'file');
-  const prior = file.endsWith('.log') ? (logs.get(id) ?? '') : '';
-  const tail = `${prior}${text(value, 'text')}`.slice(-LOG_LIMIT);
-  logs.set(id, tail);
-  for (const pre of document.querySelectorAll<HTMLPreElement>('pre[data-job]')) {
-    if (`${pre.dataset['job'] ?? ''}:${pre.dataset['file'] ?? ''}` === id) {
-      pre.textContent = tail === '' ? 'This artifact has not emitted data yet.' : tail;
-    }
-  }
-}
-/** Queue an explicit product objective for owner/lead refinement. */
+/** Queue an explicit product objective with its chosen workflow. */
 function objective(): void {
-  const requestId = crypto.randomUUID();
-  editor(
-    {
-      title: 'Define the next mission',
-      explanation:
-        'Describe the outcome and boundaries. Your product owner and team lead will turn it into small, reviewable GitHub deliveries.',
-      initial: '',
-    },
-    { operation: 'factory_request', input: (body) => ({ objective: body, requestId }) },
-  );
+  editor(...objectiveEditor(() => state.current?.factory ?? null));
 }
 /** Submit once; uncertain outcomes keep the exact editor intent available for explicit retry. */
 async function submitEdit(): Promise<void> {
@@ -546,8 +510,8 @@ async function submitEdit(): Promise<void> {
     return;
   }
   if (state.editProject !== state.project) {
-    node('editor-error', HTMLParagraphElement).textContent =
-      'This draft belongs to another project. Return to that project or cancel.';
+    const foreign = t('This draft belongs to another project. Return to that project or cancel.');
+    node('editor-error', HTMLParagraphElement).textContent = foreign;
     return;
   }
   try {
@@ -562,21 +526,60 @@ async function submitEdit(): Promise<void> {
     state.edit = null;
   } catch (error) {
     node('editor-error', HTMLParagraphElement).textContent =
-      error instanceof Error ? error.message : 'Invalid control input.';
+      error instanceof Error ? error.message : t('Invalid control input.');
   }
+}
+
+/**
+ * Show a control outcome in the console and beside a workflow draft.
+ *
+ * @param message - Notice text.
+ * @param isSuccess - Whether the control succeeded.
+ */
+function controlNotice(message: string, isSuccess?: boolean): void {
+  notice(message, isSuccess);
+  owned.notice(message, isSuccess);
+}
+
+/**
+ * Open the investigation dialog for a blocked delivery from the Inbox.
+ *
+ * @param taskId - Delivery to investigate.
+ */
+function investigate(taskId: string): void {
+  const task = records(state.current?.factory['tasks']).find((candidate) => text(candidate, 'id') === taskId);
+  if (task !== undefined) {
+    actions.triage(task, 'investigate');
+  }
+}
+
+/**
+ * Route to a local view; unknown names are ignored.
+ *
+ * @param selected - Requested view from navigation or a view hook.
+ */
+function go(selected: string): void {
+  if (!isView(selected)) {
+    return;
+  }
+  state.view = selected;
+  owned.reset();
+  render();
+  void readLogs();
+  projectViews.shown(selected);
 }
 
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
-  bindNavigation((selected) => {
-    if (!isView(selected)) {
-      return;
-    }
-    state.view = selected;
-    render();
-    void readLogs();
-  });
+  bindNavigation(go);
+  // An Inbox notification opens a new console window at `/?view=inbox`.
+  const parameters = new URLSearchParams(location.search);
+  const requested = parameters.get('view');
+  if (requested !== null && isView(requested)) {
+    state.view = requested;
+  }
+  bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
     void control(hasFlag(state.current?.factory ?? {}, 'active') ? 'factory_pause' : 'factory_start', {});
@@ -592,8 +595,7 @@ async function start(): Promise<void> {
     state.project = node('project', HTMLSelectElement).value;
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     void refresh();
     subscribe();
@@ -601,8 +603,10 @@ async function start(): Promise<void> {
   node('open-project', HTMLButtonElement).addEventListener('click', () => {
     editor(
       {
-        title: 'Open a project',
-        explanation: 'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        title: t('Open a project'),
+        explanation: t(
+          'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        ),
         initial: '',
       },
       { operation: 'open-project', input: (body) => body.trim() },
@@ -618,7 +622,7 @@ async function start(): Promise<void> {
   addEventListener('offline', () => {
     state.stream?.close();
     connection(false);
-    notice('Offline. Controls are not queued or replayed. Reconnect to the local service.');
+    notice(t('Offline. Controls are not queued or replayed. Reconnect to the local service.'));
   });
   addEventListener('online', () => {
     void refresh();
@@ -667,7 +671,8 @@ async function pair(): Promise<void> {
     await refresh();
     subscribe();
   } catch (error) {
-    node('pair-error', HTMLParagraphElement).textContent = error instanceof Error ? error.message : 'Pairing failed.';
+    node('pair-error', HTMLParagraphElement).textContent =
+      error instanceof Error ? error.message : t('Pairing failed.');
   }
 }
 
@@ -682,14 +687,13 @@ async function openProject(workspace: string): Promise<void> {
     state.project = text(value, 'id');
     history.select(state.project);
     state.current = null;
-    logs.clear();
-    cursors.clear();
+    tails.clear();
     render();
     await projects();
     await refresh();
     subscribe();
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Project could not be opened.');
+    notice(error instanceof Error ? error.message : t('Project could not be opened.'));
   }
 }
 /** Revoke browser access without stopping the independently running factory. */
@@ -697,8 +701,7 @@ async function signout(): Promise<void> {
   await request('/api/logout', {});
   state.stream?.close();
   state.current = null;
-  logs.clear();
-  cursors.clear();
+  tails.clear();
   connection(false);
   history.reset();
   node('pairing', HTMLDialogElement).showModal();
