@@ -1,6 +1,7 @@
 name: Bug report
 description: Report a reproducible behavior or recovery failure.
 title: 'bug: '
+labels: [bug]
 body:
   - type: markdown
     attributes:

@@ -22,6 +22,8 @@ import type { Store } from '../store.ts';
 const MESSAGE_WINDOW = 40;
 /** Keep operator streams bounded while preserving full broker inbox history. */
 const PREVIEW_MAX = 4000;
+/** Largest Unicode point represented by one UTF-16 unit. */
+const SINGLE_UNIT_MAX = 65_535;
 /** Read-only peer names are joined without exposing credential columns. */
 export const conversationSchema = messageRowSchema.extend({
   sender_name: z.string(),
@@ -48,6 +50,27 @@ function messageSecrets(mesh: MeshConfig): string[] {
 }
 
 /**
+ * Share known-secret filtering with other read-only operator projections.
+ *
+ * @param mesh - Selected project; inspection creates no identity.
+ * @returns Backend-only redactor.
+ */
+export function conversationRedactor(mesh: MeshConfig): SecretRedactor {
+  return new SecretRedactor(messageSecrets(mesh));
+}
+
+/**
+ * Bound redacted text without splitting an astral character.
+ *
+ * @param value - Already redacted prose.
+ * @returns At most the existing preview limit of UTF-16 units.
+ */
+function excerpt(value: string): string {
+  const end = (value.codePointAt(PREVIEW_MAX - 1) ?? 0) > SINGLE_UNIT_MAX ? PREVIEW_MAX - 1 : PREVIEW_MAX;
+  return value.slice(0, end);
+}
+
+/**
  * Inspect actual peer messages without marking an agent's inbox acknowledged.
  *
  * @param store - Selected project's durable broker messages.
@@ -55,7 +78,7 @@ function messageSecrets(mesh: MeshConfig): string[] {
  * @returns Recent safe message previews in chronological order.
  */
 export function conversationWindow(store: Store, mesh: MeshConfig): z.output<typeof conversationSchema>[] {
-  const filter = new SecretRedactor(messageSecrets(mesh));
+  const filter = conversationRedactor(mesh);
   return selectAll(
     store.db,
     conversationSchema,
@@ -65,11 +88,12 @@ export function conversationWindow(store: Store, mesh: MeshConfig): z.output<typ
     .toReversed()
     .map((message) => {
       const body = filter.redact(message.body);
+      const handoff = message.handoff === null ? null : filter.redact(message.handoff);
       return {
         ...message,
-        body: body.slice(0, PREVIEW_MAX),
-        handoff: message.handoff === null ? null : filter.redact(message.handoff).slice(0, PREVIEW_MAX),
-        truncated: body.length > PREVIEW_MAX || (message.handoff?.length ?? 0) > PREVIEW_MAX,
+        body: excerpt(body),
+        handoff: handoff === null ? null : excerpt(handoff),
+        truncated: body.length > PREVIEW_MAX || (handoff?.length ?? 0) > PREVIEW_MAX,
       };
     });
 }

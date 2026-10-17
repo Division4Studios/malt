@@ -3,12 +3,28 @@
  *
  * @file
  */
+import { admissionSample } from './admission-ui.js';
 import { child, number, records, text, firstText, resourceSummary } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 /** Names apply only when an actual native duration matches. */
 const WINDOW_LABELS: Readonly<Record<number, string>> = { 300: '5-hour window', 10_080: 'Weekly window' };
+/** Percentages are bounded observations, not absolute account allowances. */
+const FULL_USAGE = 100;
+
+/**
+ * Distinguish verified zero from missing or invalid quota measurements.
+ *
+ * @param value - Reported subscription utilization.
+ * @returns Accessible utilization, independent of status color.
+ */
+export function quotaUsage(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > FULL_USAGE) {
+    return 'usage unknown';
+  }
+  return `${String(value)}% used${value === FULL_USAGE ? ' · limit reached' : ''}`;
+}
 
 /**
  * Format native epoch time for the local operator.
@@ -39,8 +55,9 @@ export function appendQuotaWindows(target: HTMLElement, capacity: Data): void {
       typeof minutes === 'number' ? (WINDOW_LABELS[minutes] ?? `${String(minutes)} minute window`) : text(window, 'id');
     const reset = window['resetAt'];
     const deadline = typeof reset === 'number' ? localTime(reset) : 'unknown';
-    const percent = String(number(window, 'usedPercent'));
-    target.append(element('p', 'capacity-details', `${label}: ${percent}% used · resets ${deadline}`));
+    target.append(
+      element('p', 'capacity-details', `${label}: ${quotaUsage(window['usedPercent'])} · resets ${deadline}`),
+    );
     target.append(element('p', 'subtle', quotaWindowObservation(window)));
   }
 }
@@ -171,6 +188,10 @@ export function appendProcessUsage(target: HTMLElement, factory: Data): void {
  * @param factory - Latest project-scoped snapshot.
  */
 export function refreshCapacitySamples(factory: Data): void {
+  const admission = document.querySelector('[data-admission-sample]');
+  if (admission !== null) {
+    admission.textContent = admissionSample(factory);
+  }
   const resources = document.querySelector('[data-resource-machine]');
   if (resources !== null) {
     resources.textContent = resourceSummary(factory);

@@ -1,5 +1,7 @@
 # Security and privacy
 
+The [verified GitHub controls](https://github.com/Division4Studios/malt/blob/main/docs/github-controls.md) distinguish enabled scanning and required checks from the temporary solo-maintainer review exception. Both Dependabot auto-dismissal presets are disabled. Existing scan findings remain subject to investigation; configured scanning is not a clean-security certificate. A second trusted maintainer and dedicated private conduct contact are still needed. Sponsorship never changes the private reporting route or security gates.
+
 Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/Division4Studios/malt/security/advisories/new). Do not publish a reproduction with live secrets or attach a `.malt` archive. See the repository Security tab for the current policy.
 
 ```mermaid
@@ -17,6 +19,7 @@ flowchart TD
 - Inspect permissions and project commands before dispatch. Developer full-access mode permits native execution under your OS account.
 - Scan current files and all reachable Git history before release. Ignoring a file does not remove a historical leak; revocation takes priority.
 - Review third-party skills/tools for license, provenance, compatibility and security. Human adoption is for an exact revision; downloaded instructions are not authority.
+- Runtime npm code runs with your account. The browser has no packages and the backend has three (Zod, the MCP SDK and node-pty), exactly pinned, installed with scripts disabled, audited at every severity and limited to MIT-compatible licenses on every pull request. See the [dependency policy](https://github.com/Division4Studios/malt/blob/main/docs/dependency-policy.md).
 
 The project uses the OpenSSF Baseline and best-practices criteria as review frameworks. It has not claimed a badge, penetration-test certification or complete absence of defects. See the merged [release-readiness ledger](https://github.com/Division4Studios/malt/blob/main/docs/open-source-readiness.md).
 

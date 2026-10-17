@@ -232,7 +232,7 @@ function deliveryResult(task: FactoryTask, workflow: Workflow, step: WorkflowSte
   if (approval !== undefined) {
     return plainResult({ outcome: 'approved', summary: approval.note, role: 'operator' });
   }
-  const spineResults = new Map([
+  const spineResults = new Map<string, { readonly summary: string } | null>([
     ['final', task.finalReview],
     ['verify', task.verifiedMain],
   ]);

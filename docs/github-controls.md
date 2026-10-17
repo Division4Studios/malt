@@ -2,28 +2,28 @@
 
 **Temporary solo-maintainer exception (owner authorized 2026-10-14; review by 2026-10-28):** GitHub approval count is zero, code-owner approval and latest-push approval are not enforced because no independent collaborator is available. PRs, fresh required checks, CodeQL merge protection, conversation resolution, linear history and administrator enforcement remain active. Factory deliveries still require two independent local QA results and final verification. Restore two authenticated approvals, code-owner review and latest-push approval when trusted collaborators join. This is an explicit exception, not proof of independent GitHub review.
 
-This inventory records the public MIT repository's intended controls and the verified settings on 2026-10-15. GitHub features, availability and permissions change. Read back the live setting after an update; an unchecked setup checklist is not evidence of protection.
+This inventory records the public MIT repository's intended controls and the verified settings on 2026-10-16. GitHub features, availability and permissions change. Read back the live setting after an update; an unchecked setup checklist is not evidence of protection.
 
 Readback during the issue audit found the aggregate quality/security checks were not required. The required-check list now contains all three platform checks, Docker, Quality gate and Security gate. The CodeQL ruleset and temporary authenticated-review exception are unchanged.
 
 ## Code and review
 
-| Control            | Decision and rationale                                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Default branch     | `main`; pull requests required, including maintainers.                                                                                                                    |
-| Independent review | Two authenticated approvals, code-owner review, stale approval dismissal and latest-push approval. Models sharing an account do not supply independent GitHub identities. |
-| Integration        | Current-base checks, resolved conversations and linear history; no force push, deletion or administrator bypass.                                                          |
-| Merge method       | Squash only, with PR title and description retained.                                                                                                                      |
-| Update suggestion  | Enabled; current-main integration still needs fresh tests and review.                                                                                                     |
-| Auto-merge         | Available after required gates pass. Factory PRs use their serialized expected-head merger; do not independently enable GitHub auto-merge on them.                        |
-| Branch cleanup     | Automatically delete merged head branches; preserve local dirty/newer work before retiring owned worktrees.                                                               |
-| Bulk pushes        | At most five branch/tag updates per push.                                                                                                                                 |
-| Issue closure      | Automatic linked-issue closure disabled: close only after actual merged-main acceptance verification.                                                                     |
-| Signatures         | Do not claim signing merely because commits have an author. Provision and verify signing identities before enforcing signatures.                                          |
-| Web signoff        | Disabled. MIT contribution terms are documented; a web-only DCO checkbox is not comprehensive provenance.                                                                 |
-| Merge queue        | Deferred until the factory's serialized merge path explicitly supports it. `merge_group` CI is prepared; do not activate a second competing merger.                       |
+| Control            | Decision and rationale                                                                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default branch     | `main`; pull requests required, including maintainers.                                                                                                                                                                    |
+| Independent review | Target: two authenticated approvals, code-owner and latest-push approval. Current documented exception: zero approvals; stale dismissal remains enabled. Models sharing an account are not independent GitHub identities. |
+| Integration        | Current-base checks, resolved conversations and linear history; no force push, deletion or administrator bypass.                                                                                                          |
+| Merge method       | Squash only, with PR title and description retained.                                                                                                                                                                      |
+| Update suggestion  | Enabled; current-main integration still needs fresh tests and review.                                                                                                                                                     |
+| Auto-merge         | Available after required gates pass. Factory PRs use their serialized expected-head merger; do not independently enable GitHub auto-merge on them.                                                                        |
+| Branch cleanup     | Automatically delete merged head branches; preserve local dirty/newer work before retiring owned worktrees.                                                                                                               |
+| Bulk pushes        | At most five branch/tag updates per push.                                                                                                                                                                                 |
+| Issue closure      | Automatic linked-issue closure disabled: close only after actual merged-main acceptance verification.                                                                                                                     |
+| Signatures         | Do not claim signing merely because commits have an author. Provision and verify signing identities before enforcing signatures.                                                                                          |
+| Web signoff        | Disabled. MIT contribution terms are documented; a web-only DCO checkbox is not comprehensive provenance.                                                                                                                 |
+| Merge queue        | Deferred until the factory's serialized merge path explicitly supports it. `merge_group` CI is prepared; do not activate a second competing merger.                                                                       |
 
-Require actual `check (ubuntu-latest)`, `check (windows-latest)`, `check (macos-latest)` and `docker` checks. The prepared CI adds `Quality gate`; the security workflow adds `Security gate`. Add these as required checks after their real check runs exist. Bind checks to GitHub Actions where supported, rather than accepting arbitrary status publishers. Protecting the branch does not configure missing trusted reviewers: maintainer-authored PRs need other authorized reviewers and a legitimate code-owner arrangement.
+Require actual `check (ubuntu-latest)`, `check (windows-latest)`, `check (macos-latest)` and `docker` checks. All six are currently required, including `Quality gate` and `Security gate`, and bound to the GitHub Actions application. Bind checks to GitHub Actions where supported, rather than accepting arbitrary status publishers. Protecting the branch does not configure missing trusted reviewers: restoring the target review policy needs other authorized reviewers and a legitimate code-owner arrangement.
 
 ## Security and supply chain
 
@@ -45,6 +45,14 @@ Require actual `check (ubuntu-latest)`, `check (windows-latest)`, `check (macos-
 | SBOM/provenance                 | Generate a runtime SBOM and artifact checksums for an actual release. No SLSA or signing claim without verified provenance.                                                                                                        |
 
 Code scanning alerts require triage and reproduction, not immediate model-authored suppression. Mechanical failures should produce tests or runtime gates. A fix still needs an independently reviewed PR. Never paste a secret into an issue to demonstrate a finding; revoke real exposed credentials immediately.
+
+## Current readback and optional services
+
+The 2026-10-16 audit confirms read-only workflow tokens, no workflow-authored PR approvals, full-SHA official-action restrictions, approval of all external-contributor workflows, and zero self-hosted runners. Both Dependabot preset auto-dismissal rules are disabled; do not suppress development dependencies automatically. CodeQL extended default setup scans Actions and TypeScript/JavaScript weekly and on changes; its active main ruleset has no bypass actors and blocks all alert severities. The readback found three open CodeQL alerts, zero open Dependabot alerts and zero open secret alerts; these point-in-time counts are not a clean-security certificate.
+
+An active **Immutable release tags** ruleset rejects updates/deletion of `refs/tags/v*` with no bypass actors. There were no tags or releases to backfill; do not invent a release from package version metadata. Keep release creation tied to the verified [release checklist](maintainer-operations.md#release-checklist).
+
+OIDC uses GitHub's default immutable repository subject, but current verification jobs do not request `id-token: write` or deploy to a cloud. Add OIDC only for a real release/deployment destination with exact repository/ref/environment trust, short-lived credentials and a reviewed job; no standing cloud secret is needed now. No Pages site is configured, and the local control PWA must never become a public Pages endpoint. Codespaces billing/access remains account-owned; no paid resources are provisioned by this audit. See the [community operations guide](community-operations.md) for these decisions and source references.
 
 ## Agent-specific trust
 
@@ -71,9 +79,9 @@ The local broker holds GitHub and provider authority. Keep `.malt/`, legacy stat
 
 Issues, Discussions, Projects, collaborator-edited Wiki and repository archive preservation are enabled. Public users may open issues and PRs. Templates route support to Q&A and vulnerabilities to private reporting; they are present on the default branch. Use labels and milestones for actual work rather than inventing release commitments. Duplicate consolidation remains human-reviewed.
 
-The Sponsors destination is the owner's existing public listing. Account identity, taxes, payouts and benefits require owner administration. No new financial or support promises are made by a funding link.
+The [sponsorship guide](../SPONSORING.md) explains funding purpose and priorities. The Sponsors destination is the owner's existing public listing. Account identity, taxes, payouts and benefits require owner administration. No new financial or support promises are made by a funding link.
 
-Pages, Codespaces, Copilot agentic fixes, third-party GitHub Apps, webhooks, deploy keys and release/deployment environments are not enabled merely to fill settings panels. Each needs a concrete requirement, least-privilege access, billing review where relevant and independent verification. The local PWA is not a public Pages-hosted control plane. Git LFS archive inclusion stays off because this project does not require LFS artifacts.
+Pages, Codespaces, paid Copilot agentic fixes, third-party GitHub Apps, webhooks, deploy keys and new release/deployment environments are not enabled merely to fill settings panels. A pre-existing `copilot` environment has no deployment protection; it is not a release environment. Copilot Autofix suggestions are enabled, while agentic autofix is off. Each needs a concrete requirement, least-privilege access, billing review where relevant and independent verification. The local PWA is not a public Pages-hosted control plane. Git LFS archive inclusion stays off because this project does not require LFS artifacts.
 
 Owner follow-up: account MFA/recovery review, another trusted maintainer, legitimate review identities/signing configuration and a private conduct contact. Never invent identities, install security-sensitive apps or claim these account controls are configured by repository files.
 

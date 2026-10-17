@@ -7,7 +7,6 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { featureWorkflow, stepOf, taskWorkflow } from './pipeline.ts';
-import { routeAssignment } from './routing.ts';
 import { LEASE_MS } from './schema.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -22,7 +21,7 @@ import type { FactoryJob, FactoryTask, Provider } from './schema.ts';
  * @param task - Its delivery, if any.
  * @returns Profile name, or `null` to use the seat's own type.
  */
-function stepProfile(context: FactoryContext, intent: JobIntent, task: FactoryTask | null): string | null {
+export function stepProfile(context: FactoryContext, intent: JobIntent, task: FactoryTask | null): string | null {
   if (intent.step === undefined || intent.step === null) {
     return null;
   }
@@ -39,13 +38,18 @@ function stepProfile(context: FactoryContext, intent: JobIntent, task: FactoryTa
  *
  * @param context - Project policy and ledger.
  * @param intent - Scheduled step for one seat.
- * @param provider - Admitted provider family.
- * @returns Attempt record with frozen routing and a fresh fencing token.
+ * @param admitted - Admitted provider family and its frozen routing.
+ * @param admitted.provider - Provider family.
+ * @param admitted.routing - Routing resolved at admission.
+ * @returns Attempt record with a fresh fencing token.
  */
-export function attemptRecord(context: FactoryContext, intent: JobIntent, provider: Provider): FactoryJob {
+export function attemptRecord(
+  context: FactoryContext,
+  intent: JobIntent,
+  { provider, routing }: { provider: Provider; routing: NonNullable<FactoryJob['routing']> },
+): FactoryJob {
   const id = randomUUID();
   const now = context.repository.store.now();
-  const task = intent.taskId === null ? null : context.repository.task(intent.taskId);
   return {
     role: intent.role,
     kind: intent.kind,
@@ -57,13 +61,7 @@ export function attemptRecord(context: FactoryContext, intent: JobIntent, provid
     target: intent.target ?? null,
     id,
     provider,
-    routing: routeAssignment({
-      intent,
-      provider,
-      settings: context.settings,
-      task,
-      profile: stepProfile(context, intent, task),
-    }),
+    routing,
     token: randomUUID(),
     state: 'running',
     startedAt: now,

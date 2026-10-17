@@ -1,11 +1,13 @@
 /**
  * The strict JSON Schema both provider CLIs must satisfy for their final
  * structured result, and the size limits it shares with the Zod result schema.
- * This module depends only on the seat list, so schemas can import its limits.
+ * This module depends only on the seat list and model-policy output shapes, so
+ * schemas can import its limits.
  *
  * @file
  */
 
+import { roleChoiceOutput } from './model-policy.ts';
 import { FACTORY_ROLES } from './seats.ts';
 
 /** Extra reviewed project skills attached to one stage. */
@@ -95,17 +97,7 @@ export const AGENT_OUTPUT_SCHEMA = {
           assignmentProfiles: {
             type: 'array',
             maxItems: FACTORY_ROLES.length,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['role', 'tier', 'effort', 'reason'],
-              properties: {
-                role: { type: 'string', enum: FACTORY_ROLES },
-                tier: { type: 'string', enum: ['small', 'standard', 'advanced'] },
-                effort: { type: 'string', enum: ['low', 'medium', 'high'] },
-                reason: { type: 'string', minLength: 1, maxLength: ROUTING_REASON_MAX },
-              },
-            },
+            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
           },
           skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
         },

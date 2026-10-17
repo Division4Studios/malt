@@ -17,6 +17,7 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
+import { nativeModelArguments } from './provider-selection.ts';
 import { claudeQuota, claudeWindows } from './quota-windows.ts';
 import { AGENT_OUTPUT_SCHEMA, COOLDOWN_MS, resultSchema } from './schema.ts';
 import { CODE_JOB_KINDS } from './seats.ts';
@@ -131,6 +132,7 @@ export function agentLaunch(
 ): AgentLaunch {
   const record = job;
   const { mesh, home, settings } = context;
+  const selectionArguments = nativeModelArguments(record, settings);
   const schemaFile = path.join(record.artifact, 'result-schema.json');
   const output = path.join(record.artifact, 'result.json');
   writeAtomic(schemaFile, `${JSON.stringify(AGENT_OUTPUT_SCHEMA, null, 2)}\n`);
@@ -151,8 +153,6 @@ export function agentLaunch(
     record.role,
   ];
   const limits = settings.providers[record.provider];
-  const model = record.routing?.model ?? limits.model;
-  const effort = assignmentEffort(record);
   // Implementation, fix and documentation steps edit their owned worktree; every other step reads only.
   const isDeveloper = CODE_JOB_KINDS.has(record.kind);
   if (record.provider === 'codex') {
@@ -165,8 +165,6 @@ export function agentLaunch(
       codexSandbox(isDeveloper, limits.developerAccess),
       '-c',
       'approval_policy="never"',
-      '-c',
-      `model_reasoning_effort=${JSON.stringify(effort)}`,
       '-c',
       'forced_login_method="chatgpt"',
       '-c',
@@ -205,10 +203,7 @@ export function agentLaunch(
     if (isDeveloper) {
       codexArguments.push('--add-dir', record.artifact, '-c', 'sandbox_workspace_write.network_access=true');
     }
-    if (model !== undefined) {
-      codexArguments.push('--model', model);
-    }
-    codexArguments.push('-');
+    codexArguments.push(...selectionArguments, '-');
     return { args: codexArguments, output };
   }
   const mcpFile = path.join(record.artifact, 'claude-mcp.json');
@@ -226,8 +221,7 @@ export function agentLaunch(
       ? `${tools},${learningTools},${communicationTools},mcp__agentmesh__mesh_learning_search,mcp__agentmesh__mesh_learning_record,mcp__agentmesh__mesh_learning_propose_skill`
       : `${tools},${learningTools},${communicationTools}`;
   const args = [
-    '--effort',
-    effort,
+    ...selectionArguments,
     '--setting-sources',
     '',
     '--print',
@@ -249,9 +243,6 @@ export function agentLaunch(
     mesh.directory,
     '--no-session-persistence',
   ];
-  if (model !== undefined) {
-    args.push('--model', model);
-  }
   return { args, output };
 }
 
@@ -323,16 +314,6 @@ export function decodeCompletion(
     subscriptionWindows: state.subscriptionWindows,
     process: processResult,
   };
-}
-
-/**
- * Resolve effort once for both native provider launch paths.
- *
- * @param job - Frozen assignment routing.
- * @returns Selected supported effort, with a backward-compatible default.
- */
-function assignmentEffort(job: FactoryJob): 'low' | 'medium' | 'high' {
-  return job.routing?.effort ?? 'medium';
 }
 
 /**

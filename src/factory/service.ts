@@ -4,14 +4,12 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
-import { writeAtomic } from '../summary.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
+import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import { decideApproval } from './approvals.ts';
-import { providerPreflight } from './authentication.ts';
 import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -26,24 +24,29 @@ import {
   refundUnpaidAttempt,
 } from './controls.ts';
 import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
-import { admittedProvider } from './dispatch-admission.ts';
+import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
-import { executeJob, retireSnapshot } from './execution.ts';
+import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
+import { policySetupBlocker } from './policy-blockers.ts';
+import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
+import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
+import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
-import { recoverObjective, retryBlocked } from './recovery.ts';
+import { retryBlocked } from './recovery.ts';
 import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
@@ -56,7 +59,6 @@ import {
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
-import { CODE_JOB_KINDS, JOB_PHASE } from './seats.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
@@ -206,6 +208,7 @@ export class FactoryService {
       home: this.options.home,
       repository: this.repository,
       settings,
+      providerVersions: this.options.agent === undefined ? {} : 'fixture',
       remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
@@ -352,9 +355,10 @@ export class FactoryService {
   public async execute(operation: FactoryOperation, input: unknown, actorId: string | null = null): Promise<unknown> {
     const parsed = factorySchemas[operation].parse(input);
     const handlers: Record<FactoryOperation, () => unknown> = {
-      factory_recover: () => recoverObjective(this.repository, parsed),
+      factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
-      factory_triage: () => triage.decideTriage(this.repository, parsed, actorId),
+      factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
+      factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(
@@ -365,7 +369,9 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
+      ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
       factory_setup: () => this.controlSetup(parsed),
+      factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -432,6 +438,11 @@ export class FactoryService {
   /** Verify the remote, reconcile durable intents, then admit bounded jobs. */
   private async drive(): Promise<void> {
     const context = this.configured();
+    const setupBlocker = policySetupBlocker(context);
+    if (setupBlocker !== null) {
+      this.error = setupBlocker;
+      return;
+    }
     if (shouldParkForMemory(context, this.running, this.sampler.latest)) {
       this.error = 'Critical memory pressure; owned assignments stopped, awaiting recovery.';
       return;
@@ -440,13 +451,13 @@ export class FactoryService {
     if (now >= this.nextReconcile) {
       this.nextReconcile = now + context.settings.reconcileMs;
       if (!this.connected) {
-        await context.remote.verify(await context.workspaces.origin());
-        if (this.options.agent === undefined) {
-          const providers = await providerPreflight(context.settings, this.mesh.root);
-          writeAtomic(
-            path.join(this.mesh.directory, 'factory', 'readiness.json'),
-            `${JSON.stringify({ providers, checkedAt: this.repository.store.now() }, null, 2)}\n`,
-          );
+        if (
+          !(await isPolicyContextVerified(
+            context,
+            () => this.context === context && canDispatch(this.repository, this.stopped),
+          ))
+        ) {
+          return;
         }
         this.connected = true;
       }
@@ -457,13 +468,17 @@ export class FactoryService {
     if (!this.connected || this.stopped || !this.repository.active()) {
       return;
     }
+    await reconcileIntake(context);
+    if (!canDispatch(this.repository, this.stopped)) {
+      return;
+    }
     automation.fireDueSchedules(this.repository);
-    this.cancelStale();
+    cancelStaleAssignments(this.repository, this.running);
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
       tasks: this.repository.tasks(),
-      features: this.repository.features(),
+      features: this.repository.features().filter((feature) => !isIntakeParked(context, feature)),
       objectiveQueue: this.repository.objectiveQueue.read(),
       jobs: this.repository.jobs(),
       skillRequests: this.repository.skillRequests(),
@@ -479,8 +494,8 @@ export class FactoryService {
       return;
     }
     for (const intent of intents) {
-      if (admittedProvider(context, this.sampler.latest, LOCAL_JOBS) === null) {
-        break;
+      if (admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null) {
+        continue;
       }
       // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
       await this.issueGuard.launch(context, intent, this.dispatch.bind(this, intent));
@@ -504,28 +519,6 @@ export class FactoryService {
     await this.quota.observe(context);
   }
 
-  /** Stop reviewers whose exact source or assigned stage was invalidated. */
-  private cancelStale(): void {
-    const candidates3 = this.repository
-      .jobs()
-      .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
-    for (const job of candidates3) {
-      if (job.taskId === null || CODE_JOB_KINDS.has(job.kind)) {
-        continue;
-      }
-      const task = this.repository.task(job.taskId);
-      if (job.kind === 'triage') {
-        if (!triage.isCurrentTriage(this.repository, job)) {
-          this.running.get(job.id)?.controller.abort();
-        }
-        continue;
-      }
-      if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
-        this.running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
-      }
-    }
-  }
-
   /**
    * Atomically claim a role and its provider reservation.
    *
@@ -536,11 +529,11 @@ export class FactoryService {
       return;
     }
     const context = this.configured();
-    const provider = admittedProvider(context, this.sampler.latest, LOCAL_JOBS, intent.preferredProvider);
-    if (provider === null) {
+    const admitted = admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent);
+    if (admitted === null) {
       return;
     }
-    const job = attemptRecord(context, intent, provider);
+    const job = attemptRecord(context, intent, admitted);
     const { id } = job;
     if (!this.repository.claim(job, context.settings)) {
       return;
@@ -756,8 +749,11 @@ export class FactoryService {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
-    configureProject(this.mesh, this.repository, parsed);
     this.context = null;
+    this.connected = false;
+    this.error = null;
+    this.nextReconcile = 0;
+    configureProject(this.mesh, this.repository, parsed);
     return this.status();
   }
 }

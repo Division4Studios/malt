@@ -3,12 +3,14 @@
  *
  * @file
  */
-import { child, firstText, numericText, number, records, text, hasFlag, resourceSummary } from './api.js';
+import { child, firstText, numericText, number, records, text, hasFlag } from './api.js';
 import { overviewMetrics, objectiveQueue } from './brand-ui.js';
-import { appendQuotaWindows, appendProcessUsage } from './capacity-details.js';
+import { capacityView } from './capacity-view.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import { recoveryPanel } from './recovery-ui.js';
+import { handoffPreviews } from './report-ui.js';
+import { selectionDetails } from './selection-ui.js';
 import { triagePanel } from './triage-ui.js';
 import {
   artifactSelector,
@@ -23,11 +25,6 @@ import {
 import type { Data, Snapshot } from './api.js';
 import type { RecoveryAction } from './recovery-ui.js';
 import type { TriageAction } from './triage-ui.js';
-/** Percentage width limit for verified subscription telemetry. */
-const PERCENT_MAX = 100;
-/** Keep diagnostic token counts distinct from provider billing. */
-const CAPACITY_NOTE =
-  'Subscription quota and CPU/memory limits govern dispatch. Reported tokens do not use API credits.';
 /** Compact activity count. */
 const COMPACT_EVENTS = 6;
 /** Full visible activity page. */
@@ -78,6 +75,8 @@ export interface Actions {
   ) => void;
   /** Edit validated project configuration or GitHub connection. */
   readonly setup: (isConnection: boolean) => void;
+  /** Edit exact-revision account-local model choices through the same backend. */
+  readonly modelPolicy: () => void;
 }
 
 export { element } from './worker-ui.js';
@@ -287,54 +286,6 @@ export function teamView(state: Snapshot, actions: Actions, shouldIncludeOrganiz
 }
 
 /**
- * Real provider usage with unknown quota represented explicitly.
- *
- * @param state - Factory and resource evidence.
- * @returns Provider and machine capacity panel contents.
- */
-function capacityView(state: Snapshot): HTMLElement {
-  const body = element('div', 'panel-body');
-  const capacities = records(state.factory['capacities']);
-  for (const capacity of capacities) {
-    const item = element('div', 'capacity');
-    const heading = element('div', 'capacity-head');
-    const percent = capacity['subscriptionUsedPercent'];
-    heading.append(
-      element('strong', '', text(capacity, 'provider').toUpperCase()),
-      pill(typeof percent === 'number' ? `${String(percent)}% used` : 'quota unknown'),
-    );
-    const meter = element('div', 'meter');
-    const fill = element('div', 'meter-fill');
-    fill.style.width = `${typeof percent === 'number' ? Math.max(0, Math.min(PERCENT_MAX, percent)) : 0}%`;
-    meter.append(fill);
-    const details = element('div', 'capacity-details');
-    details.append(
-      element('span', '', `${numericText(capacity, 'usedTokens')} reported tokens · diagnostic only`),
-      element('span', '', `${numericText(capacity, 'reservedTokens')} estimated tokens in flight`),
-    );
-    item.append(heading, meter, details, element('p', 'subtle', CAPACITY_NOTE));
-    appendQuotaWindows(item, capacity);
-    body.append(item);
-  }
-  if (capacities.length === 0) {
-    body.append(element('p', 'subtle', 'Configure subscription providers and local resource limits in Project setup.'));
-  }
-  const readings = element('p', 'subtle', resourceSummary(state.factory));
-  readings.dataset['resourceMachine'] = 'true';
-  body.append(
-    element('h3', '', 'Local machine'),
-    readings,
-    element(
-      'p',
-      'subtle',
-      'Idle roles consume no model processes. Admission and managed process ceilings protect local resources.',
-    ),
-  );
-  appendProcessUsage(body, state.factory);
-  return body;
-}
-
-/**
  * Render real committed activity with timestamps and safe evidence text.
  *
  * @param state - Current project snapshot.
@@ -378,9 +329,10 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
  *
  * @param state - Selected project snapshot.
  * @param actions - Operator controls.
+ * @param isConnected - Whether the selected snapshot is currently connected.
  * @returns Overview workspace.
  */
-export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
+export function overviewView(state: Snapshot, actions: Actions, isConnected = true): HTMLElement {
   const node = element('div');
   const metrics = overviewMetrics(state.factory);
   const grid = element('div', 'grid');
@@ -393,7 +345,7 @@ export function overviewView(state: Snapshot, actions: Actions): HTMLElement {
   const right = element('div');
   right.append(
     panel('Provider & local capacity', 'SUBSCRIPTION SESSIONS', capacityView(state)),
-    panel('Latest handoffs', 'COMMITTED EVENTS', activityView(state, true)),
+    panel('Latest handoffs and messages', 'DURABLE RECORDS', handoffPreviews(state, isConnected)),
   );
   grid.append(left, right);
   node.append(recoveryPanel(state, actions), metrics, triagePanel(state, actions), grid);
@@ -554,6 +506,7 @@ export function workerView(
       'Captured output and handoffs. This pane is not an interactive terminal.',
     );
     const body = workerBody({ factory: state.factory, role, taskId, summary, tools, log });
+    body.prepend(selectionDetails(job, text(state.factory, 'error')));
     const pane = panel(role.replaceAll('-', ' '), firstText(text(job, 'provider').toUpperCase(), 'PARKED'), body);
     pane.classList.add('worker-pane');
     tools.append(paneHeight(pane, role));
@@ -708,6 +661,7 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
       },
       'button secondary',
     ),
+    button('Edit model and effort policy', actions.modelPolicy, 'button secondary'),
   );
   const providers = element('section', 'setup-card');
   providers.append(

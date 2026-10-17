@@ -116,6 +116,11 @@ export function validatePlan(result: AgentResult): void {
     if (delivery === undefined) {
       throw new MeshError('INVALID_INPUT', 'A delivery depends on an unknown scope.');
     }
+    const profiles = delivery.assignmentProfiles ?? [];
+    const roles = new Set(profiles.map((profile) => profile.role));
+    if (roles.size !== profiles.length) {
+      throw new MeshError('INVALID_INPUT', 'New delivery plans require unique role recommendations.');
+    }
     visiting.add(key);
     for (const dependency of delivery.dependencies) {
       visit(dependency);

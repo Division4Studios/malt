@@ -15,11 +15,13 @@ import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
+import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
 import { telemetryRoute } from './telemetry-routes.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -43,6 +45,10 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/freshness.js', ['dist/freshness.js', 'text/javascript; charset=utf-8']],
   ['/console-clock.js', ['dist/console-clock.js', 'text/javascript; charset=utf-8']],
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
+  ['/capacity-view.js', ['dist/capacity-view.js', 'text/javascript; charset=utf-8']],
+  ['/admission-ui.js', ['dist/admission-ui.js', 'text/javascript; charset=utf-8']],
+  ['/model-policy-ui.js', ['dist/model-policy-ui.js', 'text/javascript; charset=utf-8']],
+  ['/selection-ui.js', ['dist/selection-ui.js', 'text/javascript; charset=utf-8']],
   ['/api.js', ['dist/api.js', 'text/javascript; charset=utf-8']],
   ...[
     'terminal-parser',
@@ -339,14 +345,14 @@ export interface WebConsole {
  * @param config - Broker home scope.
  * @param port - Requested local port, zero for isolated tests.
  * @param binding - Explicit container binding; public Host/Origin remain loopback-only.
- * @param terminalOperator - Memory-only capability from the colocated owning broker.
+ * @param operators - Memory-only capabilities from the colocated owning broker; a legacy terminal function is supported.
  * @returns Running operator console.
  */
 export async function startWebConsole(
   config: MeshConfig,
   port = 4318,
   binding?: { host: '0.0.0.0'; publicPort: number },
-  terminalOperator?: TerminalOperator,
+  operators?: TerminalOperator | { terminal?: TerminalOperator; recommendation?: RecommendationOperator },
 ): Promise<WebConsole> {
   if (binding !== undefined) {
     z.object({ host: z.literal('0.0.0.0'), publicPort: z.number().int().min(1).max(MAX_PORT) })
@@ -354,7 +360,8 @@ export async function startWebConsole(
       .parse(binding);
   }
   const sessions = new OperatorSessions();
-  const gateway = new ProjectGateway(config, terminalOperator);
+  const capabilities = typeof operators === 'function' ? { terminal: operators } : operators;
+  const gateway = new ProjectGateway(config, capabilities?.terminal, capabilities?.recommendation);
   const streams = new Streams();
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Security-Policy', CSP);
@@ -475,6 +482,61 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
+ * Dispatch authenticated inspection routes without mixing their cases with mutations.
+ *
+ * @param url - Validated local request URL.
+ * @param request - Authenticated incoming request.
+ * @param response - Owned local response.
+ * @param context - Same scoped gateway, sessions and stream authority as controls.
+ */
+async function inspectApi(
+  url: URL,
+  request: IncomingMessage,
+  response: ServerResponse,
+  context: { sessions: OperatorSessions; gateway: ProjectGateway; streams: Streams },
+): Promise<void> {
+  const { sessions, gateway, streams } = context;
+  const project = url.searchParams.get('project') ?? 'home';
+  switch (url.pathname) {
+    case '/api/projects': {
+      json(response, HTTP.ok, await gateway.list());
+      return;
+    }
+    case '/api/snapshot': {
+      json(response, HTTP.ok, await gateway.snapshot(project));
+      return;
+    }
+    case '/api/recommendations':
+    case '/api/recommendation': {
+      const query = recommendationQuery(url, url.pathname === '/api/recommendations' ? 'list' : 'get');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, query.input));
+      return;
+    }
+    case '/api/skill': {
+      json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
+      return;
+    }
+    case '/api/history': {
+      const query = historyQuery(url);
+      json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
+      return;
+    }
+    case '/api/stream': {
+      await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/artifact': {
+      json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
+      return;
+    }
+    default: {
+      // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
+      json(response, HTTP.ok, await telemetryRoute(url, gateway));
+    }
+  }
+}
+
+/**
  * Dispatch operator API routes through existing broker controls.
  *
  * @param url - Parsed local URL.
@@ -495,44 +557,24 @@ async function api(
     return;
   }
   if (request.method === 'GET') {
-    switch (url.pathname) {
-      case '/api/projects': {
-        json(response, HTTP.ok, await gateway.list());
-        return;
-      }
-      case '/api/snapshot': {
-        json(response, HTTP.ok, await gateway.snapshot(project));
-        return;
-      }
-      case '/api/skill': {
-        json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
-        return;
-      }
-      case '/api/history': {
-        const query = historyQuery(url);
-        json(response, HTTP.ok, await gateway.history(query.project, query.before, query.limit));
-        return;
-      }
-      case '/api/stream': {
-        await streams.open(gateway, project, { request, response, sessions });
-        return;
-      }
-      case '/api/artifact': {
-        json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
-        return;
-      }
-      default: {
-        // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
-        json(response, HTTP.ok, await telemetryRoute(url, gateway));
-        return;
-      }
-    }
+    await inspectApi(url, request, response, context);
+    return;
   }
   if (request.method !== 'POST') {
     json(response, HTTP.methodNotAllowed, { error: 'Method not allowed.' });
     return;
   }
   switch (url.pathname) {
+    case '/api/recommendation/decide': {
+      const query = recommendationQuery(url, 'read');
+      json(response, HTTP.ok, await gateway.decideRecommendation(query.project, await body(request)));
+      return;
+    }
+    case '/api/recommendation/read': {
+      const query = recommendationQuery(url, 'read');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, await body(request), true));
+      return;
+    }
     case '/api/projects': {
       const input = z
         .object({ workspace: z.string().min(1).max(PATH_MAX) })

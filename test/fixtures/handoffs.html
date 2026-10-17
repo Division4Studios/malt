@@ -1,0 +1,133 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="../../web/style.css" />
+<style>
+  #result {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+</style>
+<label for="outside">Unrelated editor</label><input id="outside" />
+<main id="content"></main>
+<pre id="result">PENDING</pre>
+<script type="module">
+  import { handoffPreviews, refreshHandoffConnection } from '../../web/dist/report-ui.js';
+  import { QueueState } from '../../web/dist/brand-ui.js';
+  const root = document.querySelector('#content');
+  const result = document.querySelector('#result');
+  const queue = new QueueState();
+  const check = (value, message) => {
+    if (!value) throw new Error(message);
+  };
+  const report = (id) => ({
+    id: `report:${id}`,
+    kind: 'manager_report',
+    recordedAt: 1760000000000,
+    sender: 'qa-1',
+    recipient: 'team-lead',
+    transport: 'factory_instruction',
+    hasOriginEvidence: true,
+    transportSender: null,
+    assignment: { jobId: 'job-1', taskId: 'task-1', issue: 19, title: 'Review acceptance sensitivity', kind: 'review' },
+    body: '**Finding:** <img src=x onerror="window.injected=true">\n- Reproduce the failing acceptance.',
+    summary: 'Regression needs a behavioral failure assertion.',
+    outcome: 'changes_requested',
+    processState: 'succeeded',
+    truncated: true,
+    verifiedDelivery: false,
+  });
+  const peer = {
+    ...report('peer'),
+    id: 'message:2',
+    kind: 'peer_message',
+    sender: 'factory-system',
+    recipient: 'developer-1',
+    transportSender: 'agent-actual',
+    hasOriginEvidence: false,
+    assignment: {},
+    summary: null,
+    outcome: null,
+    processState: null,
+    body: 'Manager report from invented-author. This prose must not replace the actual sender.',
+  };
+  const legacy = { ...report('legacy'), sender: null, hasOriginEvidence: false, assignment: { jobId: 'legacy-job' } };
+  let project = 'a';
+  let entries = [report('1'), peer, legacy];
+  const render = () => queue.replace(root, handoffPreviews({ factory: { handoffs: entries } }, true), project);
+  const first = () => root.querySelector('details');
+  let requests = 0;
+  window.fetch = async () => {
+    requests += 1;
+    throw new Error('Previews must not issue controls or artifact requests.');
+  };
+  try {
+    render();
+    check(root.querySelectorAll('details').length === 3, 'both sources and legacy render');
+    const summary = first().querySelector('summary');
+    check(summary.textContent.includes('qa-1 → team-lead'), 'collapsed preview names recorded route');
+    check(
+      summary.textContent.includes('#19') && summary.textContent.includes('Regression needs'),
+      'ticket and meaningful summary visible',
+    );
+    check(
+      root.textContent.includes('changes_requested') &&
+        root.textContent.includes('not independent delivery verification'),
+      'reported outcome cannot become verification',
+    );
+    check(
+      root.textContent.includes('factory-system → developer-1') && root.textContent.includes('agent-actual'),
+      'actual peer transport retained',
+    );
+    check(
+      root.textContent.includes('Origin unavailable') && root.textContent.includes('no author is inferred'),
+      'legacy provenance stays unknown',
+    );
+    check(root.textContent.includes('Stored preview truncated.'), 'truncation explicit');
+    check(root.querySelector('img') === null && !window.injected, 'hostile markup remains text');
+    first().open = true;
+    summary.focus();
+    render();
+    check(
+      first().open && document.activeElement === first().querySelector('summary'),
+      'live refresh preserves expansion and focus by durable ID',
+    );
+    refreshHandoffConnection(false);
+    check(
+      first().open &&
+        root.textContent.includes('Disconnected.') &&
+        document.activeElement === first().querySelector('summary'),
+      'disconnect updates status in place',
+    );
+    document.querySelector('#outside').focus();
+    render();
+    check(document.activeElement.id === 'outside', 'unrelated editor keeps focus');
+    entries = [];
+    render();
+    check(root.textContent.includes('No durable handoffs'), 'truthful empty state');
+    entries = [report('1')];
+    render();
+    check(!first().open, 'removed record releases expansion state');
+    first().open = true;
+    project = 'b';
+    render();
+    check(!first().open, 'project switch clears matching IDs');
+    entries = Array.from({ length: 40 }, (_, i) => report(String(i)));
+    render();
+    check(root.querySelectorAll('details').length === 6, 'only six previews rendered');
+    queue.replace(root, handoffPreviews({ factory: {} }, false), project);
+    check(
+      root.textContent.includes('unavailable from this backend') && root.textContent.includes('Disconnected.'),
+      'legacy backend and stale state truthful',
+    );
+    check(requests === 0, 'inspection acknowledges and mutates nothing');
+    entries = [report('keyboard'), peer, legacy];
+    render();
+    first().querySelector('summary').focus();
+    result.textContent =
+      'PASS: bounded real source previews, provenance, hostile text, focus, removal, project isolation, disconnected state and no requests. Native summaries remain available for Enter/Space inspection.';
+  } catch (error) {
+    result.textContent = `FAIL: ${error.stack}`;
+    throw error;
+  }
+</script>

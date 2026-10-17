@@ -1,0 +1,17 @@
+title: 'Show and tell: '
+body:
+  - type: markdown
+    attributes:
+      value: Share a useful workflow or result. Use only public or synthetic examples; remove tokens, pairing codes, private paths and .malt data from screenshots and excerpts.
+  - type: textarea
+    id: story
+    attributes:
+      label: What did you build or learn?
+      description: Explain the outcome and what others might reuse.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Setup and limitations (optional)
+      description: Relevant commit/platform and what you verified. Distinguish real execution from fixtures or mockups.

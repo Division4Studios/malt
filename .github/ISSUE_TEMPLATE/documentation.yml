@@ -1,0 +1,27 @@
+name: Documentation correction
+description: Fix a missing, confusing or outdated instruction or link.
+title: 'docs: '
+labels: [documentation, 'area:community']
+body:
+  - type: markdown
+    attributes:
+      value: A short report is enough. Search existing issues first; never include credentials, pairing codes or private .malt files.
+  - type: input
+    id: location
+    attributes:
+      label: Page or instruction
+      description: Link the README, wiki page, command or document section.
+    validations:
+      required: true
+  - type: textarea
+    id: correction
+    attributes:
+      label: What needs to change?
+      description: Explain what was confusing or incorrect. A suggested correction is welcome, not required.
+    validations:
+      required: true
+  - type: input
+    id: context
+    attributes:
+      label: Relevant context (optional)
+      description: Commit, platform, related issue or sanitized error, if useful.

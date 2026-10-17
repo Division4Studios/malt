@@ -52,6 +52,12 @@ Never redirect stderr into stdout for an MCP bridge. `2>&1` would combine diagno
 
 The logger intentionally excludes project/agent secrets, message bodies, completion summaries and work instructions. It includes agent IDs and names, so logs still identify your team. Do not add whole request objects to a debug statement while extending the system.
 
+## Merged fixes are missing from the console
+
+Confirm the source revision of the running broker and UI, not only the checkout or GitHub PR state. Runtime source main `6aadf99` includes the recovery/Activity stack and merged handoff feed/Mission previews; older processes keep their loaded code until deliberately restarted. Follow [safe deployment](operating-malt-on-itself.md#deploy-deliberately), preserve project memory and provider credentials, and pair again when the owning UI restarts. Updating the PWA shell alone cannot upgrade the broker.
+
+A completed GitHub issue does not automatically verify a retained local attempt. If the retained attempt has no recorded merge, inspect the exact external merge and use **Adopt external merge** with its full commit and a reason. If it already has a recorded merge, use **Verify merged main** instead; adoption deliberately rejects an existing merge. Both paths retain actual-main containment and acceptance verification. Never force a task to Done to clear a historical blocker. See [dispatcher decisions](operator-console.md#dispatcher-decisions).
+
 ## A worker is waiting forever
 
 1. Check `docker compose ps` and the broker's health/logs.

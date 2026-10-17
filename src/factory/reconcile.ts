@@ -10,8 +10,12 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { OPERATOR_ADOPTED } from './adoption-schema.ts';
+import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { featureWorkflow, planningApprovals } from './pipeline.ts';
+import { retainProvisionedIssues } from './provisioning-identity.ts';
+import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
@@ -264,6 +268,10 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
  */
 async function closeVerified(context: FactoryContext, task: FactoryTask): Promise<void> {
   const record = task;
+  if (record.verifiedMain?.jobId === OPERATOR_ADOPTED) {
+    await closeAdopted(context, record);
+    return;
+  }
   if (record.merge === null || record.verifiedMain === null) {
     throw new MeshError('FACTORY_GATED', 'No merged-main verification proof is recorded.');
   }
@@ -311,18 +319,21 @@ async function completionEffects(context: FactoryContext, task: FactoryTask): Pr
     throw new MeshError('FACTORY_GATED', 'Done requires merged-main proof.');
   }
   const effect = { issue: task.issue, attempts: 0, retryAt: 0, error: null };
-  context.repository.enqueueEffect({
-    ...effect,
-    id: `${task.id}:verified:comment`,
-    kind: 'comment',
-    value: `Verified merged main ${proof.head} after merge ${task.merge ?? ''}.\n\n${proof.summary}\n\nEvidence: project-local attempt ${proof.jobId}.`,
-  });
-  context.repository.enqueueEffect({
-    ...effect,
-    id: `${task.id}:verified:close`,
-    kind: 'close',
-    value: 'Verified on merged main.',
-  });
+  // An operator-adopted issue is already closed on GitHub; adoption never comments on or edits it.
+  if (proof.jobId !== OPERATOR_ADOPTED) {
+    context.repository.enqueueEffect({
+      ...effect,
+      id: `${task.id}:verified:comment`,
+      kind: 'comment',
+      value: `Verified merged main ${proof.head} after merge ${task.merge ?? ''}.\n\n${proof.summary}\n\nEvidence: project-local attempt ${proof.jobId}.`,
+    });
+    context.repository.enqueueEffect({
+      ...effect,
+      id: `${task.id}:verified:close`,
+      kind: 'close',
+      value: 'Verified on merged main.',
+    });
+  }
   if (task.worktree === null) {
     return;
   }
@@ -365,7 +376,7 @@ async function flushEffects(context: FactoryContext): Promise<void> {
  *
  * @param context - Product feature ledger and remote board.
  */
-async function closeParents(context: FactoryContext): Promise<void> {
+export async function closeParents(context: FactoryContext): Promise<void> {
   const candidates3 = context.repository
     .features()
     .filter(
@@ -377,6 +388,8 @@ async function closeParents(context: FactoryContext): Promise<void> {
     if (
       tasks.length === 0 ||
       tasks.some((task) => task.phase !== 'done') ||
+      // Children closed without delivery never justify closing the parent as completed; the operator decides.
+      tasks.some((task) => task.verifiedMain?.undelivered === true) ||
       context.repository.effects().some((effect) => tasks.some((task) => task.issue === effect.issue))
     ) {
       continue;
@@ -464,7 +477,12 @@ export async function reconcile(context: FactoryContext): Promise<void> {
  * @throws {MeshError} For invalid scope or dependency mappings.
  */
 async function provisionFeature(context: FactoryContext, feature: Feature): Promise<void> {
-  const mappings = await context.remote.provision(feature);
+  if (isIntakeParked(context, feature)) {
+    return;
+  }
+  const mappings = await context.remote.provision(feature, (created, repositoryId) => {
+    retainProvisionedIssues(context.repository, feature.id, repositoryId, created);
+  });
   const current = context.repository.features().find((candidate) => candidate.id === feature.id);
   if (current?.phase !== 'provisioning') {
     if (current?.scopeReplacement !== undefined) {

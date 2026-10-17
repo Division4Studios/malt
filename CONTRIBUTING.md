@@ -25,7 +25,7 @@ CI uses a documentation fast path only when every changed path is a human-facing
 
 Classification executes the classifier from the immutable base commit, never from the proposed PR checkout. Missing base classifiers use full CI, including the initial introduction of this optimization. A PR changing the classifier cannot use its proposed classifier to exempt itself from validation.
 
-Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. Backend MCP SDK, Zod and Node SQLite remain allowed. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
+Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. The backend has exactly three runtime packages, each kept for one contained role: Zod (input validation), the MCP SDK (stdio protocol for agent sessions) and the pinned `node-pty` (scratch terminals only), alongside built-in `node:sqlite`. Do not add runtime packages; new code validates with hand-written checks where no Zod boundary exists. Runtime packages must use an MIT-compatible license (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0 or 0BSD), which the Security gate enforces. Keep exact version pins, install with `npm ci --ignore-scripts` and never import a development package at runtime. See the [dependency policy](docs/dependency-policy.md) for why each package stays and how they are locked down. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
 
 ## Native test resources
 
@@ -54,7 +54,7 @@ Review covers the current source and base. A change to either can invalidate ear
 4. Check `git diff --check`, the complete staged diff and secret-scan results. Never include `.malt`, `.mlt`, provider homes, `.env`, credentials or private logs.
 5. Open a focused PR using the template. Link its issue, prerequisites, acceptance criteria and any size exception. Refresh current main and obtain fresh independent review when source or base changes.
 
-Maintainers require passing quality/security gates, resolved conversations and authenticated GitHub reviews under repository protection. AI-authored changes have the same requirements. Reviewers reproduce and report findings; the responsible author repairs them. Do not use administrator bypass or represent model comments as protected-branch approvals.
+Maintainers require passing quality/security gates, resolved conversations and authenticated GitHub reviews under repository protection. AI-authored changes have the same requirements. The [documented solo-maintainer exception](docs/github-controls.md) currently requires zero authenticated GitHub approvals; the intended two-reviewer/code-owner policy resumes when trusted collaborators join. Independent factory QA and final verification remain separate gates. Reviewers reproduce and report findings; the responsible author repairs them. Do not use administrator bypass or represent model comments as protected-branch approvals.
 
 Keep review requests respectful. No automatic stale bot will close an unresolved report merely because time passed. Maintainers may defer or reject scope with a written reason.
 

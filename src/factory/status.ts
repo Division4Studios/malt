@@ -6,6 +6,8 @@
 import { automationsStatus } from './automations.ts';
 import { consoleView } from './console-view.ts';
 import { conversationWindow } from './conversations.ts';
+import { handoffFeed } from './handoff-feed.ts';
+import { policyBlocker } from './policy-blockers.ts';
 import { ownedProcessUsage } from './process-usage.ts';
 import { PROVIDERS } from './schema.ts';
 import { triageStatus } from './triage.ts';
@@ -36,7 +38,7 @@ export async function factoryStatus(
     configured: settings !== null,
     active: repository.active(),
     connected: telemetry.connected,
-    error: telemetry.error,
+    error: telemetry.error ?? policyBlocker(repository),
     resources: telemetry.resources,
     admission: telemetry.admission,
     processUsage,
@@ -52,6 +54,7 @@ export async function factoryStatus(
     skillRequests: repository.skillRequests(),
     instructions: repository.instructionLedger.recent(),
     conversations: conversationWindow(repository.store, mesh),
+    handoffs: handoffFeed(repository.store, mesh),
     workflow: workflowState(repository),
     workflows: workflowLibrary(repository.store).status(),
     automations: automationsStatus(repository.store),
