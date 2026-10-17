@@ -46,6 +46,53 @@ await test('a lost response is reconciled from the marker instead of creating ag
   assert.match(search?.get('jql') ?? '', /^project = "PROJ" AND reporter = currentUser\(\) AND created >= -\d+m/v);
 });
 
+await test('reconciliation reads every page before concluding, and a held request is not run twice', async (t) => {
+  const jira = fakeJira();
+  const { context, ledger } = setup(t, jira);
+  jira.dropNextResponses = 1;
+  await assert.rejects(createJiraIssueOnce(context, ledger, REQUEST));
+  const created = jira.issues[0];
+  assert.ok(created !== undefined);
+  const paged: JiraWriteContext = {
+    ...context,
+    transport: {
+      ...context.transport,
+      fetch: async (url, init) => {
+        const { searchParams, pathname } = new URL(url);
+        if (pathname !== '/rest/api/3/search/jql') {
+          return jira.fetch(url, init);
+        }
+        const isSecond = searchParams.get('nextPageToken') === 'page-2';
+        const page = isSecond
+          ? {
+              issues: [{ id: created.id, key: created.key, fields: { description: created.description } }],
+              isLast: true,
+            }
+          : { issues: [], nextPageToken: 'page-2' };
+        const text = JSON.stringify(page);
+        return {
+          status: 200,
+          headers: { get: () => null },
+          text: async () => {
+            await Promise.resolve();
+            return text;
+          },
+        };
+      },
+    },
+  };
+  assert.equal((await createJiraIssueOnce(paged, ledger, REQUEST)).key, created.key, 'the match on page two is found');
+  assert.equal(jira.issues.length, 1, 'no duplicate');
+  const other = { ...REQUEST, requestId: 'held' };
+  const [first, second] = await Promise.allSettled([
+    createJiraIssueOnce(context, ledger, other),
+    createJiraIssueOnce(context, ledger, other),
+  ]);
+  assert.equal(first.status, 'fulfilled');
+  assert.equal(second.status, 'rejected', 'an overlapping attempt is refused instead of creating again');
+  assert.equal(jira.issues.length, 2);
+});
+
 await test('a creation that never reached Jira is created on retry, and two matches are refused', async (t) => {
   const jira = fakeJira();
   const { context, ledger } = setup(t, jira);

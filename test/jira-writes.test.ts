@@ -141,6 +141,9 @@ await test('creating a child needs relationships as well as issue creation', asy
   const root = { projectKey: 'PROJ', issueTypeId: '10', summary: 'Child', description: 'Body' };
   await assert.rejects(createJiraIssue(context, { ...root, parentKey: 'PROJ-1' }), /relationships is disabled/v);
   assert.equal(fixture.calls.length, 0);
+  await assert.rejects(createJiraIssue(context, { ...root, labels: ['malt'] }), /label-use is disabled/v);
+  assert.equal(fixture.calls.length, 0, 'labels at creation need label-use as well');
+  store.set(OPERATOR, 'label-use', { mode: 'approved-agent-roles', roles: ['product-owner'] });
   assert.deepEqual(await createJiraIssue(context, { ...root, labels: ['malt'] }), {
     id: '10001',
     key: 'PROJ-7',

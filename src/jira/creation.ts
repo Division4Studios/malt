@@ -21,6 +21,7 @@ import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { jiraGet, jiraIssueKeySchema, jiraProjectKeySchema } from './client.ts';
+import { withRequestLock } from './request-lock.ts';
 import { createJiraIssue } from './writes.ts';
 
 import type { JiraIssueKey, JiraTransport } from './client.ts';
@@ -28,8 +29,10 @@ import type { JiraWriteContext } from './writes.ts';
 
 /** Minutes of clock skew allowed when looking for an interrupted creation. */
 const SKEW_MINUTES = 10;
-/** Issues read while reconciling one request. */
+/** Issues read per page while reconciling one request. */
 const RECONCILE_LIMIT = 100;
+/** Pages read before reconciliation gives up rather than risk a duplicate. */
+const RECONCILE_PAGES = 20;
 /** Milliseconds per minute. */
 const MINUTE_MS = 60_000;
 
@@ -96,7 +99,11 @@ const foundSchema = z.object({
   fields: z.object({ description: z.unknown() }),
 });
 /** Search answer while reconciling. */
-const reconcileSchema = z.object({ issues: z.array(foundSchema) });
+const reconcileSchema = z.object({
+  issues: z.array(foundSchema),
+  nextPageToken: z.string().min(1).optional(),
+  isLast: z.boolean().optional(),
+});
 
 /**
  * The marker line a request leaves in its issue's description.
@@ -131,7 +138,8 @@ function adfText(node: unknown): string[] {
  * @param input - Request whose issue is looked for.
  * @param journal - Its pending journal.
  * @param now - Current time; the search window is relative, so Jira's time zone does not matter.
- * @returns Matching issues.
+ * @returns Matching issues from every page of the window.
+ * @throws {MeshError} FACTORY_GATED when the window holds too many issues to read in full.
  */
 async function findCreated(
   transport: JiraTransport,
@@ -140,16 +148,33 @@ async function findCreated(
   now: number,
 ): Promise<z.output<typeof createdSchema>[]> {
   const minutes = Math.ceil(Math.max(0, now - journal.startedAt) / MINUTE_MS) + SKEW_MINUTES;
-  const answer = reconcileSchema.parse(
-    await jiraGet(transport, '/rest/api/3/search/jql', {
+  const matches: z.output<typeof createdSchema>[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < RECONCILE_PAGES; page += 1) {
+    const query: Record<string, string> = {
       jql: `project = "${input.projectKey}" AND reporter = currentUser() AND created >= -${String(minutes)}m ORDER BY created ASC`,
       fields: 'description',
       maxResults: String(RECONCILE_LIMIT),
-    }),
+    };
+    if (cursor !== undefined) {
+      query['nextPageToken'] = cursor;
+    }
+    // eslint-disable-next-line no-await-in-loop -- Each page's cursor comes from the previous page.
+    const answer = reconcileSchema.parse(await jiraGet(transport, '/rest/api/3/search/jql', query));
+    for (const issue of answer.issues) {
+      if (adfText(issue.fields.description).includes(journal.marker)) {
+        matches.push({ id: issue.id, key: issue.key });
+      }
+    }
+    if (answer.isLast === true || answer.nextPageToken === undefined) {
+      return matches;
+    }
+    cursor = answer.nextPageToken;
+  }
+  throw new MeshError(
+    'FACTORY_GATED',
+    `Too many recent Jira issues to confirm whether ${journal.marker} was created; settle it by hand before retrying.`,
   );
-  return answer.issues
-    .filter((issue) => adfText(issue.fields.description).includes(journal.marker))
-    .map(({ id, key }) => ({ id, key }));
 }
 
 /**
@@ -171,8 +196,8 @@ function describe(input: z.output<typeof creationSchema>, marker: string): strin
  * @param ledger - Journal directory, project identity and clock.
  * @param request - Stable request and desired issue.
  * @returns The issue this request created.
- * @throws {MeshError} INVALID_INPUT when the ID was used for a different issue; FACTORY_GATED when an
- *   interrupted creation matches more than one issue.
+ * @throws {MeshError} INVALID_INPUT when the ID was used for a different issue; FACTORY_GATED while another
+ *   attempt holds the request, or when an interrupted creation matches more than one issue.
  */
 export async function createJiraIssueOnce(
   context: JiraWriteContext,
@@ -180,13 +205,35 @@ export async function createJiraIssueOnce(
   request: JiraCreation,
 ): Promise<{ id: string; key: JiraIssueKey }> {
   const input = creationSchema.parse(request);
-  const file = path.join(ledger.directory, 'jira', 'operations', `${input.requestId}.json`);
+  const directory = path.join(ledger.directory, 'jira', 'operations');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own private state directory.
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  // One owner at a time covers reconciliation, the request and the journal update together.
+  return withRequestLock(path.join(directory, `${input.requestId}.lock`), ledger.now(), async () =>
+    createLocked(context, ledger, input, path.join(directory, `${input.requestId}.json`)),
+  );
+}
+
+/**
+ * Reconcile or create one request while holding its lock.
+ *
+ * @param context - Transport, capability gate and caller.
+ * @param ledger - Project identity and clock.
+ * @param input - Validated request.
+ * @param file - The request's journal.
+ * @returns The issue this request created.
+ * @throws {MeshError} INVALID_INPUT for a reused ID; FACTORY_GATED for an ambiguous or unconfirmable result.
+ */
+async function createLocked(
+  context: JiraWriteContext,
+  ledger: CreationLedger,
+  input: z.output<typeof creationSchema>,
+  file: string,
+): Promise<{ id: string; key: JiraIssueKey }> {
   const fingerprint = createHash('sha256')
     .update(JSON.stringify({ ...input, requestId: undefined }))
     .digest('hex');
   const marker = creationMarker(ledger, input.requestId);
-  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own private state directory.
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   const fresh: Journal = { fingerprint, marker, startedAt: ledger.now(), issue: null };
   const isFresh = writeIfAbsent(file, `${JSON.stringify(fresh, null, 2)}\n`) === 'created';
   const journal = journalSchema.parse(readJsonFile(file));

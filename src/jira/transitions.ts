@@ -139,7 +139,9 @@ export function planTransition(input: {
   if (target.statusId === input.currentStatusId) {
     return { kind: 'already' };
   }
-  const transition = input.transitions.find((candidate) => candidate.to.id === target.statusId);
+  const reaching = input.transitions.filter((candidate) => candidate.to.id === target.statusId);
+  // Prefer a transition MALT can perform; report required fields only when every match needs them.
+  const transition = reaching.find((candidate) => candidate.requiredFields.length === 0) ?? reaching[0];
   if (transition === undefined) {
     return blocked(
       'no_transition',
