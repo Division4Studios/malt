@@ -51,6 +51,12 @@ Every Jira mutation is a connector capability (see [capability policy](capabilit
 
 The operator also chooses which factory roles may perform the enabled mutations; with none, only the human operator may. Only a human principal can set a mode, and policies changed one capability at a time read back as `custom`. `jiraAccessSummary` lists exactly what MALT reads from Jira and what each capability lets it change, with its current policy, for the operator to review before enabling the connection.
 
+### Idempotent creation and breakdown
+
+`createJiraIssueOnce` (`src/jira/creation.ts`) gives every creation a stable request ID. Its journal is written under the project's private `.malt/jira/operations/` before Jira is called, and records the created issue afterwards, so retrying the same request returns the same issue; reusing an ID for a different issue is refused. The issue's description carries a `MALT request <project>:<request>` line. If an earlier attempt was interrupted after Jira may have created the issue, the next attempt first reads the issues MALT's account reported in the project since then and matches that line: one match is adopted, none is created, and more than one is refused for a human to settle.
+
+`breakDownJiraIssue` (`src/jira/breakdown.ts`) creates a parent's planned children in order, each with a request ID derived from the parent key and the child's plan key. A failure stops the batch with what was created so far; running the same breakdown again reconciles those children and creates only the rest. Creating children needs the `issue-create` and `relationships` capabilities.
+
 ### Authentication and deployment decisions for 1.0
 
 These decisions answer #329; revisit them only through their follow-up issues.
