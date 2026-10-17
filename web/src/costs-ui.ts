@@ -80,9 +80,9 @@ function tiles(summary: Data): HTMLElement {
     tile(
       t('Known cost'),
       formatUsd(number(totals, 'costUsd')),
-      t('{value} reported · {value2} estimated', {
-        value: count('reportedAttempts'),
-        value2: count('estimatedAttempts'),
+      t('{reported} reported · {estimated} estimated', {
+        reported: count('reportedAttempts'),
+        estimated: count('estimatedAttempts'),
       }),
     ),
     tile(t('Attempts'), count('attempts'), t('{count} unpriced', { count: count('unpricedAttempts') })),
@@ -94,7 +94,7 @@ function tiles(summary: Data): HTMLElement {
     tile(
       t('Waste'),
       formatUsd(number(totals, 'wasteUsd')),
-      t('{value} failed or interrupted attempts', { value: count('wasteAttempts') }),
+      t('{count} failed or interrupted attempts', { count: count('wasteAttempts') }),
     ),
     tile(
       t('Cache hit'),
@@ -238,13 +238,13 @@ function summarySections(summary: Data): HTMLElement[] {
   }
   const tokens = child(summary, 'tokens');
   const tokenLine = t(
-    'Tokens: input {value} · cache read {value2} · cache write {value3} · output {value4} · reasoning {value5}',
+    'Tokens: input {input} · cache read {cacheRead} · cache write {cacheWrite} · output {output} · reasoning {reasoning}',
     {
-      value: formatTokens(optionalNumber(tokens, 'input')),
-      value2: formatTokens(optionalNumber(tokens, 'cacheRead')),
-      value3: formatTokens(optionalNumber(tokens, 'cacheWrite')),
-      value4: formatTokens(optionalNumber(tokens, 'output')),
-      value5: formatTokens(optionalNumber(tokens, 'reasoning')),
+      input: formatTokens(optionalNumber(tokens, 'input')),
+      cacheRead: formatTokens(optionalNumber(tokens, 'cacheRead')),
+      cacheWrite: formatTokens(optionalNumber(tokens, 'cacheWrite')),
+      output: formatTokens(optionalNumber(tokens, 'output')),
+      reasoning: formatTokens(optionalNumber(tokens, 'reasoning')),
     },
   );
   return [

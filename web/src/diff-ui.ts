@@ -183,7 +183,7 @@ export class DeliveryDiff {
       const hint =
         head === null
           ? t('Changes appear once the delivery publishes source.')
-          : t('Compare head {value} with its base.', { value: shortSha(head) });
+          : t('Compare head {head} with its base.', { head: shortSha(head) });
       this.body.replaceChildren(element('p', 'subtle', hint), load);
       return;
     }

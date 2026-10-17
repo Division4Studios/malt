@@ -9,6 +9,7 @@
 import { child, data, number, records, request, scoped, text } from './api.js';
 import { formatTime, t } from './i18n.js';
 import {
+  ATTEMPT_KINDS,
   browserTimeZone,
   formatCost,
   formatDuration,
@@ -25,8 +26,6 @@ import type { Data } from './api.js';
 const PAGE_SIZE = 50;
 /** Filterable roles: core seats followed by specialist seats. */
 const ROLES = [...ROLE_SLOTS.keys(), 'plan-reviewer', 'fixer', 'librarian', 'regression-verifier'];
-/** Filterable attempt kinds. */
-const KINDS = ['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage'];
 /** Filterable providers. */
 const PROVIDERS = ['claude', 'codex'];
 /** Filterable lifecycle states. */
@@ -59,16 +58,33 @@ export interface SessionsHandle {
  *
  * @param name - Query parameter name.
  * @param label - Visible label.
- * @param options - Allowed values.
+ * @param options - Allowed values, each shown as itself or with a readable label.
  * @returns Label wrapping the select.
  */
-function filterSelect(name: string, label: string, options: readonly string[]): HTMLLabelElement {
+function filterSelect(
+  name: string,
+  label: string,
+  options: readonly string[] | Readonly<Record<string, string>>,
+): HTMLLabelElement {
   const wrapper = element('label', 'sessions-filter', label);
   const select = element('select');
   select.name = name;
-  select.append(new Option(t('All'), ''), ...options.map((option) => new Option(option, option)));
+  const choices = Array.isArray(options)
+    ? options.map((option: string) => [option, option] as const)
+    : Object.entries(options);
+  select.append(new Option(t('All'), ''), ...choices.map(([value, shown]) => new Option(shown, value)));
   wrapper.append(select);
   return wrapper;
+}
+
+/**
+ * The readable label of an attempt kind.
+ *
+ * @param kind - Recorded kind.
+ * @returns Its label, or the kind itself when this console does not know it.
+ */
+function kindLabel(kind: string): string {
+  return ATTEMPT_KINDS[kind] ?? kind;
 }
 
 /**
@@ -84,10 +100,10 @@ function rowFields(row: Data): string[] {
   const startedAt = new Date(number(row, 'startedAt'));
   return [
     formatTime(startedAt, { hour: '2-digit', minute: '2-digit' }),
-    `${text(row, 'role')} · ${text(row, 'kind')}`,
-    `${text(row, 'provider')} · ${text(row, 'model') === '' ? 'default model' : text(row, 'model')}`,
+    `${text(row, 'role')} · ${kindLabel(text(row, 'kind'))}`,
+    `${text(row, 'provider')} · ${text(row, 'model') === '' ? t('default model') : text(row, 'model')}`,
     formatDuration(optionalNumber(metrics, 'durationMs')),
-    `${formatTokens(optionalNumber(tokens, 'total'))} tok`,
+    t('{tokens} tok', { tokens: formatTokens(optionalNumber(tokens, 'total')) }),
     formatCost(optionalNumber(cost, 'usd'), text(cost, 'source')),
   ];
 }
@@ -104,11 +120,11 @@ function livenessLine(row: Data): string {
   const parts = [
     state === '' ? t('not recorded') : state.replace('_', ' '),
     text(liveness, 'stopReason'),
-    number(liveness, 'extensions') > 0 ? t('extended {value}×', { value: number(liveness, 'extensions') }) : '',
-    text(liveness, 'lastSignal') === '' ? '' : t('last signal {value}', { value: text(liveness, 'lastSignal') }),
+    number(liveness, 'extensions') > 0 ? t('extended {count}×', { count: number(liveness, 'extensions') }) : '',
+    text(liveness, 'lastSignal') === '' ? '' : t('last signal {signal}', { signal: text(liveness, 'lastSignal') }),
     text(row, 'failureClass') === ''
       ? ''
-      : t('retry class {value}', { value: text(row, 'failureClass').replace('_', ' ') }),
+      : t('retry class {failureClass}', { failureClass: text(row, 'failureClass').replace('_', ' ') }),
   ];
   return parts.filter((part) => part !== '').join(' · ');
 }
@@ -134,12 +150,12 @@ function metricsPanel(row: Data): HTMLElement {
     [t('Overview'), metricsLine(metrics)],
     [
       t('Tokens'),
-      t('input {value} · cache read {value2} · cache write {value3} · output {value4} · reasoning {value5}', {
-        value: formatTokens(optionalNumber(tokens, 'input')),
-        value2: formatTokens(optionalNumber(tokens, 'cacheRead')),
-        value3: formatTokens(optionalNumber(tokens, 'cacheWrite')),
-        value4: formatTokens(optionalNumber(tokens, 'output')),
-        value5: formatTokens(optionalNumber(tokens, 'reasoning')),
+      t('input {input} · cache read {cacheRead} · cache write {cacheWrite} · output {output} · reasoning {reasoning}', {
+        input: formatTokens(optionalNumber(tokens, 'input')),
+        cacheRead: formatTokens(optionalNumber(tokens, 'cacheRead')),
+        cacheWrite: formatTokens(optionalNumber(tokens, 'cacheWrite')),
+        output: formatTokens(optionalNumber(tokens, 'output')),
+        reasoning: formatTokens(optionalNumber(tokens, 'reasoning')),
       }),
     ],
     [t('Cost source'), text(child(metrics, 'cost'), 'source')],
@@ -218,7 +234,7 @@ class SessionsView {
     this.form.append(
       this.delivery,
       filterSelect('role', t('Role'), ROLES),
-      filterSelect('kind', t('Kind'), KINDS),
+      filterSelect('kind', t('Kind'), ATTEMPT_KINDS),
       filterSelect('provider', t('Provider'), PROVIDERS),
       filterSelect('state', t('State'), STATES),
       search,

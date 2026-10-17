@@ -189,7 +189,7 @@ function handoffPreview(entry: Data): HTMLElement {
   const reported = displayText(handoffText(entry, 'summary'), handoffText(entry, 'body'));
   const purposePreview = purpose.slice(0, SUMMARY_LIMIT).toWellFormed();
   const summaryPreview = displayText(reported.slice(0, SUMMARY_LIMIT).toWellFormed(), t('Summary unavailable'));
-  const stage = displayText(handoffText(assignment, 'kind'), 'unavailable');
+  const stage = displayText(handoffText(assignment, 'kind'), t('unavailable'));
   const route = t('Issue: {issue} · Stage: {stage}', { issue: issueIdentity(assignment), stage });
   heading.append(
     element('strong', '', purposePreview),
@@ -200,8 +200,8 @@ function handoffPreview(entry: Data): HTMLElement {
   );
   summary.append(signal, heading, element('span', 'pill', kind));
   const content = element('div', 'triage-body');
-  const outcome = displayText(handoffText(entry, 'outcome'), 'unavailable');
-  const processState = displayText(handoffText(entry, 'processState'), 'unavailable');
+  const outcome = displayText(handoffText(entry, 'outcome'), t('unavailable'));
+  const processState = displayText(handoffText(entry, 'processState'), t('unavailable'));
   const storedBody = displayText(handoffText(entry, 'body'), t('Stored body unavailable.'));
   const report = renderReport(
     storedBody,
@@ -237,11 +237,11 @@ function handoffPreview(entry: Data): HTMLElement {
  * @returns Literal context with missing values identified.
  */
 function assignmentLabel(assignment: Data): string {
-  return t('Issue: {value}. Job: {value2}. Task: {value3}. Stage: {value4}.', {
-    value: issueIdentity(assignment),
-    value2: displayText(handoffText(assignment, 'jobId'), 'unavailable'),
-    value3: displayText(handoffText(assignment, 'taskId'), 'unavailable'),
-    value4: displayText(handoffText(assignment, 'kind'), 'unavailable'),
+  return t('Issue: {issue}. Job: {job}. Task: {task}. Stage: {stage}.', {
+    issue: issueIdentity(assignment),
+    job: displayText(handoffText(assignment, 'jobId'), t('unavailable')),
+    task: displayText(handoffText(assignment, 'taskId'), t('unavailable')),
+    stage: displayText(handoffText(assignment, 'kind'), t('unavailable')),
   });
 }
 
@@ -253,7 +253,7 @@ function assignmentLabel(assignment: Data): string {
  */
 function issueIdentity(assignment: Data): string {
   const { issue } = assignment;
-  return typeof issue === 'number' && Number.isSafeInteger(issue) && issue > 0 ? `#${String(issue)}` : 'unavailable';
+  return typeof issue === 'number' && Number.isSafeInteger(issue) && issue > 0 ? `#${String(issue)}` : t('unavailable');
 }
 
 /**
@@ -271,8 +271,8 @@ function transportLabel(entry: Data, isManager: boolean): string {
         : 'Transport: factory instruction. Worker origin metadata is unavailable; no author is inferred from its body.',
     );
   }
-  return t('Transport: broker message. Actual sender ID: {value}. Body text does not change its recorded author.', {
-    value: displayText(handoffText(entry, 'transportSender'), 'unavailable'),
+  return t('Transport: broker message. Actual sender ID: {sender}. Body text does not change its recorded author.', {
+    sender: displayText(handoffText(entry, 'transportSender'), t('unavailable')),
   });
 }
 

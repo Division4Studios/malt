@@ -7,8 +7,10 @@
  */
 import { asData } from './console-model.js';
 import { phrase, t, translated } from './i18n.js';
+import { parseCustomization } from './step-override-model.js';
 
 import type { Data } from './api.js';
+import type { Customization } from './step-override-model.js';
 
 /** Checklist states. */
 export const DONE_STATES = ['open', 'proposed', 'checked', 'waived'] as const;
@@ -66,6 +68,8 @@ export interface Goal {
   readonly proposed: number;
   /** Whether every delivery is done but the checklist is not met. */
   readonly awaitsDefinition: boolean;
+  /** Step override editor state, while the objective has not started delivering. */
+  readonly customization: Customization | null;
 }
 
 /** One progress log entry. */
@@ -226,6 +230,7 @@ function parseGoal(record: Data): Goal | null {
     met: numberOf(definition, 'met'),
     proposed: numberOf(definition, 'proposed'),
     awaitsDefinition: record['awaitsDefinition'] === true,
+    customization: parseCustomization(record['customization']),
   };
 }
 
@@ -262,6 +267,42 @@ export function definitionText(goal: Pick<Goal, 'items' | 'met' | 'proposed'>): 
   });
 }
 
+/** Document event asking the console to open one objective; its detail is the objective id. */
+export const OPEN_OBJECTIVE_EVENT = 'malt-open-objective';
+
+/** An unfinished objective's definition-of-done progress, for the Mission overview. */
+export interface GoalProgress {
+  /** Objective id. */
+  readonly featureId: string;
+  /** First line. */
+  readonly title: string;
+  /** Checklist progress text. */
+  readonly progress: string;
+  /** Whether every delivery is done but the checklist is not met yet. */
+  readonly awaitsDefinition: boolean;
+}
+
+/**
+ * Unfinished objectives that have a definition of done or wait on one.
+ *
+ * @param snapshot - Console snapshot.
+ * @returns Progress rows; objectives waiting on their definition come first.
+ */
+export function goalProgress(snapshot: unknown): GoalProgress[] {
+  const rows: GoalProgress[] = [];
+  for (const goal of readGoals(snapshot)) {
+    if (goal.phase !== 'done' && (goal.items.length > 0 || goal.awaitsDefinition)) {
+      rows.push({
+        featureId: goal.featureId,
+        title: goal.title,
+        progress: definitionText(goal),
+        awaitsDefinition: goal.awaitsDefinition,
+      });
+    }
+  }
+  return rows.toSorted((left, right) => Number(right.awaitsDefinition) - Number(left.awaitsDefinition));
+}
+
 /**
  * Validate editor rows into a `factory_objective_done` request.
  *
@@ -282,7 +323,7 @@ export function checklistInput(goal: Goal, rows: readonly ChecklistRow[]): { inp
   const items: Data[] = [];
   for (const [index, row] of filled.entries()) {
     const text = row.text.trim();
-    const label = t('Item {value}', { value: index + 1 });
+    const label = t('Item {number}', { number: index + 1 });
     if (text === '' || text.length > ITEM_TEXT_MAX) {
       return {
         error: t('{label} needs text of at most {itemTextMax} characters.', {

@@ -593,8 +593,8 @@ class AutomationsView implements ConsoleViewHandle {
     const workflow =
       automation.workflowId === null
         ? t('Project default workflow')
-        : t('Workflow: {value}', {
-            value: this.workflows.find(([id]) => id === automation.workflowId)?.[1] ?? automation.workflowId,
+        : t('Workflow: {setting}', {
+            setting: this.workflows.find(([id]) => id === automation.workflowId)?.[1] ?? automation.workflowId,
           });
     card.append(
       header,

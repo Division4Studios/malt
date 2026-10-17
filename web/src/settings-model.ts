@@ -95,14 +95,14 @@ function quotaLines(capacity: Data | undefined): string[] {
   const windows = records(capacity?.['subscriptionWindows']);
   if (windows.length === 0) {
     const used = capacity?.['subscriptionUsedPercent'];
-    return [t('Subscription: {value}', { value: quotaUsage(used) })];
+    return [t('Subscription: {usage}', { usage: quotaUsage(used) })];
   }
   return windows.map((window) => {
     const reset = window['resetAt'];
     const resets = typeof reset === 'number' ? localTime(reset) : 'unknown';
-    return t('{value}: {value2} · resets {resets}', {
-      value: firstText(text(window, 'id'), 'Window'),
-      value2: quotaUsage(window['usedPercent']),
+    return t('{window}: {usage} · resets {resets}', {
+      window: firstText(text(window, 'id'), t('Window')),
+      usage: quotaUsage(window['usedPercent']),
       resets,
     });
   });
@@ -181,4 +181,41 @@ export function buildRows(versions: unknown, cacheKeys: readonly string[]): [str
         : shell.slice(SHELL_PREFIX.length, SHELL_PREFIX.length + REVISION_SHOWN),
     ],
   ];
+}
+
+/** The brief revalidation policy as the Settings view shows and edits it. */
+export interface RevalidationSetting {
+  /** Whether the saved policy rechecks dependent briefs. */
+  readonly isEnabled: boolean;
+  /** Why it cannot be changed now, or `null` when it can. */
+  readonly blocker: string | null;
+}
+
+/**
+ * The saved brief revalidation choice and whether it can change now.
+ *
+ * @param factory - Factory projection.
+ * @returns Current value, and why it is read-only when it is.
+ */
+export function revalidationSetting(factory: Data): RevalidationSetting {
+  const settings = asData(factory['settings']);
+  if (settings === null) {
+    return { isEnabled: false, blocker: t('Set up the factory first.') };
+  }
+  const isEnabled = settings['briefRevalidation'] === true;
+  return {
+    isEnabled,
+    blocker: hasFlag(factory, 'active') ? t('Pause the factory to change project policy.') : null,
+  };
+}
+
+/**
+ * The full saved policy with brief revalidation switched, for the existing setup control.
+ *
+ * @param factory - Factory projection holding the saved policy.
+ * @param isEnabled - Requested choice.
+ * @returns `factory_setup` input that keeps every other setting.
+ */
+export function revalidationInput(factory: Data, isEnabled: boolean): Data {
+  return { ...asData(factory['settings']), briefRevalidation: isEnabled };
 }

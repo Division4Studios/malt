@@ -6,6 +6,7 @@
 import { child, firstText, numericText, number, records, text, hasFlag } from './api.js';
 import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { capacityView } from './capacity-view.js';
+import { definitionProgress } from './goal-ui.js';
 import { formatTime, t } from './i18n.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
@@ -348,6 +349,10 @@ export function overviewView(state: Snapshot, actions: Actions, isConnected = tr
   left.append(
     panel(t('Product queue'), t('{unfinished} UNFINISHED OBJECTIVES', { unfinished: queue.unfinished }), queue.body),
   );
+  const progress = definitionProgress({ factory: state.factory });
+  if (progress !== null) {
+    left.append(panel(t('Definitions of done'), t('OPEN CHECKLISTS'), progress));
+  }
   const right = element('div');
   right.append(
     panel(t('Provider & local capacity'), t('SUBSCRIPTION SESSIONS'), capacityView(state)),

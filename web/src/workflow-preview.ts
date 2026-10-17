@@ -123,7 +123,7 @@ function sectionPreview(section: SectionName, steps: readonly DraftStep[], flagg
     const parallel = group.length > 1 ? t(' · {length} run in parallel', { length: group.length }) : '';
     const join = index > 0 ? t(' · after the previous layer') : '';
     layer.append(
-      element('p', 'wf-layer-label', t('Layer {value}{parallel}{join}', { value: index + 1, parallel, join })),
+      element('p', 'wf-layer-label', t('Layer {layer}{parallel}{join}', { layer: index + 1, parallel, join })),
     );
     const cards = element('ul', 'wf-layer-steps');
     cards.append(...group.map((step) => stepCard(step, flagged)));

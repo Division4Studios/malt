@@ -13,6 +13,7 @@ import { createBoardView } from './board-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
+import { OPEN_OBJECTIVE_EVENT } from './goal-model.js';
 import { createGoalView } from './goal-ui.js';
 import { onLocaleChange, t, translateTree } from './i18n.js';
 import { InboxNotifier } from './inbox-notifier.js';
@@ -121,6 +122,11 @@ export class ConsoleViews {
       this.goals.show(featureId);
       hooks.select('objective');
     };
+    document.addEventListener(OPEN_OBJECTIVE_EVENT, (event) => {
+      if (event instanceof CustomEvent && typeof event.detail === 'string') {
+        openObjective(event.detail);
+      }
+    });
     this.goals = createGoalView({ control: hooks.control, project: hooks.project });
     this.sessions = createSessionsView({ project: hooks.project });
     this.delivery = createDeliveryView({
