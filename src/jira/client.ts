@@ -60,8 +60,10 @@ export interface JiraResponse {
   readonly status: number;
   /** Response headers. */
   readonly headers: { get: (name: string) => string | null };
-  /** Body text. */
+  /** Body text, read only when no body stream is offered. */
   readonly text: () => Promise<string>;
+  /** Body stream, read incrementally so the size bound holds while reading. */
+  readonly body?: ReadableStream<Uint8Array> | null;
 }
 
 /** Request options the client sends. */
@@ -231,6 +233,80 @@ function statusFailure(response: JiraResponse, path: string): JiraRequestError |
 }
 
 /**
+ * A body over the size bound.
+ *
+ * @param path - Requested API path.
+ * @returns Error to throw.
+ */
+function oversized(path: string): JiraRequestError {
+  return new JiraRequestError(`Jira returned an oversized document for ${path}.`, { failure: 'invalid' });
+}
+
+/**
+ * Read a response stream, stopping as soon as it exceeds the size bound.
+ *
+ * @param stream - Body stream.
+ * @param path - Requested API path, for the message.
+ * @returns Decoded text.
+ * @throws {JiraRequestError} When the body exceeds the bound.
+ */
+async function readStream(stream: ReadableStream<Uint8Array>, path: string): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = '';
+  for (;;) {
+    // eslint-disable-next-line no-await-in-loop -- Chunks arrive in order; each is counted before the next is read.
+    const chunk = await reader.read();
+    if (chunk.done) {
+      return text + decoder.decode();
+    }
+    size += chunk.value.byteLength;
+    if (size > RESPONSE_MAX_BYTES) {
+      // eslint-disable-next-line no-await-in-loop -- The read ends here; the stream is cancelled once.
+      await reader.cancel();
+      throw oversized(path);
+    }
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+}
+
+/**
+ * Read a response body within the size bound. A declared length over the bound
+ * is refused before reading; a stream is read incrementally; any failure while
+ * reading becomes an unreachable error with the credential redacted.
+ *
+ * @param transport - Site and credential, for redaction.
+ * @param response - Jira response.
+ * @param path - Requested API path, for messages.
+ * @returns Body text.
+ * @throws {JiraRequestError} For oversized bodies or a body that could not be read.
+ */
+async function readBody(transport: JiraTransport, response: JiraResponse, path: string): Promise<string> {
+  const declared = Number(response.headers.get('content-length') ?? NaN);
+  if (Number.isSafeInteger(declared) && declared > RESPONSE_MAX_BYTES) {
+    throw oversized(path);
+  }
+  let text: string;
+  try {
+    const stream = response.body ?? null;
+    text = stream === null ? await response.text() : await readStream(stream, path);
+  } catch (error) {
+    if (error instanceof JiraRequestError) {
+      throw error;
+    }
+    const detail = Error.isError(error) ? error.message : 'the body could not be read';
+    throw new JiraRequestError(redactCredential(transport.credential, `Could not read Jira's answer: ${detail}`), {
+      failure: 'unreachable',
+    });
+  }
+  if (Buffer.byteLength(text) > RESPONSE_MAX_BYTES) {
+    throw oversized(path);
+  }
+  return text;
+}
+
+/**
  * Read one JSON document with a `GET` to the configured site.
  *
  * @param transport - Site, credential and transport.
@@ -250,6 +326,11 @@ export async function jiraGet(
   }
   if (url.origin !== transport.site.origin || !url.pathname.startsWith('/rest/api/3/')) {
     throw new JiraRequestError('Refused a Jira request outside the configured site API.', { failure: 'invalid' });
+  }
+  if (transport.site.deployment !== 'cloud') {
+    throw new JiraRequestError('Refused a request to a self-hosted Jira site; MALT 1.0 supports Jira Cloud only.', {
+      failure: 'invalid',
+    });
   }
   const { credential } = transport;
   let response: JiraResponse;
@@ -273,10 +354,7 @@ export async function jiraGet(
   if (failure !== null) {
     throw failure;
   }
-  const body = await response.text();
-  if (Buffer.byteLength(body) > RESPONSE_MAX_BYTES) {
-    throw new JiraRequestError(`Jira returned an oversized document for ${url.pathname}.`, { failure: 'invalid' });
-  }
+  const body = await readBody(transport, response, url.pathname);
   try {
     return JSON.parse(body) as unknown;
   } catch {
