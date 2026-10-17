@@ -7,7 +7,7 @@
 const GROUPS = {
   mission: ['overview', 'activity'],
   inbox: ['inbox'],
-  board: ['board', 'delivery', 'deliveries'],
+  board: ['board', 'delivery', 'deliveries', 'objective'],
   workflow: ['workflow', 'team', 'workflows'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
@@ -58,6 +58,7 @@ export type View =
   | 'inbox'
   | 'board'
   | 'delivery'
+  | 'objective'
   | 'workflows'
   | 'team'
   | 'workflow'
@@ -75,6 +76,7 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   inbox: ['Inbox.', 'Every decision waiting on you, oldest first, with what you already answered.'],
   board: ['Delivery board.', 'Each delivery placed by what it needs next, with its whole pipeline at a glance.'],
   delivery: ['Delivery.', 'Its pipeline, findings, rulings and source, step by step.'],
+  objective: ['Objectives.', 'What done means for each objective, who checked it, and everything that happened.'],
   workflows: ['Workflow library.', 'How objectives become verified deliveries: steps, seats, gates and reviews.'],
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],

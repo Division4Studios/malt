@@ -719,9 +719,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_objective_done:
     "Human operator only: replace an objective's definition-of-done checklist at the objective version you read. Items are open, checked or waived, with optional evidence; omitted proposals are dismissed. An objective whose deliveries are done completes only when every item is checked or waived.",
   factory_objective_check:
-    "Managed planning or verification assignment: propose a definition-of-done item for your objective (text plus evidence), or check an accepted item you verified (itemId plus concrete evidence). The operator reviews proposals and can override any check.",
-  factory_objective_note:
-    "Human operator only: append a note to an objective's progress log.",
+    'Managed planning or verification assignment: propose a definition-of-done item for your objective (text plus evidence), or check an accepted item you verified (itemId plus concrete evidence). The operator reviews proposals and can override any check.',
+  factory_objective_note: "Human operator only: append a note to an objective's progress log.",
   factory_objective_log:
     "Operator or designated lead: read an objective's append-only progress log newest first: plans, merged and verified deliveries, check-ins, checklist changes, notes and completion. Page with the returned cursor.",
   factory_prices:
