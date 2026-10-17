@@ -1,16 +1,24 @@
 /**
- * Routes repository resource operations (labels; milestones and views next)
- * to their modules, so the Project integration dispatches them in one place.
+ * Routes repository resource operations (labels, milestones) to their
+ * modules, so the Project integration dispatches them in one place.
  *
  * @file
  */
 import { labelOperation } from './github-labels.ts';
+import { milestoneOperation } from './github-milestones.ts';
 
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation } from './protocol.ts';
 
 /** Repository resource operations. */
-const RESOURCE_OPERATIONS = ['github_labels', 'github_label_apply', 'github_label_manage'] as const;
+const RESOURCE_OPERATIONS = [
+  'github_labels',
+  'github_label_apply',
+  'github_label_manage',
+  'github_milestones',
+  'github_milestone_assign',
+  'github_milestone_manage',
+] as const;
 /** A repository resource operation. */
 type ResourceOperation = (typeof RESOURCE_OPERATIONS)[number];
 
@@ -25,7 +33,7 @@ export interface ResourceContext {
 }
 
 /**
- * Whether an operation reads or changes repository resources such as labels.
+ * Whether an operation reads or changes repository labels or milestones.
  *
  * @param operation - GitHub operation.
  * @returns True for resource operations.
@@ -38,7 +46,7 @@ export function isResourceOperation(operation: GitHubOperation): operation is Re
  * Run one resource operation.
  *
  * @param context - Integration.
- * @param operation - Which resource operation to run.
+ * @param operation - Which label or milestone operation to run.
  * @param input - Untrusted input.
  * @returns Its result.
  */
@@ -52,6 +60,11 @@ export async function resourceOperation(
     case 'github_label_apply':
     case 'github_label_manage': {
       return labelOperation(context, operation, input);
+    }
+    case 'github_milestones':
+    case 'github_milestone_assign':
+    case 'github_milestone_manage': {
+      return milestoneOperation(context, operation, input);
     }
   }
 }

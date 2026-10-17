@@ -145,8 +145,11 @@ const FIXED_CAPABILITIES: Readonly<Record<FixedOperation, readonly Capability[]>
   github_discover: [],
   github_sync: [],
   github_labels: [],
+  github_milestones: [],
   github_label_apply: ['label-use'],
   github_label_manage: ['label-manage'],
+  github_milestone_assign: ['milestone-use'],
+  github_milestone_manage: ['milestone-manage'],
   github_section_save: ['project-connect'],
 };
 

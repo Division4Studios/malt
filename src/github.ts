@@ -210,7 +210,7 @@ export class ProjectGitHub {
   }
 
   /**
-   * What repository resource operations need: the connected repository and this project's directory.
+   * What label and milestone operations need: the connected repository and this project's directory.
    *
    * @returns Runner, connected repository and this project's integration directory.
    */
