@@ -56,6 +56,8 @@ const SHELL = [
   '/console-model.js',
   '/board-model.js',
   '/approval-model.js',
+  '/console-dom.js',
+  '/approval-dialog.js',
   '/sessions.css',
   '/terminal.css',
   '/style.css',
