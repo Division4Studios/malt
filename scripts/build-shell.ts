@@ -61,6 +61,7 @@ const FILES = [
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',
+  'dist/console-model.js',
   'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
