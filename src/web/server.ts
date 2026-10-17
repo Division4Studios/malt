@@ -93,6 +93,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
   ['/sessions.css', ['sessions.css', 'text/css; charset=utf-8']],
   ['/board.css', ['board.css', 'text/css; charset=utf-8']],
+  ['/workflows.css', ['workflows.css', 'text/css; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/sw.js', ['dist/sw.js', 'text/javascript; charset=utf-8']],
