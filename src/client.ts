@@ -64,6 +64,12 @@ export interface ClientResults
   readonly github_verify: unknown;
   /** Independently saved, still unverified tracker or source section. */
   readonly github_section_save: unknown;
+  /** Repository labels. */
+  readonly github_labels: unknown;
+  /** An issue's labels after applying existing ones. */
+  readonly github_label_apply: unknown;
+  /** The created, edited or deleted label. */
+  readonly github_label_manage: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

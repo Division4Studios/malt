@@ -138,6 +138,7 @@ const WORKSPACE_MAX = 4096;
 export const PROJECT_OPERATION_TIMEOUT_MS = 120_000;
 /** Longest GitHub issue or project title. */
 const ISSUE_TITLE_MAX = 200;
+
 /** Largest explicit board snapshot request. */
 const BOARD_LIMIT_MAX = 1000;
 /** Default GitHub discovery result count. */
@@ -521,6 +522,9 @@ export const GITHUB_OPERATIONS = [
   'github_status',
   'github_verify',
   'github_section_save',
+  'github_labels',
+  'github_label_apply',
+  'github_label_manage',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -796,6 +800,12 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read the active version of one project-specific skill from .malt/skills. Both Codex and Claude use the same library through these tools and the project AGENTS.md / CLAUDE.md references.',
   github_status:
     "Inspect THIS workspace's saved GitHub Project connection and pending operations. No network calls or credentials are returned.",
+  github_labels:
+    "List THIS workspace's repository labels (name, color, description). Repository labels only: milestones and Project fields are separate.",
+  github_label_apply:
+    'Apply existing repository labels to an issue. Needs label-use. An unknown label is refused and never created; a case-only typo is INVALID_INPUT. Milestones and Project fields are not labels.',
+  github_label_manage:
+    'Create, edit or delete one repository label. Needs label-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by label name, so a lost create yields exactly one label.',
   github_section_save:
     "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
