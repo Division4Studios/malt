@@ -1,10 +1,83 @@
 /** @file Roles editor: narrowing tool policies, local MCP servers, role models and revisioned saves. */
 
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 
-import { factoryConfigSchema } from '../src/factory/schema.ts';
+import { z } from 'zod/v3';
+
+import { agentLaunch } from '../src/factory/providers.ts';
+import { routeAssignment } from '../src/factory/routing.ts';
+import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 import { isNativeKept, isToolDenied, permittedTools, removedTools } from '../src/managed-tools.ts';
+
+import { policyIntent, policySettings } from './fixtures/model-policy.ts';
+import { createCleanup, createProject } from './helpers.ts';
+
+import type { MeshConfig } from '../src/config.ts';
+import type { FactoryConfig, FactoryJob } from '../src/factory/schema.ts';
+
+/** Settings without an explicit model policy, so any provider launches on its CLI default. */
+const plainSettings = factoryConfigSchema.parse({
+  testCommands: [{ file: process.execPath }],
+  endToEndCommands: [{ file: process.execPath }],
+  providers: { codex: { executable: 'codex' }, claude: { executable: 'claude' } },
+});
+
+/**
+ * Settings whose developer seat uses a narrowed role type.
+ *
+ * @param type - Extra fields of the developer role type.
+ * @param base - Settings to extend; defaults to the model policy fixture.
+ * @returns Validated settings.
+ */
+function settingsWith(type: Record<string, unknown>, base: FactoryConfig = policySettings): FactoryConfig {
+  const seats = Object.entries(base.organization.members);
+  const members = Object.fromEntries(
+    seats.map(([role, member]) => [role, role === 'developer-1' ? { ...member, type: 'builder' } : member]),
+  );
+  return factoryConfigSchema.parse({
+    ...base,
+    organization: {
+      types: { ...base.organization.types, builder: { label: 'Builder', ...type } },
+      members,
+    },
+  });
+}
+
+/**
+ * A running developer attempt routed with the given settings.
+ *
+ * @param mesh - Project the attempt's artifacts live in.
+ * @param settings - Settings whose organization is frozen into routing.
+ * @param provider - Admitted provider.
+ * @returns Persistable job.
+ */
+function developerJob(mesh: MeshConfig, settings: FactoryConfig, provider: 'codex' | 'claude'): FactoryJob {
+  const intent = { ...policyIntent, role: 'developer-1', kind: 'develop' } as const;
+  const routing = routeAssignment({ intent, provider, settings, task: null, versions: 'fixture' });
+  const job = jobSchema.parse({
+    ...intent,
+    id: randomUUID(),
+    provider,
+    routing,
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: path.join(mesh.directory, 'factory', 'jobs', randomUUID()),
+  });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only this fixture's private job directory is created.
+  mkdirSync(job.artifact, { recursive: true });
+  return job;
+}
 
 await test('tool policies only narrow a seat and an allow list restricts only the kind it names', () => {
   const developer = 'factory-developer-1';
@@ -62,4 +135,59 @@ await test('organization types default new fields and reject shell syntax in MCP
     }).success,
     'Only mesh tools and native families can be named.',
   );
+});
+
+await test('routing freezes the role policy and launches narrow native tools and extra servers', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const settings = settingsWith({
+    tools: { allow: [], deny: ['shell', 'mesh_send_message'] },
+    mcpServers: [{ name: 'docs', command: 'docs-server', args: ['--stdio'] }],
+    permissions: ['inbox.ask'],
+  });
+  const claude = developerJob(mesh, settings, 'claude');
+  assert.deepEqual(claude.routing?.organization?.tools, { allow: [], deny: ['shell', 'mesh_send_message'] });
+  assert.deepEqual(claude.routing.organization.permissions, ['inbox.ask']);
+  const { args } = agentLaunch(claude, { mesh, home: mesh.root, settings });
+  assert.equal(args[args.indexOf('--tools') + 1], 'Read,Glob,Grep,Write,Edit');
+  const allowed = args[args.indexOf('--allowedTools') + 1] ?? '';
+  assert.ok(!allowed.includes('mesh_send_message') && allowed.includes('mcp__docs'));
+  assert.ok(!allowed.includes('Bash'));
+  const serverSchema = z.object({ command: z.string(), args: z.array(z.string()) });
+  const configSchema = z.object({ mcpServers: z.record(serverSchema) });
+  const configFile = path.join(claude.artifact, 'claude-mcp.json');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only this fixture's own launch configuration is read.
+  const text = readFileSync(configFile, 'utf8');
+  const config = configSchema.parse(JSON.parse(text));
+  assert.deepEqual(config.mcpServers['docs'], { command: 'docs-server', args: ['--stdio'] });
+  const bridge = config.mcpServers['agentmesh']?.args ?? [];
+  assert.equal(bridge[bridge.indexOf('--deny-tools') + 1], 'send_message');
+
+  const readOnly = settingsWith({ tools: { allow: [], deny: ['edit', 'shell'] } }, plainSettings);
+  const codex = developerJob(mesh, readOnly, 'codex');
+  const codexArguments = agentLaunch(codex, { mesh, home: mesh.root, settings: readOnly }).args;
+  assert.equal(codexArguments[codexArguments.indexOf('--sandbox') + 1], 'read-only');
+  assert.ok(codexArguments.includes('features.shell_tool=false'));
+  const withServers = settingsWith(
+    { mcpServers: [{ name: 'docs', command: 'docs-server', args: ['--stdio'] }] },
+    plainSettings,
+  );
+  const servers = developerJob(mesh, withServers, 'codex');
+  const serverArguments = agentLaunch(servers, { mesh, home: mesh.root, settings: withServers }).args;
+  assert.ok(serverArguments.includes('mcp_servers.docs.command="docs-server"'));
+  assert.ok(serverArguments.includes('mcp_servers.docs.args=["--stdio"]'));
+});
+
+await test('a role prefers an allowed model of its provider and only raises the effort floor', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const settings = settingsWith({ model: { entryId: 'claude', effort: 'high' } });
+  const claude = developerJob(mesh, settings, 'claude');
+  assert.equal(claude.routing?.model, 'fixture-claude');
+  assert.equal(claude.routing.effort, 'high');
+  assert.match(claude.routing.reason, /role type preferred model/v);
+  // A model of the other provider leaves the admitted provider on its stage default.
+  const other = developerJob(mesh, settingsWith({ model: { entryId: 'codex', effort: null } }), 'claude');
+  assert.equal(other.routing?.model, 'fixture-claude');
+  assert.doesNotMatch(other.routing.reason, /role type preferred model/v);
 });

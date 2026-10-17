@@ -20,6 +20,8 @@ const HIGH_RISK =
 const SIMPLE_SCOPE = /\b(?:copy|label|rename|spelling|typo)\b/iv;
 /** Common bounded guidance shared by all roles. */
 const SHARED_SKILL = 'factory-session';
+/** Capability tier of one assignment. */
+type Tier = 'small' | 'standard' | 'advanced';
 
 /**
  * Choose a capability tier before reserving or starting a model process.
@@ -28,10 +30,7 @@ const SHARED_SKILL = 'factory-session';
  * @param task - Actual scope and rework history.
  * @returns Capability floor and its inspectable rationale.
  */
-function taskTier(
-  intent: JobIntent,
-  task: FactoryTask | null,
-): { tier: 'small' | 'standard' | 'advanced'; reason: string } {
+function taskTier(intent: JobIntent, task: FactoryTask | null): { tier: Tier; reason: string } {
   if (
     task !== null &&
     (task.feedback.length > 0 || task.attempts > 1 || HIGH_RISK.test(`${task.title} ${task.description}`))
@@ -120,26 +119,93 @@ export function routeAssignment(context: {
   const tiers = ['small', 'standard', 'advanced'] as const;
   const floor = profile?.minimumTier ?? 'small';
   const tier = tiers.indexOf(floor) > tiers.indexOf(decision.tier) ? floor : decision.tier;
-  const provider = context.settings.providers[context.provider];
-  const legacy = resolveProfile(provider, context.task, context.intent.role, tier);
-  const selected = resolvePolicy({
-    ...legacy,
-    settings: context.settings,
-    provider: context.provider,
-    tier,
-    versions: context.versions,
-    modelChoice: context.task?.assignmentProfiles?.find((assignment) => assignment.role === context.intent.role)
-      ?.modelChoice,
-  });
+  const role = roleModel(context.settings, profile, context.provider);
+  const selected = selectedModel(context, tier, role);
   return {
     ...decision,
     tier,
     ...selected,
     ...reviewedIntent(context.task, context.intent.role),
-    reason: `${routingReason(decision.reason, tier !== decision.tier, floor, selected.model)} ${choiceReason(selected.selection, context.task, context.intent.role)}`,
+    reason: `${routingReason(decision.reason, tier !== decision.tier, floor, selected.model)} ${choiceReason(selected.selection, context.task, context.intent.role, role !== null)}`,
     skillNames: assignmentSkills(context, profile?.skills ?? []),
     ...frozenOrganization(context.settings, member, typeName),
   };
+}
+
+/** What routing needs to choose a model. */
+interface ModelContext {
+  /** Scheduled step. */
+  readonly intent: JobIntent;
+  /** Admitted provider family. */
+  readonly provider: Provider;
+  /** Project configuration with its model policy. */
+  readonly settings: FactoryConfig;
+  /** Delivery, absent for taskless roles. */
+  readonly task: FactoryTask | null;
+  /** Verified CLI versions. */
+  readonly versions?: FactoryContext['providerVersions'];
+}
+
+/** A role's preferred model as a policy choice. */
+interface RoleModel {
+  /** Exact policy entry at the current revision. */
+  readonly modelChoice: { readonly policyRevision: number; readonly entryId: string };
+  /** Effort floor the role asks for, or `null` for the stage default. */
+  readonly effort: Effort | null;
+}
+
+/** Native effort levels, lowest first. */
+const EFFORTS = ['low', 'medium', 'high'] as const;
+/** One native effort level. */
+type Effort = (typeof EFFORTS)[number];
+
+/**
+ * The role type's preferred model, when it belongs to the admitted provider.
+ * A model of another provider leaves the assignment on stage defaults.
+ *
+ * @param settings - Project configuration with its model policy.
+ * @param profile - Organization type shaping the assignment.
+ * @param provider - Admitted provider family.
+ * @returns Policy choice, or `null` to use stage defaults.
+ */
+function roleModel(
+  settings: FactoryConfig,
+  profile: FactoryConfig['organization']['types'][string] | undefined,
+  provider: Provider,
+): RoleModel | null {
+  const model = profile?.model ?? null;
+  const policy = settings.modelPolicy;
+  const entry = policy?.entries.find((candidate) => candidate.id === model?.entryId);
+  return model === null || policy === undefined || entry?.provider !== provider
+    ? null
+    : { modelChoice: { policyRevision: policy.revision, entryId: entry.id }, effort: model.effort };
+}
+
+/**
+ * Resolve the model and effort: the lead's reviewed choice first, then the
+ * role's preferred model, then stage defaults; a role effort only raises the floor.
+ *
+ * @param context - Scoped intent, provider, configuration and delivery.
+ * @param tier - Capability after enforced floors.
+ * @param role - Role preference, if any.
+ * @returns Frozen model, effort and selection evidence.
+ */
+function selectedModel(context: ModelContext, tier: Tier, role: RoleModel | null): ReturnType<typeof resolvePolicy> {
+  const legacy = resolveProfile(context.settings.providers[context.provider], context.task, context.intent.role, tier);
+  const reviewed = context.task?.assignmentProfiles?.find(
+    (assignment) => assignment.role === context.intent.role,
+  )?.modelChoice;
+  const floor = role?.effort ?? null;
+  const effort = floor !== null && EFFORTS.indexOf(floor) > EFFORTS.indexOf(legacy.effort) ? floor : legacy.effort;
+  return resolvePolicy({
+    ...legacy,
+    effort,
+    settings: context.settings,
+    provider: context.provider,
+    tier,
+    versions: context.versions,
+    modelChoice: reviewed ?? role?.modelChoice,
+  });
 }
 
 /**
@@ -190,6 +256,9 @@ function frozenOrganization(
           label: profile.label,
           instructions: profile.instructions,
           reportsTo: member.reportsTo,
+          tools: profile.tools,
+          mcpServers: profile.mcpServers,
+          permissions: profile.permissions,
         },
       };
 }
@@ -224,21 +293,22 @@ function reviewedIntent(
  * @param selection - Frozen native request, absent for legacy profiles.
  * @param task - Persisted independently reviewed delivery.
  * @param role - Exact scheduled role.
+ * @param hasRoleModel - Whether the role type prefers a model of this provider.
  * @returns Bounded auditable explanation.
  */
 function choiceReason(
   selection: NonNullable<FactoryJob['routing']>['selection'],
   task: FactoryTask | null,
   role: FactoryJob['role'],
+  hasRoleModel: boolean,
 ): string {
   if (selection === undefined) {
     return 'Legacy CLI profile routing.';
   }
   const requested = task?.assignmentProfiles?.find((assignment) => assignment.role === role)?.modelChoice;
-  const origin =
-    requested === undefined || requested === null
-      ? 'project default for this stage'
-      : 'independently reviewed exact choice';
+  const isReviewed = requested !== undefined && requested !== null;
+  const fallback = hasRoleModel ? 'role type preferred model' : 'project default for this stage';
+  const origin = isReviewed ? 'independently reviewed exact choice' : fallback;
   return `Policy revision ${String(selection.policyRevision)}, entry ${selection.entry.id}; ${origin}.`;
 }
 
@@ -255,7 +325,7 @@ function resolveProfile(
   provider: FactoryConfig['providers']['codex'],
   task: FactoryTask | null,
   role: FactoryJob['role'],
-  tier: 'small' | 'standard' | 'advanced',
+  tier: Tier,
 ): { model: string | null; effort: 'low' | 'medium' | 'high' } {
   const requested = task?.assignmentProfiles?.find((candidate) => candidate.role === role);
   const efforts = { small: 'low', standard: 'medium', advanced: 'high' } as const;
