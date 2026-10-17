@@ -135,6 +135,31 @@ function describe(principal: z.output<typeof principalSchema>): string {
   return principal.kind === 'agent' ? `agent ${principal.id} as ${principal.role}` : `supervisor for ${principal.role}`;
 }
 
+/** Operations whose capabilities do not depend on their input. */
+type FixedOperation = Exclude<GitHubOperation, 'github_connect' | 'github_create_issue' | 'github_set_status'>;
+
+/** Capabilities of each input-independent operation; reads need none. */
+const FIXED_CAPABILITIES: Readonly<Record<FixedOperation, readonly Capability[]>> = {
+  github_status: [],
+  github_verify: [],
+  github_discover: [],
+  github_sync: [],
+  github_labels: [],
+  github_label_apply: ['label-use'],
+  github_label_manage: ['label-manage'],
+  github_section_save: ['project-connect'],
+};
+
+/**
+ * Whether an operation's capabilities do not depend on its input.
+ *
+ * @param operation - GitHub operation.
+ * @returns True when the fixed table decides it.
+ */
+function hasFixedCapabilities(operation: GitHubOperation): operation is FixedOperation {
+  return Object.hasOwn(FIXED_CAPABILITIES, operation);
+}
+
 /**
  * Every capability a GitHub operation would exercise; reads need none.
  *
@@ -143,28 +168,11 @@ function describe(principal: z.output<typeof principalSchema>): string {
  * @returns Capabilities to authorize before dispatch.
  */
 export function githubCapabilities(operation: GitHubOperation, input: unknown): Capability[] {
+  if (hasFixedCapabilities(operation)) {
+    parseInput(operation, input);
+    return [...FIXED_CAPABILITIES[operation]];
+  }
   switch (operation) {
-    case 'github_status':
-    case 'github_verify':
-    case 'github_discover':
-    case 'github_sync': {
-      return [];
-    }
-    case 'github_labels': {
-      return [];
-    }
-    case 'github_label_apply': {
-      parseInput(operation, input);
-      return ['label-use'];
-    }
-    case 'github_label_manage': {
-      parseInput(operation, input);
-      return ['label-manage'];
-    }
-    case 'github_section_save': {
-      parseInput(operation, input);
-      return ['project-connect'];
-    }
     case 'github_connect': {
       return parseInput(operation, input).createProject ? ['project-connect', 'project-create'] : ['project-connect'];
     }
