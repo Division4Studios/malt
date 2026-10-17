@@ -179,6 +179,9 @@ function revisionText(value: unknown, missing: string): string {
   if (text(revision, 'origin') === 'image') {
     return t('{commit} (container image)', { commit: short });
   }
+  if (revision['isDirty'] === null || revision['isDirty'] === undefined) {
+    return t('{commit} (uncommitted changes unknown)', { commit: short });
+  }
   return hasFlag(revision, 'isDirty') ? t('{commit} with uncommitted changes', { commit: short }) : short;
 }
 
