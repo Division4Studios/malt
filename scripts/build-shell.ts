@@ -55,7 +55,9 @@ const FILES = [
   'dist/telemetry-format.js',
   'dist/transcript-ui.js',
   'dist/sessions-ui.js',
+  'dist/cost-chart.js',
   'dist/price-editor.js',
+  'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
