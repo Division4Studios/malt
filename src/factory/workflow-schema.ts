@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
-import { FACTORY_ROLES, PROVIDERS, keySchema } from './schema.ts';
+import { FACTORY_ROLES, PROVIDERS, keySchema } from './seats.ts';
 
 /** Steps that turn an objective into atomic deliveries. */
 export const PLANNING_STEP_KINDS = ['specify', 'plan', 'plan_review', 'plan_revise', 'approve'] as const;
@@ -46,6 +46,10 @@ export const STEP_KINDS = [
 export const DEFAULT_WORKFLOW_ID = 'malt-assured';
 /** Kinds every workflow that has them must run; they cannot be skipped. */
 const REQUIRED_KINDS: ReadonlySet<string> = new Set(['plan', 'implement', 'final', 'verify']);
+/** The final check and main verification act on merges; a human approves before them instead. */
+const UNGATED_KINDS: ReadonlySet<string> = new Set(['final', 'verify']);
+/** Seats that own a delivery branch and worktree. */
+const DEVELOPER_SEATS: ReadonlySet<string> = new Set(['developer-1', 'developer-2']);
 /** Bound one workflow independently of process admission. */
 const MAX_PLANNING_STEPS = 12;
 /** Bound one delivery's steps. */
@@ -199,6 +203,9 @@ function stepShapeProblems(step: WorkflowStep): string[] {
   if (step.optional && REQUIRED_KINDS.has(step.kind)) {
     problems.push(`"${step.title}" is required and cannot be optional.`);
   }
+  if (step.gate && UNGATED_KINDS.has(step.kind)) {
+    problems.push(`"${step.title}" cannot be gated; add an approval step before the final check instead.`);
+  }
   return problems;
 }
 
@@ -315,6 +322,9 @@ function deliveryShapeProblems(
   const problems: string[] = [];
   if (stepsOf(steps, 'implement').length !== 1 || steps[0] !== implement || implement?.after.length !== 0) {
     problems.push('Delivery needs exactly one implement step, and it must be first.');
+  }
+  if (implement?.roles.some((role) => !DEVELOPER_SEATS.has(role)) === true) {
+    problems.push('Implementation runs on developer seats (developer-1, developer-2).');
   }
   if (stepsOf(steps, 'final').length !== 1 || stepsOf(steps, 'verify').length !== 1) {
     problems.push('Delivery needs exactly one final step and one verify step.');
@@ -483,3 +493,33 @@ export const frozenWorkflowSchema = z
   .strict();
 /** A frozen workflow revision. */
 export type FrozenWorkflow = z.output<typeof frozenWorkflowSchema>;
+
+/** Bound an operator decision note. */
+const NOTE_MAX = 4000;
+/** A human approval of one step, bound to the source it judged; planning approvals have no head. */
+export const approvalSchema = z.object({
+  stepId: keySchema,
+  head: z.string().nullable(),
+  base: z.string().nullable(),
+  note: z.string(),
+  at: z.number(),
+  requestId: z.string().uuid(),
+});
+/** A human decision on one approval step or gated step, bound to the source it judged. */
+export const approveRequestSchema = z
+  .object({
+    requestId: z.string().uuid(),
+    taskId: z.string().uuid().optional(),
+    featureId: z.string().uuid().optional(),
+    stepId: keySchema,
+    head: z.string().max(TITLE_MAX).nullable(),
+    approve: z.boolean(),
+    note: z.string().trim().max(NOTE_MAX).default(''),
+  })
+  .strict();
+/** Save request; the library validates the definition, and any revision other than the stored one is stale. */
+export const saveWorkflowRequestSchema = z
+  .object({ workflow: z.unknown(), expectedRevision: revisionSchema.nullable() })
+  .strict();
+/** Default workflow selection request. */
+export const defaultWorkflowRequestSchema = z.object({ workflowId: keySchema }).strict();

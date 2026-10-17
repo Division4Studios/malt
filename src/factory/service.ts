@@ -384,9 +384,10 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
-      factory_workflow_save: () => workflowLibrary(this.repository.store).save(parsed),
+      factory_workflow_save: () =>
+        workflowLibrary(this.repository.store).save(factorySchemas.factory_workflow_save.parse(input)),
       factory_workflow_default: async () => {
-        workflowLibrary(this.repository.store).setDefault(parsed);
+        workflowLibrary(this.repository.store).setDefault(factorySchemas.factory_workflow_default.parse(input));
         return this.status();
       },
     };
@@ -516,6 +517,7 @@ export class FactoryService {
     const job: FactoryJob = {
       ...intent,
       target: intent.target ?? null,
+      step: null,
       id,
       provider,
       routing,

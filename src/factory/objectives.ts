@@ -52,6 +52,7 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       error: null,
       createdAt: now,
       updatedAt: now,
+      approvals: [],
     });
     repository.notify(`Product objective queued: ${objective}`);
     return { featureId: id };

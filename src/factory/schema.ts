@@ -21,7 +21,11 @@ import { organizationSchema, frozenOrganizationSchema } from './organization.ts'
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
+import { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
+import { approvalSchema, frozenWorkflowSchema } from './workflow-schema.ts';
+
+export { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 
 /** Bound operator triage context independently of model transcripts. */
 const TRIAGE_NOTE_MAX = 4000;
@@ -42,25 +46,6 @@ const DEFAULT_JOB_CPU = 50;
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
-/**
- * Specialist seats used by configurable workflows. Projects saved before these
- * existed receive default members for them, so older settings stay valid.
- */
-export const SPECIALIST_ROLES = ['plan-reviewer', 'fixer', 'librarian', 'regression-verifier'] as const;
-/** Roles have independent process slots even when they use the same provider. */
-export const FACTORY_ROLES = [
-  'product-owner',
-  'team-lead',
-  'developer-1',
-  'developer-2',
-  'qa-1',
-  'qa-2',
-  'final-tester',
-  'learning-steward',
-  ...SPECIALIST_ROLES,
-] as const;
-/** Provider CLI families supported by the managed runtime. */
-export const PROVIDERS = ['codex', 'claude'] as const;
 /** Longest descriptive task text. */
 const TEXT_MAX = 32_000;
 /** Longest public title. */
@@ -93,8 +78,6 @@ const CPU_PERCENT = 85;
 export const COOLDOWN_MS = 300_000;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
-/** A safe internal key, used in branch and artifact names. */
-export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
 const assignmentProfilesSchema = z
   .array(
@@ -275,12 +258,16 @@ export const featureSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** Absent for objectives saved before workflows existed; they run the original pipeline. */
+  workflow: frozenWorkflowSchema.optional(),
+  approvals: z.array(approvalSchema).default([]),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
-/** Exact-head independent QA evidence. */
+/** Exact-head independent review evidence; `stepId` is absent on results saved before workflows. */
 export const reviewSchema = z.object({
-  role: z.enum(['qa-1', 'qa-2']),
+  role: z.enum(FACTORY_ROLES),
+  stepId: keySchema.optional(),
   head: z.string(),
   base: z.string(),
   outcome: z.enum(['success', 'changes_requested', 'blocked']),
@@ -349,6 +336,9 @@ export const taskSchema = z.object({
     })
     .nullable()
     .default(null),
+  approvals: z.array(approvalSchema).default([]),
+  /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
+  workflow: frozenWorkflowSchema.optional(),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -388,6 +378,8 @@ export const jobSchema = z.object({
   base: z.string().nullable(),
   summary: z.string().nullable(),
   artifact: z.string(),
+  /** Workflow step this attempt performs; `null` for attempts saved before workflows. */
+  step: keySchema.nullable().default(null),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
