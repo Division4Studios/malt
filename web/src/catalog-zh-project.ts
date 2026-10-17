@@ -292,4 +292,16 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Guidance suggestion': '指导建议',
   '{pending} pending and {unread} unread recommendations': '{pending} 条待处理、{unread} 条未读建议',
   'No tickets': '无工单',
+  Recommendations: '建议',
+  Unread: '未读',
+  Before: '变更前',
+  After: '变更后',
+  'No recommendations': '暂无建议',
+  '{lane} ({count})': '{lane}（{count}）',
+  'Loading recommendations…': '正在加载建议…',
+  '{pending} · {unread} new': '{pending} · {unread} 条新',
+  'The recommendation list could not be read.': '无法读取建议列表。',
+  'The read receipt could not be saved.': '无法保存已读回执。',
+  'Proposals to link, merge or change tickets from the product owner and team lead appear here.':
+    '产品负责人和团队负责人关于关联、合并或变更工单的提议会显示在这里。',
 };
