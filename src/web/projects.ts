@@ -8,21 +8,47 @@ import { z } from 'zod/v3';
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
+import { diffPatchSchema, diffSummarySchema } from '../factory/diff-schema.ts';
+import { logPageSchema } from '../factory/objective-goal-schema.ts';
 import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
+import { preflightReportSchema } from '../factory/preflight.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
+import { attemptPageSchema, costSummarySchema, transcriptPageSchema } from '../factory/telemetry-schema.ts';
 import { terminalPageSchema } from '../factory/terminal-reads.ts';
 import { isTerminalOperation } from '../factory/terminal-schema.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
+import { DEFAULT_WORKFLOW_ID, workflowLibrarySchema } from '../factory/workflows.ts';
 import { ProjectLearning } from '../learning.ts';
+import { packageVersion } from '../package-info.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { DiffPatch, DiffSummary } from '../factory/diff-schema.ts';
+import type { LogPage } from '../factory/objective-goal-schema.ts';
+import type { PreflightReport } from '../factory/preflight.ts';
 import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
+import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/telemetry-schema.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
+
+/** How long the broker health probe may take. */
+const HEALTH_MS = 2000;
+/** The broker's unauthenticated health answer. */
+const healthSchema = z.object({ ok: z.literal(true), version: z.string() });
+/** Versions the Settings view shows. */
+export interface ConsoleVersions {
+  /** MALT package version the console runs. */
+  readonly malt: string;
+  /** Console process Node.js version. */
+  readonly node: string;
+  /** Console process platform. */
+  readonly platform: string;
+  /** Broker version, or `null` when its health endpoint does not answer. */
+  readonly broker: string | null;
+}
 
 /** Public team routing metadata. */
 const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), workspace: z.string().nullable() }));
@@ -30,6 +56,12 @@ const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), wo
 const triageRecordSchema = z.record(z.unknown());
 /** Bounded terminal metadata history. */
 const TERMINAL_HISTORY = 100;
+/** Automations as opaque records; the browser validates each one it shows. */
+const automationRecordsSchema = z.array(z.record(z.unknown()));
+/** Secret metadata and audit entries as opaque records; values are never part of them. */
+const secretRecordsSchema = z.array(z.record(z.unknown()));
+/** Broker address local scripts POST webhook triggers to. */
+const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   orderRevision: z.number().int().nonnegative(),
@@ -41,6 +73,17 @@ const factoryViewSchema = dashboardSchema.extend({
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
   triage: z.array(triageRecordSchema).default([]),
+  workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
+  /** Broker-computed board, pipelines and Inbox; rendered as data, never re-derived. */
+  console: z.record(z.unknown()).default({}),
+  /** Schedules and triggers without secrets; the browser validates each record it shows. */
+  automations: automationRecordsSchema.default([]),
+  /** Broker address local scripts call to fire a trigger. */
+  triggerEndpoint: triggerEndpointSchema.nullable().default(null),
+  /** Roles editor choices; the browser validates what it shows. */
+  roles: z.record(z.unknown()).nullable().default(null),
+  /** Secret names, grants and fingerprints; the broker never sends values. */
+  secrets: z.object({ entries: secretRecordsSchema, audit: secretRecordsSchema }).default({ entries: [], audit: [] }),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -63,8 +106,27 @@ export const controlSchema = z
       'factory_triage',
       'factory_recover',
       'factory_reorder_objective',
+      'factory_workflow_save',
+      'factory_workflow_default',
+      'factory_approve',
+      'factory_answer',
+      'factory_gates',
+      'factory_step_overrides',
       'factory_cancel_job',
       'factory_capacity',
+      'factory_prices',
+      'factory_hold',
+      'factory_archive',
+      'factory_schedule_save',
+      'factory_trigger_save',
+      'factory_automation_delete',
+      'factory_automation_run',
+      'factory_spend_caps',
+      'factory_objective_done',
+      'factory_objective_note',
+      'factory_roles_save',
+      'factory_secret_save',
+      'factory_secret_delete',
       'factory_local',
       'github_connect',
       'terminal_start',
@@ -240,6 +302,104 @@ export class ProjectGateway {
     const config = this.config(id);
     const page = historyPageSchema.parse(await rpc(config, 'events', { before, limit }));
     return { project: id, ...page };
+  }
+
+  /**
+   * List recorded attempts with metrics through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Filters already parsed from the route; the broker revalidates them.
+   * @returns Validated attempt page.
+   */
+  public async attempts(id: string, query: unknown): Promise<AttemptPage> {
+    return attemptPageSchema.parse(await rpc(this.config(id), 'factory_attempts', query));
+  }
+
+  /**
+   * Read one transcript page through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Job, cursor and page size parsed from the route.
+   * @returns Validated transcript page.
+   */
+  public async transcript(id: string, query: unknown): Promise<TranscriptPage> {
+    return transcriptPageSchema.parse(await rpc(this.config(id), 'factory_transcript', query));
+  }
+
+  /**
+   * Report the console's and its broker's versions for the Settings view.
+   *
+   * @param id - Explicit project selection.
+   * @returns MALT version, console runtime, and the broker's version or `null` when it does not answer.
+   */
+  public async versions(id: string): Promise<ConsoleVersions> {
+    const config = this.config(id);
+    let broker: string | null;
+    try {
+      const response = await fetch(new URL('/health', config.url), { signal: AbortSignal.timeout(HEALTH_MS) });
+      broker = healthSchema.parse(await response.json()).version;
+    } catch {
+      broker = null;
+    }
+    return { malt: packageVersion(), node: process.versions.node, platform: process.platform, broker };
+  }
+
+  /**
+   * Run the broker-side first-run preflight through its read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @returns Validated pass, fail or fix-it checks.
+   */
+  public async preflight(id: string): Promise<PreflightReport> {
+    return preflightReportSchema.parse(await rpc(this.config(id), 'factory_preflight', {}));
+  }
+
+  /**
+   * Summarize local costs through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Window and time zone parsed from the route.
+   * @returns Validated cost summary.
+   */
+  public async costs(id: string, query: unknown): Promise<CostSummary> {
+    return costSummarySchema.parse(await rpc(this.config(id), 'factory_costs', query));
+  }
+
+  /**
+   * Read one page of an objective's progress log through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Objective, cursor and page size parsed from the route.
+   * @returns Validated log page.
+   */
+  public async objectiveLog(id: string, query: unknown): Promise<LogPage> {
+    return logPageSchema.parse(await rpc(this.config(id), 'factory_objective_log', query));
+  }
+
+  /**
+   * Read a delivery's changed files, or one file's patch, through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Delivery and optional listed path parsed from the route.
+   * @returns Validated summary or patch.
+   */
+  public async deliveryDiff(
+    id: string,
+    query: { taskId: string; path?: string | undefined },
+  ): Promise<DiffSummary | DiffPatch> {
+    const result = await rpc(this.config(id), 'factory_delivery_diff', query);
+    return query.path === undefined ? diffSummarySchema.parse(result) : diffPatchSchema.parse(result);
+  }
+
+  /**
+   * Read one workflow's revision history through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Workflow id parsed from the route.
+   * @returns Untrusted history, validated by the console view.
+   */
+  public async workflowHistory(id: string, query: unknown): Promise<unknown> {
+    return await rpc(this.config(id), 'factory_workflow_history', query);
   }
 
   /**
