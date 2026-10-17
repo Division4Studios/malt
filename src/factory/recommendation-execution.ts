@@ -46,7 +46,7 @@ export interface ExecutionContext {
   /** Remote adapter; only observation is used here, the outbox applies effects. */
   readonly remote: Pick<DeliveryRemote, 'observedIssue'>;
   /** Project learning service, for guidance suggestions; they wait without it. */
-  readonly learning?: Pick<ProjectLearning, 'execute' | 'skillLibrary'>;
+  readonly learning?: Pick<ProjectLearning, 'execute' | 'recordLesson' | 'skillLibrary'>;
 }
 
 /**

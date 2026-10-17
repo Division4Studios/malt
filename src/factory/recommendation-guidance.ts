@@ -2,18 +2,20 @@
  * Approved guidance suggestions become skill candidates in the existing
  * learning pipeline (#61). The ticket decision itself never changes skills:
  * the supervisor records one project lesson with the recommendation's
- * evidence and provenance, proposes one inactive candidate from it (its
+ * evidence and full provenance, proposes one inactive candidate from it (its
  * revision is the content hash of the proposal), and queues one pending skill
  * request. Activation still needs the independent lead review and the human's
  * exact-revision approval through `factory_skill_decide`, which keep refusing
- * stale or conflicting revisions. A receipt in project metadata makes each
- * step happen once across retries and restarts. When the human decides, the
- * record completes, and that transition notifies the affected roles through
- * the recommendation notices.
+ * stale or conflicting revisions. The lesson's identity is derived from the
+ * recommendation and the candidate's from its content, and the request and
+ * its receipt commit together, so each happens once across retries and
+ * restarts. Generated fields are clipped to the learning schema's bounds.
+ * When the human decides, the record completes, and that transition notifies
+ * the affected roles through the recommendation notices.
  *
  * @file
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
@@ -24,24 +26,20 @@ import type { Recommendation, SkillRequest } from './schema.ts';
 
 /** Characters of a recommendation identity used in the skill name. */
 const NAME_ID = 12;
-/** Longest skill description. */
-const DESCRIPTION_MAX = 500;
+/** Short learning fields: summary, description and each evidence item. */
+const SHORT_MAX = 500;
+/** Long learning fields: cause, prevention and instructions. */
+const BODY_MAX = 32_000;
 /** Most evidence lines copied into the lesson. */
 const EVIDENCE_MAX = 20;
-/** Durable bridge progress for one recommendation revision. */
-const receiptSchema = z.object({
-  lessonId: z.string().uuid(),
-  candidate: z.string().nullable(),
-  requestId: z.string().uuid().nullable(),
-});
+/** The candidate and skill request created for one recommendation revision. */
+const receiptSchema = z.object({ candidate: z.string(), requestId: z.string().uuid() });
 /** Stored metadata row. */
 const rowSchema = z.object({ value: z.string() });
-/** Lesson returned by the learning service. */
-const lessonSchema = z.object({ id: z.string().uuid() });
 /** Candidate returned by the learning service. */
 const candidateSchema = z.object({ name: z.string(), revision: z.string().regex(/^[\da-f]{64}$/v) });
 
-/** Bridge progress. */
+/** Bridge receipt. */
 type Receipt = z.output<typeof receiptSchema>;
 
 /**
@@ -53,11 +51,20 @@ type Receipt = z.output<typeof receiptSchema>;
 const receiptKey = (record: Recommendation): string => `factory_recommendation_skill:${record.id}:${record.revision}`;
 
 /**
+ * Clip generated text to a schema bound.
+ *
+ * @param text - Generated text.
+ * @param max - Longest accepted length.
+ * @returns The text, cut to the bound.
+ */
+const clip = (text: string, max: number): string => text.slice(0, max);
+
+/**
  * Read a record's bridge receipt.
  *
  * @param context - Project ledger.
  * @param record - Guidance recommendation.
- * @returns Progress so far, or null before the lesson is recorded.
+ * @returns The candidate and request, or null before they exist.
  */
 function readReceipt(context: ExecutionContext, record: Recommendation): Receipt | null {
   const row = selectOne(
@@ -70,11 +77,11 @@ function readReceipt(context: ExecutionContext, record: Recommendation): Receipt
 }
 
 /**
- * Save a record's bridge receipt.
+ * Save a record's bridge receipt inside the caller's transaction.
  *
  * @param context - Project ledger.
  * @param record - Guidance recommendation.
- * @param receipt - New progress.
+ * @param receipt - Candidate and request.
  */
 function writeReceipt(context: ExecutionContext, record: Recommendation, receipt: Receipt): void {
   run(
@@ -86,6 +93,29 @@ function writeReceipt(context: ExecutionContext, record: Recommendation, receipt
 }
 
 /**
+ * The stable lesson identity for one recommendation revision.
+ *
+ * @param record - Guidance recommendation.
+ * @returns Name-based UUID derived from the record's id and revision.
+ */
+function lessonId(record: Recommendation): string {
+  const hex = createHash('sha256').update(`guidance-lesson:${record.id}:${record.revision}`).digest('hex');
+  const parts = /^(?<a>.{8})(?<b>.{4}).(?<c>.{3}).(?<d>.{3})(?<e>.{12})/v.exec(hex)?.groups ?? {};
+  return `${parts['a'] ?? ''}-${parts['b'] ?? ''}-5${parts['c'] ?? ''}-8${parts['d'] ?? ''}-${parts['e'] ?? ''}`;
+}
+
+/**
+ * Where an approved recommendation came from, for every learning artifact.
+ *
+ * @param record - Guidance recommendation.
+ * @returns Full id, revision and ticket set.
+ */
+function provenance(record: Recommendation): string {
+  const tickets = record.body.tickets.map((issue) => `#${String(issue)}`).join(', ');
+  return `recommendation ${record.id} (revision ${record.revision}) on ${tickets}`;
+}
+
+/**
  * The skill name a recommendation's candidate uses.
  *
  * @param record - Guidance recommendation.
@@ -94,33 +124,61 @@ function writeReceipt(context: ExecutionContext, record: Recommendation, receipt
 export const guidanceSkillName = (record: Recommendation): string => `guidance-${record.id.slice(0, NAME_ID)}`;
 
 /**
+ * Record the lesson once under the record's stable identity.
+ *
+ * @param learning - Project learning service.
+ * @param record - Guidance recommendation.
+ * @returns The lesson identity.
+ */
+function recordLesson(learning: NonNullable<ExecutionContext['learning']>, record: Recommendation): string {
+  const { body } = record;
+  const lesson = learning.recordLesson(
+    {
+      summary: clip(`Approved guidance suggestion: ${provenance(record)}`, SHORT_MAX),
+      cause: clip(`From ${provenance(record)}.\n${body.evidence.join('\n')}`, BODY_MAX),
+      prevention: clip(body.action, BODY_MAX),
+      evidence: body.evidence.slice(0, EVIDENCE_MAX).map((item) => clip(item, SHORT_MAX)),
+      outcome: 'success',
+      ...(body.tickets[0] !== undefined && { ticket: body.tickets[0] }),
+    },
+    'supervisor',
+    lessonId(record),
+  );
+  return lesson.id;
+}
+
+/**
  * Propose the candidate; the same lesson and record always give the same revision.
  *
  * @param learning - Project learning service.
  * @param record - Guidance recommendation.
- * @param lessonId - Lesson holding its evidence.
+ * @param lesson - Lesson holding its evidence.
  * @returns Candidate name and content revision.
  */
 async function propose(
   learning: NonNullable<ExecutionContext['learning']>,
   record: Recommendation,
-  lessonId: string,
+  lesson: string,
 ): Promise<z.output<typeof candidateSchema>> {
   const { body } = record;
-  const tickets = body.tickets.map((issue) => `#${String(issue)}`).join(', ');
   const evidence = body.evidence.map((item) => `- ${item}`).join('\n');
+  const firstLine =
+    body.action
+      .split('\n')
+      .find((line) => line.trim() !== '')
+      ?.trim() ?? '';
   return candidateSchema.parse(
     await learning.execute(
       'learning_propose_skill',
       {
         name: guidanceSkillName(record),
-        description: body.action.split('\n', 1)[0]?.slice(0, DESCRIPTION_MAX) ?? 'Project guidance',
-        instructions: `${body.action}\n\nEvidence:\n${evidence}`,
-        rationale: `From approved recommendation ${record.id} (revision ${record.revision}) on ${tickets}.`,
+        description: clip(firstLine === '' ? 'Project guidance' : firstLine, SHORT_MAX),
+        instructions: clip(`${body.action}\n\nEvidence:\n${evidence}`, BODY_MAX),
+        rationale: `From approved ${provenance(record)}.`,
         sourceIds: [],
-        lessonIds: [lessonId],
+        lessonIds: [lesson],
         review: {
-          relevance: `Approved guidance from the project's own ticket decisions on ${tickets}.`,
+          relevance: `Approved guidance from the project's own ticket decisions: ${provenance(record)}.`,
           license: 'Project-authored text; no external content is copied.',
           security: 'Instructions only; no commands, credentials or new tool permissions.',
           validation:
@@ -133,7 +191,43 @@ async function propose(
 }
 
 /**
- * Advance one applying guidance record by at most one bridge step, or complete it once the human decided.
+ * Queue one pending skill request for the candidate and its receipt, together.
+ *
+ * @param context - Project ledger and learning library.
+ * @param record - Guidance recommendation.
+ * @param candidate - Proposed candidate.
+ */
+function queueRequest(
+  context: ExecutionContext,
+  record: Recommendation,
+  candidate: z.output<typeof candidateSchema>,
+): void {
+  const { learning, repository } = context;
+  repository.store.transaction(() => {
+    const existing = repository
+      .skillRequests()
+      .find((pending) => pending.name === candidate.name && pending.revision === candidate.revision);
+    const queued: SkillRequest = existing ?? {
+      name: candidate.name,
+      revision: candidate.revision,
+      state: 'active',
+      reason: `Approved guidance from recommendation ${record.id.slice(0, NAME_ID)}.`,
+      id: randomUUID(),
+      status: 'pending',
+      previousRevision: learning?.skillLibrary().find((entry) => entry.name === candidate.name)?.revision ?? null,
+      requestedAt: repository.store.now(),
+      reviewedAt: null,
+      summary: null,
+    };
+    if (existing === undefined) {
+      repository.saveSkillRequest(queued);
+    }
+    writeReceipt(context, record, { candidate: candidate.revision, requestId: queued.id });
+  });
+}
+
+/**
+ * Create the lesson, candidate and request once, or complete the record once the human decided.
  *
  * @param context - Project ledger and learning service.
  * @param record - Applying guidance recommendation.
@@ -145,46 +239,7 @@ export async function advanceGuidance(context: ExecutionContext, record: Recomme
   }
   const receipt = readReceipt(context, record);
   if (receipt === null) {
-    const lesson = lessonSchema.parse(
-      await learning.execute(
-        'learning_record',
-        {
-          summary: `Guidance suggestion ${record.id.slice(0, NAME_ID)} approved`,
-          cause: record.body.evidence.join('\n'),
-          prevention: record.body.action,
-          evidence: record.body.evidence.slice(0, EVIDENCE_MAX),
-          outcome: 'success',
-          ...(record.body.tickets[0] !== undefined && { ticket: record.body.tickets[0] }),
-        },
-        'supervisor',
-      ),
-    );
-    writeReceipt(context, record, { lessonId: lesson.id, candidate: null, requestId: null });
-    return;
-  }
-  if (receipt.requestId === null) {
-    const candidate = await propose(learning, record, receipt.lessonId);
-    repository.store.transaction(() => {
-      const existing = repository
-        .skillRequests()
-        .find((pending) => pending.name === candidate.name && pending.revision === candidate.revision);
-      const queued: SkillRequest = existing ?? {
-        name: candidate.name,
-        revision: candidate.revision,
-        state: 'active',
-        reason: `Approved guidance from recommendation ${record.id.slice(0, NAME_ID)}.`,
-        id: randomUUID(),
-        status: 'pending',
-        previousRevision: learning.skillLibrary().find((entry) => entry.name === candidate.name)?.revision ?? null,
-        requestedAt: repository.store.now(),
-        reviewedAt: null,
-        summary: null,
-      };
-      if (existing === undefined) {
-        repository.saveSkillRequest(queued);
-      }
-      writeReceipt(context, record, { ...receipt, candidate: candidate.revision, requestId: queued.id });
-    });
+    queueRequest(context, record, await propose(learning, record, recordLesson(learning, record)));
     return;
   }
   const request = repository.skillRequests().find((candidate) => candidate.id === receipt.requestId);
