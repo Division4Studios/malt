@@ -16,9 +16,10 @@ import { z } from 'zod/v3';
 import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
-import { cachedProbe, credentialPresence, ghAuthProbe } from './credentials.ts';
+import { cachedProbe, connectionCredentials, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
 import { discoverGitHub } from './github-discovery.ts';
+import { STATUS_FIELD, fieldSchema, selectWorkflowField } from './github-fields.ts';
 import { createIssueReader } from './github-issues.ts';
 import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
@@ -27,7 +28,7 @@ import { timestamp, writeAtomic } from './summary.ts';
 import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
-import type { CredentialPresence, PresenceProbe } from './credentials.ts';
+import type { PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
@@ -44,9 +45,6 @@ export const DELIVERY_STATUSES = [
   'Blocked',
 ] as const;
 
-/** Name of MALT's field; existing user Status fields are left intact. */
-const STATUS_FIELD = 'MALT Status';
-
 /** A stable GitHub ID returned by a Project mutation. */
 const itemSchema = z.object({ id: z.string() });
 /** Response for adding an issue to a Project. */
@@ -55,38 +53,6 @@ const itemAdditionSchema = z.object({ addProjectV2ItemById: z.object({ item: ite
 const subIssueSchema = z.object({ id: z.number() });
 /** Pages of native sub-issue identities. */
 const subIssuesSchema = z.array(z.array(subIssueSchema));
-/** One select option in a workflow field. */
-const optionSchema = z.object({ id: z.string(), name: z.string() });
-
-/** A GitHub single-select field and its options. */
-const fieldSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  options: z.array(optionSchema).optional(),
-});
-
-/**
- * Select an operator-named existing field without silently creating another.
- *
- * @param fields - Verified remote field inventory.
- * @param name - Explicit existing field, or managed default.
- * @returns Existing field, absent only when the managed default needs creation.
- * @throws {MeshError} When an explicitly selected field does not exist.
- */
-function selectWorkflowField(
-  fields: z.output<typeof fieldSchema>[],
-  name: string | undefined,
-): z.output<typeof fieldSchema> | undefined {
-  if (name !== undefined) {
-    const selected = fields.find((field) => field.name === name);
-    if (selected === undefined) {
-      throw new MeshError('INVALID_INPUT', 'The requested workflow field does not exist in this Project.');
-    }
-    return selected;
-  }
-  return fields.find((field) => field.name === STATUS_FIELD) ?? fields.find((field) => field.name === 'MLT Status');
-}
-
 /** Verified project identity returned by the GitHub CLI. */
 const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
 
@@ -267,22 +233,8 @@ export class ProjectGitHub {
       connected: connection !== null,
       connection,
       connectionV2,
-      credentials: connectionV2 === null ? null : await this.credentials(connectionV2),
+      credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
-    };
-  }
-
-  /**
-   * Check each section's credential handle; records saved before handles use the gh session.
-   *
-   * @param record - Saved connection.
-   * @returns Presence per section.
-   */
-  private async credentials(record: ConnectionV2): Promise<Record<'tracker' | 'source', CredentialPresence>> {
-    const fallback = { kind: 'github-cli' } as const;
-    return {
-      tracker: await credentialPresence(record.tracker.credential ?? fallback, this.presence),
-      source: await credentialPresence(record.source.credential ?? fallback, this.presence),
     };
   }
 
