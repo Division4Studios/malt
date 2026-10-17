@@ -102,6 +102,19 @@ await test('a backup snapshots the live database, copies files, skips worktrees 
   assert.deepEqual(agentNames(config.database), ['claude-1', 'codex-1']);
 
   await assert.rejects(backupProject(config, folder), { code: 'INVALID_INPUT' }, 'a backup never overwrites another');
+  await assert.rejects(
+    backupProject(config, path.join(config.directory, 'backups', 'inside')),
+    { code: 'INVALID_INPUT' },
+    'a backup never lands inside the folder it copies',
+  );
+  fixture(config.directory, 'old-backup', 'malt-backup.json');
+  fixture(config.directory, 'old-backup', '.malt', 'config.json');
+  await assert.rejects(
+    restoreProject(config.root, path.join(config.directory, 'old-backup'), { isRunning: false, now: 2000 }),
+    /outside/v,
+    'a restore source inside .malt is refused before anything moves',
+  );
+  assert.ok(hasPath(config.directory, 'state', 'mesh.db'), 'the refused restore left .malt in place');
   await assert.rejects(restoreProject(config.root, folder, { isRunning: true, now: 2000 }), { code: 'FACTORY_GATED' });
   await assert.rejects(restoreProject(config.root, config.root, { isRunning: false, now: 2000 }), {
     code: 'INVALID_INPUT',
