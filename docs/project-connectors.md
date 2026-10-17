@@ -39,6 +39,18 @@ The tracker capabilities are derived from that permissions answer, never assumed
 
 Every request is a `GET` to the configured `https://<name>.atlassian.net` origin, redirects are refused so the token never follows a response elsewhere, bodies are bounded, and the token (raw or in its Basic form) is redacted from every message. Tests use fixture responses only. The client is not yet wired into the console, CLI or factory; connecting Jira as a tracker is tracked by #265 and its children.
 
+### Jira modes and the admin summary
+
+Every Jira mutation is a connector capability (see [capability policy](capability-policy.md#jira)), so a workspace's Jira access is set as a mode over those capabilities (`src/jira/modes.ts`):
+
+| Mode           | What MALT may change                                                    |
+| -------------- | ----------------------------------------------------------------------- |
+| `read-only`    | Nothing; every Jira capability is disabled (the default).               |
+| `comment-only` | Comments only: progress, pull request links and merged-main evidence.   |
+| `full`         | Issues and sub-tasks, links, transitions, comments and existing labels. |
+
+The operator also chooses which factory roles may perform the enabled mutations; with none, only the human operator may. Only a human principal can set a mode, and policies changed one capability at a time read back as `custom`. `jiraAccessSummary` lists exactly what MALT reads from Jira and what each capability lets it change, with its current policy, for the operator to review before enabling the connection.
+
 ### Authentication and deployment decisions for 1.0
 
 These decisions answer #329; revisit them only through their follow-up issues.
