@@ -54,6 +54,10 @@ async function verifyMemoryLink(link: string, target: string): Promise<void> {
 }
 /** Named branch id length bound. */
 const BRANCH_ID_LENGTH = 8;
+/** Commits listed per side for each conflicted path. */
+const CONFLICT_HISTORY = 3;
+/** Conflicted paths described in detail per round. */
+const CONFLICT_FINDINGS = 10;
 
 /** Ownership evidence for each worktree, retained after cleanup. */
 const ownershipSchema = z.array(
@@ -372,6 +376,47 @@ export class WorkspaceManager {
     assertPublicationSize({ head, base, files: entries.length, lines }, this.config, task.sizeApproval);
     await this.git(['push', '--set-upstream', this.config.remote, record.branch], directory);
     return { head, base, diff };
+  }
+
+  /**
+   * Paths left unmerged by an in-progress merge.
+   *
+   * @param directory - Owned worktree.
+   * @returns Conflicted paths, empty when nothing conflicts.
+   */
+  public async conflictedFiles(directory: string): Promise<string[]> {
+    this.assertOwnedPath(directory);
+    const output = await this.git(['diff', '--name-only', '--diff-filter=U'], directory);
+    return output === '' ? [] : output.split('\n');
+  }
+
+  /**
+   * Both sides' recent history for each conflicted path, as repair findings.
+   *
+   * @param directory - Owned worktree whose HEAD is the delivery's side.
+   * @param base - Main commit merged into it.
+   * @param files - Conflicted paths.
+   * @returns One finding per path naming the commits on each side that touched it.
+   */
+  public async conflictContext(directory: string, base: string, files: readonly string[]): Promise<string[]> {
+    this.assertOwnedPath(directory);
+    const fork = await this.git(['merge-base', 'HEAD', base], directory);
+    const side = async (tip: string, file: string): Promise<string> => {
+      const log = await this.git(
+        ['log', `--max-count=${String(CONFLICT_HISTORY)}`, '--format=%h %s', `${fork}..${tip}`, '--', file],
+        directory,
+      );
+      return log === '' ? 'no commits' : log.replaceAll('\n', '; ');
+    };
+    const findings: string[] = [];
+    for (const file of files.slice(0, CONFLICT_FINDINGS)) {
+      // eslint-disable-next-line no-await-in-loop -- A handful of bounded local Git reads, in path order.
+      const [ours, theirs] = await Promise.all([side('HEAD', file), side(base, file)]);
+      findings.push(
+        `[P1] Merge conflict in ${file}. This delivery changed it in: ${ours}. Main changed it in: ${theirs}. Resolve it keeping both intents, remove every conflict marker and rerun the checks.`,
+      );
+    }
+    return findings;
   }
 
   /**

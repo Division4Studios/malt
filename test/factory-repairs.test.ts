@@ -7,12 +7,17 @@
  */
 
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
 import { actionsJobId, checkState, ciFinding, excerptLog, failedChecks, redactLog } from '../src/factory/ci-logs.ts';
-import { REPAIR_FINDING_MAX } from '../src/factory/repair-schema.ts';
+import { MergeConflictError } from '../src/factory/merge-conflict.ts';
+import { REPAIR_FINDING_MAX, attemptBudget } from '../src/factory/repair-schema.ts';
+import { jobIntents } from '../src/factory/scheduler.ts';
+import { factoryConfigSchema, featureSchema, taskSchema } from '../src/factory/schema.ts';
 
 import type { RawCheck } from '../src/factory/ci-logs.ts';
+import type { FactoryConfig, FactoryTask } from '../src/factory/schema.ts';
 
 /** A GitHub token shape the redactor must remove. */
 const LEAKED = `ghp_${'a1B2c3D4'.repeat(5)}`;
@@ -79,4 +84,73 @@ await test('excerpts keep the first error with context and the final lines, with
   assert.ok(finding.length <= REPAIR_FINDING_MAX);
   assert.match(finding, /^\[P1\] CI check "check \(ubuntu-latest\)" failed on a{40}/v);
   assert.match(ciFinding(check, null, 'b'), /No log was available/v);
+});
+
+await test('each repair round grants the developer one more attempt', () => {
+  const config: FactoryConfig = factoryConfigSchema.parse({
+    testCommands: [{ file: process.execPath }],
+    endToEndCommands: [{ file: process.execPath }],
+  });
+  const objective = featureSchema.parse({
+    id: randomUUID(),
+    objective: 'Fixture',
+    phase: 'active',
+    productPlan: null,
+    plan: null,
+    parentIssue: null,
+    error: null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const exhausted = taskSchema.parse({
+    id: randomUUID(),
+    featureId: objective.id,
+    issue: 1,
+    parentIssue: 2,
+    key: 'fixture',
+    title: 'Fixture',
+    description: 'Fixture',
+    acceptanceCriteria: [],
+    dependencies: [],
+    phase: 'development',
+    developer: 'developer-1',
+    branch: null,
+    worktree: null,
+    head: null,
+    base: null,
+    pr: null,
+    prUrl: null,
+    merge: null,
+    reviews: [],
+    feedback: [],
+    attempts: config.maxAttempts,
+    version: 0,
+    error: null,
+    updatedAt: 1,
+  });
+  const repaired: FactoryTask = {
+    ...exhausted,
+    repairs: [
+      { kind: 'ci', key: 'ci:x:y', head: 'x', base: 'y', at: 2, checks: ['y'], files: [], findings: [], summary: 'y' },
+    ],
+  };
+  assert.equal(attemptBudget(repaired, config), config.maxAttempts + 1);
+  const intents = (tasks: FactoryTask[]): string[] => {
+    return jobIntents({ config, features: [objective], tasks, jobs: [], skillRequests: [], now: 10 })
+      .filter((intent) => intent.kind === 'develop')
+      .map((intent) => intent.role);
+  };
+  assert.deepEqual(intents([exhausted]), []);
+  assert.deepEqual(intents([repaired]), ['developer-1']);
+});
+
+await test('conflict errors keep a bounded path list for the round', () => {
+  const error = new MergeConflictError({
+    files: Array.from({ length: 80 }, (_value, index) => `file-${String(index)}.ts`),
+    head: 'h',
+    base: 'b',
+  });
+  assert.equal(error.files.length, 50);
+  assert.equal(error.code, 'FACTORY_GATED');
+  assert.match(error.message, /file-0\.ts, file-1\.ts/v);
 });

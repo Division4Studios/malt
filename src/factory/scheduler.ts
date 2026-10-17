@@ -16,6 +16,7 @@ import {
   startableSteps,
   taskWorkflow,
 } from './pipeline.ts';
+import { attemptBudget } from './repair-schema.ts';
 import { isBackingOff } from './retry-policy.ts';
 import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
@@ -545,7 +546,7 @@ function scheduleGroup3(
       task.dependencies.some((id) =>
         input.tasks.every((dependency) => !(dependency.id === id && dependency.phase === 'done')),
       ) ||
-      task.attempts >= input.config.maxAttempts
+      task.attempts >= attemptBudget(task, input.config)
     ) {
       continue;
     }
