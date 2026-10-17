@@ -720,6 +720,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: hold deliveries so no new attempt starts on them (a running attempt finishes normally), or resume them with hold false. Name deliveries, one objective, or all; finished deliveries are skipped.',
   factory_archive:
     'Operator or designated lead: archive finished deliveries off the board, or unarchive to keep them on it. Finished deliveries archive automatically after seven days unless kept. Name deliveries, one objective, or all.',
+  factory_spend_caps:
+    'Human operator only: replace the USD spend caps at the revision you read: a project cap over a rolling window, default objective and delivery caps with per-scope overrides, and whether unpriced attempts in a capped scope block new attempts. A reached cap stops new attempts on its scope; running ones finish.',
   factory_objective_done:
     "Human operator only: replace an objective's definition-of-done checklist at the objective version you read. Items are open, checked or waived, with optional evidence; omitted proposals are dismissed. An objective whose deliveries are done completes only when every item is checked or waived.",
   factory_objective_check:

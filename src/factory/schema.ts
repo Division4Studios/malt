@@ -39,6 +39,7 @@ import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
@@ -570,6 +571,7 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...spendSchemas,
   ...objectiveGoalSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
@@ -607,6 +609,7 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
   'factory_reconcile_github',
 ] as const;

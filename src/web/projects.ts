@@ -93,6 +93,7 @@ export const controlSchema = z
       'factory_trigger_save',
       'factory_automation_delete',
       'factory_automation_run',
+      'factory_spend_caps',
       'factory_objective_done',
       'factory_objective_note',
       'github_connect',
