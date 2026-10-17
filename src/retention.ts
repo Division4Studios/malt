@@ -3,7 +3,7 @@
  * policy at most once an hour per project, in small transactions:
  *
  * - acknowledged messages older than the message window are deleted, except
- *   one a kept reply still points at;
+ *   one a kept reply or a worker's open check-in still points at;
  * - unacknowledged messages to ended identities older than the window are
  *   deleted, since nobody can ever read them;
  * - events older than the event window are folded into per-day, per-type
@@ -107,6 +107,7 @@ function expireMessages(store: Store, cutoff: number): number {
          SELECT m.seq FROM messages m JOIN agents a ON a.id = m.recipient
          WHERE ((m.acknowledged_at IS NOT NULL AND m.acknowledged_at < ?) OR (a.lifetime = 'ended' AND m.created_at < ?))
            AND NOT EXISTS (SELECT 1 FROM messages r WHERE r.reply_to = m.id)
+           AND NOT EXISTS (SELECT 1 FROM worker_coordination c WHERE c.request_message_id = m.id)
          ORDER BY m.seq LIMIT ?)`,
       cutoff,
       cutoff,
