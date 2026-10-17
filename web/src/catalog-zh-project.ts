@@ -251,6 +251,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'unknown (not a Git checkout and no image revision)': '未知（不是 Git 检出，也没有镜像修订）',
   '{commit} (container image)': '{commit}（容器镜像）',
   '{commit} with uncommitted changes': '{commit}（含未提交的更改）',
+  '{commit} (uncommitted changes unknown)': '{commit}（未知是否有未提交的更改）',
   'Console Node.js': '控制台 Node.js',
   'Console platform': '控制台平台',
   'Offline shell cache': '离线外壳缓存',
