@@ -89,24 +89,36 @@ await test('expired sessions are retired after the grace period; durable and sys
 });
 
 await test('the supervisor retires leftover system identities on start and its own with its lease', (t) => {
-  const { store } = fixture(t);
+  const { store, clock } = fixture(t);
   store.register({ ...registration('factory-system-old'), ephemeral: true, role: 'observer', runtime: SYSTEM_RUNTIME });
+  store.register({ ...registration('durable-factory'), runtime: SYSTEM_RUNTIME });
+  clock.now += 1;
   const repository = new FactoryRepository(store);
+  // A supervisor that started later must never lose its identity to this one.
+  clock.now += 1;
+  const later = new FactoryRepository(store);
+  later.prepareSender();
   repository.prepareSender();
   const started = lifetimes(store);
   assert.equal(started.get('factory-system-old'), 'ended');
+  assert.equal(started.get('durable-factory'), 'durable', 'a durable identity with the runtime label is never retired');
   const current = [...started].filter(([name, lifetime]) => name.startsWith('factory-system-') && lifetime !== 'ended');
-  assert.equal(current.length, 1, 'exactly one live system identity');
-  repository.release('owner');
+  assert.equal(current.length, 2, 'both supervisors keep their own identity');
+  repository.release('stale-owner');
   assert.equal(
     [...lifetimes(store)].filter(([name, lifetime]) => name.startsWith('factory-system-') && lifetime !== 'ended')
       .length,
-    0,
+    2,
+    'a supervisor that releases no lease retires nothing',
   );
+  assert.ok(repository.lease('owner'));
+  repository.release('owner');
+  const live = (): string[] => {
+    return [...lifetimes(store)]
+      .filter(([name, lifetime]) => name.startsWith('factory-system-') && lifetime !== 'ended')
+      .map(([name]) => name);
+  };
+  assert.equal(live().length, 1, 'releasing its own lease retires only its own identity');
   repository.prepareSender();
-  const resumed = [...lifetimes(store)].filter(
-    ([name, lifetime]) => name.startsWith('factory-system-') && lifetime !== 'ended',
-  );
-  assert.equal(resumed.length, 1, 'a resumed supervisor prepares a fresh identity');
-  assert.notEqual(resumed[0]?.[0], current[0]?.[0]);
+  assert.equal(live().length, 2, 'a resumed supervisor prepares a fresh identity');
 });

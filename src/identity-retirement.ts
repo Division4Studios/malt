@@ -4,9 +4,10 @@
  * A session identity exists only while its bridge holds the secret; once its
  * lease has been expired for longer than the grace period, no bridge can
  * resume it, so it is ended like a disconnected session. The supervisor's own
- * system identities (`runtime: factory`) are managed by the supervisor
- * instead: it retires its identity when it releases its lease and, on start,
- * any left behind by an earlier broker. Durable identities are never retired.
+ * system identities (`factory-system-*` sessions with `runtime: factory`) are
+ * managed by the supervisor instead: it retires its own identity when it
+ * releases its own lease and, on start, any registered before it started.
+ * Durable identities are never retired, whatever their runtime label.
  *
  * @file
  */
@@ -18,6 +19,10 @@ import type { DatabaseSync } from 'node:sqlite';
 export const SESSION_RETIRE_MS = 3_600_000;
 /** Runtime label of the supervisor's own system identities. */
 export const SYSTEM_RUNTIME = 'factory';
+/** Name prefix of the supervisor's own system identities. */
+export const SYSTEM_NAME_PREFIX = 'factory-system-';
+/** Matches only the supervisor's own system sessions, never a durable identity with the same runtime label. */
+const SYSTEM_SESSION = `lifetime = 'session' AND runtime = '${SYSTEM_RUNTIME}' AND name LIKE '${SYSTEM_NAME_PREFIX}%'`;
 
 /**
  * End every session identity whose lease expired before `cutoff`.
@@ -42,18 +47,32 @@ export function retireExpiredSessions(db: DatabaseSync, cutoff: number, depart: 
 }
 
 /**
- * End the supervisor's system identities, except one still in use.
+ * End system sessions registered before a supervisor started: leftovers of an
+ * earlier broker, never the identity of a supervisor that started later.
  *
  * @param db - The store's open connection, inside its transaction.
- * @param keep - System identity to keep, if any.
+ * @param startedAt - When the calling supervisor started.
  * @returns How many identities were retired.
  */
-export function retireSystemIdentities(db: DatabaseSync, keep: string | null = null): number {
-  const { changes } = run(
+export function retireEarlierSystemIdentities(db: DatabaseSync, startedAt: number): number {
+  return run(
     db,
-    "UPDATE agents SET lifetime = 'ended', status = 'STOPPED', status_text = 'System identity retired' WHERE runtime = ? AND lifetime != 'ended' AND id != ?",
-    SYSTEM_RUNTIME,
-    keep ?? '',
-  );
-  return changes;
+    `UPDATE agents SET lifetime = 'ended', status = 'STOPPED', status_text = 'System identity retired' WHERE ${SYSTEM_SESSION} AND created_at < ?`,
+    startedAt,
+  ).changes;
+}
+
+/**
+ * End one supervisor's own system session.
+ *
+ * @param db - The store's open connection, inside its transaction.
+ * @param id - The supervisor's sender.
+ * @returns How many identities were retired: one, or none when it was not a live system session.
+ */
+export function retireSystemIdentity(db: DatabaseSync, id: string): number {
+  return run(
+    db,
+    `UPDATE agents SET lifetime = 'ended', status = 'STOPPED', status_text = 'System identity retired' WHERE ${SYSTEM_SESSION} AND id = ?`,
+    id,
+  ).changes;
 }
