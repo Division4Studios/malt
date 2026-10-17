@@ -8,11 +8,17 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
+import { LINE_BYTES_MAX, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { claudeLine, codexLine } from '../src/factory/transcript-events.ts';
+
+import { createCleanup, createProject } from './helpers.ts';
 
 import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
 import type { ProgressObservation } from '../src/factory/liveness.ts';
@@ -24,6 +30,28 @@ const MINUTE = 60_000;
 const COMMANDS = { testCommands: [{ file: process.execPath }], endToEndCommands: [{ file: process.execPath }] };
 /** A policy with a ten-minute interval, a five-minute stall window and a 25-minute ceiling. */
 const POLICY: LivenessPolicy = { intervalMs: 10 * MINUTE, stallMs: 5 * MINUTE, maxMs: 25 * MINUTE, sampleMs: MINUTE };
+
+/**
+ * Write a file inside the test's own temporary project.
+ *
+ * @param file - Path.
+ * @param text - Content.
+ */
+function write(file: string, text: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Paths are inside the test's own temporary project.
+  writeFileSync(file, text);
+}
+
+/**
+ * Append to a file inside the test's own temporary project.
+ *
+ * @param file - Path.
+ * @param text - Appended content.
+ */
+function append(file: string, text: string): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Paths are inside the test's own temporary project.
+  appendFileSync(file, text);
+}
 
 await test('checkpoints extend on recent progress and stop stalls and the ceiling', () => {
   assert.equal(firstCheckpoint(0, POLICY), 10 * MINUTE);
@@ -183,6 +211,137 @@ await test('the monitor extends productive work, records awaiting input and stop
   assert.equal(run3.delays.at(-1), -1, 'dispose cancels the pending wake-up');
   await run3.advance(30 * MINUTE, { progress: null, awaiting: null });
   assert.deepEqual(run3.stops, []);
+});
+
+/**
+ * Decode lines into a fresh progress sink.
+ *
+ * @param decode - Provider decoder.
+ * @param events - Stream events.
+ * @returns The sink.
+ */
+function decodeAll(decode: typeof claudeLine, events: readonly unknown[]): ProgressSink {
+  const sink = new ProgressSink();
+  for (const event of events) {
+    decode(sink, JSON.stringify(event));
+  }
+  return sink;
+}
+
+await test('only completed tool calls and edits count as Claude and Codex progress', () => {
+  const thinking = Array.from({ length: 50 }, (_, index) => {
+    return {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'thinking', thinking: `step ${String(index)}` },
+          { type: 'text', text: 'Working.' },
+        ],
+      },
+    };
+  });
+  assert.equal(decodeAll(claudeLine, thinking).meaningful, 0, 'thinking and prose bursts are not progress');
+
+  const toolUse = {
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }] },
+  };
+  const toolResult = {
+    type: 'user',
+    message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
+  };
+  const started = decodeAll(claudeLine, [toolUse]);
+  assert.equal(started.meaningful, 0, 'a started call is not progress');
+  const completed = decodeAll(claudeLine, [toolUse, toolResult, toolResult]);
+  assert.equal(completed.meaningful, 1, 'a duplicate completion counts once');
+  assert.equal(completed.lastSignal, 'tool Bash');
+
+  const repeated = decodeAll(claudeLine, [
+    toolUse,
+    toolResult,
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'npm test' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'ok' }] } },
+  ]);
+  assert.equal(repeated.meaningful, 1, 'repeated identical output counts once');
+
+  const denied = decodeAll(claudeLine, [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 'w1', name: 'Write', input: { file_path: 'a.ts' } }] },
+    },
+    {
+      type: 'user',
+      message: {
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: 'w1',
+            is_error: true,
+            content: "Claude requested permissions to write to a.ts, but you haven't granted it yet.",
+          },
+        ],
+      },
+    },
+  ]);
+  assert.equal(denied.meaningful, 0, 'a permission wait is not progress');
+  assert.equal(denied.awaiting, 'Permission not granted for a tool call');
+
+  const question = decodeAll(claudeLine, [
+    { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: {} }] } },
+  ]);
+  assert.equal(question.awaiting, 'Question through AskUserQuestion');
+
+  const codex = decodeAll(codexLine, [
+    { type: 'thread.started' },
+    { type: 'item.completed', item: { id: 'r1', type: 'reasoning', text: 'thinking' } },
+    { type: 'item.started', item: { id: 'c1', type: 'command_execution', command: 'npm test', status: 'in_progress' } },
+    {
+      type: 'item.completed',
+      item: { id: 'c1', type: 'command_execution', command: 'npm test', exit_code: 1, aggregated_output: 'fail' },
+    },
+    {
+      type: 'item.completed',
+      item: { id: 'c1', type: 'command_execution', command: 'npm test', exit_code: 1, aggregated_output: 'fail' },
+    },
+    {
+      type: 'item.completed',
+      item: { id: 'f1', type: 'file_change', changes: [{ path: 'src/a.ts', kind: 'update' }] },
+    },
+    { type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1 } },
+  ]);
+  assert.equal(codex.meaningful, 2, 'a failed check still completed; the duplicate and reasoning do not count');
+  assert.equal(codex.lastSignal, 'edit src/a.ts');
+  const approval = decodeAll(codexLine, [{ type: 'exec_approval_request', call_id: 'x' }]);
+  assert.equal(approval.awaiting, 'Waiting on exec_approval_request');
+});
+
+await test('the stream tail carries split lines and skips oversized ones within bounded reads', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const file = path.join(mesh.directory, 'stdout.log');
+  const lines: string[] = [];
+  const tail = new StreamTail(file, (line) => {
+    lines.push(line);
+  });
+  await tail.poll();
+  assert.deepEqual(lines, [], 'a missing log reads as empty');
+  const event = JSON.stringify({ type: 'result', text: 'é done' });
+  write(file, event.slice(0, 10));
+  await tail.poll();
+  assert.deepEqual(lines, [], 'a partial line waits for its end');
+  append(file, `${event.slice(10)}\n`);
+  await tail.poll();
+  assert.deepEqual(lines, [event]);
+  append(file, `${'x'.repeat(LINE_BYTES_MAX + 10)}\n{"type":"after"}\n`);
+  await tail.poll();
+  assert.equal(tail.oversized, 1);
+  assert.deepEqual(lines, [event, '{"type":"after"}']);
+  write(file, '{"type":"rotated"}\n');
+  await tail.poll();
+  assert.deepEqual(lines.slice(-1), ['{"type":"rotated"}'], 'a replaced log is read from its start');
 });
 
 /**
