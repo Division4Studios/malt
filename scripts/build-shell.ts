@@ -70,6 +70,8 @@ const FILES = [
   'dist/inbox-ui.js',
   'dist/board-actions.js',
   'dist/board-ui.js',
+  'dist/automations-model.js',
+  'dist/automations-ui.js',
   'dist/delivery-ui.js',
   'sessions.css',
   'board.css',

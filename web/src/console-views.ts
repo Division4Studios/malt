@@ -3,10 +3,12 @@
  * once per console, so filters, open transcripts, expanded results, drafts and
  * dialogs survive every snapshot push; the shell only asks for an element.
  * Telemetry views (sessions, costs) read their own routes on a slower cadence;
- * console views (Inbox, Board, delivery, workflows) read each pushed snapshot.
+ * console views (Inbox, Board, automations, delivery, workflows) read each
+ * pushed snapshot.
  *
  * @file
  */
+import { createAutomationsView } from './automations-ui.js';
 import { createBoardView } from './board-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
@@ -15,6 +17,7 @@ import { createInboxView } from './inbox-ui.js';
 import { createSessionsView } from './sessions-ui.js';
 import { createWorkflowsView } from './workflows-ui.js';
 
+import type { OperatorControl } from './api.js';
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { DeliveryHandle } from './delivery-ui.js';
 import type { SessionsHandle } from './sessions-ui.js';
@@ -26,17 +29,17 @@ const TELEMETRY_REFRESH_MS = 10_000;
 /** Views refreshed from their own routes. */
 type RefreshedView = 'sessions' | 'costs';
 /** Views refreshed from each pushed snapshot. */
-type PushedView = 'inbox' | 'board' | 'delivery' | 'workflows';
+type PushedView = 'inbox' | 'board' | 'automations' | 'delivery' | 'workflows';
 /** Views this module owns. */
 export type OwnedView = RefreshedView | PushedView;
 /** Snapshot-pushed view names. */
-const PUSHED_VIEWS: ReadonlySet<string> = new Set(['inbox', 'board', 'delivery', 'workflows']);
+const PUSHED_VIEWS: ReadonlySet<string> = new Set(['inbox', 'board', 'automations', 'delivery', 'workflows']);
 
 /**
  * Whether an owned view reads pushed snapshots.
  *
  * @param view - Owned route.
- * @returns True for Inbox, Board, delivery and workflows.
+ * @returns True for Inbox, Board, automations, delivery and workflows.
  */
 const isPushed = (view: OwnedView): view is PushedView => PUSHED_VIEWS.has(view);
 
@@ -45,7 +48,7 @@ export interface ConsoleViewHooks {
   /** Currently selected project id. */
   readonly project: () => string;
   /** The shell's single operator control path. */
-  readonly control: (operation: string, input: unknown) => Promise<boolean>;
+  readonly control: OperatorControl;
   /** Route the console to another view. */
   readonly select: (view: string) => void;
   /** Open the investigation dialog for a blocked delivery. */
@@ -119,6 +122,7 @@ export class ConsoleViews {
         }),
       ],
       ['board', createBoardView({ openDelivery, control: hooks.control })],
+      ['automations', createAutomationsView({ control: hooks.control })],
       ['delivery', this.delivery],
       ['workflows', this.workflows],
     ]);
