@@ -258,7 +258,7 @@ function isUnsafeSourcePath(file: string): boolean {
  * @param value - Git-relative path.
  * @returns Whether any path segment is private.
  */
-function hasPrivatePath(value: string): boolean {
+export function hasPrivatePath(value: string): boolean {
   return value.split('/').some((part) => {
     return (
       PRIVATE_SEGMENTS.has(part.toLowerCase()) ||

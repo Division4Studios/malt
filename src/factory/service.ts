@@ -23,6 +23,7 @@ import {
   refundUnpaidAttempt,
 } from './controls.ts';
 import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
+import { deliveryDiff } from './delivery-diff.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
@@ -416,6 +417,7 @@ export class FactoryService {
       factory_attempts: async () => telemetry.attempts(this.repository, this.mesh, input),
       factory_transcript: async () => telemetry.transcript(this.repository, this.mesh, input),
       factory_costs: async () => telemetry.costs(this.repository, this.mesh, input),
+      factory_delivery_diff: async () => deliveryDiff(this.configured(), input),
       factory_prices: () => telemetry.prices(this.repository, input),
       factory_hold: () => holdDeliveries(this.repository, input),
       factory_archive: () => archiveDeliveries(this.repository, input),
