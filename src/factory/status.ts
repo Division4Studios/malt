@@ -18,6 +18,9 @@ import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { AdmissionEvidence, ResourceSnapshot } from './resources.ts';
 
+// The broker-side doctor checks are a read-only projection too.
+export { preflight } from './preflight.ts';
+
 /**
  * Project the current ledger without invoking a model or remote operation.
  *

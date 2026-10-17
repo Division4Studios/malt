@@ -17,12 +17,13 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
 
 import { STATE_DIRECTORY_NAME } from './config.ts';
 import { diagnoseProvider, nativeDiagnostic } from './factory/authentication.ts';
+import { packageEngines } from './package-info.ts';
 
 import type { DiagnosticRunner, ProviderDiagnosis } from './factory/authentication.ts';
 import type { Provider } from './factory/schema.ts';
@@ -141,19 +142,6 @@ export function isAtLeast(version: string, range: string): boolean {
     }
   }
   return true;
-}
-
-/**
- * Read the required Node.js range from MALT's own package manifest.
- *
- * @returns Engines range, or `>=0.0.0` when the manifest has none.
- */
-function packageEngines(): string {
-  const manifest: unknown = JSON.parse(readFileSync(path.join(import.meta.dirname, '..', 'package.json'), 'utf8'));
-  const engines =
-    typeof manifest === 'object' && manifest !== null && 'engines' in manifest ? manifest.engines : undefined;
-  const node = typeof engines === 'object' && engines !== null && 'node' in engines ? engines.node : undefined;
-  return typeof node === 'string' ? node : '>=0.0.0';
 }
 
 /**

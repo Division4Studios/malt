@@ -469,6 +469,7 @@ export const factorySchemas = {
   factory_setup: factoryConfigSchema,
   factory_model_policy: modelPolicyUpdateSchema,
   factory_status: z.object({}).strict(),
+  factory_preflight: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
   factory_request: z
@@ -558,6 +559,7 @@ export const FACTORY_OPERATIONS = [
   'factory_skill_decide',
   'factory_setup',
   'factory_status',
+  'factory_preflight',
   'factory_start',
   'factory_pause',
   'factory_request',

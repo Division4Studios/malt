@@ -9,6 +9,7 @@ import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
 import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
+import { preflightReportSchema } from '../factory/preflight.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
@@ -18,14 +19,32 @@ import { isTerminalOperation } from '../factory/terminal-schema.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
 import { DEFAULT_WORKFLOW_ID, workflowLibrarySchema } from '../factory/workflows.ts';
 import { ProjectLearning } from '../learning.ts';
+import { packageVersion } from '../package-info.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { PreflightReport } from '../factory/preflight.ts';
 import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/telemetry-schema.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
+
+/** How long the broker health probe may take. */
+const HEALTH_MS = 2000;
+/** The broker's unauthenticated health answer. */
+const healthSchema = z.object({ ok: z.literal(true), version: z.string() });
+/** Versions the Settings view shows. */
+export interface ConsoleVersions {
+  /** MALT package version the console runs. */
+  readonly malt: string;
+  /** Console process Node.js version. */
+  readonly node: string;
+  /** Console process platform. */
+  readonly platform: string;
+  /** Broker version, or `null` when its health endpoint does not answer. */
+  readonly broker: string | null;
+}
 
 /** Public team routing metadata. */
 const teamListSchema = z.array(z.object({ team: z.string(), name: z.string(), workspace: z.string().nullable() }));
@@ -257,6 +276,34 @@ export class ProjectGateway {
    */
   public async transcript(id: string, query: unknown): Promise<TranscriptPage> {
     return transcriptPageSchema.parse(await rpc(this.config(id), 'factory_transcript', query));
+  }
+
+  /**
+   * Report the console's and its broker's versions for the Settings view.
+   *
+   * @param id - Explicit project selection.
+   * @returns MALT version, console runtime, and the broker's version or `null` when it does not answer.
+   */
+  public async versions(id: string): Promise<ConsoleVersions> {
+    const config = this.config(id);
+    let broker: string | null;
+    try {
+      const response = await fetch(new URL('/health', config.url), { signal: AbortSignal.timeout(HEALTH_MS) });
+      broker = healthSchema.parse(await response.json()).version;
+    } catch {
+      broker = null;
+    }
+    return { malt: packageVersion(), node: process.versions.node, platform: process.platform, broker };
+  }
+
+  /**
+   * Run the broker-side first-run preflight through its read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @returns Validated pass, fail or fix-it checks.
+   */
+  public async preflight(id: string): Promise<PreflightReport> {
+    return preflightReportSchema.parse(await rpc(this.config(id), 'factory_preflight', {}));
   }
 
   /**

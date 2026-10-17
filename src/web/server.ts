@@ -86,6 +86,11 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'board-ui',
     'automations-model',
     'automations-ui',
+    'onboarding-model',
+    'onboarding-ui',
+    'settings-model',
+    'settings-ui',
+    'project-views',
     'delivery-ui',
     'workflow-model',
     'workflow-checks',
@@ -527,6 +532,14 @@ async function inspectApi(
     }
     case '/api/stream': {
       await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/version': {
+      json(response, HTTP.ok, await gateway.versions(project));
+      return;
+    }
+    case '/api/preflight': {
+      json(response, HTTP.ok, await gateway.preflight(project));
       return;
     }
     case '/api/artifact': {
