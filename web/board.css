@@ -215,6 +215,51 @@ select {
   gap: 20px;
   align-items: start;
 }
+/* Needs reply spans both rows beside notices and answers. */
+.inbox-view > .inbox-lane:first-of-type {
+  grid-row: span 2;
+}
+.inbox-notify {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 12px;
+}
+.inbox-item[data-kind='question'] {
+  border-left-color: var(--cyan);
+}
+.editor-gates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.question-text {
+  margin: 0 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.question-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
 .inbox-lane-title {
   display: flex;
   align-items: center;
@@ -625,6 +670,9 @@ select {
 @media (max-width: 900px) {
   .inbox-view {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .inbox-view > .inbox-lane:first-of-type {
+    grid-row: auto;
   }
   .board-tabs {
     display: flex;

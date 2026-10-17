@@ -69,6 +69,7 @@ const FILES = [
   'dist/approval-dialog.js',
   'dist/inbox-model.js',
   'dist/question-dialog.js',
+  'dist/inbox-notifier.js',
   'dist/inbox-ui.js',
   'dist/board-actions.js',
   'dist/board-ui.js',
