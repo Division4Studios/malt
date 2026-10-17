@@ -29,6 +29,7 @@ import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
+import { ProjectViews } from './project-views.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -257,6 +258,17 @@ const actions: Actions = {
   },
 };
 
+/** Get started and Settings; both reuse the shell's dialogs. */
+const projectViews = new ProjectViews({
+  project: () => state.project,
+  select: go,
+  setup: actions.setup,
+  policy: actions.modelPolicy,
+  organization: actions.organization,
+  objective,
+  control,
+});
+
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
  *
@@ -286,6 +298,7 @@ function render(): void {
   }
   const observed = state.current;
   owned.update(observed);
+  projectViews.update(observed);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
@@ -340,6 +353,8 @@ function render(): void {
     costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
+    settings: () => projectViews.element('settings'),
+    onboarding: () => projectViews.element('onboarding'),
   };
   queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
@@ -417,6 +432,9 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  if (state.view === 'overview' && projectViews.offer(observed, projectId)) {
+    state.view = 'onboarding';
+  }
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
@@ -552,6 +570,7 @@ function go(selected: string): void {
   owned.reset();
   render();
   void readLogs();
+  projectViews.shown(selected);
 }
 
 /** Wire semantic native controls once, then observe the real local service. */
