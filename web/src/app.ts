@@ -350,8 +350,7 @@ function render(): void {
     },
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
-    settings: () => projectViews.element('settings'),
-    onboarding: () => projectViews.element('onboarding'),
+    ...projectViews.builders(),
   };
   queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;

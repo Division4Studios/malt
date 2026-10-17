@@ -1,5 +1,6 @@
 /** @file Project → Recommendations rendered into a text-only DOM: inert text, poll stability, keyboard rows, read receipts and counts. */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 import { createRecommendationsView } from '../web/dist/recommendations-ui.js';
@@ -122,4 +123,12 @@ await test('the Project entry shows accessible pending and unread counts, cleare
   assert.equal(badge.textContent, '1 · 1 new');
   pane.reset();
   assert.equal(badge.textContent, '');
+});
+
+await test('the pane lives under Project without a new top-level section', () => {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Reads only this repository's shell.
+  const shell = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+  assert.equal(shell.match(/data-group="/gv)?.length, 7);
+  const project = shell.slice(shell.indexOf('data-navigation="project"'));
+  assert.ok(project.slice(0, project.indexOf('</div>')).includes('data-view="recommendations"'));
 });

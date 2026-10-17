@@ -162,6 +162,9 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Settings.': '设置。',
   'Appearance, provider health and build facts, with every setting one step away.':
     '外观、提供方健康状况和构建信息，每项设置一步可达。',
+  'Recommendations.': '建议。',
+  'Ticket proposals from the product owner and team lead, by state, with their evidence.':
+    '产品负责人和团队负责人的工单提议，按状态分组，并附带证据。',
   'Get started.': '开始使用。',
   'From an empty project to the first role at work, with the reason if it cannot start.':
     '从空项目到第一个角色开始工作；如果无法开始，会说明原因。',
