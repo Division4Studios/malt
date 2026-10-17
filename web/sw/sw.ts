@@ -63,6 +63,7 @@ const SHELL = [
   '/delivery-ui.js',
   '/sessions.css',
   '/board.css',
+  '/workflow-model.js',
   '/terminal.css',
   '/style.css',
   '/manifest.webmanifest',
