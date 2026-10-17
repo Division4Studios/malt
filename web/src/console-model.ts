@@ -6,8 +6,8 @@
  *
  * @file
  */
-
 import { number, text } from './api.js';
+import { formatDuration } from './telemetry-format.js';
 
 import type { Data } from './api.js';
 
@@ -193,6 +193,13 @@ export interface ConsoleModel {
 
 /** Projection used when the snapshot carries none. */
 export const EMPTY_CONSOLE: ConsoleModel = { deliveries: [], objectives: [], open: [], answered: [] };
+
+/** Milliseconds per minute. */
+const MINUTE_MS = 60_000;
+/** Milliseconds per day. */
+const DAY_MS = 86_400_000;
+/** Characters of a commit shown as a short sha. */
+const SHORT_SHA = 7;
 /** Lines of an error shown on a card. */
 export const ERROR_LINES = 3;
 
@@ -472,4 +479,130 @@ export function readConsole(snapshot: unknown): ConsoleModel {
       };
     }),
   };
+}
+
+/**
+ * Count decisions waiting on the human, for a navigation badge.
+ *
+ * @param snapshot - Console snapshot.
+ * @returns Open Inbox items.
+ */
+export function inboxCount(snapshot: unknown): number {
+  return readConsole(snapshot).open.length;
+}
+
+/** Visible label and glyph for each step state; the glyph keeps state readable without color. */
+export const STATE_LABELS: Readonly<Record<StepState, { readonly label: string; readonly glyph: string }>> = {
+  done: { label: 'Done', glyph: '✓' },
+  running: { label: 'Running', glyph: '▶' },
+  ready: { label: 'Ready', glyph: '○' },
+  needs_you: { label: 'Needs you', glyph: '!' },
+  waiting: { label: 'Waiting', glyph: '·' },
+};
+
+/**
+ * Describe how long ago something happened.
+ *
+ * @param since - Epoch milliseconds of the event.
+ * @param now - Current epoch milliseconds.
+ * @returns Text such as `just now`, `4m 10s ago`, `2h 05m ago` or `3d ago`.
+ */
+export function relativeAge(since: number, now: number): string {
+  if (since <= 0) {
+    return 'unknown time';
+  }
+  const elapsed = Math.max(0, now - since);
+  if (elapsed < MINUTE_MS) {
+    return 'just now';
+  }
+  return elapsed < DAY_MS ? `${formatDuration(elapsed)} ago` : `${String(Math.floor(elapsed / DAY_MS))}d ago`;
+}
+
+/**
+ * Shorten a commit id for display.
+ *
+ * @param sha - Full commit id.
+ * @returns Seven leading characters, or `—` when absent.
+ */
+export function shortSha(sha: string | null): string {
+  return sha === null ? '—' : sha.slice(0, SHORT_SHA);
+}
+
+/**
+ * Bound an error to its leading lines.
+ *
+ * @param message - Full error text.
+ * @param lines - Lines to keep.
+ * @returns Leading lines, with an ellipsis when more were dropped.
+ */
+export function excerpt(message: string, lines = ERROR_LINES): string {
+  const all = message.split('\n');
+  return all.length > lines ? `${all.slice(0, lines).join('\n')}…` : message;
+}
+
+/**
+ * Split a severity tag such as `[P1]` from the start of a finding.
+ *
+ * @param finding - Finding text.
+ * @returns Severity (`P0`, `P1` or `P2`) when tagged, and the remaining text.
+ */
+export function findingSeverity(finding: string): { severity: string | null; text: string } {
+  const match = /^\s*\[(?<severity>P[0-2])\]\s*/v.exec(finding);
+  const severity = match?.groups?.['severity'];
+  return severity === undefined || match === null
+    ? { severity: null, text: finding }
+    : { severity, text: finding.slice(match[0].length) };
+}
+
+/**
+ * Group steps by execution layer.
+ *
+ * @param steps - Steps in workflow order.
+ * @returns Layers in ascending order, each with its steps in workflow order.
+ */
+export function layerGroups(steps: readonly Step[]): { layer: number; steps: Step[] }[] {
+  const groups = Map.groupBy(steps, (step) => step.layer);
+  return Array.from(groups, ([layer, members]) => ({ layer, steps: members })).toSorted(
+    (left, right) => left.layer - right.layer,
+  );
+}
+
+/** One segment of a compact step strip. */
+export interface Segment {
+  /** Step id. */
+  readonly id: string;
+  /** Step state. */
+  readonly state: StepState;
+  /** Accessible description such as `Review: Running`. */
+  readonly label: string;
+}
+
+/**
+ * Turn steps into strip segments and a one-line progress caption.
+ *
+ * @param steps - Steps in workflow order.
+ * @returns Segments and a caption such as `3 of 7 steps done`.
+ */
+export function stepStrip(steps: readonly Step[]): { segments: Segment[]; caption: string } {
+  const segments = steps.map((step) => {
+    const label = `${step.title}: ${STATE_LABELS[step.state].label}`;
+    return { id: step.id, state: step.state, label };
+  });
+  const done = steps.filter((step) => step.state === 'done').length;
+  return { segments, caption: `${String(done)} of ${String(steps.length)} steps done` };
+}
+
+/**
+ * Describe the step a delivery is running now.
+ *
+ * @param delivery - Delivery to describe.
+ * @returns Text such as `qa-1 · QA review`, or `null` when nothing runs.
+ */
+export function runningText(delivery: Delivery): string | null {
+  if (delivery.running === null) {
+    return null;
+  }
+  const { role, step } = delivery.running;
+  const title = delivery.steps.find((candidate) => candidate.id === step)?.title ?? step;
+  return title === null ? role : `${role} · ${title}`;
 }
