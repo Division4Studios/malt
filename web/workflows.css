@@ -588,3 +588,39 @@
   padding-left: 18px;
   font-size: 12px;
 }
+
+/* Revision history dialog. */
+.wf-history-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+.wf-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.wf-history-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.wf-history-item p {
+  margin: 0 0 4px;
+}
+.wf-history-head {
+  font-weight: 600;
+}
+.wf-history-detail {
+  margin-top: 12px;
+}
+.wf-history-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}

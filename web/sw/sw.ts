@@ -81,6 +81,7 @@ const SHELL = [
   '/secrets-ui.js',
   '/step-override-model.js',
   '/workflow-history-model.js',
+  '/workflow-history-ui.js',
   '/step-override-ui.js',
   '/delivery-ui.js',
   '/goal-model.js',
