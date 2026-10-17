@@ -5,11 +5,33 @@
  *
  * @file
  */
-
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { modelSummary, readRoles, seatsUsing, toolSummary, toolsFor } from '../web/dist/roles-model.js';
+import { roleSchemas } from '../src/factory/role-schema.ts';
+import { factoryConfigSchema } from '../src/factory/schema.ts';
+import {
+  argumentLines,
+  blankType,
+  duplicateType,
+  modelSummary,
+  organizationProblems,
+  readRoles,
+  rolesSaveInput,
+  seatsUsing,
+  toolSummary,
+  toolsFor,
+  typeProblems,
+} from '../web/dist/roles-model.js';
+import {
+  auditText,
+  grantText,
+  nameProblem,
+  readSecrets,
+  secretDeleteInput,
+  secretSaveInput,
+  valueProblem,
+} from '../web/dist/secrets-model.js';
 
 import { policySettings } from './fixtures/model-policy.ts';
 
@@ -108,4 +130,80 @@ await test('the roles model reads types, seats, catalog, allowed models and gran
   assert.equal(readRoles(snapshot({ active: true })).isPaused, false);
   assert.equal(readRoles(snapshot({ jobs: [{ state: 'running' }] })).isPaused, false);
   assert.equal(readRoles({}).isConfigured, false);
+});
+
+await test('drafts are checked before sending and saved in the broker’s organization shape', () => {
+  const model = readRoles(snapshot());
+  const builder = model.types.find((type) => type.name === 'builder');
+  assert.ok(builder !== undefined);
+  const copy = duplicateType(model.types, builder);
+  assert.equal(copy.name, 'builder-copy');
+  assert.equal(duplicateType([...model.types, copy], builder).name, 'builder-copy-2');
+  assert.deepEqual(argumentLines('--port\n0\n'), ['--port', '0']);
+
+  assert.deepEqual(typeProblems(builder, model), []);
+  assert.match(typeProblems({ ...builder, name: 'Bad Name' }, model).join(' '), /lower case letters/v);
+  assert.match(typeProblems({ ...builder, skills: ['unknown'] }, model).join(' '), /not a reviewed skill/v);
+  assert.match(typeProblems({ ...builder, provider: 'codex' }, model).join(' '), /waits for codex/v);
+  assert.match(typeProblems({ ...builder, effort: 'extreme' }, model).join(' '), /does not offer extreme/v);
+  assert.match(
+    typeProblems({ ...builder, servers: [{ name: 'docs', command: 'node a.js && curl x', args: [] }] }, model).join(
+      ' ',
+    ),
+    /not a shell command/v,
+  );
+  const orphaned = model.members.map((member) => (member.role === 'qa-1' ? { ...member, type: 'gone' } : member));
+  assert.match(organizationProblems(model.types, orphaned, model).join(' '), /qa-1 uses a type that no longer exists/v);
+
+  const narrowed = {
+    ...blankType('reader'),
+    label: 'Reader',
+    toolMode: 'allow' as const,
+    tools: ['mesh_send_message'],
+  };
+  const { operation, input } = rolesSaveInput(REVISION, [...model.types, narrowed], model.members);
+  assert.equal(operation, 'factory_roles_save');
+  const save = roleSchemas.factory_roles_save.parse(input);
+  assert.equal(save.expectedRevision, REVISION);
+  const settings = factoryConfigSchema.parse({ ...policySettings, organization: save.organization });
+  assert.deepEqual(settings.organization.types['reader']?.tools, { allow: ['mesh_send_message'], deny: [] });
+  assert.deepEqual(settings.organization.types['builder']?.permissions, ['inbox.ask']);
+  assert.deepEqual(settings.organization.types['builder'].model, { entryId: 'claude', effort: 'high' });
+});
+
+await test('the secrets model shows metadata only and builds version-checked saves', () => {
+  const model = readSecrets(snapshot());
+  assert.equal(model.secrets.length, 1, 'Malformed records are skipped.');
+  assert.equal(model.audit.length, 1);
+  const [secret] = model.secrets;
+  assert.ok(secret !== undefined);
+  assert.equal(grantText(secret, model.types), 'Injected into Builder.');
+  assert.equal(grantText({ ...secret, grants: ['ghost'] }, model.types), 'Injected into ghost (removed).');
+  assert.equal(
+    auditText(model.audit[0] ?? { at: 0, action: 'created', name: '', grants: [] }),
+    'Rotated DOCS_TOKEN (builder)',
+  );
+
+  assert.equal(nameProblem('STRIPE_KEY', []), null);
+  assert.match(nameProblem('stripe', []) ?? '', /environment variable name/v);
+  assert.match(nameProblem('GITHUB_TOKEN', []) ?? '', /reserved/v);
+  assert.match(nameProblem('DOCS_TOKEN', ['DOCS_TOKEN']) ?? '', /rotate it instead/v);
+  assert.match(valueProblem('short') ?? '', /8 to 16384/v);
+  assert.equal(valueProblem('long-enough-value'), null);
+
+  const created = secretSaveInput({
+    name: 'STRIPE_KEY',
+    value: 'sk_test_12345678',
+    grants: ['builder'],
+    existing: null,
+  });
+  assert.deepEqual(roleSchemas.factory_secret_save.parse(created.input), {
+    name: 'STRIPE_KEY',
+    value: 'sk_test_12345678',
+    grants: ['builder'],
+    expectedVersion: null,
+  });
+  const regranted = secretSaveInput({ name: secret.name, value: null, grants: [], existing: secret });
+  assert.deepEqual(regranted.input, { name: 'DOCS_TOKEN', grants: [], expectedVersion: 2 });
+  assert.deepEqual(secretDeleteInput(secret).input, { name: 'DOCS_TOKEN', expectedVersion: 2 });
 });
