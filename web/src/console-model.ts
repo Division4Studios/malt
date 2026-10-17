@@ -7,6 +7,8 @@
  * @file
  */
 
+import { number, text } from './api.js';
+
 import type { Data } from './api.js';
 
 /** Plain step states, in the order the broker defines them. */
@@ -204,4 +206,270 @@ export function asData(value: unknown): Data | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     ? Object.fromEntries(Object.entries(value))
     : null;
+}
+
+/**
+ * Keep the plain-object members of an untrusted array.
+ *
+ * @param value - Untrusted collection.
+ * @returns Plain objects; other members are skipped.
+ */
+function objects(value: unknown): Data[] {
+  return Array.isArray(value) ? value.map((item) => asData(item)).filter((item) => item !== null) : [];
+}
+
+/**
+ * Read a string field that may be absent.
+ *
+ * @param value - Validated record.
+ * @param key - Field name.
+ * @returns Non-empty string, or `null`.
+ */
+function nullableText(value: Data, key: string): string | null {
+  const field = value[key];
+  return typeof field === 'string' && field !== '' ? field : null;
+}
+
+/**
+ * Read an array of strings.
+ *
+ * @param value - Untrusted collection.
+ * @returns Its string members.
+ */
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/**
+ * Check membership in a fixed list of literals.
+ *
+ * @param list - Allowed values.
+ * @param value - Candidate.
+ * @returns Whether the candidate is one of them.
+ */
+function isOneOf<Value extends string>(list: readonly Value[], value: unknown): value is Value {
+  const members: readonly unknown[] = list;
+  return members.includes(value);
+}
+
+/**
+ * Validate a step result.
+ *
+ * @param value - Untrusted result.
+ * @returns Result, or `null` when absent or malformed.
+ */
+function parseResult(value: unknown): StepResult | null {
+  const record = asData(value);
+  if (record === null) {
+    return null;
+  }
+  const dispositions = objects(record['dispositions']).map((entry) => {
+    return {
+      id: text(entry, 'id'),
+      decision: text(entry, 'decision'),
+      reason: text(entry, 'reason'),
+      evidence: text(entry, 'evidence'),
+    };
+  });
+  return {
+    outcome: text(record, 'outcome'),
+    summary: text(record, 'summary'),
+    findings: strings(record['findings']),
+    dispositions,
+    role: text(record, 'role'),
+  };
+}
+
+/**
+ * Validate one step.
+ *
+ * @param record - Untrusted step record.
+ * @returns Step, or `null` without an id.
+ */
+function parseStep(record: Data): Step | null {
+  const id = text(record, 'id');
+  if (id === '') {
+    return null;
+  }
+  const { state } = record;
+  return {
+    id,
+    title: text(record, 'title') === '' ? id : text(record, 'title'),
+    kind: text(record, 'kind'),
+    layer: Math.max(1, Math.floor(number(record, 'layer'))),
+    roles: strings(record['roles']),
+    state: isOneOf(STEP_STATES, state) ? state : 'waiting',
+    gate: record['gate'] === true,
+    blind: record['blind'] === true,
+    provider: nullableText(record, 'provider'),
+    result: parseResult(record['result']),
+  };
+}
+
+/**
+ * Validate a list of steps.
+ *
+ * @param value - Untrusted collection.
+ * @returns Valid steps in order.
+ */
+function parseSteps(value: unknown): Step[] {
+  return objects(value)
+    .map((record) => parseStep(record))
+    .filter((step) => step !== null);
+}
+
+/**
+ * Validate a workflow reference.
+ *
+ * @param value - Untrusted workflow identity.
+ * @returns Identity with a readable name.
+ */
+function parseWorkflow(value: unknown): WorkflowIdentity {
+  const record = asData(value) ?? {};
+  const id = text(record, 'id');
+  return { id, name: text(record, 'name') === '' ? id : text(record, 'name') };
+}
+
+/**
+ * Validate a board column.
+ *
+ * @param value - Untrusted column.
+ * @param fallback - Column used when the value is unknown.
+ * @returns Known column.
+ */
+function parseColumn(value: unknown, fallback: Column): Column {
+  return isOneOf(COLUMNS, value) ? value : fallback;
+}
+
+/**
+ * Validate a live attempt.
+ *
+ * @param value - Untrusted running attempt.
+ * @returns Attempt, or `null`.
+ */
+function parseRunning(value: unknown): Delivery['running'] {
+  const record = asData(value);
+  return record === null
+    ? null
+    : { jobId: text(record, 'jobId'), role: text(record, 'role'), step: nullableText(record, 'step') };
+}
+
+/**
+ * Validate one delivery.
+ *
+ * @param record - Untrusted delivery record.
+ * @returns Delivery, or `null` without an id.
+ */
+function parseDelivery(record: Data): Delivery | null {
+  const taskId = text(record, 'taskId');
+  if (taskId === '') {
+    return null;
+  }
+  const waiting: unknown = record['waitingOn'];
+  return {
+    taskId,
+    issue: number(record, 'issue'),
+    title: text(record, 'title'),
+    featureId: nullableText(record, 'featureId'),
+    phase: text(record, 'phase'),
+    column: parseColumn(record['column'], 'in_progress'),
+    workflow: parseWorkflow(record['workflow']),
+    steps: parseSteps(record['steps']),
+    running: parseRunning(record['running']),
+    head: nullableText(record, 'head'),
+    base: nullableText(record, 'base'),
+    prUrl: nullableText(record, 'prUrl'),
+    developer: nullableText(record, 'developer'),
+    waitingOn: Array.isArray(waiting)
+      ? waiting.filter((issue): issue is number => typeof issue === 'number' && Number.isFinite(issue))
+      : [],
+    attempts: number(record, 'attempts'),
+    error: nullableText(record, 'error'),
+    updatedAt: number(record, 'updatedAt'),
+  };
+}
+
+/**
+ * Validate one objective.
+ *
+ * @param record - Untrusted objective record.
+ * @returns Objective, or `null` without an id.
+ */
+function parseObjective(record: Data): Objective | null {
+  const featureId = text(record, 'featureId');
+  if (featureId === '') {
+    return null;
+  }
+  const deliveries = asData(record['deliveries']) ?? {};
+  return {
+    featureId,
+    title: text(record, 'title'),
+    phase: text(record, 'phase'),
+    column: parseColumn(record['column'], 'planning'),
+    workflow: parseWorkflow(record['workflow']),
+    steps: parseSteps(record['steps']),
+    deliveries: { total: number(deliveries, 'total'), done: number(deliveries, 'done') },
+    error: nullableText(record, 'error'),
+    createdAt: number(record, 'createdAt'),
+  };
+}
+
+/**
+ * Validate one open Inbox item.
+ *
+ * @param record - Untrusted item.
+ * @returns Item, or `null` for an unknown kind or missing id.
+ */
+function parseInboxItem(record: Data): InboxItem | null {
+  const id = text(record, 'id');
+  const { kind } = record;
+  if (id === '' || !isOneOf(INBOX_KINDS, kind)) {
+    return null;
+  }
+  return {
+    id,
+    kind,
+    title: text(record, 'title'),
+    detail: text(record, 'detail'),
+    since: number(record, 'since'),
+    taskId: nullableText(record, 'taskId'),
+    featureId: nullableText(record, 'featureId'),
+    stepId: nullableText(record, 'stepId'),
+    head: nullableText(record, 'head'),
+    requestId: nullableText(record, 'requestId'),
+  };
+}
+
+/**
+ * Read the console projection from a snapshot.
+ *
+ * @param snapshot - Validated console snapshot or raw `/api/snapshot` JSON.
+ * @returns Validated projection; empty when the snapshot has none.
+ */
+export function readConsole(snapshot: unknown): ConsoleModel {
+  const factory = asData(asData(snapshot)?.['factory']);
+  const view = asData(factory?.['console']);
+  if (view === null) {
+    return EMPTY_CONSOLE;
+  }
+  const inbox = asData(view['inbox']) ?? {};
+  return {
+    deliveries: objects(view['deliveries'])
+      .map((record) => parseDelivery(record))
+      .filter((entry) => entry !== null),
+    objectives: objects(view['objectives'])
+      .map((record) => parseObjective(record))
+      .filter((entry) => entry !== null),
+    open: objects(inbox['open'])
+      .map((record) => parseInboxItem(record))
+      .filter((entry) => entry !== null),
+    answered: objects(inbox['answered']).map((record) => {
+      return {
+        id: text(record, 'id'),
+        title: text(record, 'title'),
+        note: text(record, 'note'),
+        at: number(record, 'at'),
+      };
+    }),
+  };
 }
