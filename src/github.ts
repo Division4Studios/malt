@@ -13,6 +13,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
+import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
@@ -21,6 +22,7 @@ import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
+import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
 import type { IssueReader } from './github-issues.ts';
@@ -143,16 +145,24 @@ export class ProjectGitHub {
   private readonly directory: string;
   /** Tail of the per-project async operation queue. */
   private pending: Promise<undefined> = Promise.resolve(undefined);
+  /** The project's capability policy; mutations fail closed without one. */
+  private readonly policy: CapabilityGate;
 
   /**
    * Prepare project-specific integration without making network calls.
    *
    * @param config - The target workspace, not the broker's home project.
    * @param runner - Optional test adapter.
+   * @param policy - This same project's capability policy; the broker supplies it.
    */
-  public constructor(config: MeshConfig, runner: GitHubRunner = githubRunner(config.root)) {
+  public constructor(
+    config: MeshConfig,
+    runner: GitHubRunner = githubRunner(config.root),
+    policy: CapabilityGate = UNBOUND_GATE,
+  ) {
     this.config = config;
     this.runner = runner;
+    this.policy = policy;
     this.directory = path.join(config.directory, 'github');
   }
 
@@ -166,18 +176,27 @@ export class ProjectGitHub {
 
   /**
    * Execute an operation after earlier operations for this project finish.
+   * Mutations are authorized for the principal immediately before dispatch,
+   * so a denial makes no remote call and writes no journal.
    *
+   * @param principal - Caller derived from authenticated context, never request data.
    * @param operation - Validated GitHub operation name.
    * @param input - Untrusted tool or RPC arguments.
    * @returns Validated GitHub details or saved local state.
+   * @throws {MeshError} CAPABILITY_DENIED when policy forbids it or none is bound.
    */
-  public async execute(operation: GitHubOperation, input: unknown): Promise<unknown> {
+  public async execute(principal: CapabilityPrincipal, operation: GitHubOperation, input: unknown): Promise<unknown> {
     const previous = this.pending;
     const { promise, resolve } = Promise.withResolvers<undefined>();
     this.pending = promise;
     await previous;
     try {
-      return await this.dispatch(operation, input);
+      this.policy.authorize(principal, githubCapabilities(operation, input));
+      const result = await this.dispatch(operation, input);
+      if (operation === 'github_connect') {
+        this.policy.grantConnectionDefaults(principal);
+      }
+      return result;
     } finally {
       resolve(undefined);
     }

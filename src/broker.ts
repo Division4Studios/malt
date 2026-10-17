@@ -35,7 +35,7 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
-import { capabilityStatus, setCapability } from './capability-endpoints.ts';
+import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
@@ -58,6 +58,7 @@ import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
 
+import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
@@ -215,14 +216,15 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     return context.home;
   }
   const store = new Store(config, { now: context.now });
-  const github = new ProjectGitHub(config, context.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, context.githubRunner?.(config));
   const team: Team = {
     config,
     store,
     waiters: new Waiters(store),
     github,
-    policy: new CapabilityPolicyStore(store, config),
+    policy,
     learning,
     factory: new FactoryService(
       config,
@@ -542,45 +544,6 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
 }
 
 /**
- * Read connector capability policies, or apply a human edit. Agents may read
- * the policy that governs them but can never change it, whatever their role.
- *
- * @param team - Current workspace's services.
- * @param operation - Capability policy operation.
- * @param input - Untrusted RPC input.
- * @param credentials - Authenticated bridge identity, absent for the operator.
- * @returns The project's policy view.
- * @throws {MeshError} HUMAN_CONTROL_REQUIRED when an agent attempts an edit.
- */
-function handleCapabilityOperation(
-  team: Team,
-  operation: CapabilityOperation,
-  input: unknown,
-  credentials: PresentedCredentials | undefined,
-): unknown {
-  if (operation === 'capability_policy_status') {
-    parseInput(operation, input);
-    if (credentials !== undefined) {
-      team.store.authenticate(credentials);
-    }
-    return capabilityStatus(team.policy, team.config);
-  }
-  if (credentials !== undefined) {
-    // Malformed input still reports INVALID_INPUT before authentication.
-    parseInput(operation, input);
-    team.store.authenticate(credentials);
-    throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Only the human operator may change connector capability policy.');
-  }
-  const change = parseInput(operation, input);
-  const result = setCapability(team.policy, team.config, change);
-  team.store.transaction(() => {
-    team.store.event('CAPABILITY_POLICY_CHANGED', null, { capability: change.capability });
-  });
-  team.waiters.notify();
-  return result;
-}
-
-/**
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
@@ -614,9 +577,13 @@ async function handleProjectOperation(
       "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
     );
   }
+  // Mutations admit only the designated lead above, so agents act as team-lead;
+  // other credentialed callers reach here only for reads, which need no capability.
+  const principal: CapabilityPrincipal =
+    actor === null ? PROJECT_OPERATOR : { kind: 'agent', id: actor, role: 'team-lead' };
   const result = isLearningOperation(operation)
     ? await team.learning.execute(operation, input, actor ?? '')
-    : await team.github.execute(operation, input);
+    : await team.github.execute(principal, operation, input);
   if (!READ_PROJECT_OPERATIONS.has(operation)) {
     team.store.transaction(() => {
       team.store.event('PROJECT_OPERATION_COMPLETED', actor, { operation });
@@ -754,7 +721,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const github = new ProjectGitHub(config, options.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, options.githubRunner?.(config));
   const context: BrokerContext = {
     home: {
@@ -762,7 +730,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       store,
       waiters,
       github,
-      policy: new CapabilityPolicyStore(store, config),
+      policy,
       learning,
       factory: new FactoryService(
         config,

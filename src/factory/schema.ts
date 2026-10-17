@@ -261,6 +261,10 @@ export const featureSchema = z.object({
   id: z.string().uuid(),
   scopeReplacement: z.string().uuid().optional(),
   scopeCleanup: z.object({ at: z.number(), note: z.string() }).optional(),
+  /** Parked by a connector capability denial at a policy revision; restores `phase`. */
+  capabilityBlock: z
+    .object({ phase: z.enum(['provisioning', 'active']), revision: z.number().int().nonnegative() })
+    .optional(),
   objective: textSchema,
   phase: z.enum(['queued', 'refining', 'provisioning', 'active', 'done', 'blocked']),
   productPlan: resultSchema.nullable(),
@@ -290,6 +294,13 @@ const publicationSizeSchema = z.object({
 });
 /** Durable delivery and PR lifecycle. */
 export const taskSchema = z.object({
+  /** Parked by a connector capability denial at a policy revision; restores `phase`. */
+  capabilityBlock: z
+    .object({
+      phase: z.enum(['ready', 'development', 'publishing', 'review', 'merge_ready', 'merging', 'verifying', 'closing']),
+      revision: z.number().int().nonnegative(),
+    })
+    .optional(),
   publicationGate: publicationSizeSchema.optional(),
   sizeApproval: publicationSizeSchema.extend({ reason: z.string().min(1), at: z.number() }).optional(),
   id: z.string().uuid(),
