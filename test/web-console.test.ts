@@ -24,6 +24,7 @@ import { readArtifact } from '../src/web/artifacts.ts';
 import { ProjectGateway } from '../src/web/projects.ts';
 import { startWebConsole } from '../src/web/server.ts';
 
+import { policySettings } from './fixtures/model-policy.ts';
 import { createCleanup, createProject, brokerUrl } from './helpers.ts';
 
 /** Minimal durable event envelope used to verify native SSE cursor recovery. */
@@ -44,6 +45,39 @@ const factoryViewSchema = z.object({
 const viewSchema = z.object({ factory: factoryViewSchema });
 /** A bounded native artifact response. */
 const artifactPageSchema = z.object({ text: z.string(), nextCursor: z.number() });
+
+await test('paired policy controls retain server truth across stale revisions and project selection', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const broker = await startBroker(mesh, { port: 0 });
+  defer(async () => broker.close());
+  const repository = new FactoryRepository(broker.store);
+  const { modelPolicy, ...legacy } = policySettings;
+  assert.ok(modelPolicy !== undefined);
+  repository.configure(legacy);
+  const web = await startWebConsole({ ...mesh, url: brokerUrl(broker.port) }, 0);
+  defer(async () => web.close());
+  const headers = await pairBrowser(web.url, web.pairingCode);
+  const save = async (project: string, expectedRevision: number | null, revision: number): Promise<Response> => {
+    return fetch(`${web.url}/api/control?project=${project}`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'factory_model_policy',
+        input: { expectedRevision, policy: { ...modelPolicy, revision } },
+      }),
+    });
+  };
+  assert.equal((await save('home', null, 1)).status, 200);
+  assert.deepEqual(repository.config()?.modelPolicy, modelPolicy);
+  assert.notEqual((await save('home', null, 2)).status, 200);
+  assert.equal(repository.config()?.modelPolicy?.revision, 1);
+  assert.equal((await save('missing', 1, 2)).status, 403);
+  assert.equal(repository.config()?.modelPolicy?.revision, 1);
+  assert.equal((await save('home', 1, 2)).status, 200);
+  assert.equal(repository.config()?.modelPolicy?.revision, 2);
+  assert.equal(repository.config()?.maxDiffLines, legacy.maxDiffLines);
+});
 
 await test('paired external-merge adoption is fenced, durable and does not start verification by itself', async (t) => {
   const defer = createCleanup(t);

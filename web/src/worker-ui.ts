@@ -23,6 +23,25 @@ export interface EditorDescription {
 }
 
 /**
+ * Apply delayed failure feedback only to the draft that submitted the request.
+ *
+ * @param submitted - Captured edit identity before awaiting the backend.
+ * @param current - Currently open edit, possibly replaced or cancelled.
+ * @param isApplied - Actual backend result.
+ * @returns Whether the originating editor may be closed as saved.
+ */
+export function canFinishEdit(submitted: object, current: object | null, isApplied: boolean): boolean {
+  if (submitted !== current) {
+    return false;
+  }
+  if (!isApplied) {
+    shellNode('editor-error', HTMLParagraphElement).textContent =
+      'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.';
+  }
+  return isApplied;
+}
+
+/**
  * Require an actual typed shell node without accepting unsafe DOM casts.
  *
  * @param id - Fixed public shell ID.

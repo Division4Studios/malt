@@ -7,9 +7,20 @@
 
 import { z } from 'zod/v3';
 
+import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
+import {
+  roleChoiceOutput,
+  modelChoiceSchema,
+  modelPolicySchema,
+  modelPolicyUpdateSchema,
+  modelSelectionSchema,
+  reviewedRecommendationSchema,
+} from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
+import { recommendationReadSchemas } from './recommendation-read-schema.ts';
+import { recommendationBodySchema } from './recommendation-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 
 /** Bound operator triage context independently of model transcripts. */
@@ -87,100 +98,25 @@ const assignmentProfilesSchema = z
         tier: z.enum(['small', 'standard', 'advanced']),
         effort: z.enum(['low', 'medium', 'high']),
         reason: z.string().min(1).max(ROUTING_REASON_MAX),
+        modelChoice: modelChoiceSchema.nullable().optional(),
       })
       .strict(),
   )
   .max(FACTORY_ROLES.length)
+  .refine((profiles) => {
+    const roles = new Set(profiles.map((profile) => profile.role));
+    return profiles.every((profile) => profile.modelChoice === undefined) || roles.size === profiles.length;
+  }, 'Duplicate role recommendations.')
   .optional();
 /** Bounded text which cannot be empty. */
 export const textSchema = z.string().min(1).max(TEXT_MAX);
-/** Bound each proposal's collections and identifiers independently of text. */
-const RECOMMENDATION_ITEMS = 100;
-/** Opaque project, issue revision and assignment identifiers. */
-const recommendationKey = z.string().min(1).max(TITLE_MAX);
-/** One observed issue identifier and freshness token. */
-const observedIssueSchema = z
-  .object({ issue: z.number().int().safe().positive(), revision: recommendationKey })
-  .strict();
-/** Exact, bounded proposal content; no ticket body snapshots are retained. */
-export const recommendationBodySchema = z
-  .object({
-    kind: z.enum(['duplicate', 'related', 'consolidate', 'scope_change', 'guidance_suggestion']),
-    tickets: z
-      .array(z.number().int().safe().positive())
-      .min(1)
-      .max(RECOMMENDATION_ITEMS)
-      .transform((tickets) => [...new Set(tickets)].toSorted((a, b) => a - b)),
-    action: textSchema,
-    evidence: z.array(textSchema).min(1).max(RECOMMENDATION_ITEMS),
-    observedIssues: z
-      .array(observedIssueSchema)
-      .min(1)
-      .max(RECOMMENDATION_ITEMS)
-      .transform((issues) => issues.toSorted((a, b) => a.issue - b.issue)),
-    survivor: z.number().int().safe().positive().nullable(),
-    transferredAcceptance: z.array(textSchema).max(RECOMMENDATION_ITEMS),
-    transferredDependencies: z.array(z.number().int().safe().positive()).max(RECOMMENDATION_ITEMS),
-    affectedAssignments: z.array(recommendationKey).max(RECOMMENDATION_ITEMS),
-    preview: z.object({ before: textSchema, after: textSchema }).strict(),
-  })
-  .strict()
-  .refine(
-    (body) => {
-      return (
-        (body.survivor === null || body.tickets.includes(body.survivor)) &&
-        body.observedIssues.length === body.tickets.length &&
-        body.observedIssues.every((issue, index) => issue.issue === body.tickets[index])
-      );
-    },
-    { message: 'Every ticket needs exactly one observed revision; survivor must be a referenced ticket.' },
-  );
-/** Documented durable recommendation lifecycle. */
-export const recommendationStateSchema = z.enum([
-  'proposed',
-  'awaiting_human',
-  'approved',
-  'rejected',
-  'stale',
-  'applying',
-  'reconciling',
-  'completed',
-  'failed',
-]);
-/** One lifecycle state. */
-export type RecommendationState = z.output<typeof recommendationStateSchema>;
-/** Bounded proposal accepted by the repository. */
-export type RecommendationBody = z.input<typeof recommendationBodySchema>;
-/** One durable lifecycle observation. */
-const recommendationAuditSchema = z.object({
-  at: z.number(),
-  from: recommendationStateSchema.nullable(),
-  to: recommendationStateSchema,
-  reason: textSchema,
-});
-/** A content-addressed revision with its lifecycle audit. */
-export const recommendationSchema = z.object({
-  id: z.string(),
-  // Project identity follows persisted configuration, not the bounded recommendation keys.
-  project: z.string().min(1),
-  revision: z.string(),
-  body: recommendationBodySchema,
-  state: recommendationStateSchema,
-  unread: z.boolean(),
-  audit: z.array(recommendationAuditSchema),
-});
-/** Persisted recommendation revision. */
-export type Recommendation = z.output<typeof recommendationSchema>;
-/** Compare-and-set mutation; the repository supplies the project scope. */
-export const recommendationTransitionSchema = z
-  .object({
-    id: recommendationKey,
-    revision: recommendationKey,
-    state: recommendationStateSchema,
-    next: recommendationStateSchema,
-    reason: textSchema,
-  })
-  .strict();
+export {
+  recommendationBodySchema,
+  recommendationStateSchema,
+  recommendationSchema,
+  recommendationTransitionSchema,
+} from './recommendation-schema.ts';
+export type { RecommendationState, RecommendationBody, Recommendation } from './recommendation-schema.ts';
 /** Shell-free project validation command. */
 export const commandSchema = z.object({ file: z.string().min(1), args: z.array(z.string()).default([]) }).strict();
 /** Configurable provider capacity and executable; credentials remain external. */
@@ -221,6 +157,7 @@ export function isTokenCapExceeded(budget: number | null, usage: number): boolea
 export const factoryConfigSchema = z
   .object({
     version: z.literal(1).default(1),
+    modelPolicy: modelPolicySchema.optional(),
     organization: organizationSchema(FACTORY_ROLES),
     requireBranchProtection: z.boolean().default(true),
     /** GitHub delivery, or the project-private local hub and ledger with no hosted service. */
@@ -398,7 +335,16 @@ export const taskSchema = z.object({
     .object({ head: z.string(), base: z.string(), jobId: z.string().uuid(), summary: textSchema })
     .nullable()
     .default(null),
-  verifiedMain: z.object({ head: z.string(), jobId: z.string().uuid(), summary: textSchema }).nullable().default(null),
+  verifiedMain: z
+    .object({
+      head: z.string(),
+      jobId: proofJobIdSchema,
+      summary: textSchema,
+      /** Closed as not planned or duplicate: done, but never counted as delivered. */
+      undelivered: z.literal(true).optional(),
+    })
+    .nullable()
+    .default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -414,7 +360,9 @@ export const jobSchema = z.object({
     .object({
       tier: z.enum(['small', 'standard', 'advanced']),
       model: z.string().nullable(),
-      effort: z.enum(['low', 'medium', 'high']).optional(),
+      effort: z.enum(['low', 'medium', 'high']).nullable().optional(),
+      selection: modelSelectionSchema.optional(),
+      reviewed: reviewedRecommendationSchema.optional(),
       reason: textSchema,
       skillNames: z.array(keySchema),
       organization: frozenOrganizationSchema.optional(),
@@ -456,18 +404,8 @@ export const capacitySchema = z.object({
 });
 /** Persisted capacity snapshot. */
 export type Capacity = z.output<typeof capacitySchema>;
-/** Durable, retryable remote effects. */
-export const effectSchema = z.object({
-  id: z.string(),
-  kind: z.enum(['status', 'comment', 'close', 'close_not_planned', 'close_pr']),
-  issue: z.number().int().positive(),
-  value: z.string(),
-  attempts: z.number().int().nonnegative(),
-  retryAt: z.number(),
-  error: z.string().nullable(),
-});
-/** One outbox entry. */
-export type FactoryEffect = z.output<typeof effectSchema>;
+export { effectSchema } from './outbox-schema.ts';
+export type { FactoryEffect } from './outbox-schema.ts';
 /** Independent lead review of a learning steward's adoption/retirement request. */
 export const skillRequestSchema = skillActionSchema.extend({
   id: z.string().uuid(),
@@ -483,6 +421,8 @@ export const skillRequestSchema = skillActionSchema.extend({
 export type SkillRequest = z.output<typeof skillRequestSchema>;
 /** MCP/CLI operations exposed by the factory. */
 export const factorySchemas = {
+  factory_recommendation_propose: z.object({ key: keySchema, proposal: recommendationBodySchema }).strict(),
+  ...recommendationReadSchemas,
   factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
@@ -507,6 +447,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_setup: factoryConfigSchema,
+  factory_model_policy: modelPolicyUpdateSchema,
   factory_status: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
@@ -527,7 +468,7 @@ export const factorySchemas = {
       requestId: z.string().uuid(),
       featureId: z.string().uuid(),
       expectedUpdatedAt: z.number(),
-      action: z.enum(['lead', 'owner', 'existing']),
+      action: z.enum(['lead', 'owner', 'existing', 'retire']),
       note: z.string().trim().min(1).max(TRIAGE_NOTE_MAX),
     })
     .strict(),
@@ -545,6 +486,7 @@ export const factorySchemas = {
         'wait',
         'approve_size',
         'adopt_merge',
+        'adopt_delivered',
       ]),
       note: z.string().trim().max(TRIAGE_NOTE_MAX).default(''),
       mergeCommit: z
@@ -572,11 +514,16 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
 /** Factory operation names for routing without importing the supervisor. */
 export const FACTORY_OPERATIONS = [
+  'factory_recommendation_propose',
+  'factory_recommendations',
+  'factory_recommendation_read',
+  'factory_model_policy',
   'factory_progress',
   'factory_read_source',
   'factory_export_maintenance',
@@ -595,6 +542,7 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_reconcile_github',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {
@@ -660,17 +608,7 @@ export const AGENT_OUTPUT_SCHEMA = {
           assignmentProfiles: {
             type: 'array',
             maxItems: FACTORY_ROLES.length,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['role', 'tier', 'effort', 'reason'],
-              properties: {
-                role: { type: 'string', enum: FACTORY_ROLES },
-                tier: { type: 'string', enum: ['small', 'standard', 'advanced'] },
-                effort: { type: 'string', enum: ['low', 'medium', 'high'] },
-                reason: { type: 'string', minLength: 1, maxLength: ROUTING_REASON_MAX },
-              },
-            },
+            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
           },
           skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
         },
