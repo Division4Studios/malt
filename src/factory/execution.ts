@@ -14,18 +14,61 @@ import { writeAtomic } from '../summary.ts';
 
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
+import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
-import { pendingTriage } from './triage.ts';
+import { isCurrentTriage, pendingTriage } from './triage.ts';
 import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
+import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
+
+/**
+ * Stop reviewers whose exact source or assigned stage was invalidated, preserving developer edits.
+ *
+ * @param repository - Current project ledger.
+ * @param running - Only the supervisor's owned cancellation handles.
+ */
+export function cancelStaleAssignments(
+  repository: FactoryRepository,
+  running: ReadonlyMap<string, { controller: AbortController }>,
+): void {
+  const candidates = repository
+    .jobs()
+    .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
+  for (const job of candidates) {
+    if (job.taskId === null || job.kind === 'develop') {
+      continue;
+    }
+    const task = repository.task(job.taskId);
+    if (job.kind === 'triage') {
+      if (!isCurrentTriage(repository, job)) {
+        running.get(job.id)?.controller.abort();
+      }
+      continue;
+    }
+    const phases = {
+      review: 'review',
+      final: 'merge_ready',
+      verify: 'verifying',
+      plan: '',
+      refine: '',
+      develop: '',
+      learn: '',
+      skill: '',
+      triage: '',
+    } as const;
+    if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
+      running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
+    }
+  }
+}
 /** Bounded planning inventory, without historical transcripts. */
 const PLANNING_DELIVERIES = 100;
 /** Keep diagnostics compact; full histories stay in durable artifacts. */
@@ -130,14 +173,15 @@ export async function executeJob(
   const { cwd, snapshot, checks } = await prepareSource(context, record, controls.signal);
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
   const evidence = await roleEvidence(context, record);
+  const recommendations = recommendationNotices(repository.store, record);
 
   const currentTask = task === null ? null : repository.task(task.id);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, recommendations } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
-    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
+    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
   );
   writeAtomic(path.join(record.artifact, 'prompt.md'), prompt);
   controls.signal.throwIfAborted();
@@ -352,6 +396,25 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
         claude: context.settings.providers.claude.models,
         copilot: context.settings.providers.copilot.models,
       },
+      allowedModelPolicy:
+        context.settings.modelPolicy === undefined
+          ? null
+          : {
+              revision: context.settings.modelPolicy.revision,
+              entries: context.settings.modelPolicy.entries.map(
+                ({ id, provider, model, capability, effortSupport, efforts }) => {
+                  return {
+                    id,
+                    provider,
+                    model,
+                    capability,
+                    effortSupport,
+                    efforts,
+                  };
+                },
+              ),
+              defaults: context.settings.modelPolicy.defaults,
+            },
     };
   } else if (record.kind === 'learn') {
     evidence = {

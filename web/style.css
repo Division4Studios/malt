@@ -1298,6 +1298,31 @@ body[data-connection='live'] .workflow-node[data-state='active'] circle {
   display: grid;
   gap: 10px;
 }
+[data-model-policy] fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+[data-model-policy] label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+[data-model-policy] label:has(input[type='checkbox']) {
+  display: flex;
+  align-items: center;
+}
+[data-model-policy] input[type='checkbox'] {
+  width: auto;
+}
+[data-selection-evidence] dd {
+  min-width: 0;
+  margin-inline-start: 0;
+  overflow-wrap: anywhere;
+}
 .connection-fields input {
   width: 100%;
   min-width: 0;
@@ -1888,4 +1913,12 @@ summary {
     grid-auto-flow: row;
     grid-auto-columns: auto;
   }
+}
+
+.diff-meta {
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  font-family: var(--font-terminal);
+  font-size: 0.85em;
+  color: var(--muted);
 }

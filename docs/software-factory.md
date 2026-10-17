@@ -1,10 +1,28 @@
 # Project coordination and learning
 
+Claude's supported completed-stream rate-limit observations retain unified windows and an explicit `legacy-reported` window for scalar utilization. Legacy duration and missing reset deadlines remain unknown; zero usage is an actual observation. Observations use completion-read time, not inferred live-event time. Credit/API balances never become subscription quota. Expired or malformed windows cannot refresh allowance; persisted observation timestamps age independently of token accounting.
+
 The [current capability map](current-status.md) and [95-issue audit](issue-audit-2026-10-15.md) distinguish implemented foundations from unfinished integrations.
 
 MALT is an MCP server used by independent Claude and Codex sessions. Its own source repository is not the project those sessions are delivering. The session's workspace selects the team, its local `.malt` directory, its GitHub Project connection and its skill library.
 
 ## What is implemented
+
+The prepared capacity/model-policy/intake batch is in [Stack #251](https://github.com/Division4Studios/malt/stack/251), pending operator merge and matching deployment. Unpaid intake inspects native/local behavioral overlap before new planning/provisioning, reuses interrupted operation identities, and parks only scopes that need human disposition. Exact human decisions use the paired owner capability; agents can propose but cannot decide. Approval is an inert intent until the separately tracked executors exist.
+
+```mermaid
+flowchart TD
+  O[Durable objective] --> I[Unpaid bounded overlap intake]
+  I -->|No overlap or exact operation replay| P[Product and lead planning]
+  I -->|Evidence-backed overlap| H[Exact human recommendation]
+  H -->|Reject: keep separate| P
+  H -->|Approve| A[Inert durable intent]
+  A -.-> E[Executors and full decision UI: separate pending deliveries]
+  P --> D[Tracked atomic deliveries and existing QA gates]
+  U[Unrelated eligible delivery] --> D
+```
+
+The intake queue does not close tickets or modify skills. Native/local revisions are checked again at human decision time; a changed scope becomes stale. Running assignments retain frozen context, fresh relevant assignments receive at most ten compact durable notices, and full private corpus/history stays in `.malt`. See the [API contract and remaining boundaries](api.md#supervisor-overlap-intake).
 
 - Durable workspace-local conversations, identities, assignments and event history, with a generated `.malt/README.md`.
 - Workspace-scoped MCP tools for connecting GitHub Projects, creating native parent/sub-issues, setting delivery statuses and caching board snapshots.
@@ -209,3 +227,9 @@ A manually edited file or an older index without a matching ownership receipt is
 A coordinated scope change is committed with its durable instruction and replacement objective in one SQLite transaction. Project-wide changes park old planning requests and every unfinished, unmerged delivery; selected changes also park dependent deliveries transitively. `scopeReplacement` links the parked record to the new product-owner/lead objective. Old approvals are invalidated, while completed proof and verification of already-merged code are retained. Ordinary retry cannot re-enable a superseded scope. Worktrees and source history are preserved for the replacement plan to inspect.
 
 Superseded child deliveries reconcile through stable outbox identities: explanatory comments, same-head open-PR closure, issue closure with `not_planned`, then owned-source retirement. Remote receipts precede cleanup; dirty or newer worktrees and source history are retained. Parked work is not represented as delivered. Superseded parents wait for settled local children and closed actual native children before checkpointed `not_planned` closure. When GitHub completes a merge during scope replacement, retained exact-head/base QA and final evidence from a historical merging revision restore actual-main verification; obsolete pending close effects are retired with audit events. An unexpected merge without that proof preserves its actual commit and blocks for investigation. Changed PR heads remain gated rather than deleting their source.
+
+## Bounded parallel objectives
+
+The unpaid supervisor can overlap development for independent objectives and product planning for a queued objective while another is developing. Logical roles remain exclusive; owned worktrees isolate developers. Effective broker-wide job/provider caps, resource pressure, cooldowns and dependency gates still govern admission. With a single job slot, a successor waits until the entire previous pipeline releases its reservation; a completed model response alone does not release it. Default provider concurrency is two and default local limits remain configurable; this does not create extra execution seats.
+
+`test/factory-parallel.test.ts` drives explicit supervisor passes over disposable real Git repositories/worktrees with deferred injected inference, fixture GitHub and controlled OS counters. It proves developer/developer and developer/product overlap, repeated-pass claim uniqueness, one-slot release ordering and CPU/cooldown recovery. These tests start no provider process or paid turn and clean up their own stores, worktrees and pending fixture assignments. They complement cross-project admission tests rather than certifying live provider concurrency or bypassing review gates.

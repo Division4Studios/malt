@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { retireManagedPresence } from './controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
+import { saveFactorySettings } from './model-policy-controls.ts';
 import { broadcastFactoryNotice } from './notifications.ts';
 import { initializeObjectiveOrder, rankForFeatureSave } from './objective-order.ts';
 import { ObjectiveQueue } from './objective-queue.ts';
@@ -182,14 +183,7 @@ export class FactoryRepository {
    * @param config - Validated settings.
    */
   public configure(config: FactoryConfig): void {
-    this.store.transaction(() => {
-      run(
-        this.store.db,
-        'INSERT INTO factory_settings(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data',
-        JSON.stringify(config),
-      );
-    });
-    this.prepareSender();
+    saveFactorySettings(this, config);
   }
 
   /** Prepare the factory sender without making it a coding-work participant. */

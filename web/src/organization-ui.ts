@@ -7,11 +7,45 @@ import { child, data, text, displayText } from './api.js';
 import { element } from './worker-ui.js';
 
 import type { Snapshot, Data } from './api.js';
+import type { OperatorEdit } from './recovery-ui.js';
+import type { EditorDescription } from './worker-ui.js';
 
 /** Bound instruction excerpts; the editor retains full validated text. */
 const EXCERPT = 400;
 /** Default publication limit for a newly configured project. */
 const DEFAULT_PR_LINES = 500;
+
+/**
+ * Bind native setup fields only after the authenticated editor has opened.
+ *
+ * @param body - Shared operator textarea.
+ * @param settings - Current project settings.
+ * @param connection - Current project GitHub metadata.
+ * @param isConnection - Whether this is the GitHub form.
+ * @returns Existing operation with a mounted native draft reader.
+ */
+export function setupDialog(
+  body: HTMLTextAreaElement,
+  settings: Data,
+  connection: Data,
+  isConnection: boolean,
+): { description: EditorDescription; action: OperatorEdit } {
+  const dialog = isConnection
+    ? { description: githubConnectionDescription(), action: { operation: 'github_connect', input: (): Data => ({}) } }
+    : factoryPolicyDialog(settings);
+  let { action } = dialog;
+  return {
+    description: {
+      ...dialog.description,
+      mount: () => {
+        action = isConnection
+          ? { operation: 'github_connect', input: mountConnectionFields(body, connection) }
+          : mountFactoryPolicyFields(body);
+      },
+    },
+    action: { operation: action.operation, input: (value) => action.input(value) },
+  };
+}
 
 /**
  * Show reusable profiles separately from logical seats and live processes.
