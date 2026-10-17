@@ -1,5 +1,5 @@
 /**
- * Simplified Chinese messages for schedules, triggers, Settings, onboarding and secrets, keyed by English source text.
+ * Simplified Chinese messages for schedules, triggers, Settings, onboarding, secrets and recommendations, keyed by English source text.
  *
  * @file
  */
@@ -278,4 +278,18 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Recheck a dependent delivery’s brief after its predecessors merge': '前置交付合并后，重新核对依赖交付的简报',
   'Before implementation starts, the team lead compares the brief with what its predecessors merged, on the small tier. A brief that no longer holds stops the delivery for your decision.':
     '实现开始前，团队负责人会以小档位将简报与前置交付实际合并的内容进行比对。若简报不再成立，交付会停下，等待你的决定。',
+  Pending: '待处理',
+  Approved: '已批准',
+  Applying: '执行中',
+  Completed: '已完成',
+  Rejected: '已拒绝',
+  Stale: '已过期',
+  Failed: '失败',
+  'Duplicate tickets': '重复工单',
+  'Related tickets': '相关工单',
+  'Consolidate tickets': '合并工单',
+  'Scope change': '范围变更',
+  'Guidance suggestion': '指导建议',
+  '{pending} pending and {unread} unread recommendations': '{pending} 条待处理、{unread} 条未读建议',
+  'No tickets': '无工单',
 };
