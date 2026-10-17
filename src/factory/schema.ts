@@ -16,6 +16,7 @@ import {
   deliveryControlSchemas,
   holdSchema,
 } from './delivery-control-schema.ts';
+import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -183,7 +184,9 @@ export const factoryConfigSchema = z
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
     maxFiles: z.number().int().positive().default(MAX_FILES),
     maxDiffLines: z.number().int().positive().default(MAX_LINES),
+    /** Checkpoint interval: progress extends an assignment, a stall or the ceiling stops it. */
     jobTimeoutMs: z.number().int().positive().default(JOB_TIMEOUT_MS),
+    liveness: livenessSettingsSchema.optional(),
     reconcileMs: z.number().int().positive().default(RECONCILE_MS),
     learningMs: z.number().int().positive().default(LEARNING_MS),
     assignmentSkills: z.record(z.enum(JOB_KINDS), z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS)).default({}),
@@ -397,6 +400,10 @@ export const jobSchema = z.object({
   artifact: z.string(),
   /** Workflow step this attempt performs; `null` for attempts saved before workflows. */
   step: keySchema.nullable().default(null),
+  /** Checkpoint liveness; absent on attempts saved before liveness. */
+  liveness: jobLivenessSchema.optional(),
+  /** Why a finished attempt did not succeed, which spaces its retries. */
+  failureClass: failureClassSchema.optional(),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
