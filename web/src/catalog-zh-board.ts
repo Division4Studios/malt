@@ -284,4 +284,7 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   'The broker refused this change. Reopen the dialog to see the current steps.':
     'Broker 拒绝了此更改。请重新打开对话框查看当前步骤。',
   'The change could not be saved.': '无法保存此更改。',
+  'Awaits definition': '等待完成定义',
+  'Definitions of done': '完成定义',
+  'OPEN CHECKLISTS': '未完成的清单',
 };
