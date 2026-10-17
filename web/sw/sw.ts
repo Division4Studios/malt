@@ -44,6 +44,7 @@ const SHELL = [
   '/terminal-keys.js',
   '/terminal-writes.js',
   '/terminal-input.js',
+  '/telemetry-format.js',
   '/terminal.css',
   '/style.css',
   '/manifest.webmanifest',

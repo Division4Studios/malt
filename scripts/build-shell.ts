@@ -52,6 +52,7 @@ const FILES = [
   'dist/terminal-keys.js',
   'dist/terminal-writes.js',
   'dist/terminal-input.js',
+  'dist/telemetry-format.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
