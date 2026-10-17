@@ -191,7 +191,7 @@ The image includes Git, the official GitHub CLI and pinned native Codex/Claude e
 
 Old `.agentmesh` directories are moved as whole stopped stores into `.malt`, preserving credentials and SQLite history. Old centrally stored workspace teams relocate on the next workspace open. Migration refuses leftover WAL/SHM files or an existing destination instead of combining or dropping stores. Stop the old broker cleanly first; an unclean database may need recovery and checkpointing with the old broker before migration.
 
-An old Docker named volume is not mounted by the new Compose file. Preserve it, stop the old container, and explicitly copy its stopped `.agentmesh` directory into the new broker-home bind mount before starting this version. Keep that volume until migration and history are verified. Do not run old and new brokers against the same store. Docker `down --volumes` does not erase new host bind-mounted project data.
+An old Docker named volume is not mounted by the new Compose file. Preserve it, stop the old container, and explicitly copy its stopped `.agentmesh` directory into the new broker-home bind mount before starting this version ([exact steps](compatibility.md#moving-an-old-docker-named-volume-to-the-bind-mount)). Keep that volume until migration and history are verified. Do not run old and new brokers against the same store. Docker `down --volumes` does not erase new host bind-mounted project data.
 
 ## Managed agent permissions on Windows
 

@@ -12,8 +12,50 @@ a running broker is using.
 | Factory ledger records (tasks, jobs, objectives)  | Zod schemas in `src/factory/`                                    | Every field added after 1.0 is optional or defaulted; saved records parse unchanged. Removing or retyping a field needs a migration and a release note.                                                         |
 | Frozen workflows and attempt routing              | Copied into each delivery and attempt                            | A running delivery keeps the copy it froze; new workflow or role revisions apply only to new work.                                                                                                              |
 
-There is no downgrade path: after a newer release migrates the database, an older release refuses it. Stop the broker
-and keep a copy of the project's `.malt` folder from before the upgrade if you might roll back.
+There is no downgrade path: after a newer release migrates the database, an older release refuses it. Take a backup
+before every upgrade (below) so you can roll back.
+
+## Back up, restore and roll back
+
+```sh
+node src/cli.ts backup --project <project> --dir <new folder>
+node src/cli.ts restore --project <project> --dir <backup folder>
+```
+
+- **Backup** copies the project's `.malt` into a new folder and writes `malt-backup.json` beside it. Every SQLite database
+  is written with `VACUUM INTO`, a consistent snapshot even while the broker runs; SQLite `-wal`/`-shm` side files are
+  left out because the snapshot already holds their committed changes. Owned `worktrees/` and `cache/` are left out:
+  they are disposable working copies, and their branches stay in Git. A backup never writes into a folder that already
+  has files.
+- **Restore** refuses while the project's broker answers on its `/health` endpoint: stop the broker, and any console
+  started with `--with-broker`, first. It never deletes anything: the current `.malt` is moved to
+  `.malt.before-restore-<time>` and the backup is copied in its place. Restoring that moved-aside folder the same way
+  undoes a restore.
+- **Roll back an upgrade:** stop the broker, check out (or reinstall) the previous release, restore the backup taken
+  before the upgrade, then start the previous release. Deliveries in progress resume from the restored ledger; their
+  worktrees are recreated from their retained branches.
+
+Backups contain everything `.malt` does, including tokens, agent identities and the secrets vault key. Keep them as
+private as the project folder; on POSIX the backup's folders are created owner-only.
+
+In Docker, run the same commands inside the container against the broker-home bind mount, for example
+`docker compose exec broker node src/cli.ts backup --project /data --dir /data/backups/<name>`, and restore with the
+broker stopped from a native checkout of the same release.
+
+### Moving an old Docker named volume to the bind mount
+
+Compose files before the bind-mount change stored the broker home in a named volume, which the current Compose file no
+longer mounts. Copy it once, with both brokers stopped:
+
+```sh
+docker compose down
+docker volume ls                       # find the old volume holding the broker home
+docker run --rm -v <old volume>:/from:ro -v "<broker-home folder>:/to" node:24-bookworm-slim sh -c 'cp -a /from/. /to/'
+```
+
+Then set `AGENTMESH_HOME_ROOT` to that folder and start the current release; it migrates the old `.agentmesh` state to
+`.malt` on first start. Keep the old volume until the migrated history is verified. The copy step was verified with Docker
+29.8 on Windows on 2026-10-17; the backup and restore commands are covered by `test/backup.test.ts`.
 
 ## Which source is running
 
