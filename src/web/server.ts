@@ -476,6 +476,10 @@ async function inspectApi(
       json(response, HTTP.ok, await gateway.snapshot(project));
       return;
     }
+    case '/api/capabilities': {
+      json(response, HTTP.ok, await gateway.capabilities(project));
+      return;
+    }
     case '/api/recommendations':
     case '/api/recommendation': {
       const query = recommendationQuery(url, url.pathname === '/api/recommendations' ? 'list' : 'get');

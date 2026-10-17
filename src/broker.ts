@@ -35,6 +35,8 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { capabilityStatus, setCapability } from './capability-endpoints.ts';
+import { CapabilityPolicyStore } from './capability-policy.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
@@ -45,9 +47,10 @@ import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
   errorStatus,
-  isGitHubOperation,
+  isCapabilityOperation,
   isFactoryOperation,
   isLearningOperation,
+  isProjectOperation,
   isOperation,
   parseInput,
 } from './protocol.ts';
@@ -61,7 +64,7 @@ import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
-import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
+import type { CapabilityOperation, GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
 import type { TeamAccess, TeamConfig } from './teams.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -156,6 +159,8 @@ export interface Team {
   readonly learning: ProjectLearning;
   /** This workspace's GitHub Project integration and operation queue. */
   readonly github: ProjectGitHub;
+  /** This workspace's connector capability policies. */
+  readonly policy: CapabilityPolicyStore;
   /** The team's configuration (token, project ID, ...). */
   readonly config: MeshConfig;
   /** The team's store. */
@@ -217,6 +222,7 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     store,
     waiters: new Waiters(store),
     github,
+    policy: new CapabilityPolicyStore(store, config),
     learning,
     factory: new FactoryService(
       config,
@@ -481,7 +487,7 @@ async function handleRpc(
       credentials === undefined ? null : team.store.authenticate(credentials),
     );
   }
-  if (isLearningOperation(operation) || isGitHubOperation(operation)) {
+  if (isProjectOperation(operation)) {
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return handleProjectOperation(team, operation, input, credentials);
   }
@@ -536,10 +542,49 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
 }
 
 /**
+ * Read connector capability policies, or apply a human edit. Agents may read
+ * the policy that governs them but can never change it, whatever their role.
+ *
+ * @param team - Current workspace's services.
+ * @param operation - Capability policy operation.
+ * @param input - Untrusted RPC input.
+ * @param credentials - Authenticated bridge identity, absent for the operator.
+ * @returns The project's policy view.
+ * @throws {MeshError} HUMAN_CONTROL_REQUIRED when an agent attempts an edit.
+ */
+function handleCapabilityOperation(
+  team: Team,
+  operation: CapabilityOperation,
+  input: unknown,
+  credentials: PresentedCredentials | undefined,
+): unknown {
+  if (operation === 'capability_policy_status') {
+    parseInput(operation, input);
+    if (credentials !== undefined) {
+      team.store.authenticate(credentials);
+    }
+    return capabilityStatus(team.policy, team.config);
+  }
+  if (credentials !== undefined) {
+    // Malformed input still reports INVALID_INPUT before authentication.
+    parseInput(operation, input);
+    team.store.authenticate(credentials);
+    throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Only the human operator may change connector capability policy.');
+  }
+  const change = parseInput(operation, input);
+  const result = setCapability(team.policy, team.config, change);
+  team.store.transaction(() => {
+    team.store.event('CAPABILITY_POLICY_CHANGED', null, { capability: change.capability });
+  });
+  team.waiters.notify();
+  return result;
+}
+
+/**
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - GitHub or learning operation.
+ * @param operation - Capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -547,10 +592,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  */
 async function handleProjectOperation(
   team: Team,
-  operation: GitHubOperation | LearningOperation,
+  operation: CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isCapabilityOperation(operation)) {
+    return handleCapabilityOperation(team, operation, input, credentials);
+  }
   parseInput(operation, input);
   if (credentials !== undefined && operation === 'learning_set_skill_state') {
     throw new MeshError('NOT_ORCHESTRATOR', 'Project skill activation and retirement require the human operator.');
@@ -714,6 +762,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       store,
       waiters,
       github,
+      policy: new CapabilityPolicyStore(store, config),
       learning,
       factory: new FactoryService(
         config,

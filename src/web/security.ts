@@ -4,7 +4,7 @@
  * @file
  */
 import { Buffer } from 'node:buffer';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -35,13 +35,24 @@ function isSameSecret(left: string, right: string): boolean {
   const expected = Buffer.from(right);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
+
+/**
+ * Key server-side session state by digest so memory never holds a usable cookie.
+ *
+ * @param secret - Session secret presented in, or issued to, a browser cookie.
+ * @returns Hex SHA-256 digest of the secret.
+ */
+function sessionKey(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
 /** Authenticated loopback-only control boundary. */
 export class OperatorSessions {
   /** Displayed only in the owning CLI, never in a browser URL. */
   public readonly pairingCode = randomBytes(PAIR_BYTES).toString('hex');
   /** Trusted server origin established after binding. */
   public origin = '';
-  /** Session secrets remain only in HttpOnly cookies and server memory. */
+  /** Expiry by session digest; the secret itself exists only in the HttpOnly cookie. */
   private readonly sessions = new Map<string, number>();
   /** Single loopback rate window prevents pairing brute force. */
   private attempts = 0;
@@ -77,15 +88,8 @@ export class OperatorSessions {
    * @returns Whether its session is live.
    */
   public authenticated(request: IncomingMessage): boolean {
-    const cookie = request.headers.cookie ?? '';
-    const prefix = this.cookiePrefix();
-    const secret =
-      cookie
-        .split(';')
-        .map((part) => part.trim())
-        .find((part) => part.startsWith(prefix))
-        ?.slice(prefix.length) ?? '';
-    const expires = this.sessions.get(secret);
+    const secret = this.presentedSecret(request);
+    const expires = secret === undefined ? undefined : this.sessions.get(sessionKey(secret));
     return expires !== undefined && expires > Date.now();
   }
 
@@ -106,9 +110,9 @@ export class OperatorSessions {
     if (this.attempts > ATTEMPT_LIMIT || !isSameSecret(code, this.pairingCode)) {
       return false;
     }
-    for (const [expiredSecret, expires] of this.sessions) {
+    for (const [expiredKey, expires] of this.sessions) {
       if (expires <= now) {
-        this.sessions.delete(expiredSecret);
+        this.sessions.delete(expiredKey);
       }
     }
     if (this.sessions.size >= SESSION_LIMIT) {
@@ -118,7 +122,7 @@ export class OperatorSessions {
       }
     }
     const secret = randomBytes(SESSION_BYTES).toString('hex');
-    this.sessions.set(secret, now + SESSION_MS);
+    this.sessions.set(sessionKey(secret), now + SESSION_MS);
     response.setHeader(
       'Set-Cookie',
       `${this.cookiePrefix()}${secret}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${String(SESSION_MS / SECOND_MS)}`,
@@ -133,14 +137,25 @@ export class OperatorSessions {
    * @param response - Expires its cookie.
    */
   public logout(request: IncomingMessage, response: ServerResponse): void {
+    // An absent cookie hashes the empty string, which is never an issued key.
+    this.sessions.delete(sessionKey(this.presentedSecret(request) ?? ''));
+    response.setHeader('Set-Cookie', `${this.cookiePrefix()}; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+  }
+
+  /**
+   * Read this console's session secret from a request cookie.
+   *
+   * @param request - Browser request.
+   * @returns The presented secret, or undefined when absent or empty.
+   */
+  private presentedSecret(request: IncomingMessage): string | undefined {
     const prefix = this.cookiePrefix();
     const secret = (request.headers.cookie ?? '')
       .split(';')
       .map((part) => part.trim())
       .find((part) => part.startsWith(prefix))
       ?.slice(prefix.length);
-    this.sessions.delete(secret ?? '');
-    response.setHeader('Set-Cookie', `${prefix}; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+    return (secret ?? '').length > 0 ? secret : undefined;
   }
 
   /**

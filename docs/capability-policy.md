@@ -2,8 +2,9 @@
 
 `CapabilityPolicyStore` in `src/capability-policy.ts` shares the selected project's
 private `.malt/state/mesh.db`. Construct it with that project's `Store` and matching
-`MeshConfig`. This delivery adds persistence only: connector enforcement, transport
-endpoints and console editing remain queued.
+`MeshConfig`; the broker opens one per project. Human read/edit endpoints are
+described in the [API reference](api.md#connector-capability-policy). Connector
+enforcement and console editing remain queued.
 
 `get(capability)` returns a mode and explicit `roles` array. All fifteen operations
 in `CAPABILITIES` default to `disabled`. `human-only` also requires an empty role
@@ -11,8 +12,8 @@ list; `approved-agent-roles` requires at least one role from `FACTORY_ROLES`.
 Unknown capabilities, roles and malformed policies are rejected.
 
 `set(principal, capability, policy)` accepts only `{ kind: 'human', id }`. The
-future backend caller must derive this principal from authenticated context,
-never from user-supplied request data. Agent and supervisor principals cannot edit
+broker derives this principal from authenticated context (a project-token caller
+with no agent credentials is `project-operator`), never from request data. Agent and supervisor principals cannot edit
 the policy. Each edit atomically appends actor, previous policy, next policy and
 UTC time. `history()` returns detached entries in commit order. SQLite triggers
 reject updating or deleting history; this is application integrity, not protection
