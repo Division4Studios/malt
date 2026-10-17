@@ -74,6 +74,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'theme',
     'objective-ui',
     'console-views',
+    'log-tails',
     'console-model',
     'board-model',
     'approval-model',
