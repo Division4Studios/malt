@@ -88,6 +88,7 @@ export class ProjectViews {
       project: hooks.project,
       preflight,
       versions: async () => await request(scoped(hooks.project(), '/api/version')),
+      control: hooks.control,
       shortcuts: [
         {
           label: t('Factory & validation'),

@@ -11,7 +11,7 @@ import { ageStamp, button, focusedKey, restoreFocus, tag } from './console-dom.j
 import { asData } from './console-model.js';
 import { LOCALE_CHOICES, LOCALE_NAMES, chooseLocale, phrase, storedLocaleChoice, t, translated } from './i18n.js';
 import { readPreflight } from './onboarding-model.js';
-import { buildRows, localTime, providerHealth } from './settings-model.js';
+import { buildRows, localTime, providerHealth, revalidationInput, revalidationSetting } from './settings-model.js';
 import { THEMES, THEME_EVENT, THEME_LABELS, chooseTheme, storedTheme } from './theme.js';
 import { element } from './worker-ui.js';
 
@@ -28,6 +28,8 @@ export interface SettingsHooks {
   readonly preflight: () => Promise<unknown>;
   /** Read the version route. */
   readonly versions: () => Promise<unknown>;
+  /** Send one operator control through the shell. */
+  readonly control: (operation: string, input: unknown) => Promise<boolean>;
   /** Shortcuts to the dialogs and views that own other settings. */
   readonly shortcuts: readonly { readonly label: string; readonly action: () => void }[];
   /** Current time; defaults to `Date.now`. */
@@ -129,7 +131,13 @@ class SettingsView implements SettingsHandle {
   /** Rebuild every section, keeping focus. */
   private render(): void {
     const focus = focusedKey(this.element);
-    this.element.replaceChildren(this.appearance(), this.providers(), this.build(), this.shortcuts());
+    this.element.replaceChildren(
+      this.appearance(),
+      this.providers(),
+      this.deliveryChecks(),
+      this.build(),
+      this.shortcuts(),
+    );
     restoreFocus(this.element, focus);
   }
 
@@ -231,6 +239,52 @@ class SettingsView implements SettingsHandle {
       section.append(element('p', 'error', this.error));
     }
     return section;
+  }
+
+  /**
+   * Delivery checks that are project policy: brief revalidation.
+   *
+   * @returns Delivery checks section.
+   */
+  private deliveryChecks(): HTMLElement {
+    const section = element('section', 'settings-card');
+    const setting = revalidationSetting(this.factory);
+    const label = element('label', 'settings-choice');
+    const input = element('input');
+    input.type = 'checkbox';
+    input.checked = setting.isEnabled;
+    input.disabled = setting.blocker !== null;
+    input.dataset['focusKey'] = 'settings-revalidation';
+    input.addEventListener('change', () => {
+      void this.saveRevalidation(input.checked);
+    });
+    label.append(input, element('span', '', t('Recheck a dependent delivery’s brief after its predecessors merge')));
+    section.append(
+      element('h2', '', t('Delivery checks')),
+      label,
+      element(
+        'p',
+        'subtle',
+        t(
+          'Before implementation starts, the team lead compares the brief with what its predecessors merged, on the small tier. A brief that no longer holds stops the delivery for your decision.',
+        ),
+      ),
+    );
+    if (setting.blocker !== null) {
+      section.append(element('p', 'subtle', setting.blocker));
+    }
+    return section;
+  }
+
+  /**
+   * Save the brief revalidation choice; a refused save shows the saved value again.
+   *
+   * @param isEnabled - Requested choice.
+   */
+  private async saveRevalidation(isEnabled: boolean): Promise<void> {
+    if (!(await this.hooks.control('factory_setup', revalidationInput(this.factory, isEnabled)))) {
+      this.render();
+    }
   }
 
   /**
