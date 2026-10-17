@@ -319,7 +319,10 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     intents.push({ role: 'learning-steward', kind: 'learn', taskId: null, featureId: null, head: null, base: null });
   }
   const held = new Set(input.tasks.filter((task) => task.hold !== null).map((task) => task.id));
-  const admitted = intents.filter((intent) => intent.taskId === null || !held.has(intent.taskId));
+  const isSpendBlocked = input.isSpendBlocked ?? ((): boolean => false);
+  const admitted = intents.filter(
+    (intent) => (intent.taskId === null || !held.has(intent.taskId)) && !isSpendBlocked(intent),
+  );
   const queue = input.objectiveQueue;
   return queue === undefined
     ? admitted
@@ -332,6 +335,8 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
 
 /** Current durable scheduling state. */
 interface SchedulingState {
+  /** Whether a spend cap stops new attempts on the intent's scope; absent means no caps. */
+  isSpendBlocked?: (intent: { readonly taskId: string | null; readonly featureId: string | null }) => boolean;
   /** Bounded, durable lead investigation requests. */
   triage?: readonly TriageDecision[];
   /** Config state. */

@@ -553,6 +553,9 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
       'factory_trigger_save',
       'factory_automation_delete',
       'factory_automation_run',
+      'factory_spend_caps',
+      'factory_objective_done',
+      'factory_objective_note',
       'factory_reconcile_github',
       'factory_recommendation_read',
     ].includes(operation)
@@ -560,7 +563,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, workflow approvals, objective recovery, GitHub reconciliation, cross-project maintenance or automations.',
+      'Only the human operator may acknowledge recommendation reads, approve skill changes, workflow approvals, objective recovery, GitHub reconciliation, cross-project maintenance, automations, spend caps or definitions of done.',
     );
   }
   const actor = team.store.authenticate(credentials);
@@ -570,6 +573,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     operation !== 'factory_recommendation_propose' &&
     operation !== 'factory_read_source' &&
     operation !== 'factory_progress' &&
+    operation !== 'factory_objective_check' &&
     actor !== team.store.coordination.leadId()
   ) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');

@@ -9,6 +9,7 @@
 import { z } from 'zod/v3';
 
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from './seats.ts';
+import { spendStatusSchema } from './spend-schema.ts';
 
 /** Largest transcript page returned by one read. */
 export const TRANSCRIPT_PAGE_MAX = 500;
@@ -361,6 +362,7 @@ export const costSummarySchema = z
     tokens: tokenSplitSchema.extend({ cacheHitPercent: z.number().min(0).nullable() }).strict(),
     unpricedModels: z.array(z.string()),
     prices: priceTableSchema,
+    spend: spendStatusSchema,
   })
   .strict();
 /** Local cost summary. */

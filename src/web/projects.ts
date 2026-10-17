@@ -8,6 +8,7 @@ import { z } from 'zod/v3';
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
+import { logPageSchema } from '../factory/objective-goal-schema.ts';
 import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
@@ -21,6 +22,7 @@ import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { LogPage } from '../factory/objective-goal-schema.ts';
 import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/telemetry-schema.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
@@ -81,6 +83,9 @@ export const controlSchema = z
       'factory_trigger_save',
       'factory_automation_delete',
       'factory_automation_run',
+      'factory_spend_caps',
+      'factory_objective_done',
+      'factory_objective_note',
       'github_connect',
       'terminal_start',
       'terminal_close',
@@ -260,6 +265,17 @@ export class ProjectGateway {
    */
   public async costs(id: string, query: unknown): Promise<CostSummary> {
     return costSummarySchema.parse(await rpc(this.config(id), 'factory_costs', query));
+  }
+
+  /**
+   * Read one page of an objective's progress log through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Objective, cursor and page size parsed from the route.
+   * @returns Validated log page.
+   */
+  public async objectiveLog(id: string, query: unknown): Promise<LogPage> {
+    return logPageSchema.parse(await rpc(this.config(id), 'factory_objective_log', query));
   }
 
   /**

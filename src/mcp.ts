@@ -583,6 +583,7 @@ function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
     case 'factory-team-lead': {
       tools.add('factory_recommendations');
       tools.add('factory_recommendation_propose');
+      tools.add('factory_objective_check');
 
       break;
     }
@@ -596,6 +597,13 @@ function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
     case 'factory-developer-1':
     case 'factory-developer-2': {
       tools.add('factory_progress');
+
+      break;
+    }
+    case 'factory-final-tester':
+    case 'factory-plan-reviewer':
+    case 'factory-regression-verifier': {
+      tools.add('factory_objective_check');
 
       break;
     }
