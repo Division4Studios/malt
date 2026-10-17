@@ -655,6 +655,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: persist instructions for a role, optionally for a specific task. Interrupt its current pipeline safely and deliver the instruction on its next assignment. Set replan for scope changes requiring product-owner and team-lead planning.',
   factory_status:
     'Inspect live project jobs, parked roles, delivery stages, review gates, resource pressure and provider capacity. Unknown subscription quota remains unknown.',
+  factory_preflight:
+    "Operator or designated lead: run the doctor checks that are meaningful inside the running broker (Node.js, Git, each provider CLI's presence and subscription login, GitHub CLI authentication and a writable .malt) as pass, fail or fix-it with one fix line each. No inference, no account details and no project changes.",
   factory_recommendation_propose:
     'Live managed product owner or team lead only: submit a bounded evidence-backed recommendation with a stable key and exact observed native issue revisions. Queue it for human review; never approve or execute it.',
   factory_recommendations:

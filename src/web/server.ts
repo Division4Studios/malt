@@ -540,6 +540,14 @@ async function inspectApi(
       await streams.open(gateway, project, { request, response, sessions });
       return;
     }
+    case '/api/version': {
+      json(response, HTTP.ok, await gateway.versions(project));
+      return;
+    }
+    case '/api/preflight': {
+      json(response, HTTP.ok, await gateway.preflight(project));
+      return;
+    }
     case '/api/artifact': {
       json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
       return;
