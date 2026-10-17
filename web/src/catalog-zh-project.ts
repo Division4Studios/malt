@@ -278,4 +278,12 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Recheck a dependent delivery’s brief after its predecessors merge': '前置交付合并后，重新核对依赖交付的简报',
   'Before implementation starts, the team lead compares the brief with what its predecessors merged, on the small tier. A brief that no longer holds stops the delivery for your decision.':
     '实现开始前，团队负责人会以小档位将简报与前置交付实际合并的内容进行比对。若简报不再成立，交付会停下，等待你的决定。',
+  Supported: '已支持',
+  'Unsupported by the provider': '提供方不支持',
+  Unverified: '未验证',
+  Disabled: '已禁用',
+  'Human only': '仅限人工',
+  'Approved agent roles': '已批准的代理角色',
+  'Choose at least one role for approved agent roles.': '“已批准的代理角色”至少需要选择一个角色。',
+  '{actor} changed {capability}: {previous} → {next}': '{actor} 更改了 {capability}：{previous} → {next}',
 };
