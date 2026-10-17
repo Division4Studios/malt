@@ -24,6 +24,7 @@ const PAIRS: readonly (readonly [string, string])[] = [
   ['text', 'error-bg'],
   ['on-accent', 'cyan'],
   ['on-accent', 'violet'],
+  ['on-accent', 'accent-strong'],
   ['muted', 'chip-bg'],
 ];
 /** Console stylesheets other than the main one. */
