@@ -136,3 +136,17 @@ declare module '*/web/dist/telemetry-format.js' {
     max: number;
   };
 }
+
+declare module '*/web/dist/price-editor.js' {
+  /**
+   * Validate edited price rows.
+   *
+   * @param rows - Raw model and price strings per row.
+   * @returns Valid rows, or an error explaining the first problem.
+   */
+  export function validatePrices(rows: readonly Readonly<Record<string, string>>[]):
+    | {
+        prices: { model: string; input: number; cachedInput: number; cacheWrite: number; output: number }[];
+      }
+    | { error: string };
+}
