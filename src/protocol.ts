@@ -390,6 +390,20 @@ export const schemas = {
     })
     .strict(),
   github_status: z.object({}).strict(),
+  github_discover: z
+    .object({
+      repository: z
+        .string()
+        .regex(/^[\w\-.]+\/[\w\-.]+$/v)
+        .optional(),
+      repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
+      owner: z
+        .string()
+        .regex(/^[\w\-]+$/v)
+        .optional(),
+      projectNumber: z.number().int().positive().optional(),
+    })
+    .strict(),
   github_connect: z
     .object({
       repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
@@ -517,6 +531,7 @@ export function isFactoryOperation(operation: Operation): operation is FactoryOp
 /** GitHub operations run asynchronously, outside SQLite transactions. */
 export const GITHUB_OPERATIONS = [
   'github_status',
+  'github_discover',
   'github_connect',
   'github_sync',
   'github_create_issue',
@@ -791,6 +806,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read the active version of one project-specific skill from .malt/skills. Both Codex and Claude use the same library through these tools and the project AGENTS.md / CLAUDE.md references.',
   github_status:
     "Inspect THIS workspace's saved GitHub Project connection and pending operations. No network calls or credentials are returned.",
+  github_discover:
+    "Read-only setup discovery for THIS workspace: the authenticated GitHub login, accessible repositories, the owner's Projects v2, a Project's single-select fields and read-only capability probes. Nothing is created, changed or saved; each failure names its step.",
   github_connect:
     "For the team lead: verify this workspace's repository and GitHub Project access, then save the connection inside its .malt. Supply projectNumber to reuse a project, or explicitly createProject=true to create one. Set up an MALT Status field without replacing existing project fields.",
   github_sync:

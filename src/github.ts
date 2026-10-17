@@ -18,6 +18,7 @@ import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedProbe, credentialPresence, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
+import { discoverGitHub } from './github-discovery.ts';
 import { createIssueReader } from './github-issues.ts';
 import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
@@ -224,6 +225,9 @@ export class ProjectGitHub {
       case 'github_status': {
         parseInput(operation, input);
         return await this.status();
+      }
+      case 'github_discover': {
+        return discoverGitHub(this.runner, parseInput(operation, input));
       }
       case 'github_connect': {
         return this.connect(parseInput(operation, input));
