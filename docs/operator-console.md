@@ -123,6 +123,17 @@ Coordinated quality/scope feedback additionally queues focused acceptance clarif
 
 ## Docker startup and provider authentication
 
+**Image builds.** The runtime image is `node:24-bookworm-slim` with production dependencies, compiled browser assets, Git, `gh` and the two pinned provider CLIs; TypeScript, ESLint and Prettier stay in the build stage. Layers run from least to most frequently changed (system packages, provider CLIs, npm dependencies, MALT source), and BuildKit cache mounts keep apt and npm downloads between builds without adding them to the image. Measured on 2026-10-17 (Windows 10, Docker Desktop 29.8, BuildKit `docker-container` builder, 10 logical CPUs, home broadband):
+
+| Build                                 | Before | After |
+| ------------------------------------- | ------ | ----- |
+| Cold (empty builder cache)            | 98 s   | 82 s  |
+| Warm, nothing changed                 | 1 s    | 0 s   |
+| Warm, MALT source changed             | 2 s    | 2 s   |
+| Warm, `package.json`/lockfile changed | 49 s   | 22 s  |
+
+Cold builds are dominated by downloading the base image, apt packages and the provider CLIs, so they vary with the network. A dependency change no longer reinstalls the provider CLIs, and npm reuses its download cache. `docker compose up -d --build` uses the same cache.
+
 Compose runs both services in the same container so artifact reads use the same target paths as the supervisor. The image includes Git, GitHub CLI, Codex CLI 0.162.1 and Claude Code 2.1.296. Provider versions are build arguments, not browser dependencies. Claude's native binary is checked against its official release manifest; Codex's native CLI is installed through its official npm distribution at image build time. No frontend packages are fetched or installed at runtime.
 
 ```powershell
