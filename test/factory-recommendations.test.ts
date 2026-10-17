@@ -125,6 +125,7 @@ await test('all state edges are fenced and refused edges leave the complete reco
     'reconciling:completed',
     'reconciling:applying',
     'reconciling:failed',
+    'failed:approved',
     'failed:applying',
   ]);
   let issue = 100;
