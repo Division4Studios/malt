@@ -17,7 +17,8 @@ import type { FactoryJob, FactoryTask } from './schema.ts';
 export function checkpointItems(jobs: readonly FactoryJob[], tasks: readonly FactoryTask[]): InboxItem[] {
   return jobs.flatMap((job): InboxItem[] => {
     const { checkpoint } = job;
-    if (checkpoint?.state !== 'pending') {
+    // An attempt asks while it is still stopping; it is decidable once settled.
+    if (checkpoint?.state !== 'pending' || job.state === 'running') {
       return [];
     }
     const task = tasks.find((candidate) => candidate.id === job.taskId);

@@ -211,6 +211,9 @@ export function decideCheckpoint(repository: FactoryRepository, input: unknown):
     if (checkpoint.state !== 'pending') {
       throw new MeshError('FACTORY_GATED', `This checkpoint was already decided (${checkpoint.state}).`);
     }
+    if (job.state === 'running') {
+      throw new MeshError('FACTORY_GATED', 'This attempt is still stopping; decide once it has settled.');
+    }
     const stale = staleReason(repository, job, value.expectedHead);
     const now = repository.store.now();
     if (stale !== null) {

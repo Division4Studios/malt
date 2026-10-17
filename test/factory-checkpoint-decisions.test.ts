@@ -259,6 +259,23 @@ await test('continue grants one bounded attempt without the gate; wait returns t
 });
 
 await test('stale decisions are refused: a moved head, another stage or a newer attempt', (t) => {
+  const stopping = fixture(t);
+  const running = attempt(stopping);
+  askForDecision(stopping.repository, running, HELD);
+  assert.deepEqual(checkpointItems(stopping.repository.jobs(), [stopping.task]), [], 'hidden while it stops');
+  assert.throws(
+    () => decideCheckpoint(stopping.repository, { jobId: running.id, requestId: randomUUID(), action: 'wait' }),
+    {
+      code: 'FACTORY_GATED',
+      message: /still stopping/v,
+    },
+  );
+  assert.equal(
+    stopping.repository.jobs().find((job) => job.id === running.id)?.checkpoint?.state,
+    'pending',
+    'a decision during the stop never marks the checkpoint stale',
+  );
+
   const moved = fixture(t);
   const first = heldAttempt(moved);
   moved.repository.editTask(moved.task.id, (task) => ({ ...task, head: 'h2' }));

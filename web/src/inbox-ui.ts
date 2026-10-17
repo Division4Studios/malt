@@ -104,6 +104,8 @@ class InboxView {
   private readonly answered = lane(t('Answered'), 'inbox-answered-title');
   /** Polite announcement of count changes. */
   private readonly status = element('p', 'sr-only');
+  /** Request id per open checkpoint item, reused when a decision is retried. */
+  private readonly checkpointRequests = new Map<string, string>();
   /** Last rendered data, to skip identical updates. */
   private renderKey = '';
   /** Last announced open count, or `-1` before the first render. */
@@ -305,10 +307,13 @@ class InboxView {
    * @returns One button per bounded continuation, then wait.
    */
   private checkpointActions(item: InboxItem, jobId: string): HTMLButtonElement[] {
+    // One request id per checkpoint, so retrying an unanswered submission is reported as a repeat.
+    const requestId = this.checkpointRequests.get(item.id) ?? crypto.randomUUID();
+    this.checkpointRequests.set(item.id, requestId);
     const decide = (action: 'continue' | 'wait', minutes?: number): void => {
       void this.hooks.control('factory_checkpoint_decide', {
         jobId,
-        requestId: crypto.randomUUID(),
+        requestId,
         action,
         expectedHead: item.head,
         ...(minutes !== undefined && { minutes }),
