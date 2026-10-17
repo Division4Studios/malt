@@ -132,6 +132,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_job_checkpoints ON factory_jobs(json_extract(data, '$.checkpoint.state'));
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effect_receipts (id TEXT PRIMARY KEY);
@@ -310,7 +311,12 @@ export class FactoryRepository {
    */
   public jobs(): FactoryJob[] {
     return this.rows(
-      `SELECT data FROM factory_jobs WHERE state='running' OR id IN (SELECT id FROM factory_jobs ORDER BY rowid DESC LIMIT ${String(RECENT_JOBS)}) ORDER BY rowid`,
+      // An attempt whose checkpoint decision is pending or unused stays visible beyond the recent window,
+      // so its step stays held (or its continuation usable) however many other attempts follow.
+      `SELECT data FROM factory_jobs WHERE state='running'
+         OR json_extract(data, '$.checkpoint.state') = 'pending'
+         OR (json_extract(data, '$.checkpoint.state') = 'continue' AND json_extract(data, '$.checkpoint.consumedBy') IS NULL)
+         OR id IN (SELECT id FROM factory_jobs ORDER BY rowid DESC LIMIT ${String(RECENT_JOBS)}) ORDER BY rowid`,
       jobSchema,
     );
   }
