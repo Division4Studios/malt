@@ -8,6 +8,7 @@
  * @file
  */
 import { text } from './api.js';
+import { t } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -332,8 +333,8 @@ export function overrideSummary(steps: readonly CustomStep[], overrides: readonl
   const skipped = overrides.filter((override) => override.skip === true).map((override) => title(override.stepId));
   const changed = overrides.filter((override) => override.skip !== true).map((override) => title(override.stepId));
   const parts = [
-    ...(skipped.length > 0 ? [`Skips ${skipped.join(', ')}`] : []),
-    ...(changed.length > 0 ? [`changes who performs ${changed.join(', ')}`] : []),
+    ...(skipped.length > 0 ? [t('Skips {value}', { value: skipped.join(', ') })] : []),
+    ...(changed.length > 0 ? [t('changes who performs {value}', { value: changed.join(', ') })] : []),
   ];
   const sentence = parts.join('; ');
   return sentence === '' ? '' : `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;

@@ -8,6 +8,7 @@
  *
  * @file
  */
+import { t } from './i18n.js';
 import { NOTIFY_ON, freshItems, notificationContent } from './inbox-model.js';
 import { element } from './worker-ui.js';
 
@@ -135,18 +136,20 @@ export class InboxNotifier {
   private paint(): void {
     if (!isSupported()) {
       this.toggle.disabled = true;
-      this.toggle.textContent = 'Notifications unavailable';
-      this.hint.textContent = 'This browser cannot show notifications.';
+      this.toggle.textContent = t('Notifications unavailable');
+      this.hint.textContent = t('This browser cannot show notifications.');
       return;
     }
     const isBlocked = Notification.permission === 'denied';
     const isActive = this.isOn && Notification.permission === 'granted';
     this.toggle.disabled = isBlocked;
     this.toggle.setAttribute('aria-pressed', String(isActive));
-    this.toggle.textContent = isActive ? 'Notifications on' : 'Notify me';
-    this.hint.textContent = isBlocked
-      ? 'Notifications are blocked in this browser’s site settings.'
-      : 'While this console is open in the background, new decisions raise a notification.';
+    this.toggle.textContent = t(isActive ? 'Notifications on' : 'Notify me');
+    this.hint.textContent = t(
+      isBlocked
+        ? 'Notifications are blocked in this browser’s site settings.'
+        : 'While this console is open in the background, new decisions raise a notification.',
+    );
   }
 }
 

@@ -5,6 +5,7 @@
  */
 import { child, hasFlag, number, records, text } from './api.js';
 import { dispatchSummary } from './brand-ui.js';
+import { phrase, t, translated } from './i18n.js';
 import { renderReport } from './report-ui.js';
 import { element } from './worker-ui.js';
 
@@ -13,37 +14,52 @@ import type { Actions } from './views.js';
 import type { EditorDescription } from './worker-ui.js';
 
 /** Typed choices correspond to server-side dispositions, never arbitrary commands. */
-export const TRIAGE_ACTIONS = {
+export const TRIAGE_ACTIONS = translated({
   adopt_merge: [
-    'Adopt external merge',
-    'Name the full commit already delivered on this project’s main and explain its scope. This queues mandatory merged-main verification; source, worktrees and missing QA evidence are preserved.',
+    phrase('Adopt external merge'),
+    phrase(
+      'Name the full commit already delivered on this project’s main and explain its scope. This queues mandatory merged-main verification; source, worktrees and missing QA evidence are preserved.',
+    ),
   ],
   approve_size: [
-    'Approve this size exception',
-    'Allow only this validated head/base and measured diff. Explain why splitting would be harmful. Tests, two QA reviews and merge gates remain required; changed source requires a new decision.',
+    phrase('Approve this size exception'),
+    phrase(
+      'Allow only this validated head/base and measured diff. Explain why splitting would be harmful. Tests, two QA reviews and merge gates remain required; changed source requires a new decision.',
+    ),
   ],
-  acknowledge: ['Acknowledge', 'Record that you have seen this exact revision. It remains blocked until resolved.'],
+  acknowledge: [
+    phrase('Acknowledge'),
+    phrase('Record that you have seen this exact revision. It remains blocked until resolved.'),
+  ],
   investigate: [
-    'Ask the lead',
-    'Queue one bounded, read-only lead diagnosis. The lead returns evidence, a recommended action and any question for you, then spins down.',
+    phrase('Ask the lead'),
+    phrase(
+      'Queue one bounded, read-only lead diagnosis. The lead returns evidence, a recommended action and any question for you, then spins down.',
+    ),
   ],
   repair: [
-    'Send to owner',
-    'Return this scope to its original developer with your instructions. Source and evidence are preserved; new work requires fresh reviews.',
+    phrase('Send to owner'),
+    phrase(
+      'Return this scope to its original developer with your instructions. Source and evidence are preserved; new work requires fresh reviews.',
+    ),
   ],
   review: [
-    'Request fresh QA',
-    'Review the latest published source independently. Existing approvals are cleared. This does not approve or merge the PR.',
+    phrase('Request fresh QA'),
+    phrase(
+      'Review the latest published source independently. Existing approvals are cleared. This does not approve or merge the PR.',
+    ),
   ],
   verify: [
-    'Verify merged main',
-    'Explicitly accept investigation of this confirmed external merge through final merged-main checks. Missing pre-merge factory approvals remain missing; no approval is fabricated.',
+    phrase('Verify merged main'),
+    phrase(
+      'Explicitly accept investigation of this confirmed external merge through final merged-main checks. Missing pre-merge factory approvals remain missing; no approval is fabricated.',
+    ),
   ],
   wait: [
-    'Wait for decision',
-    'Keep this delivery parked with a clear question or reason. No model process is kept open while waiting.',
+    phrase('Wait for decision'),
+    phrase('Keep this delivery parked with a clear question or reason. No model process is kept open while waiting.'),
   ],
-} as const;
+} as const);
 /** Durable triage action, validated again by the backend. */
 export type TriageAction = keyof typeof TRIAGE_ACTIONS;
 /** Bound the visible queue; full delivery history remains available. */
@@ -63,20 +79,20 @@ const COMMIT_LENGTH = 40;
 export function triageLabel(task: Data, decisions: Data[]): string {
   const latest = decisions.find((decision) => text(decision, 'taskId') === text(task, 'id'));
   if (latest === undefined) {
-    return 'Needs attention';
+    return t('Needs attention');
   }
   if (number(latest, 'version') !== number(task, 'version') && text(latest, 'state') !== 'applied') {
-    return 'Evidence changed';
+    return t('Evidence changed');
   }
   const labels: Record<string, string> = {
-    queued: 'Lead queued',
-    acknowledged: 'Acknowledged',
-    awaiting_operator: 'Your decision',
-    applied: 'Action queued',
-    stale: 'Evidence changed',
-    failed: 'Investigation failed',
+    queued: t('Lead queued'),
+    acknowledged: t('Acknowledged'),
+    awaiting_operator: t('Your decision'),
+    applied: t('Action queued'),
+    stale: t('Evidence changed'),
+    failed: t('Investigation failed'),
   };
-  return labels[text(latest, 'state')] ?? 'Needs attention';
+  return labels[text(latest, 'state')] ?? t('Needs attention');
 }
 
 /**
@@ -140,9 +156,9 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   body.append(cause);
   const decision = decisions.find((item) => text(item, 'taskId') === text(task, 'id'));
   if (decision !== undefined) {
-    body.append(element('h4', '', 'Latest disposition'), renderReport(text(decision, 'note')));
+    body.append(element('h4', '', t('Latest disposition')), renderReport(text(decision, 'note')));
     if (text(decision, 'summary') !== '') {
-      body.append(element('h4', '', 'Lead diagnosis & next action'), renderReport(text(decision, 'summary')));
+      body.append(element('h4', '', t('Lead diagnosis & next action')), renderReport(text(decision, 'summary')));
     }
   }
   const gate = child(task, 'publicationGate');
@@ -150,7 +166,15 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
     const measurement = element(
       'p',
       'notice',
-      `Validated size: ${String(number(gate, 'lines'))} changed lines / ${String(number(gate, 'files'))} files. Approval covers only head ${text(gate, 'head')} against base ${text(gate, 'base')}.`,
+      t(
+        'Validated size: {lines} changed lines / {files} files. Approval covers only head {head} against base {base}.',
+        {
+          lines: number(gate, 'lines'),
+          files: number(gate, 'files'),
+          head: text(gate, 'head'),
+          base: text(gate, 'base'),
+        },
+      ),
     );
     body.append(measurement);
   }
@@ -182,13 +206,13 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
       element(
         'p',
         'subtle',
-        'An assignment owns this delivery. Inspect or safely cancel it in Workers before changing its disposition.',
+        t('An assignment owns this delivery. Inspect or safely cancel it in Workers before changing its disposition.'),
       ),
     );
   }
   const details = element('details', 'triage-evidence');
   details.dataset['queueKey'] = `report:${id}`;
-  details.append(element('summary', '', 'Read complete blocker report'), renderReport(error));
+  details.append(element('summary', '', t('Read complete blocker report')), renderReport(error));
   body.append(controls, details);
   card.append(summary, body);
   return card;
@@ -220,7 +244,7 @@ function isActionUnavailable(task: Data, action: TriageAction): boolean {
  */
 export function triagePanel(state: Snapshot, actions: Actions): HTMLElement {
   const panel = element('section', 'triage-hub');
-  panel.setAttribute('aria-label', 'Dispatcher triage');
+  panel.setAttribute('aria-label', t('Dispatcher triage'));
   const tasks = records(state.factory['tasks']).filter((task) => {
     return (
       task['scopeReplacement'] === undefined &&
@@ -230,13 +254,15 @@ export function triagePanel(state: Snapshot, actions: Actions): HTMLElement {
   });
   const header = element('header', 'triage-header');
   header.append(
-    element('span', 'eyebrow', 'DISPATCH / FINISH FIRST'),
-    element('h2', '', 'Clear the path.'),
-    element('span', 'pill', `${String(tasks.length)} need attention`),
+    element('span', 'eyebrow', t('DISPATCH / FINISH FIRST')),
+    element('h2', '', t('Clear the path.')),
+    element('span', 'pill', t('{length} need attention', { length: tasks.length })),
   );
-  const description = hasFlag(state.factory, 'active')
-    ? 'Supervisor enabled. Existing PR reviews, repairs and verification take priority. Roles spin down while decisions wait.'
-    : 'Factory paused. Decisions are saved; jobs start after you resume.';
+  const description = t(
+    hasFlag(state.factory, 'active')
+      ? 'Supervisor enabled. Existing PR reviews, repairs and verification take priority. Roles spin down while decisions wait.'
+      : 'Factory paused. Decisions are saved; jobs start after you resume.',
+  );
   panel.append(header, element('p', 'subtle', description));
   const admission = dispatchSummary({ ...state.factory, tasks: [], error: '' }).slice(1);
   for (const message of admission) {
@@ -245,18 +271,18 @@ export function triagePanel(state: Snapshot, actions: Actions): HTMLElement {
   const error = text(state.factory, 'error');
   if (error !== '') {
     const report = element('details', 'triage-evidence');
-    report.append(element('summary', '', 'Supervisor diagnostic'), renderReport(error));
+    report.append(element('summary', '', t('Supervisor diagnostic')), renderReport(error));
     panel.append(report);
   }
   const decisions = records(state.factory['triage']);
   if (tasks.length === 0) {
-    panel.append(element('p', 'triage-clear', '✓ No delivery blockers awaiting attention.'));
+    panel.append(element('p', 'triage-clear', t('✓ No delivery blockers awaiting attention.')));
   }
   for (const task of tasks.slice(0, CARD_LIMIT)) {
     panel.append(blockerCard(task, { state, actions, decisions }));
   }
   if (tasks.length > CARD_LIMIT) {
-    panel.append(element('p', 'subtle', 'Additional scopes are available in the delivery board.'));
+    panel.append(element('p', 'subtle', t('Additional scopes are available in the delivery board.')));
   }
   const providers = child(state.factory, 'settings');
   panel.dataset['configured'] = String(Object.keys(providers).length > 0);
@@ -280,9 +306,12 @@ export function triageDialog(
   let readCommit = emptyCommit;
   return {
     description: {
-      title: `${TRIAGE_ACTIONS[action][0]} · issue #${String(number(task, 'issue'))}`,
+      title: t('{value} · issue #{value2}', {
+        value: TRIAGE_ACTIONS[action][0],
+        value2: number(task, 'issue'),
+      }),
       explanation: TRIAGE_ACTIONS[action][1],
-      initial: action === 'acknowledge' ? 'Reviewed the current blocker.' : '',
+      initial: action === 'acknowledge' ? t('Reviewed the current blocker.') : '',
       mount: () => {
         if (action === 'adopt_merge') {
           readCommit = mountAdoptionField();
@@ -331,7 +360,7 @@ function mountAdoptionField(): () => string {
   input.required = true;
   input.autocomplete = 'off';
   input.spellcheck = false;
-  const label = element('label', '', 'External merge commit (full SHA)');
+  const label = element('label', '', t('External merge commit (full SHA)'));
   label.htmlFor = input.id;
   panel.append(
     label,
@@ -339,7 +368,9 @@ function mountAdoptionField(): () => string {
     element(
       'p',
       'subtle',
-      'Use the selected repository’s merged main. Verification must pass before completion; this does not grant an approval or merge a PR.',
+      t(
+        'Use the selected repository’s merged main. Verification must pass before completion; this does not grant an approval or merge a PR.',
+      ),
     ),
   );
   body.before(panel);

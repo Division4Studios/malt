@@ -7,17 +7,18 @@
  * @file
  */
 import { child, number, records, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 
 /** Price fields in display order with their labels. */
-const FIELDS = [
-  ['input', 'Input'],
-  ['cachedInput', 'Cached input (read)'],
-  ['cacheWrite', 'Cache write'],
-  ['output', 'Output'],
-] as const;
+const FIELDS = translated([
+  ['input', phrase('Input')],
+  ['cachedInput', phrase('Cached input (read)')],
+  ['cacheWrite', phrase('Cache write')],
+  ['output', phrase('Output')],
+] as const);
 /** Longest model identifier. */
 const MODEL_MAX = 200;
 
@@ -64,11 +65,15 @@ export function validatePrices(
     }
     const values = FIELDS.map(([key]) => parsePrice(row[key] ?? '')).filter((value) => value !== null);
     if (model === '' || values.length !== FIELDS.length) {
-      return { error: `Enter a model name and four non-negative prices for ${model === '' ? 'every row' : model}.` };
+      return {
+        error: t('Enter a model name and four non-negative prices for {value}.', {
+          value: model === '' ? 'every row' : model,
+        }),
+      };
     }
     const [input = 0, cachedInput = 0, cacheWrite = 0, output = 0] = values;
     if (prices.some((price) => price.model === model)) {
-      return { error: `${model} appears more than once.` };
+      return { error: t('{model} appears more than once.', { model }) };
     }
     prices.push({ model, input, cachedInput, cacheWrite, output });
   }
@@ -113,22 +118,22 @@ export class PriceEditor {
     this.saved = saved;
     this.status.setAttribute('aria-live', 'polite');
     const table = element('table', 'cost-table price-table');
-    table.append(element('caption', '', 'Model prices (USD per million tokens)'));
+    table.append(element('caption', '', t('Model prices (USD per million tokens)')));
     const head = element('tr');
     head.append(
-      element('th', '', 'Model'),
+      element('th', '', t('Model')),
       ...FIELDS.map(([, label]) => element('th', '', label)),
       element('th', '', ''),
     );
     table.append(head, this.body);
-    const add = element('button', 'button secondary', 'Add model');
+    const add = element('button', 'button secondary', t('Add model'));
     add.type = 'button';
     add.addEventListener('click', () => {
       this.isDirty = true;
       this.body.append(this.row(null));
       this.body.lastElementChild?.querySelector('input')?.focus();
     });
-    const save = element('button', 'button primary', 'Save prices');
+    const save = element('button', 'button primary', t('Save prices'));
     save.type = 'submit';
     const actions = element('div', 'dialog-actions');
     actions.append(add, save);
@@ -136,7 +141,9 @@ export class PriceEditor {
       element(
         'p',
         'subtle',
-        'No prices are built in. Enter the per-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.',
+        t(
+          'No prices are built in. Enter the per-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.',
+        ),
       ),
       table,
       this.status,
@@ -179,7 +186,7 @@ export class PriceEditor {
     model.name = 'model';
     model.maxLength = MODEL_MAX;
     model.value = price === null ? '' : text(price, 'model');
-    model.setAttribute('aria-label', 'Model identifier');
+    model.setAttribute('aria-label', t('Model identifier'));
     const cell = element('td');
     cell.append(model);
     row.append(cell);
@@ -188,12 +195,12 @@ export class PriceEditor {
       input.name = key;
       input.inputMode = 'decimal';
       input.value = price === null ? '' : String(number(price, key));
-      input.setAttribute('aria-label', `${label} USD per million tokens`);
+      input.setAttribute('aria-label', t('{label} USD per million tokens', { label }));
       const field = element('td');
       field.append(input);
       row.append(field);
     }
-    const remove = element('button', 'small-button', 'Remove');
+    const remove = element('button', 'small-button', t('Remove'));
     remove.type = 'button';
     remove.addEventListener('click', () => {
       this.isDirty = true;
@@ -217,11 +224,12 @@ export class PriceEditor {
     const isSaved = outcome === true;
     if (isSaved) {
       this.isDirty = false;
-      this.status.textContent = 'Prices saved.';
+      this.status.textContent = t('Prices saved.');
       this.saved();
     } else {
-      this.status.textContent =
-        'Prices were not saved. If another tab changed them, reload and apply your edits again.';
+      this.status.textContent = t(
+        'Prices were not saved. If another tab changed them, reload and apply your edits again.',
+      );
     }
   }
 }

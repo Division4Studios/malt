@@ -8,6 +8,7 @@
  * @file
  */
 import { button } from './console-dom.js';
+import { t } from './i18n.js';
 import {
   ANY_PROVIDER,
   PROVIDER_CHOICES,
@@ -87,7 +88,7 @@ export class StepOverrideFields {
     this.rows = steps.map((step) => this.row(step, initialChoice(step, current), options));
     this.element.replaceChildren(
       ...(this.rows.length === 0
-        ? [element('p', 'subtle', 'This workflow has no steps to customize.')]
+        ? [element('p', 'subtle', t('This workflow has no steps to customize.'))]
         : this.rows.map((row) => row.element)),
     );
   }
@@ -120,7 +121,7 @@ export class StepOverrideFields {
     const legend = element('legend', '', step.title);
     node.append(legend);
     if (step.started) {
-      node.append(element('p', 'subtle', 'Started; its settings are fixed.'));
+      node.append(element('p', 'subtle', t('Started; its settings are fixed.')));
     }
     const include = element('input');
     include.type = 'checkbox';
@@ -133,24 +134,27 @@ export class StepOverrideFields {
       return { step, element: node, read: () => ({ ...choice, include: include.checked }) };
     }
     const seat = selectField(
-      'Seat',
-      [['', `Workflow: ${step.roles.join(', ')}`], ...options.seats.map((name) => [name, name] as const)],
+      t('Seat'),
+      [
+        ['', t('Workflow: {value}', { value: step.roles.join(', ') })],
+        ...options.seats.map((name) => [name, name] as const),
+      ],
       choice.role,
     );
     const profile = selectField(
-      'Profile',
+      t('Profile'),
       [
-        ['', `Workflow: ${step.profile ?? 'seat type'}`],
-        [SEAT_PROFILE, 'Seat type'],
+        ['', t('Workflow: {value}', { value: step.profile ?? 'seat type' })],
+        [SEAT_PROFILE, t('Seat type')],
         ...options.profiles.map((name) => [name, name] as const),
       ],
       choice.profile,
     );
     const provider = selectField(
-      'Provider',
+      t('Provider'),
       [
-        ['', `Workflow: ${step.provider ?? 'any'}`],
-        [ANY_PROVIDER, 'Any'],
+        ['', t('Workflow: {value}', { value: step.provider ?? 'any' })],
+        [ANY_PROVIDER, t('Any')],
         ...PROVIDER_CHOICES.map((name) => [name, name] as const),
       ],
       choice.provider,
@@ -187,7 +191,7 @@ export class StepOverrideDialog {
   /** Server or validation error. */
   private readonly error = element('p', 'error');
   /** Save button. */
-  private readonly save = element('button', 'button primary', 'Save steps');
+  private readonly save = element('button', 'button primary', t('Save steps'));
   /** Delivery being edited and the version the editor saw. */
   private target: { taskId: string; version: number } | null = null;
 
@@ -204,7 +208,7 @@ export class StepOverrideDialog {
     form.method = 'dialog';
     this.save.type = 'submit';
     this.error.setAttribute('role', 'alert');
-    const cancel = button('Cancel', {
+    const cancel = button(t('Cancel'), {
       cssClass: 'button ghost',
       key: 'override-cancel',
       action: () => {
@@ -214,11 +218,13 @@ export class StepOverrideDialog {
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, this.save);
     form.append(
-      element('h2', '', 'Customize steps'),
+      element('h2', '', t('Customize steps')),
       element(
         'p',
         'subtle',
-        'Skip optional steps or change who performs a step. Steps that already started keep their settings; the result must still be a valid workflow.',
+        t(
+          'Skip optional steps or change who performs a step. Steps that already started keep their settings; the result must still be a valid workflow.',
+        ),
       ),
       this.summary,
       this.fields.element,
@@ -250,7 +256,7 @@ export class StepOverrideDialog {
     this.target = { taskId, version: customization.version };
     this.fields.render(customization.steps, customization.overrides, options);
     const summary = overrideSummary(customization.steps, customization.overrides);
-    this.summary.textContent = summary === '' ? 'The delivery runs its workflow unchanged.' : summary;
+    this.summary.textContent = summary === '' ? t('The delivery runs its workflow unchanged.') : summary;
     this.error.textContent = '';
     this.save.disabled = false;
     this.element.showModal();
@@ -274,9 +280,9 @@ export class StepOverrideDialog {
         this.element.close();
         return;
       }
-      this.error.textContent = 'The broker refused this change. Reopen the dialog to see the current steps.';
+      this.error.textContent = t('The broker refused this change. Reopen the dialog to see the current steps.');
     } catch (error) {
-      this.error.textContent = error instanceof Error ? error.message : 'The change could not be saved.';
+      this.error.textContent = error instanceof Error ? error.message : t('The change could not be saved.');
     } finally {
       this.save.disabled = false;
     }

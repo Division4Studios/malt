@@ -5,6 +5,8 @@
  *
  * @file
  */
+import { t } from './i18n.js';
+
 import type { InboxItem } from './console-model.js';
 
 /** Longest written answer the broker accepts. */
@@ -33,20 +35,20 @@ export type AnswerInput =
  */
 export function answerInput(item: InboxItem, requestId: string, choice: string | null, text: string): AnswerInput {
   if (item.kind !== 'question' || item.questionId === null) {
-    return { ok: false, error: 'This item is not a question.' };
+    return { ok: false, error: t('This item is not a question.') };
   }
   if (choice !== null && !item.choices.includes(choice)) {
-    return { ok: false, error: 'Choose one of the offered options.' };
+    return { ok: false, error: t('Choose one of the offered options.') };
   }
   const written = text.trim();
   if (written.length > 0 && !item.allowText) {
-    return { ok: false, error: 'This question accepts only one of its options.' };
+    return { ok: false, error: t('This question accepts only one of its options.') };
   }
   if (choice === null && written.length === 0) {
-    return { ok: false, error: item.allowText ? 'Choose an option or write an answer.' : 'Choose an option.' };
+    return { ok: false, error: t(item.allowText ? 'Choose an option or write an answer.' : 'Choose an option.') };
   }
   return written.length > ANSWER_MAX
-    ? { ok: false, error: `Keep the answer under ${String(ANSWER_MAX)} characters.` }
+    ? { ok: false, error: t('Keep the answer under {answerMax} characters.', { answerMax: ANSWER_MAX }) }
     : { ok: true, input: { questionId: item.questionId, requestId, choice, text: written } };
 }
 
@@ -75,7 +77,7 @@ export function freshItems(
  * @returns Title, body and a tag that keeps one notification per item.
  */
 export function notificationContent(item: InboxItem): { title: string; body: string; tag: string } {
-  const prefix = item.kind === 'question' ? 'Question' : 'Needs you';
+  const prefix = t(item.kind === 'question' ? 'Question' : 'Needs you');
   const detail =
     item.detail.length > NOTIFICATION_BODY_MAX ? `${item.detail.slice(0, NOTIFICATION_BODY_MAX - 1)}…` : item.detail;
   return { title: `${prefix}: ${item.title}`, body: detail, tag: `malt-inbox:${item.id}` };

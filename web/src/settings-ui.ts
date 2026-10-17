@@ -9,6 +9,7 @@
  */
 import { ageStamp, button, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { asData } from './console-model.js';
+import { LOCALE_CHOICES, LOCALE_NAMES, chooseLocale, phrase, storedLocaleChoice, t, translated } from './i18n.js';
 import { readPreflight } from './onboarding-model.js';
 import { buildRows, localTime, providerHealth } from './settings-model.js';
 import { THEMES, THEME_EVENT, THEME_LABELS, chooseTheme, storedTheme } from './theme.js';
@@ -40,12 +41,12 @@ export interface SettingsHandle extends ConsoleViewHandle {
 }
 
 /** Badge per CLI state. */
-const CLI_BADGES: Readonly<Record<CliHealth['status'], [string, string]>> = {
-  pass: ['Ready', 'state-ok'],
-  'fix-it': ['Fix it', 'state-warn'],
-  fail: ['Failing', 'state-bad'],
-  unchecked: ['Unchecked', ''],
-};
+const CLI_BADGES: Readonly<Record<CliHealth['status'], [string, string]>> = translated({
+  pass: [phrase('Ready'), 'state-ok'],
+  'fix-it': [phrase('Fix it'), 'state-warn'],
+  fail: [phrase('Failing'), 'state-bad'],
+  unchecked: [phrase('Unchecked'), ''],
+});
 
 /** Stateful Settings view. */
 class SettingsView implements SettingsHandle {
@@ -73,7 +74,7 @@ class SettingsView implements SettingsHandle {
    */
   public constructor(hooks: SettingsHooks) {
     this.hooks = hooks;
-    this.element.setAttribute('aria-label', 'Settings');
+    this.element.setAttribute('aria-label', t('Settings'));
     document.addEventListener(THEME_EVENT, () => {
       this.render();
     });
@@ -94,7 +95,7 @@ class SettingsView implements SettingsHandle {
     try {
       this.versions = await this.hooks.versions();
     } catch (error) {
-      this.error = error instanceof Error ? error.message : 'Versions are unavailable.';
+      this.error = error instanceof Error ? error.message : t('Versions are unavailable.');
     }
     this.cacheKeys = await cacheKeys();
     this.render();
@@ -118,7 +119,7 @@ class SettingsView implements SettingsHandle {
         this.preflights.set(project, report);
       }
     } catch (error) {
-      this.error = error instanceof Error ? error.message : 'Provider checks failed.';
+      this.error = error instanceof Error ? error.message : t('Provider checks failed.');
     } finally {
       this.isChecking = false;
       this.render();
@@ -140,7 +141,7 @@ class SettingsView implements SettingsHandle {
   private appearance(): HTMLElement {
     const section = element('section', 'settings-card');
     const group = element('fieldset', 'settings-theme');
-    group.append(element('legend', '', 'Theme'));
+    group.append(element('legend', '', t('Theme')));
     const current = storedTheme();
     for (const theme of THEMES) {
       const label = element('label', 'settings-choice');
@@ -157,15 +158,42 @@ class SettingsView implements SettingsHandle {
       group.append(label);
     }
     section.append(
-      element('h2', '', 'Appearance'),
+      element('h2', '', t('Appearance')),
       group,
+      this.languages(),
       element(
         'p',
         'subtle',
-        'Remembered in this browser only. System follows your operating system’s light or dark mode.',
+        t('Remembered in this browser only. System follows your operating system’s or browser’s preference.'),
       ),
     );
     return section;
+  }
+
+  /**
+   * Language choice as a native radio group; each language is named in itself.
+   *
+   * @returns Language fieldset.
+   */
+  private languages(): HTMLElement {
+    const group = element('fieldset', 'settings-theme');
+    group.append(element('legend', '', t('Language')));
+    const current = storedLocaleChoice();
+    for (const choice of LOCALE_CHOICES) {
+      const label = element('label', 'settings-choice');
+      const input = element('input');
+      input.type = 'radio';
+      input.name = 'settings-language';
+      input.value = choice;
+      input.checked = choice === current;
+      input.dataset['focusKey'] = `language-${choice}`;
+      input.addEventListener('change', () => {
+        chooseLocale(choice);
+      });
+      label.append(input, element('span', '', choice === 'system' ? t('System') : LOCALE_NAMES[choice]));
+      group.append(label);
+    }
+    return group;
   }
 
   /**
@@ -182,14 +210,16 @@ class SettingsView implements SettingsHandle {
       list.append(providerCard(row, now));
     }
     section.append(
-      element('h2', '', 'Provider health'),
+      element('h2', '', t('Provider health')),
       element(
         'p',
         'subtle',
-        'Presence, version and subscription login are checked inside the broker, where managed jobs run. No inference is spent and no account details are shown.',
+        t(
+          'Presence, version and subscription login are checked inside the broker, where managed jobs run. No inference is spent and no account details are shown.',
+        ),
       ),
       list,
-      button(this.isChecking ? 'Checking…' : 'Check providers now', {
+      button(t(this.isChecking ? 'Checking…' : 'Check providers now'), {
         cssClass: 'button secondary',
         key: 'settings-check',
         action: () => {
@@ -214,7 +244,7 @@ class SettingsView implements SettingsHandle {
     for (const [label, value] of buildRows(this.versions, this.cacheKeys)) {
       list.append(element('dt', '', label), element('dd', '', value));
     }
-    section.append(element('h2', '', 'Build'), list);
+    section.append(element('h2', '', t('Build')), list);
     return section;
   }
 
@@ -235,7 +265,7 @@ class SettingsView implements SettingsHandle {
         }),
       );
     }
-    section.append(element('h2', '', 'Project settings'), row);
+    section.append(element('h2', '', t('Project settings')), row);
     return section;
   }
 }
@@ -251,27 +281,35 @@ function providerCard(row: ProviderHealth, now: number): HTMLElement {
   const card = element('article', 'settings-provider');
   const [label, style] = CLI_BADGES[row.cli.status];
   const heading = element('div', 'settings-provider-heading');
-  let enabled = 'not set up';
+  let enabled = t('not set up');
   if (row.isEnabled !== null) {
     enabled = row.isEnabled ? 'enabled' : 'disabled';
   }
   heading.append(element('h3', '', row.name), tag(label, style), tag(enabled));
-  card.append(heading, element('p', 'subtle', `Executable: ${row.executable} · ${row.cli.detail}`));
+  card.append(
+    heading,
+    element(
+      'p',
+      'subtle',
+      t('Executable: {executable} · {detail}', { executable: row.executable, detail: row.cli.detail }),
+    ),
+  );
   if (row.cli.fix !== null) {
-    card.append(element('p', 'subtle', `Fix: ${row.cli.fix}`));
+    card.append(element('p', 'subtle', t('Fix: {fix}', { fix: row.cli.fix })));
   }
   for (const line of row.quota) {
     card.append(element('p', 'subtle', line));
   }
   if (row.cooldownUntil !== null) {
-    card.append(element('p', 'subtle', `Cooling down until ${localTime(row.cooldownUntil)}.`));
+    const until = localTime(row.cooldownUntil);
+    card.append(element('p', 'subtle', t('Cooling down until {until}.', { until })));
   }
   if (row.gate !== null) {
-    card.append(element('p', 'subtle', `Dispatch gate: ${row.gate}`));
+    card.append(element('p', 'subtle', t('Dispatch gate: {gate}', { gate: row.gate })));
   }
   if (row.lastFailure !== null) {
     const failure = element('p', 'subtle');
-    failure.append('Last failed attempt ', ageStamp(row.lastFailure.at, now), `: ${row.lastFailure.summary}`);
+    failure.append(t('Last failed attempt '), ageStamp(row.lastFailure.at, now), `: ${row.lastFailure.summary}`);
     card.append(failure);
   }
   return card;

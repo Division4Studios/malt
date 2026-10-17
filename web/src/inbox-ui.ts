@@ -12,6 +12,7 @@ import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromItem } from './approval-model.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
 import { readConsole } from './console-model.js';
+import { phrase, t, translated } from './i18n.js';
 import { QuestionDialog } from './question-dialog.js';
 import { element } from './worker-ui.js';
 
@@ -44,16 +45,16 @@ export interface InboxHooks {
 }
 
 /** Visible label per decision kind. */
-const KIND_LABELS: Readonly<Record<InboxKind, string>> = {
-  approval: 'Step approval',
-  plan_approval: 'Plan approval',
-  question: 'Agent question',
-  blocked_delivery: 'Blocked delivery',
-  blocked_objective: 'Planning stopped',
-  skill: 'Skill decision',
-  spend_cap: 'Spend cap',
-  done_criteria: 'Definition of done',
-};
+const KIND_LABELS: Readonly<Record<InboxKind, string>> = translated({
+  approval: phrase('Step approval'),
+  plan_approval: phrase('Plan approval'),
+  question: phrase('Agent question'),
+  blocked_delivery: phrase('Blocked delivery'),
+  blocked_objective: phrase('Planning stopped'),
+  skill: phrase('Skill decision'),
+  spend_cap: phrase('Spend cap'),
+  done_criteria: phrase('Definition of done'),
+});
 
 /**
  * Build a lane with a heading, count and list.
@@ -88,11 +89,11 @@ class InboxView {
   /** Question dialog. */
   private readonly questions: QuestionDialog;
   /** Decisions that need a reply. */
-  private readonly needs = lane('Needs reply', 'inbox-needs-title');
+  private readonly needs = lane(t('Needs reply'), 'inbox-needs-title');
   /** Notices to look into. */
-  private readonly notices = lane('Notices', 'inbox-notices-title');
+  private readonly notices = lane(t('Notices'), 'inbox-notices-title');
   /** Answered lane. */
-  private readonly answered = lane('Answered', 'inbox-answered-title');
+  private readonly answered = lane(t('Answered'), 'inbox-answered-title');
   /** Polite announcement of count changes. */
   private readonly status = element('p', 'sr-only');
   /** Last rendered data, to skip identical updates. */
@@ -158,19 +159,21 @@ class InboxView {
     this.notices.list.replaceChildren(...notices.map((item) => this.openItem(item, now)));
     this.answered.list.replaceChildren(...model.answered.map((item) => answeredItem(item, now)));
     if (replies.length === 0) {
-      this.needs.list.append(emptyItem('Nothing needs a reply', 'Questions and approvals waiting on you appear here.'));
+      this.needs.list.append(
+        emptyItem(t('Nothing needs a reply'), t('Questions and approvals waiting on you appear here.')),
+      );
     }
     if (notices.length === 0) {
-      this.notices.list.append(emptyItem('No notices', 'Blocked deliveries and stopped planning appear here.'));
+      this.notices.list.append(emptyItem(t('No notices'), t('Blocked deliveries and stopped planning appear here.')));
     }
     if (model.answered.length === 0) {
-      this.answered.list.append(emptyItem('No answers yet', 'Your recent approvals and answers appear here.'));
+      this.answered.list.append(emptyItem(t('No answers yet'), t('Your recent approvals and answers appear here.')));
     }
     restoreFocus(this.root, focused, this.heading());
     const count = model.open.length;
     if (this.lastCount !== -1 && this.lastCount !== count) {
-      const plural = count === 1 ? 'decision needs' : 'decisions need';
-      this.status.textContent = count === 0 ? 'Nothing needs you.' : `${String(count)} ${plural} you.`;
+      const plural = t(count === 1 ? 'decision needs' : 'decisions need');
+      this.status.textContent = count === 0 ? t('Nothing needs you.') : `${String(count)} ${plural} you.`;
     }
     this.lastCount = model.open.length;
   }
@@ -232,11 +235,11 @@ class InboxView {
     };
     if (taskId !== null && item.kind === 'blocked_delivery') {
       return [
-        action('Investigate…', 'investigate', () => {
+        action(t('Investigate…'), 'investigate', () => {
           hooks.openTriage(taskId);
         }),
         action(
-          'Open',
+          t('Open'),
           'open',
           () => {
             hooks.openDelivery(taskId);
@@ -247,14 +250,14 @@ class InboxView {
     }
     if (featureId !== null && item.kind === 'blocked_objective') {
       return [
-        action('Recover…', 'recover', () => {
+        action(t('Recover…'), 'recover', () => {
           hooks.openRecovery(featureId);
         }),
       ];
     }
     if (requestId !== null && item.kind === 'skill') {
       return [
-        action('Review…', 'review', () => {
+        action(t('Review…'), 'review', () => {
           hooks.openSkill(requestId);
         }),
       ];
@@ -262,12 +265,12 @@ class InboxView {
     const { openObjective, openCosts } = hooks;
     if (featureId !== null && openObjective !== undefined && item.kind === 'done_criteria') {
       return [
-        action('Review…', 'review', () => {
+        action(t('Review…'), 'review', () => {
           openObjective(featureId);
         }),
       ];
     }
-    return openCosts !== undefined && item.kind === 'spend_cap' ? [action('Open costs', 'costs', openCosts)] : [];
+    return openCosts !== undefined && item.kind === 'spend_cap' ? [action(t('Open costs'), 'costs', openCosts)] : [];
   }
 }
 
@@ -281,7 +284,7 @@ class InboxView {
 function answeredItem(item: AnsweredItem, now: number): HTMLLIElement {
   const node = element('li', 'inbox-item inbox-answered');
   const head = element('div', 'inbox-item-head');
-  head.append(tag('Answered', 'kind-answered'), ageStamp(item.at, now));
+  head.append(tag(t('Answered'), 'kind-answered'), ageStamp(item.at, now));
   node.append(head, element('h3', 'inbox-item-title', item.title));
   if (item.note !== '') {
     node.append(element('p', 'inbox-detail', item.note));

@@ -4,6 +4,7 @@
  * @file
  */
 import { child, text } from './api.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -30,8 +31,9 @@ export function skillDialog(proposal: Data, requestId: string, shouldApprove: bo
   return {
     description: {
       title: `${shouldApprove ? 'Approve' : 'Reject'} skill ${text(candidate, 'name')}`,
-      explanation:
+      explanation: t(
         'Compare the current and proposed instructions below. Enter your rationale. This decision applies only to this project and this exact revision.',
+      ),
       initial: '',
       evidence: `CURRENT\n${text(proposal, 'current')}\n\nPROPOSED\n${text(candidate, 'skill')}\n\nREVIEW\n${JSON.stringify(review, null, 2)}`,
     },
@@ -48,9 +50,10 @@ export function skillDialog(proposal: Data, requestId: string, shouldApprove: bo
 export function maintenanceDialog(requestId: string): LearningDialog {
   return {
     description: {
-      title: 'Queue a reusable factory improvement',
-      explanation:
+      title: t('Queue a reusable factory improvement'),
+      explanation: t(
         'Enter the absolute MALT source repository folder. This transfers the exact approved skill adaptation to its own product owner and lead, with normal implementation and review gates. No board, deployment or process restart is created by this control.',
+      ),
       initial: '',
     },
     action: {
@@ -72,8 +75,9 @@ export function maintenancePanel(requests: readonly Data[], action: (id: string)
   body.classList.add('panel-body');
   const explanation = document.createElement('p');
   explanation.classList.add('subtle');
-  explanation.textContent =
-    'Approved lessons can become separately reviewed MALT source work. Its factory needs its own setup; this never hot-patches the running daemon.';
+  explanation.textContent = t(
+    'Approved lessons can become separately reviewed MALT source work. Its factory needs its own setup; this never hot-patches the running daemon.',
+  );
   body.append(explanation);
   for (const request of requests) {
     if (text(request, 'status') !== 'approved') {
@@ -82,7 +86,7 @@ export function maintenancePanel(requests: readonly Data[], action: (id: string)
     const button = document.createElement('button');
     button.type = 'button';
     button.classList.add('small-button');
-    button.textContent = `Queue source improvement: ${text(request, 'name')}`;
+    button.textContent = t('Queue source improvement: {value}', { value: text(request, 'name') });
     button.addEventListener('click', () => {
       action(text(request, 'id'));
     });
@@ -103,7 +107,9 @@ export function appendBaselineWarning(sources: HTMLElement, learning: Data): voi
       element(
         'p',
         'error',
-        'Local baseline edits were preserved. Inspect .malt/skills/builtin-index.json conflicts and submit a reviewed project override before replacing them.',
+        t(
+          'Local baseline edits were preserved. Inspect .malt/skills/builtin-index.json conflicts and submit a reviewed project override before replacing them.',
+        ),
       ),
     );
   }

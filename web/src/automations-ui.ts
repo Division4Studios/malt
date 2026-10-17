@@ -28,6 +28,7 @@ import {
 } from './automations-model.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
 import { excerpt } from './console-model.js';
+import { formatDateTime, t } from './i18n.js';
 import { element } from './worker-ui.js';
 import { isConfirmed } from './workflow-dom.js';
 import { parseLibrary } from './workflow-model.js';
@@ -81,11 +82,11 @@ function labelled(label: string, control: HTMLElement, hint?: HTMLElement): HTML
 async function copy(text: string, source: HTMLInputElement | HTMLTextAreaElement): Promise<string> {
   try {
     await navigator.clipboard.writeText(text);
-    return 'Copied.';
+    return t('Copied.');
   } catch {
     source.focus();
     source.select();
-    return 'Selected; press Ctrl+C or ⌘C to copy.';
+    return t('Selected; press Ctrl+C or ⌘C to copy.');
   }
 }
 
@@ -122,7 +123,7 @@ class AutomationEditor {
   /** Validation or delivery problem. */
   private readonly error = element('p', 'error');
   /** Save button. */
-  private readonly save = element('button', 'button primary', 'Save');
+  private readonly save = element('button', 'button primary', t('Save'));
   /** Kind being edited. */
   private kind: AutomationView['kind'] = 'schedule';
   /** Automation being edited, or `null` when creating. */
@@ -160,7 +161,7 @@ class AutomationEditor {
     this.cron.addEventListener('input', () => {
       this.describe();
     });
-    this.preset.append(new Option('Choose a common schedule…', ''));
+    this.preset.append(new Option(t('Choose a common schedule…'), ''));
     for (const [expression, label] of CRON_PRESETS) {
       this.preset.append(new Option(`${label} (${expression})`, expression));
     }
@@ -181,17 +182,18 @@ class AutomationEditor {
     }
     this.timeZone.setAttribute('list', zones.id);
     this.enabled.type = 'checkbox';
+    const zoneHint = element('p', 'automation-hint', t('IANA name, such as Europe/Berlin.'));
     this.scheduleFields.append(
-      labelled('Common schedules', this.preset),
-      labelled('Cron expression', this.cron, this.cronText),
-      labelled('Time zone', this.timeZone, element('p', 'automation-hint', 'IANA name, such as Europe/Berlin.')),
+      labelled(t('Common schedules'), this.preset),
+      labelled(t('Cron expression'), this.cron, this.cronText),
+      labelled(t('Time zone'), this.timeZone, zoneHint),
       zones,
     );
     const toggle = element('label', 'automation-toggle');
-    toggle.append(this.enabled, element('span', '', 'Enabled'));
+    toggle.append(this.enabled, element('span', '', t('Enabled')));
     const form = element('form', 'automation-form');
     form.method = 'dialog';
-    const cancel = element('button', 'button ghost', 'Cancel');
+    const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
       this.element.close();
@@ -200,15 +202,12 @@ class AutomationEditor {
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, this.save);
     this.error.setAttribute('role', 'alert');
+    const objectiveHint = t('Filed as a new objective each time; it is planned and reviewed as usual.');
     form.append(
       this.heading,
-      labelled('Name', this.name),
-      labelled(
-        'Objective',
-        this.objective,
-        element('p', 'automation-hint', 'Filed as a new objective each time; it is planned and reviewed as usual.'),
-      ),
-      labelled('Workflow', this.workflow),
+      labelled(t('Name'), this.name),
+      labelled(t('Objective'), this.objective, element('p', 'automation-hint', objectiveHint)),
+      labelled(t('Workflow'), this.workflow),
       this.scheduleFields,
       toggle,
       this.error,
@@ -237,10 +236,11 @@ class AutomationEditor {
     this.editing = editing;
     const draft = draftOf(editing);
     const noun = kind === 'schedule' ? 'schedule' : 'trigger';
-    this.heading.textContent = editing === null ? `New ${noun}` : `Edit ${noun}: ${editing.name}`;
+    this.heading.textContent =
+      editing === null ? t('New {noun}', { noun }) : t('Edit {noun}: {name}', { noun, name: editing.name });
     this.name.value = draft.name;
     this.objective.value = draft.objective;
-    this.workflow.replaceChildren(new Option('Project default', ''));
+    this.workflow.replaceChildren(new Option(t('Project default'), ''));
     for (const [id, name] of workflows) {
       this.workflow.append(new Option(name, id));
     }
@@ -301,7 +301,7 @@ class AutomationEditor {
         issued.value = issuedSecret(result);
       });
       if (!isSaved) {
-        this.error.textContent = 'Not saved. The notice at the top of the console says why; your changes are kept.';
+        this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
         return;
       }
       this.element.close();
@@ -341,7 +341,7 @@ class SecretDialog {
     this.element.setAttribute('aria-labelledby', this.heading.id);
     this.secret.readOnly = true;
     this.secret.spellcheck = false;
-    this.secret.setAttribute('aria-label', 'Trigger secret');
+    this.secret.setAttribute('aria-label', t('Trigger secret'));
     for (const example of [this.curl, this.powershell]) {
       example.readOnly = true;
       example.spellcheck = false;
@@ -349,10 +349,10 @@ class SecretDialog {
     }
     this.secretRow.append(
       this.secret,
-      this.copyButton('Copy secret', () => this.secret.value, this.secret),
+      this.copyButton(t('Copy secret'), () => this.secret.value, this.secret),
     );
     this.status.setAttribute('aria-live', 'polite');
-    const done = element('button', 'button primary', 'Done');
+    const done = element('button', 'button primary', t('Done'));
     done.type = 'button';
     done.addEventListener('click', () => {
       this.element.close();
@@ -363,10 +363,10 @@ class SecretDialog {
       this.heading,
       this.message,
       this.secretRow,
-      labelled('curl (macOS, Linux, Git Bash)', this.curl),
-      this.copyButton('Copy curl command', () => this.curl.value, this.curl),
+      labelled(t('curl (macOS, Linux, Git Bash)'), this.curl),
+      this.copyButton(t('Copy curl command'), () => this.curl.value, this.curl),
       labelled('PowerShell', this.powershell),
-      this.copyButton('Copy PowerShell command', () => this.powershell.value, this.powershell),
+      this.copyButton(t('Copy PowerShell command'), () => this.powershell.value, this.powershell),
       this.status,
       actions,
     );
@@ -391,9 +391,10 @@ class SecretDialog {
     endpoint: TriggerEndpoint | null,
     secret: string,
   ): void {
-    this.heading.textContent = `Secret for ${trigger.name}`;
-    this.message.textContent =
-      'Copy it now: it is shown only this once and only a hash is stored. Rotate the secret to replace a lost or leaked one.';
+    this.heading.textContent = t('Secret for {name}', { name: trigger.name });
+    this.message.textContent = t(
+      'Copy it now: it is shown only this once and only a hash is stored. Rotate the secret to replace a lost or leaked one.',
+    );
     this.secretRow.hidden = false;
     this.secret.value = secret;
     this.fill(trigger.path, endpoint, secret);
@@ -406,8 +407,11 @@ class SecretDialog {
    * @param endpoint - Broker address.
    */
   public showExamples(trigger: Pick<TriggerView, 'name' | 'path'>, endpoint: TriggerEndpoint | null): void {
-    this.heading.textContent = `Fire ${trigger.name} from a script`;
-    this.message.textContent = `POST to the local broker with the trigger secret in place of ${SECRET_PLACEHOLDER}. Reusing an Idempotency-Key files nothing new; the JSON body is appended to the objective as untrusted data.`;
+    this.heading.textContent = t('Fire {name} from a script', { name: trigger.name });
+    this.message.textContent = t(
+      'POST to the local broker with the trigger secret in place of {secretPlaceholder}. Reusing an Idempotency-Key files nothing new; the JSON body is appended to the objective as untrusted data.',
+      { secretPlaceholder: SECRET_PLACEHOLDER },
+    );
     this.secretRow.hidden = true;
     this.fill(trigger.path, endpoint, SECRET_PLACEHOLDER);
   }
@@ -499,14 +503,14 @@ class AutomationsView implements ConsoleViewHandle {
     });
     const toolbar = element('div', 'automation-toolbar');
     toolbar.append(
-      button('New schedule', {
+      button(t('New schedule'), {
         cssClass: 'button primary',
         key: 'automation-new-schedule',
         action: () => {
           this.editor.open('schedule', null, this.workflows);
         },
       }),
-      button('New trigger', {
+      button(t('New trigger'), {
         cssClass: 'button secondary',
         key: 'automation-new-trigger',
         action: () => {
@@ -516,21 +520,25 @@ class AutomationsView implements ConsoleViewHandle {
     );
     const scheduleSection = element('section', 'automation-section');
     scheduleSection.append(
-      element('h2', '', 'Schedules'),
+      element('h2', '', t('Schedules')),
       element(
         'p',
         'subtle',
-        'Each fire files the objective while the factory runs. Runs missed while it was paused file one objective when it resumes.',
+        t(
+          'Each fire files the objective while the factory runs. Runs missed while it was paused file one objective when it resumes.',
+        ),
       ),
       this.schedules,
     );
     const triggerSection = element('section', 'automation-section');
     triggerSection.append(
-      element('h2', '', 'Triggers'),
+      element('h2', '', t('Triggers')),
       element(
         'p',
         'subtle',
-        'A local script files the objective by POSTing to the broker with the trigger secret. Calls are limited to ten a minute.',
+        t(
+          'A local script files the objective by POSTing to the broker with the trigger secret. Calls are limited to ten a minute.',
+        ),
       ),
       this.triggers,
     );
@@ -559,8 +567,8 @@ class AutomationsView implements ConsoleViewHandle {
       ...(this.model.schedules.length === 0
         ? [
             emptyState(
-              'No schedules yet',
-              'Create one to file a recurring objective, such as a weekly dependency audit.',
+              t('No schedules yet'),
+              t('Create one to file a recurring objective, such as a weekly dependency audit.'),
             ),
           ]
         : this.model.schedules.map((schedule) => this.card(schedule, now))),
@@ -569,8 +577,8 @@ class AutomationsView implements ConsoleViewHandle {
       ...(this.model.triggers.length === 0
         ? [
             emptyState(
-              'No triggers yet',
-              'Create one so CI or a local script can file an objective, such as "fix the failing build".',
+              t('No triggers yet'),
+              t('Create one so CI or a local script can file an objective, such as "fix the failing build".'),
             ),
           ]
         : this.model.triggers.map((trigger) => this.card(trigger, now))),
@@ -591,12 +599,14 @@ class AutomationsView implements ConsoleViewHandle {
     const header = element('header', 'automation-card-header');
     header.append(
       element('h3', 'automation-name', automation.name),
-      tag(automation.isEnabled ? 'Enabled' : 'Off', automation.isEnabled ? 'tag-enabled' : 'tag-off'),
+      tag(t(automation.isEnabled ? 'Enabled' : 'Off'), automation.isEnabled ? 'tag-enabled' : 'tag-off'),
     );
     const workflow =
       automation.workflowId === null
-        ? 'Project default workflow'
-        : `Workflow: ${this.workflows.find(([id]) => id === automation.workflowId)?.[1] ?? automation.workflowId}`;
+        ? t('Project default workflow')
+        : t('Workflow: {value}', {
+            value: this.workflows.find(([id]) => id === automation.workflowId)?.[1] ?? automation.workflowId,
+          });
     card.append(
       header,
       ...(automation.kind === 'schedule' ? this.scheduleLines(automation) : this.triggerLines(automation)),
@@ -622,21 +632,21 @@ class AutomationsView implements ConsoleViewHandle {
     if (schedule.upcoming.length === 0) {
       return [
         summary,
-        element('p', 'subtle', schedule.isEnabled ? 'No upcoming fire.' : 'Off: enable it to schedule fires.'),
+        element('p', 'subtle', t(schedule.isEnabled ? 'No upcoming fire.' : 'Off: enable it to schedule fires.')),
       ];
     }
     const upcoming = element('ol', 'automation-upcoming');
-    upcoming.setAttribute('aria-label', `Next fires in ${schedule.timeZone}`);
+    upcoming.setAttribute('aria-label', t('Next fires in {timeZone}', { timeZone: schedule.timeZone }));
     for (const at of schedule.upcoming) {
       const item = element('li');
       const date = new Date(at);
       const time = element('time', '', zonedTime(at, schedule.timeZone));
       time.dateTime = date.toISOString();
-      time.title = date.toLocaleString();
+      time.title = formatDateTime(date);
       item.append(time);
       upcoming.append(item);
     }
-    return [summary, element('p', 'automation-label', 'Next fires'), upcoming];
+    return [summary, element('p', 'automation-label', t('Next fires')), upcoming];
   }
 
   /**
@@ -663,7 +673,7 @@ class AutomationsView implements ConsoleViewHandle {
     const [latest] = automation.fires;
     const summary = element('summary');
     if (latest === undefined) {
-      summary.textContent = 'Never fired';
+      summary.textContent = t('Never fired');
       details.append(summary);
       return details;
     }
@@ -689,14 +699,14 @@ class AutomationsView implements ConsoleViewHandle {
     const bar = element('div', 'automation-actions');
     const key = (name: string): string => `automation-${name}-${automation.id}`;
     bar.append(
-      button('Edit', {
+      button(t('Edit'), {
         cssClass: 'button secondary',
         key: key('edit'),
         action: () => {
           this.editor.open(automation.kind, automation, this.workflows);
         },
       }),
-      button(automation.isEnabled ? 'Disable' : 'Enable', {
+      button(t(automation.isEnabled ? 'Disable' : 'Enable'), {
         cssClass: 'button ghost',
         key: key('toggle'),
         action: () => {
@@ -704,7 +714,7 @@ class AutomationsView implements ConsoleViewHandle {
           void this.hooks.control(operation, input);
         },
       }),
-      button('Run now', {
+      button(t('Run now'), {
         cssClass: 'button ghost',
         key: key('run'),
         action: () => {
@@ -714,14 +724,14 @@ class AutomationsView implements ConsoleViewHandle {
     );
     if (automation.kind === 'trigger') {
       bar.append(
-        button('Example command', {
+        button(t('Example command'), {
           cssClass: 'button ghost',
           key: key('example'),
           action: () => {
             this.secrets.showExamples(automation, this.model.endpoint);
           },
         }),
-        button('Rotate secret', {
+        button(t('Rotate secret'), {
           cssClass: 'button ghost',
           key: key('rotate'),
           action: () => {
@@ -731,7 +741,7 @@ class AutomationsView implements ConsoleViewHandle {
       );
     }
     bar.append(
-      button('Delete', {
+      button(t('Delete'), {
         cssClass: 'button ghost danger',
         key: key('delete'),
         action: () => {
@@ -749,10 +759,10 @@ class AutomationsView implements ConsoleViewHandle {
    */
   private async rotate(trigger: TriggerView): Promise<void> {
     const isSure = await isConfirmed(this.element, {
-      title: `Rotate the secret for ${trigger.name}?`,
-      message: 'The current secret stops working immediately. Scripts that use it need the new one.',
-      confirm: 'Rotate',
-      cancel: 'Cancel',
+      title: t('Rotate the secret for {name}?', { name: trigger.name }),
+      message: t('The current secret stops working immediately. Scripts that use it need the new one.'),
+      confirm: t('Rotate'),
+      cancel: t('Cancel'),
     });
     if (!isSure) {
       return;
@@ -774,13 +784,14 @@ class AutomationsView implements ConsoleViewHandle {
    */
   private async remove(automation: AutomationView): Promise<void> {
     const isSure = await isConfirmed(this.element, {
-      title: `Delete ${automation.name}?`,
-      message:
+      title: t('Delete {name}?', { name: automation.name }),
+      message: t(
         automation.kind === 'schedule'
           ? 'It stops firing. Objectives it already filed and its fire history are kept.'
           : 'Its secret stops working. Objectives it already filed and its fire history are kept.',
-      confirm: 'Delete',
-      cancel: 'Cancel',
+      ),
+      confirm: t('Delete'),
+      cancel: t('Cancel'),
     });
     if (isSure) {
       await this.hooks.control('factory_automation_delete', {

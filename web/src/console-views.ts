@@ -14,6 +14,7 @@ import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
 import { createGoalView } from './goal-ui.js';
+import { onLocaleChange, t, translateTree } from './i18n.js';
 import { InboxNotifier } from './inbox-notifier.js';
 import { createInboxView } from './inbox-ui.js';
 import { createRolesView } from './roles-ui.js';
@@ -73,6 +74,8 @@ export interface ConsoleViewHooks {
   readonly recover: (featureId: string) => void;
   /** Open a skill proposal for review. */
   readonly skill: (requestId: string) => void;
+  /** Re-render the shell, after a language change. */
+  readonly rerender: () => void;
 }
 
 /** A view with a stable root that refreshes from its own routes. */
@@ -163,6 +166,18 @@ export class ConsoleViews {
       ['objective', this.goals],
       ['workflows', this.workflows],
     ]);
+    // The static shell is written in English; show it in the stored language.
+    translateTree(document.body, 'en');
+    onLocaleChange(() => [document.body, ...this.roots()], hooks.rerender);
+  }
+
+  /**
+   * Every owned view's root, mounted or not, so a language change reaches them all.
+   *
+   * @returns Root elements.
+   */
+  public roots(): HTMLElement[] {
+    return [...this.pushed.values(), ...this.refreshed.values()].map((view) => view.element);
   }
 
   /**
@@ -196,13 +211,13 @@ export class ConsoleViews {
     if (isPushed(view)) {
       const pushed = this.pushed.get(view);
       if (pushed === undefined) {
-        throw new Error(`No owned console view named ${view}.`);
+        throw new Error(t('No owned console view named {view}.', { view }));
       }
       return pushed.element;
     }
     const handle = this.refreshed.get(view);
     if (handle === undefined) {
-      throw new Error(`No owned console view named ${view}.`);
+      throw new Error(t('No owned console view named {view}.', { view }));
     }
     const now = Date.now();
     if (now - (this.reads.get(view) ?? 0) >= TELEMETRY_REFRESH_MS) {
@@ -266,6 +281,6 @@ export class ConsoleViews {
    */
   private deliveryLabel(taskId: string): string {
     const card = readConsole(this.snapshot).deliveries.find((delivery) => delivery.taskId === taskId);
-    return card === undefined ? 'this delivery' : `#${String(card.issue)} ${card.title}`;
+    return card === undefined ? t('this delivery') : `#${String(card.issue)} ${card.title}`;
   }
 }

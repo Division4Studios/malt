@@ -8,6 +8,7 @@
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 import { draftProblems, isStaleRevision, splitProblems } from './workflow-checks.js';
 import {
@@ -68,10 +69,10 @@ export interface EditorHooks {
 }
 
 /** Section headings in the editor. */
-const SECTION_HEADINGS: Readonly<Record<SectionName, string>> = {
-  planning: 'Planning steps',
-  delivery: 'Delivery steps',
-};
+const SECTION_HEADINGS: Readonly<Record<SectionName, string>> = translated({
+  planning: phrase('Planning steps'),
+  delivery: phrase('Delivery steps'),
+});
 
 /** One workflow draft editor; create once and reuse for every draft. */
 export class WorkflowEditor {
@@ -80,9 +81,9 @@ export class WorkflowEditor {
   /** Callbacks. */
   private readonly hooks: EditorHooks;
   /** Panel heading. */
-  private readonly heading = element('h2', '', 'Edit workflow');
+  private readonly heading = element('h2', '', t('Edit workflow'));
   /** Unsaved-changes indicator (text, not colour). */
-  private readonly dirtyLabel = element('span', 'wf-badge', 'Unsaved changes');
+  private readonly dirtyLabel = element('span', 'wf-badge', t('Unsaved changes'));
   /** Notice shown when a newer revision is saved under an open draft. */
   private readonly drift = element('div', 'notice wf-drift');
   /** Workflow fields and both sections. */
@@ -129,7 +130,7 @@ export class WorkflowEditor {
     this.stale.hidden = true;
     this.serverProblems.hidden = true;
     this.saveButton = button(
-      'Save workflow',
+      t('Save workflow'),
       () => {
         void this.save();
       },
@@ -140,13 +141,13 @@ export class WorkflowEditor {
     title.append(this.heading, this.dirtyLabel);
     head.append(title);
     const previewSection = element('section', 'wf-editor-preview-section');
-    previewSection.append(element('h3', '', 'Preview of this draft'), this.preview);
+    previewSection.append(element('h3', '', t('Preview of this draft')), this.preview);
     const actions = element('div', 'wf-editor-actions');
     const buttons = element('div', 'wf-actions');
     buttons.append(
       this.saveButton,
       button(
-        'Discard draft',
+        t('Discard draft'),
         () => {
           void this.discard();
         },
@@ -228,7 +229,10 @@ export class WorkflowEditor {
         element(
           'p',
           '',
-          `A newer revision of “${this.origin.id}” was saved since you opened this draft. Your draft is kept; saving it will be refused until you load the latest.`,
+          t(
+            'A newer revision of “{id}” was saved since you opened this draft. Your draft is kept; saving it will be refused until you load the latest.',
+            { id: this.origin.id },
+          ),
         ),
         this.loadLatestButton('editor:drift-load'),
       );
@@ -264,15 +268,16 @@ export class WorkflowEditor {
     description.addEventListener('input', () => {
       this.apply({ ...this.draft, description: description.value });
     });
-    const hint =
+    const hint = t(
       this.origin.revision === null
         ? 'Lowercase letters, digits, "_" or "-". Built-in ids are reserved.'
-        : 'Changing the id saves a new workflow; the original stays as it is.';
+        : 'Changing the id saves a new workflow; the original stays as it is.',
+    );
     const problems = element('ul', 'wf-problems');
     problems.dataset['problemsFor'] = 'workflow';
     problems.hidden = true;
     const grid = element('div', 'wf-field-grid wf-workflow-fields');
-    grid.append(field('Workflow id', id, hint), field('Name', name), field('Description', description));
+    grid.append(field(t('Workflow id'), id, hint), field(t('Name'), name), field(t('Description'), description));
     const wrapper = element('div');
     wrapper.append(problems, grid);
     return wrapper;
@@ -320,8 +325,9 @@ export class WorkflowEditor {
         },
       });
     });
-    const empty =
-      section === 'planning' ? 'No planning steps: each objective is delivered as a single delivery.' : 'No steps yet.';
+    const empty = t(
+      section === 'planning' ? 'No planning steps: each objective is delivered as a single delivery.' : 'No steps yet.',
+    );
     container.replaceChildren(...(forms.length === 0 ? [element('p', 'wf-hint', empty)] : forms), this.addRow(section));
     if (focus !== '') {
       focusKey(container, focus, true);
@@ -354,7 +360,7 @@ export class WorkflowEditor {
     );
     const isFull = this.draft[section].length >= MAX_STEPS[section];
     const add = button(
-      'Add step',
+      t('Add step'),
       () => {
         const result = addStep(this.draft, section, choice.value);
         this.apply(result.draft);
@@ -366,9 +372,9 @@ export class WorkflowEditor {
     const row = element('div', 'wf-add-row');
     row.append(
       field(
-        `Kind of ${section} step to add`,
+        t('Kind of {section} step to add', { section }),
         choice,
-        isFull ? `This section is full (${String(MAX_STEPS[section])} steps).` : '',
+        isFull ? t('This section is full ({value} steps).', { value: MAX_STEPS[section] }) : '',
       ),
       add,
     );
@@ -489,7 +495,10 @@ export class WorkflowEditor {
       input.value = isTaken ? step.id : id;
     }
     if (isTaken) {
-      this.status.textContent = `Step id “${id}” is already used by another step, so “${step.id}” was kept. Ids must be unique.`;
+      this.status.textContent = t(
+        'Step id “{id}” is already used by another step, so “{id2}” was kept. Ids must be unique.',
+        { id, id2: step.id },
+      );
       return;
     }
     this.apply(renameStep(this.draft, section, step.uid, id));
@@ -509,7 +518,7 @@ export class WorkflowEditor {
     taken.delete(step.id);
     const id = deriveKey(step.title, taken, step.kind.replaceAll('_', '-'));
     this.rename(section, step, id);
-    this.status.textContent = `Step id set to “${id}”.`;
+    this.status.textContent = t('Step id set to “{id}”.', { id });
   }
 
   /**
@@ -547,7 +556,7 @@ export class WorkflowEditor {
     this.apply(removeStep(this.draft, section, step.uid));
     const neighbour = this.draft[section][Math.min(index, this.draft[section].length - 1)];
     this.renderSteps(section, neighbour === undefined ? `${section}:add-kind` : `${neighbour.uid}:remove`);
-    this.status.textContent = `Removed “${step.title}”.`;
+    this.status.textContent = t('Removed “{title}”.', { title: step.title });
   }
 
   /**
@@ -576,8 +585,10 @@ export class WorkflowEditor {
     }
     const summary =
       problems.length === 0
-        ? 'Browser checks found no problems. The server checks every rule again when you save.'
-        : `Browser checks found ${countLabel(problems.length, 'problem')}, shown next to each step. You can still save; the server decides.`;
+        ? t('Browser checks found no problems. The server checks every rule again when you save.')
+        : t('Browser checks found {value}, shown next to each step. You can still save; the server decides.', {
+            value: countLabel(problems.length, 'problem'),
+          });
     if (this.summary.textContent !== summary) {
       this.summary.textContent = summary;
     }
@@ -601,7 +612,7 @@ export class WorkflowEditor {
    */
   private loadLatestButton(key: string): HTMLButtonElement {
     return button(
-      'Load latest (discard my draft)',
+      t('Load latest (discard my draft)'),
       () => {
         this.hooks.loadLatest(this.origin.id === '' ? this.draft.id : this.origin.id);
       },
@@ -617,7 +628,7 @@ export class WorkflowEditor {
     this.isSaving = true;
     this.saveButton.disabled = true;
     this.clearFailure();
-    this.status.textContent = 'Saving…';
+    this.status.textContent = t('Saving…');
     const result = await this.hooks.send('factory_workflow_save', saveRequest(this.draft, this.origin));
     this.isSaving = false;
     this.saveButton.disabled = false;
@@ -635,9 +646,9 @@ export class WorkflowEditor {
    */
   private failed(error: string): void {
     if (isStaleRevision(error)) {
-      this.status.textContent = 'Not saved: someone saved a newer revision of this workflow after you opened it.';
+      this.status.textContent = t('Not saved: someone saved a newer revision of this workflow after you opened it.');
       const keep = button(
-        'Keep editing',
+        t('Keep editing'),
         () => {
           this.stale.hidden = true;
           this.saveButton.focus();
@@ -647,7 +658,7 @@ export class WorkflowEditor {
       const actions = element('div', 'wf-actions');
       actions.append(this.loadLatestButton('editor:stale-load'), keep);
       this.stale.replaceChildren(
-        element('p', '', 'Saving now would overwrite their change, so the server refused it. Your draft is kept.'),
+        element('p', '', t('Saving now would overwrite their change, so the server refused it. Your draft is kept.')),
         actions,
       );
       this.stale.hidden = false;
@@ -655,10 +666,11 @@ export class WorkflowEditor {
       return;
     }
     if (error === '') {
-      this.status.textContent =
-        'Not saved; your draft is kept. The console notice explains why (offline, another control in progress, or a server refusal).';
+      this.status.textContent = t(
+        'Not saved; your draft is kept. The console notice explains why (offline, another control in progress, or a server refusal).',
+      );
     } else {
-      this.status.textContent = 'Not saved; your draft is kept. The server reported:';
+      this.status.textContent = t('Not saved; your draft is kept. The server reported:');
       this.serverProblems.replaceChildren(...splitProblems(error).map((problem) => element('li', '', problem)));
       this.serverProblems.hidden = false;
     }
@@ -670,10 +682,10 @@ export class WorkflowEditor {
     const shouldDiscard =
       !this.isDirty ||
       (await isConfirmed(this.element, {
-        title: 'Discard this draft?',
-        message: 'Your unsaved changes to this workflow will be lost.',
-        confirm: 'Discard draft',
-        cancel: 'Keep editing',
+        title: t('Discard this draft?'),
+        message: t('Your unsaved changes to this workflow will be lost.'),
+        confirm: t('Discard draft'),
+        cancel: t('Keep editing'),
       }));
     if (!shouldDiscard) {
       return;

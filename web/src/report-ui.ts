@@ -4,6 +4,7 @@
  * @file
  */
 import { child, displayText, records, text } from './api.js';
+import { formatDateTime, t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data, Snapshot } from './api.js';
@@ -38,7 +39,7 @@ function inline(node: HTMLElement, value: string): void {
  */
 export function renderReport(
   value: string,
-  boundedNotice = 'Report preview bounded. Full evidence remains in the worker artifacts.',
+  boundedNotice = t('Report preview bounded. Full evidence remains in the worker artifacts.'),
 ): HTMLElement {
   const body = element('div', 'evidence-markdown');
   const lines = value.slice(0, REPORT_LIMIT).split('\n');
@@ -124,9 +125,11 @@ function handoffText(value: Data, key: string): string {
  */
 export function refreshHandoffConnection(isConnected: boolean): void {
   for (const status of document.querySelectorAll('.handoff-connection')) {
-    status.textContent = isConnected
-      ? 'Latest six durable reports and peer messages. Expand for the bounded stored record.'
-      : 'Disconnected. These handoffs are stale observations; agents cannot be controlled offline.';
+    status.textContent = t(
+      isConnected
+        ? 'Latest six durable reports and peer messages. Expand for the bounded stored record.'
+        : 'Disconnected. These handoffs are stale observations; agents cannot be controlled offline.',
+    );
   }
 }
 
@@ -139,15 +142,17 @@ export function refreshHandoffConnection(isConnected: boolean): void {
  */
 export function handoffPreviews(state: Snapshot, isConnected: boolean): HTMLElement {
   const body = element('section', 'panel-body handoff-feed');
-  body.setAttribute('aria-label', 'Latest handoffs and messages');
+  body.setAttribute('aria-label', t('Latest handoffs and messages'));
   const status = element('p', 'subtle handoff-connection');
-  status.textContent = isConnected
-    ? 'Latest six durable reports and peer messages. Expand for the bounded stored record.'
-    : 'Disconnected. These handoffs are stale observations; agents cannot be controlled offline.';
+  status.textContent = t(
+    isConnected
+      ? 'Latest six durable reports and peer messages. Expand for the bounded stored record.'
+      : 'Disconnected. These handoffs are stale observations; agents cannot be controlled offline.',
+  );
   body.append(status);
   const raw = state.factory['handoffs'];
   if (!Array.isArray(raw)) {
-    body.append(element('p', 'subtle', 'Handoff feed unavailable from this backend snapshot.'));
+    body.append(element('p', 'subtle', t('Handoff feed unavailable from this backend snapshot.')));
     return body;
   }
   const entries = records(raw.slice(0, HANDOFF_LIMIT));
@@ -155,7 +160,7 @@ export function handoffPreviews(state: Snapshot, isConnected: boolean): HTMLElem
     body.append(handoffPreview(entry));
   }
   if (entries.length === 0) {
-    body.append(element('p', 'subtle', 'No durable handoffs or peer messages have been recorded for this project.'));
+    body.append(element('p', 'subtle', t('No durable handoffs or peer messages have been recorded for this project.')));
   }
   return body;
 }
@@ -176,19 +181,20 @@ function handoffPreview(entry: Data): HTMLElement {
   signal.setAttribute('aria-hidden', 'true');
   const heading = element('span', 'handoff-heading');
   const assignment = child(entry, 'assignment');
-  const purpose = displayText(handoffText(assignment, 'title'), 'Assignment purpose unavailable');
-  const sender = displayText(handoffText(entry, 'sender'), 'Origin unavailable');
-  const recipient = displayText(handoffText(entry, 'recipient'), 'Destination unavailable');
+  const purpose = displayText(handoffText(assignment, 'title'), t('Assignment purpose unavailable'));
+  const sender = displayText(handoffText(entry, 'sender'), t('Origin unavailable'));
+  const recipient = displayText(handoffText(entry, 'recipient'), t('Destination unavailable'));
   const isManager = entry['kind'] === 'manager_report';
-  const kind = isManager ? 'Manager report' : 'Peer message';
+  const kind = t(isManager ? 'Manager report' : 'Peer message');
   const reported = displayText(handoffText(entry, 'summary'), handoffText(entry, 'body'));
   const purposePreview = purpose.slice(0, SUMMARY_LIMIT).toWellFormed();
-  const summaryPreview = displayText(reported.slice(0, SUMMARY_LIMIT).toWellFormed(), 'Summary unavailable');
+  const summaryPreview = displayText(reported.slice(0, SUMMARY_LIMIT).toWellFormed(), t('Summary unavailable'));
   const stage = displayText(handoffText(assignment, 'kind'), 'unavailable');
+  const route = t('Issue: {issue} · Stage: {stage}', { issue: issueIdentity(assignment), stage });
   heading.append(
     element('strong', '', purposePreview),
     element('span', 'handoff-route', `${sender} → ${recipient}`),
-    element('span', 'subtle', `Issue: ${issueIdentity(assignment)} · Stage: ${stage}`),
+    element('span', 'subtle', route),
     element('span', 'subtle', summaryPreview),
     handoffTime(entry),
   );
@@ -196,21 +202,28 @@ function handoffPreview(entry: Data): HTMLElement {
   const content = element('div', 'triage-body');
   const outcome = displayText(handoffText(entry, 'outcome'), 'unavailable');
   const processState = displayText(handoffText(entry, 'processState'), 'unavailable');
-  const storedBody = displayText(handoffText(entry, 'body'), 'Stored body unavailable.');
+  const storedBody = displayText(handoffText(entry, 'body'), t('Stored body unavailable.'));
   const report = renderReport(
     storedBody,
-    'Stored record display bounded; full transcript and artifact availability are not established by this preview.',
+    t('Stored record display bounded; full transcript and artifact availability are not established by this preview.'),
   );
+  const intended = t('Intended recipient: {recipient}. {assignment}', {
+    recipient,
+    assignment: assignmentLabel(assignment),
+  });
   content.append(
-    element('p', 'subtle', `Recorded purpose: ${purpose}`),
-    element('p', 'subtle', `Intended recipient: ${recipient}. ${assignmentLabel(assignment)}`),
+    element('p', 'subtle', t('Recorded purpose: {purpose}', { purpose })),
+    element('p', 'subtle', intended),
     element('p', 'subtle', transportLabel(entry, isManager)),
     element(
       'p',
       'subtle',
-      `Reported outcome: ${outcome}. Process state: ${processState}. This record is not independent delivery verification.`,
+      t(
+        'Reported outcome: {outcome}. Process state: {processState}. This record is not independent delivery verification.',
+        { outcome, processState },
+      ),
     ),
-    element('p', 'subtle', entry['truncated'] === true ? 'Stored preview truncated.' : 'Bounded stored preview.'),
+    element('p', 'subtle', t(entry['truncated'] === true ? 'Stored preview truncated.' : 'Bounded stored preview.')),
     report,
   );
   detail.append(summary, content);
@@ -224,7 +237,12 @@ function handoffPreview(entry: Data): HTMLElement {
  * @returns Literal context with missing values identified.
  */
 function assignmentLabel(assignment: Data): string {
-  return `Issue: ${issueIdentity(assignment)}. Job: ${displayText(handoffText(assignment, 'jobId'), 'unavailable')}. Task: ${displayText(handoffText(assignment, 'taskId'), 'unavailable')}. Stage: ${displayText(handoffText(assignment, 'kind'), 'unavailable')}.`;
+  return t('Issue: {value}. Job: {value2}. Task: {value3}. Stage: {value4}.', {
+    value: issueIdentity(assignment),
+    value2: displayText(handoffText(assignment, 'jobId'), 'unavailable'),
+    value3: displayText(handoffText(assignment, 'taskId'), 'unavailable'),
+    value4: displayText(handoffText(assignment, 'kind'), 'unavailable'),
+  });
 }
 
 /**
@@ -247,11 +265,15 @@ function issueIdentity(assignment: Data): string {
  */
 function transportLabel(entry: Data, isManager: boolean): string {
   if (isManager) {
-    return entry['hasOriginEvidence'] === true
-      ? 'Transport: factory instruction. Origin comes from matching structured worker provenance.'
-      : 'Transport: factory instruction. Worker origin metadata is unavailable; no author is inferred from its body.';
+    return t(
+      entry['hasOriginEvidence'] === true
+        ? 'Transport: factory instruction. Origin comes from matching structured worker provenance.'
+        : 'Transport: factory instruction. Worker origin metadata is unavailable; no author is inferred from its body.',
+    );
   }
-  return `Transport: broker message. Actual sender ID: ${displayText(handoffText(entry, 'transportSender'), 'unavailable')}. Body text does not change its recorded author.`;
+  return t('Transport: broker message. Actual sender ID: {value}. Body text does not change its recorded author.', {
+    value: displayText(handoffText(entry, 'transportSender'), 'unavailable'),
+  });
 }
 
 /**
@@ -264,9 +286,9 @@ function handoffTime(entry: Data): HTMLElement {
   const { recordedAt: stamp } = entry;
   const date = new Date(typeof stamp === 'number' && Number.isFinite(stamp) ? stamp : NaN);
   if (Number.isNaN(date.getTime())) {
-    return element('span', 'subtle', 'Recorded time unavailable');
+    return element('span', 'subtle', t('Recorded time unavailable'));
   }
-  const time = element('time', 'subtle', date.toLocaleString());
+  const time = element('time', 'subtle', formatDateTime(date));
   time.dateTime = date.toISOString();
   return time;
 }
