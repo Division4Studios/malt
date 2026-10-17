@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
+import { SUPERVISOR_PRINCIPAL } from '../capability-policy.ts';
+
 import { readIntakeMetadata, saveIntakeMetadata } from './intake-corpus.ts';
 
-import type { CapabilityPrincipal } from '../capability-policy.ts';
 import type { ProjectGitHub } from '../github.ts';
 import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -13,8 +14,6 @@ import type { DeliveryPlanIssue } from './scheduler.ts';
 
 /** Existing native child request digest length; never change historical operation identities. */
 const REQUEST_HASH_LENGTH = 32;
-/** The supervisor reads the provisioning journal for the lead-reviewed plan it provisions. */
-const SUPERVISOR: CapabilityPrincipal = { kind: 'supervisor', role: 'team-lead' };
 /** Maximum retained issue identities for one original objective. */
 const MAPPING_MAX = 1000;
 /** Project journal fields needed for reuse; private issue prose is intentionally omitted. */
@@ -91,7 +90,7 @@ export function deliveryOperationIdentity(featureId: string, key: string): strin
  * @returns Original unresolved native request identities.
  */
 export async function readProvisioningOperations(github: ProjectGitHub): Promise<OperationSnapshot[]> {
-  const status = pendingSchema.parse(await github.execute(SUPERVISOR, 'github_status', {}));
+  const status = pendingSchema.parse(await github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {}));
   return status.pendingOperations.map((operation) => {
     return {
       identity: operation.input.requestId,

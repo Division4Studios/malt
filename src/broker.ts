@@ -35,7 +35,7 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
-import { PROJECT_OPERATOR, capabilityControl } from './capability-endpoints.ts';
+import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
 import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
@@ -50,9 +50,9 @@ import {
   PROJECT_OPERATION_TIMEOUT_MS,
   errorStatus,
   isCapabilityOperation,
-  isGitHubOperation,
   isFactoryOperation,
   isLearningOperation,
+  isProjectOperation,
   isOperation,
   parseInput,
 } from './protocol.ts';
@@ -569,18 +569,6 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
 }
 
 /**
- * Identify project services that run outside SQLite transactions.
- *
- * @param operation - Validated wire operation.
- * @returns Whether it is a capability policy, GitHub or learning operation.
- */
-function isProjectOperation(
-  operation: Operation,
-): operation is CapabilityOperation | GitHubOperation | LearningOperation {
-  return isCapabilityOperation(operation) || isLearningOperation(operation) || isGitHubOperation(operation);
-}
-
-/**
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
@@ -597,7 +585,7 @@ async function handleProjectOperation(
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
   if (isCapabilityOperation(operation)) {
-    return capabilityControl(team, operation, input, credentials);
+    return handleCapabilityOperation(team, operation, input, credentials);
   }
   parseInput(operation, input);
   if (credentials !== undefined && operation === 'learning_set_skill_state') {

@@ -19,6 +19,7 @@ import type { MeshConfig } from './config.ts';
 import type { CapabilityName, CapabilityState, Capabilities } from './connector.ts';
 import type { CapabilityOperation, OperationInput } from './protocol.ts';
 import type { PresentedCredentials, Store } from './store.ts';
+import type { Waiters } from './waiters.ts';
 
 /** The single human identity a project-token caller can prove. */
 export const PROJECT_OPERATOR = { kind: 'human', id: 'project-operator' } as const;
@@ -163,16 +164,16 @@ export function setCapability(
   return capabilityStatus(policy, config);
 }
 
-/** The workspace services a capability control needs. */
-export interface CapabilityServices {
-  /** Coordination store, for authentication and the audit event. */
+/** The workspace services a capability operation uses. */
+export interface CapabilityTeam {
+  /** Selected project's store. */
   readonly store: Store;
-  /** Connector capability policies. */
+  /** Its connector capability policies. */
   readonly policy: CapabilityPolicyStore;
-  /** Project configuration. */
+  /** Its configuration. */
   readonly config: MeshConfig;
-  /** Wakes waiting sessions after a change. */
-  readonly waiters: { readonly notify: () => void };
+  /** Long-poll waiters to wake after an edit. */
+  readonly waiters: Waiters;
 }
 
 /**
@@ -186,8 +187,8 @@ export interface CapabilityServices {
  * @returns The project's policy view.
  * @throws {MeshError} HUMAN_CONTROL_REQUIRED when an agent attempts an edit.
  */
-export function capabilityControl(
-  team: CapabilityServices,
+export function handleCapabilityOperation(
+  team: CapabilityTeam,
   operation: CapabilityOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
