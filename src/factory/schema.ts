@@ -25,6 +25,7 @@ import {
   modelSelectionSchema,
   reviewedRecommendationSchema,
 } from './model-policy.ts';
+import { doneItemSchema, DONE_ITEMS_MAX } from './objective-goal-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
@@ -282,6 +283,8 @@ export const featureSchema = z.object({
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
+  /** Operator-owned definition of done; agents propose or check items only with evidence. */
+  definitionOfDone: z.array(doneItemSchema).max(DONE_ITEMS_MAX).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
