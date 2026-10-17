@@ -504,6 +504,8 @@ export async function closeParents(context: FactoryContext): Promise<void> {
 export async function reconcile(context: FactoryContext): Promise<void> {
   await importReady(context);
   await provision(context);
+  // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
+  await advanceRecommendations(context);
   for (const task of context.repository.tasks()) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Delivery transitions serialize merges and remote recovery per project.
@@ -519,8 +521,6 @@ export async function reconcile(context: FactoryContext): Promise<void> {
   }
   await flushEffects(context);
   await reconcileSuperseded(context);
-  await flushEffects(context);
-  await advanceRecommendations(context);
   await flushEffects(context);
   await closeParents(context);
   await flushEffects(context);
