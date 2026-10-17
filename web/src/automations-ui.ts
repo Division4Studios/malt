@@ -17,14 +17,31 @@ import {
   describeCron,
   draftOf,
   draftProblem,
+  fireText,
   issuedSecret,
+  readAutomations,
   saveInput,
+  toggleInput,
   triggerExamples,
+  triggerUrl,
+  zonedTime,
 } from './automations-model.js';
+import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
+import { excerpt } from './console-model.js';
 import { element } from './worker-ui.js';
+import { isConfirmed } from './workflow-dom.js';
+import { parseLibrary } from './workflow-model.js';
 
 import type { OperatorControl } from './api.js';
-import type { AutomationDraft, AutomationView, TriggerEndpoint, TriggerView } from './automations-model.js';
+import type {
+  AutomationDraft,
+  AutomationView,
+  AutomationsModel,
+  ScheduleView,
+  TriggerEndpoint,
+  TriggerView,
+} from './automations-model.js';
+import type { ConsoleViewHandle } from './console-dom.js';
 
 /** Callbacks supplied by the console shell. */
 export interface AutomationsHooks {
@@ -33,6 +50,9 @@ export interface AutomationsHooks {
   /** Current time; defaults to `Date.now`. */
   readonly now?: () => number;
 }
+
+/** Fires listed per automation before they fold away. */
+const FIRES_SHOWN = 5;
 
 /**
  * Build a labelled form field.
@@ -76,7 +96,7 @@ interface Issued {
 }
 
 /** Native dialog that edits one schedule or trigger. */
-export class AutomationEditor {
+class AutomationEditor {
   /** Modal dialog. */
   public readonly element = element('dialog', 'automation-dialog');
   /** Dialog heading. */
@@ -296,7 +316,7 @@ export class AutomationEditor {
 }
 
 /** Native dialog that shows a trigger secret once, or example commands. */
-export class SecretDialog {
+class SecretDialog {
   /** Modal dialog. */
   public readonly element = element('dialog', 'automation-dialog automation-secret');
   /** Names the trigger the dialog is about. */
@@ -444,4 +464,339 @@ export class SecretDialog {
   private async copyAndAnnounce(text: string, source: HTMLInputElement | HTMLTextAreaElement): Promise<void> {
     this.status.textContent = await copy(text, source);
   }
+}
+
+/** The Schedules & triggers view. */
+class AutomationsView implements ConsoleViewHandle {
+  /** Stable root. */
+  public readonly element = element('section', 'automations-view');
+  /** Schedule list. */
+  private readonly schedules = element('div', 'automation-list');
+  /** Trigger list. */
+  private readonly triggers = element('div', 'automation-list');
+  /** Editor dialog. */
+  private readonly editor: AutomationEditor;
+  /** Secret and examples dialog. */
+  private readonly secrets = new SecretDialog();
+  /** Latest validated automations. */
+  private model: AutomationsModel = { schedules: [], triggers: [], endpoint: null };
+  /** Workflow ids and names offered by the editor. */
+  private workflows: readonly (readonly [string, string])[] = [];
+  /** Signature of the last render, so unchanged pushes only refresh ages. */
+  private rendered = '';
+  /** Shell callbacks. */
+  private readonly hooks: AutomationsHooks;
+
+  /**
+   * Build the view once.
+   *
+   * @param hooks - Shell callbacks.
+   */
+  public constructor(hooks: AutomationsHooks) {
+    this.hooks = hooks;
+    this.editor = new AutomationEditor(hooks.control, (secret, trigger) => {
+      this.secrets.showSecret(trigger, this.model.endpoint, secret);
+    });
+    const toolbar = element('div', 'automation-toolbar');
+    toolbar.append(
+      button('New schedule', {
+        cssClass: 'button primary',
+        key: 'automation-new-schedule',
+        action: () => {
+          this.editor.open('schedule', null, this.workflows);
+        },
+      }),
+      button('New trigger', {
+        cssClass: 'button secondary',
+        key: 'automation-new-trigger',
+        action: () => {
+          this.editor.open('trigger', null, this.workflows);
+        },
+      }),
+    );
+    const scheduleSection = element('section', 'automation-section');
+    scheduleSection.append(
+      element('h2', '', 'Schedules'),
+      element(
+        'p',
+        'subtle',
+        'Each fire files the objective while the factory runs. Runs missed while it was paused file one objective when it resumes.',
+      ),
+      this.schedules,
+    );
+    const triggerSection = element('section', 'automation-section');
+    triggerSection.append(
+      element('h2', '', 'Triggers'),
+      element(
+        'p',
+        'subtle',
+        'A local script files the objective by POSTing to the broker with the trigger secret. Calls are limited to ten a minute.',
+      ),
+      this.triggers,
+    );
+    this.element.append(toolbar, scheduleSection, triggerSection, this.editor.element, this.secrets.element);
+  }
+
+  /**
+   * Apply the latest snapshot.
+   *
+   * @param snapshot - Untrusted live snapshot.
+   */
+  public update(snapshot: unknown): void {
+    this.model = readAutomations(snapshot);
+    this.workflows = parseLibrary(snapshot).items.map(
+      (item) => [item.id, item.workflow.name === '' ? item.id : item.workflow.name] as const,
+    );
+    const now = (this.hooks.now ?? Date.now)();
+    const signature = JSON.stringify([this.model, this.workflows]);
+    if (signature === this.rendered) {
+      refreshAges(this.element, now);
+      return;
+    }
+    this.rendered = signature;
+    const focus = focusedKey(this.element);
+    this.schedules.replaceChildren(
+      ...(this.model.schedules.length === 0
+        ? [
+            emptyState(
+              'No schedules yet',
+              'Create one to file a recurring objective, such as a weekly dependency audit.',
+            ),
+          ]
+        : this.model.schedules.map((schedule) => this.card(schedule, now))),
+    );
+    this.triggers.replaceChildren(
+      ...(this.model.triggers.length === 0
+        ? [
+            emptyState(
+              'No triggers yet',
+              'Create one so CI or a local script can file an objective, such as "fix the failing build".',
+            ),
+          ]
+        : this.model.triggers.map((trigger) => this.card(trigger, now))),
+    );
+    restoreFocus(this.element, focus);
+  }
+
+  /**
+   * Build one automation card.
+   *
+   * @param automation - Automation to show.
+   * @param now - Current time.
+   * @returns Card element.
+   */
+  private card(automation: AutomationView, now: number): HTMLElement {
+    const card = element('article', 'automation-card');
+    card.dataset['kind'] = automation.kind;
+    const header = element('header', 'automation-card-header');
+    header.append(
+      element('h3', 'automation-name', automation.name),
+      tag(automation.isEnabled ? 'Enabled' : 'Off', automation.isEnabled ? 'tag-enabled' : 'tag-off'),
+    );
+    const workflow =
+      automation.workflowId === null
+        ? 'Project default workflow'
+        : `Workflow: ${this.workflows.find(([id]) => id === automation.workflowId)?.[1] ?? automation.workflowId}`;
+    card.append(
+      header,
+      ...(automation.kind === 'schedule' ? this.scheduleLines(automation) : this.triggerLines(automation)),
+      element('p', 'automation-objective', excerpt(automation.objective, 2)),
+      element('p', 'subtle', workflow),
+      this.history(automation, now),
+      this.actions(automation),
+    );
+    return card;
+  }
+
+  /**
+   * Describe a schedule and its next fires.
+   *
+   * @param schedule - Schedule to describe.
+   * @returns Description and upcoming fires.
+   */
+  private scheduleLines(schedule: ScheduleView): HTMLElement[] {
+    const description = describeCron(schedule.cron);
+    const summary = element('p', 'automation-summary');
+    const code = element('code', '', schedule.cron);
+    summary.append(code, ` · ${description.text} (${schedule.timeZone})`);
+    if (schedule.upcoming.length === 0) {
+      return [
+        summary,
+        element('p', 'subtle', schedule.isEnabled ? 'No upcoming fire.' : 'Off: enable it to schedule fires.'),
+      ];
+    }
+    const upcoming = element('ol', 'automation-upcoming');
+    upcoming.setAttribute('aria-label', `Next fires in ${schedule.timeZone}`);
+    for (const at of schedule.upcoming) {
+      const item = element('li');
+      const date = new Date(at);
+      const time = element('time', '', zonedTime(at, schedule.timeZone));
+      time.dateTime = date.toISOString();
+      time.title = date.toLocaleString();
+      item.append(time);
+      upcoming.append(item);
+    }
+    return [summary, element('p', 'automation-label', 'Next fires'), upcoming];
+  }
+
+  /**
+   * Describe a trigger's endpoint.
+   *
+   * @param trigger - Trigger to describe.
+   * @returns Endpoint line.
+   */
+  private triggerLines(trigger: TriggerView): HTMLElement[] {
+    const summary = element('p', 'automation-summary');
+    summary.append('POST ', element('code', '', triggerUrl(this.model.endpoint, trigger.path)));
+    return [summary];
+  }
+
+  /**
+   * Build the recent fire history.
+   *
+   * @param automation - Automation whose fires are listed.
+   * @param now - Current time.
+   * @returns Collapsible history.
+   */
+  private history(automation: AutomationView, now: number): HTMLElement {
+    const details = element('details', 'automation-history');
+    const [latest] = automation.fires;
+    const summary = element('summary');
+    if (latest === undefined) {
+      summary.textContent = 'Never fired';
+      details.append(summary);
+      return details;
+    }
+    const [headline = ''] = fireText(latest).split('.', 1);
+    summary.append(`${headline} `, ageStamp(latest.at, now));
+    const list = element('ul', 'automation-fires');
+    for (const fire of automation.fires.slice(0, FIRES_SHOWN)) {
+      const item = element('li', fire.error === null ? 'fire-ok' : 'fire-failed');
+      item.append(ageStamp(fire.at, now), ` ${fireText(fire)}`);
+      list.append(item);
+    }
+    details.append(summary, list);
+    return details;
+  }
+
+  /**
+   * Build an automation's controls.
+   *
+   * @param automation - Automation they act on.
+   * @returns Action bar.
+   */
+  private actions(automation: AutomationView): HTMLElement {
+    const bar = element('div', 'automation-actions');
+    const key = (name: string): string => `automation-${name}-${automation.id}`;
+    bar.append(
+      button('Edit', {
+        cssClass: 'button secondary',
+        key: key('edit'),
+        action: () => {
+          this.editor.open(automation.kind, automation, this.workflows);
+        },
+      }),
+      button(automation.isEnabled ? 'Disable' : 'Enable', {
+        cssClass: 'button ghost',
+        key: key('toggle'),
+        action: () => {
+          const { operation, input } = toggleInput(automation);
+          void this.hooks.control(operation, input);
+        },
+      }),
+      button('Run now', {
+        cssClass: 'button ghost',
+        key: key('run'),
+        action: () => {
+          void this.hooks.control('factory_automation_run', { id: automation.id, requestId: crypto.randomUUID() });
+        },
+      }),
+    );
+    if (automation.kind === 'trigger') {
+      bar.append(
+        button('Example command', {
+          cssClass: 'button ghost',
+          key: key('example'),
+          action: () => {
+            this.secrets.showExamples(automation, this.model.endpoint);
+          },
+        }),
+        button('Rotate secret', {
+          cssClass: 'button ghost',
+          key: key('rotate'),
+          action: () => {
+            void this.rotate(automation);
+          },
+        }),
+      );
+    }
+    bar.append(
+      button('Delete', {
+        cssClass: 'button ghost danger',
+        key: key('delete'),
+        action: () => {
+          void this.remove(automation);
+        },
+      }),
+    );
+    return bar;
+  }
+
+  /**
+   * Issue a new trigger secret after confirmation and show it once.
+   *
+   * @param trigger - Trigger whose secret is replaced.
+   */
+  private async rotate(trigger: TriggerView): Promise<void> {
+    const isSure = await isConfirmed(this.element, {
+      title: `Rotate the secret for ${trigger.name}?`,
+      message: 'The current secret stops working immediately. Scripts that use it need the new one.',
+      confirm: 'Rotate',
+      cancel: 'Cancel',
+    });
+    if (!isSure) {
+      return;
+    }
+    const { operation, input } = saveInput('trigger', draftOf(trigger), trigger, true);
+    const issued: Issued = { value: null };
+    await this.hooks.control(operation, input, (result) => {
+      issued.value = issuedSecret(result);
+    });
+    if (issued.value !== null) {
+      this.secrets.showSecret(trigger, this.model.endpoint, issued.value.secret);
+    }
+  }
+
+  /**
+   * Delete an automation after confirmation.
+   *
+   * @param automation - Automation to delete.
+   */
+  private async remove(automation: AutomationView): Promise<void> {
+    const isSure = await isConfirmed(this.element, {
+      title: `Delete ${automation.name}?`,
+      message:
+        automation.kind === 'schedule'
+          ? 'It stops firing. Objectives it already filed and its fire history are kept.'
+          : 'Its secret stops working. Objectives it already filed and its fire history are kept.',
+      confirm: 'Delete',
+      cancel: 'Cancel',
+    });
+    if (isSure) {
+      await this.hooks.control('factory_automation_delete', {
+        id: automation.id,
+        expectedRevision: automation.revision,
+      });
+    }
+  }
+}
+
+/**
+ * Create the Schedules & triggers view.
+ *
+ * @param hooks - Shell callbacks.
+ * @returns Stable view handle.
+ */
+export function createAutomationsView(hooks: AutomationsHooks): ConsoleViewHandle {
+  return new AutomationsView(hooks);
 }
