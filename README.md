@@ -44,6 +44,10 @@ See [complete setup and provider authentication](docs/operator-console.md), [Git
 
 Set `"delivery": "local"` in the factory policy. MALT creates a protected local hub, keeps issues and pull requests in `.malt/`, squash-merges reviewed heads with an expected-base check and fast-forwards your checkout on request. **Workflow → Pull requests** shows checks, discussion and diffs. Copilot can join as a third provider, and advanced deliveries can optionally run as Codex Cloud tasks with local review and merge. See [local delivery, Copilot and cloud sessions](docs/local-delivery.md).
 
+### Talk to a persistent delivery manager
+
+**Mission → Manager** runs one long-lived Claude Code or Codex session per project on your subscription. It reads the mission brief, queues and steers objectives through the same gated operations you use, and brings blocked work to you as one-click decisions. Every message shows whether it was queued, received or answered. Urgent reports wake it immediately; routine progress is batched into digests, so it spends no turns idling. See [delivery manager](docs/delivery-manager.md).
+
 ### Interactive scratch terminals
 
 The native quick start and Docker colocate broker ownership with the paired console. When switching from older separate processes, stop both the broker using this store and the UI occupying port 4318 first. A separately launched UI supports ordinary durable controls and factory/log inspection; scratch terminals and exact recommendation decisions require the owning broker's memory-only authority.
@@ -515,6 +519,8 @@ Remaining work includes arbitrary additional managed specialist seats, complete 
 | [Workflow and state transitions](docs/workflow.md)                 | Tool examples, idle decisions, wait modes, races and recovery. |
 | [MCP and RPC reference](docs/api.md)                               | Arguments, responses, errors and the HTTP boundary.            |
 | [Architecture and source tour](docs/architecture.md)               | Modules, transactions, identity and trust.                     |
+| [Delivery manager](docs/delivery-manager.md)                       | The persistent manager session, its authority and limits.      |
+| [Local delivery](docs/local-delivery.md)                           | Local hub, pull requests, Copilot and Codex Cloud sessions.    |
 | [Logging and troubleshooting](docs/logging-and-troubleshooting.md) | Logs, stuck workers, duplicate sessions and failures.          |
 | [Claude configuration](examples/claude-mcp.json)                   | Nameless session bridge and long timeout.                      |
 | [Codex configuration](examples/codex.config.toml)                  | Launcher-based session bridge and long timeout.                |

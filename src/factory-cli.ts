@@ -31,6 +31,7 @@ export const FACTORY_COMMANDS = [
   'factory-cancel-job',
   'factory-capacity',
   'factory-local',
+  'factory-manager',
   'factory-reconcile-github',
 ] as const;
 /** A factory console command. */
@@ -54,6 +55,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
   'factory-local': 'factory_local',
+  'factory-manager': 'factory_manager',
   'factory-reconcile-github': 'factory_reconcile_github',
 };
 /** Commands requiring structured input. */
@@ -106,19 +108,64 @@ export async function runFactoryCommand(
   if (operation === undefined) {
     throw new Error('Unsupported factory command.');
   }
-  let input: unknown = {};
+  return rpc(config, operation, commandInput(command, options));
+}
+
+/** Command options: structured file, product objective or manager message, and explicit reconciliation apply. */
+interface CommandOptions {
+  /** JSON input file. */
+  readonly file?: string | undefined;
+  /** Product objective or manager message. */
+  readonly body?: string | undefined;
+  /** Explicit reconciliation apply. */
+  readonly apply?: boolean | undefined;
+}
+
+/** Commands whose input comes from flags instead of a JSON file. */
+const FLAG_INPUTS: Partial<Record<FactoryCommand, (options: CommandOptions) => unknown>> = {
+  'factory-manager': (options) => managerInput(options),
+  'factory-request': (options) => {
+    if (options.body === undefined) {
+      throw new Error('--body must describe the product objective.');
+    }
+    return { objective: options.body };
+  },
+  'factory-reconcile-github': (options) => ({ apply: options.apply === true }),
+};
+
+/**
+ * Build one command's control input from its options.
+ *
+ * @param command - Validated command.
+ * @param options - File, objective, message or apply flag.
+ * @returns Control input.
+ * @throws {Error} When input options are missing.
+ */
+function commandInput(command: FactoryCommand, options: CommandOptions): unknown {
   if (FILE_COMMANDS.has(command)) {
     if (options.file === undefined) {
       throw new Error('--file must name a JSON input file.');
     }
-    input = readJsonFile(path.resolve(options.file));
-  } else if (command === 'factory-request') {
-    if (options.body === undefined) {
-      throw new Error('--body must describe the product objective.');
-    }
-    input = { objective: options.body };
-  } else if (command === 'factory-reconcile-github') {
-    input = { apply: options.apply === true };
+    return readJsonFile(path.resolve(options.file));
   }
-  return rpc(config, operation, input);
+  return FLAG_INPUTS[command]?.(options) ?? {};
+}
+
+/**
+ * Build manager control input: --body sends a message, --file supplies any action.
+ *
+ * @param options - Parsed CLI options.
+ * @param options.file - JSON control file.
+ * @param options.body - Message text.
+ * @returns Control input.
+ * @throws {Error} When neither option is present.
+ */
+function managerInput(options: { file?: string | undefined; body?: string | undefined }): unknown {
+  if (options.body !== undefined) {
+    return { action: 'send', text: options.body };
+  }
+  if (options.file === undefined) {
+    throw new Error('Use --body to message the manager, or --file for a JSON action such as {"action":"start"}.');
+  }
+  return readJsonFile(path.resolve(options.file));
 }

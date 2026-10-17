@@ -19,6 +19,8 @@ const SHELL = [
   '/pulls-ui.js',
   '/diff-parse.js',
   '/pulls-controller.js',
+  '/manager-ui.js',
+  '/manager-controller.js',
   '/pwa.js',
   '/brand-ui.js',
   '/workflow-ui.js',

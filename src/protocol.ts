@@ -687,6 +687,12 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
   factory_local:
     'Designated lead or operator: inspect and manage GitHub-free local delivery. Actions: summary; issue/pull with number (pull includes checks and diff); create_issue with requestId, kind, title, description, acceptanceCriteria, optional parent and status "Ready"; set_status; comment with body; sync fast-forwards the clean operator checkout from the protected local hub.',
+  factory_manager:
+    'Human operator only: control the persistent delivery manager. Actions: status; start; stop; send with text; answer with decisionId and text; history with after/limit. Messages are queued and delivered when the manager is free; nothing is resent automatically after a failure.',
+  factory_brief:
+    'Read the mission brief: objectives, open deliveries with stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag and next action, and every decision waiting on the operator. Start from this before steering work.',
+  factory_ask:
+    'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
     'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
   factory_cancel_job:

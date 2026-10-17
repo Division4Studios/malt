@@ -10,6 +10,7 @@ import { z } from 'zod/v3';
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { cloudPolicySchema } from './cloud-schema.ts';
 import { localControlSchema } from './local-schema.ts';
+import { MANAGER_FACTORY_OPERATIONS, managerOperationSchemas, managerPolicySchema } from './manager-schema.ts';
 import {
   roleChoiceOutput,
   modelChoiceSchema,
@@ -183,11 +184,8 @@ export const factoryConfigSchema = z
         claude: providerSchema.default({ executable: 'claude' }),
         copilot: providerSchema.default({ executable: 'copilot', enabled: false }),
       })
-      .default({
-        codex: { executable: 'codex' },
-        claude: { executable: 'claude' },
-        copilot: { executable: 'copilot', enabled: false },
-      }),
+      // Each provider field supplies its own default executable and enablement.
+      .default({}),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
     maxFiles: z.number().int().positive().default(MAX_FILES),
     maxDiffLines: z.number().int().positive().default(MAX_LINES),
@@ -214,6 +212,8 @@ export const factoryConfigSchema = z
     terminals: terminalPolicySchema.default({}),
     /** Developer assignments routed to Codex Cloud on the operator's subscription. */
     cloud: cloudPolicySchema.default({}),
+    /** Persistent delivery manager session (#211); off until the operator starts it. */
+    manager: managerPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
@@ -524,6 +524,7 @@ export const factorySchemas = {
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
   factory_local: localControlSchema,
+  ...managerOperationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -553,6 +554,7 @@ export const FACTORY_OPERATIONS = [
   'factory_cancel_job',
   'factory_instruct',
   'factory_local',
+  ...MANAGER_FACTORY_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */

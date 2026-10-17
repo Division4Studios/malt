@@ -62,6 +62,9 @@ Usage: node src/cli.ts <command> [options]
   factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
+  factory-manager --body TEXT  Message the persistent delivery manager
+  factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
+  factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   agents                       List registered agents and presence
   events                       Read the durable coordination event log

@@ -32,6 +32,7 @@ import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
 import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { ManagerService, managerHandlers } from './manager-controls.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
@@ -95,6 +96,8 @@ export interface FactoryOptions {
   readonly resources?: ResourceProbe;
   /** In-process native terminal substitutes, unavailable to browser/MCP callers. */
   readonly terminals?: TerminalOptions;
+  /** Fixture manager provider and clock; never exposed to browser or MCP callers. */
+  readonly manager?: Omit<ConstructorParameters<typeof ManagerService>[2], 'home'>;
 }
 /** One cancellable pipeline owned by this supervisor. */
 interface Running {
@@ -120,6 +123,8 @@ export class FactoryService {
   public readonly repository: FactoryRepository;
   /** Operator sessions share this supervisor's admission and lifecycle controls. */
   public readonly terminals: TerminalService;
+  /** Persistent delivery manager (#211); independent of factory pause. */
+  public readonly manager: ManagerService;
   /** Dependencies selected at construction. */
   private readonly options: FactoryOptions;
   /** Project scope. */
@@ -180,6 +185,7 @@ export class FactoryService {
       pool: LOCAL_JOBS,
       resources: () => this.sampler.latest,
     });
+    this.manager = new ManagerService(mesh, this.repository, { ...options.manager, home: options.home });
   }
 
   /**
@@ -320,6 +326,7 @@ export class FactoryService {
     }
     this.quota.cancel();
     await this.terminals.closeAll(shouldPause ? 'factory paused' : 'broker shutdown', !shouldPause);
+    await (shouldPause ? Promise.resolve() : this.manager.close());
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
     if (this.driving !== null) {
       await this.driving;
@@ -356,6 +363,7 @@ export class FactoryService {
       factory_status: async () => this.status(),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
       factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
+      ...managerHandlers(this.manager, parsed),
       factory_setup: async () => this.controlSetup(parsed),
       factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {

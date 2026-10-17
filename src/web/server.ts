@@ -24,6 +24,8 @@ import type { RecommendationOperator } from '../factory/recommendation-decisions
 import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+/** Largest manager conversation page served to the console. */
+const MANAGER_PAGE_MAX = 500;
 /** Static assets are explicit, preventing arbitrary path traversal. */
 const ASSETS = new Map<string, readonly [string, string]>([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -37,6 +39,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/pulls-ui.js', ['dist/pulls-ui.js', 'text/javascript; charset=utf-8']],
   ['/diff-parse.js', ['dist/diff-parse.js', 'text/javascript; charset=utf-8']],
   ['/pulls-controller.js', ['dist/pulls-controller.js', 'text/javascript; charset=utf-8']],
+  ['/manager-ui.js', ['dist/manager-ui.js', 'text/javascript; charset=utf-8']],
+  ['/manager-controller.js', ['dist/manager-controller.js', 'text/javascript; charset=utf-8']],
   ['/pwa.js', ['dist/pwa.js', 'text/javascript; charset=utf-8']],
   ['/brand-ui.js', ['dist/brand-ui.js', 'text/javascript; charset=utf-8']],
   ['/workflow-ui.js', ['dist/workflow-ui.js', 'text/javascript; charset=utf-8']],
@@ -456,6 +460,27 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
+ * Parse one bounded delivery manager history page.
+ *
+ * @param url - Local request URL.
+ * @returns Event cursor and page size.
+ */
+function managerHistoryQuery(url: URL): { after: number; limit: number } {
+  const after = z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .parse(url.searchParams.get('after') ?? '0');
+  const limit = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MANAGER_PAGE_MAX)
+    .parse(url.searchParams.get('limit') ?? '200');
+  return { after, limit };
+}
+
+/**
  * Dispatch authenticated inspection routes without mixing their cases with mutations.
  *
  * @param url - Validated local request URL.
@@ -497,6 +522,11 @@ async function inspectApi(
     }
     case '/api/stream': {
       await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/manager-history': {
+      const { after, limit } = managerHistoryQuery(url);
+      json(response, HTTP.ok, await gateway.managerHistory(project, after, limit));
       return;
     }
     case '/api/local-pull': {

@@ -24,6 +24,8 @@ import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
+import { ManagerController } from './manager-controller.js';
+import { managerView } from './manager-ui.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
@@ -244,6 +246,8 @@ const actions: Actions = {
 
 /** Local pull-request selection, diffs and ledger controls. */
 const pulls = new PullController({ project: () => state.project, control, editor, render });
+/** Persistent delivery manager conversation and controls. */
+const manager = new ManagerController({ project: () => state.project, control, notice, render });
 
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
@@ -288,6 +292,8 @@ function render(): void {
     learning: observed.learning,
     github: observed.github,
     local: observed.local,
+    // The brief's computation time changes every snapshot; only real changes re-render.
+    manager: { ...observed.manager, brief: { ...data(observed.manager?.['brief'] ?? {}), generatedAt: 0 } },
     pull: pulls.selection,
   });
   if (renderKey === state.renderKey) {
@@ -304,6 +310,7 @@ function render(): void {
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
     pulls: () => pullsView(observed.local, pulls.selection, pulls.actions, pulls.detail()),
+    manager: () => managerView(observed.manager, manager),
     workers: () => {
       return terminalWorkspace.selected
         ? element('div')
@@ -326,7 +333,9 @@ function render(): void {
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
   };
+  const restoreFocus = manager.captureFocus();
   queueState.replace(target, builders[state.view](), state.project);
+  restoreFocus();
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
@@ -403,6 +412,7 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
   pulls.observe(observed.local);
+  manager.observe(observed.manager);
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
