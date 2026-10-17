@@ -6,6 +6,16 @@
 
 import { MeshError } from '../protocol.ts';
 
+import {
+  featureWorkflow,
+  isReviewComplete,
+  isStepRunning,
+  planningStep,
+  seatFor,
+  spineStep,
+  startableSteps,
+  taskWorkflow,
+} from './pipeline.ts';
 import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
@@ -20,6 +30,7 @@ import type {
   SkillRequest,
 } from './schema.ts';
 import type { TriageDecision } from './triage.ts';
+import type { Workflow, WorkflowStep } from './workflows.ts';
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
@@ -72,6 +83,10 @@ export interface JobIntent {
   readonly base: string | null;
   /** Skill request identity when the lead independently reviews research. */
   readonly target?: string | null;
+  /** Workflow step performed, absent for learning, skill review and triage. */
+  readonly step?: string | null;
+  /** Provider family the step prefers, for cross-family review. */
+  readonly preferredProvider?: Provider | null;
 }
 
 /**
@@ -185,11 +200,18 @@ export function providerBlockers(input: ProviderInput): Record<Provider, Provide
 
 /**
  * Select a provider by normalized utilization while respecting cooldown and caps.
+ * A step's preferred provider waits while it is only temporarily busy, which keeps
+ * cross-family reviews cross-family; a disabled preference falls back normally.
  *
  * @param input - Capacity snapshots, settings and live attempts.
- * @returns Provider choice, absent when neither can admit another assignment.
+ * @param preferred - Provider family the step prefers, if any.
+ * @returns Provider choice, absent when the step should wait for capacity.
  */
-export function chooseProvider(input: ProviderInput): Provider | null {
+export function chooseProvider(input: ProviderInput, preferred: Provider | null = null): Provider | null {
+  const preference = preferred === null ? null : providerState(preferred, input).blocker;
+  if (preferred !== null && preference !== 'disabled') {
+    return preference === null ? preferred : null;
+  }
   const choices = PROVIDERS.map((provider) => {
     const state = providerState(provider, input);
     return state.blocker === null ? { provider, utilization: state.utilization, active: state.active } : null;
@@ -207,18 +229,14 @@ export function chooseProvider(input: ProviderInput): Provider | null {
 }
 
 /**
- * Confirm that both independent reviewers hasApprovals the exact source/base pair.
+ * Confirm that every step before the final check approved the exact source/base pair.
  *
  * @param task - Delivery being considered for merge.
- * @returns Whether its approvals satisfy the local mandatory gate.
+ * @param workflow - Its workflow; defaults to the copy frozen on the delivery.
+ * @returns Whether its reviews and approvals satisfy the local mandatory gate.
  */
-export function hasApprovals(task: FactoryTask): boolean {
-  return ['qa-1', 'qa-2'].every((role) => {
-    return task.reviews.some(
-      (review) =>
-        review.role === role && review.outcome === 'success' && review.head === task.head && review.base === task.base,
-    );
-  });
+export function hasApprovals(task: FactoryTask, workflow: Workflow = taskWorkflow(task)): boolean {
+  return isReviewComplete(task, workflow);
 }
 
 /**
@@ -230,20 +248,37 @@ export function hasApprovals(task: FactoryTask): boolean {
 export function jobIntents(input: SchedulingState): JobIntent[] {
   const live = input.jobs.filter((job) => job.state === 'running');
   const intents: JobIntent[] = [];
-  const append = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask): void => {
+  const append: AppendIntent = (role, kind, task, step) => {
     if (
+      role === null ||
       task.scopeReplacement !== undefined ||
-      live.some((job) => job.role === role || (kind === 'develop' && job.taskId === task.id))
+      live.some((job) => job.role === role || (kind === 'develop' && job.taskId === task.id)) ||
+      (kind !== 'develop' && isStepRunning(step, task.id, live))
     ) {
       return;
     }
-    const recent = input.jobs.findLast(
-      (job) => job.kind === kind && job.taskId === task.id && job.head === task.head && job.state === 'failed',
-    );
+    const recent = input.jobs.findLast((job) => {
+      return (
+        job.kind === kind &&
+        job.taskId === task.id &&
+        job.head === task.head &&
+        job.state === 'failed' &&
+        (job.step === null || job.step === step.id)
+      );
+    });
     if (recent !== undefined && (recent.finishedAt ?? input.now) + input.config.reconcileMs > input.now) {
       return;
     }
-    intents.push({ role, kind, taskId: task.id, featureId: task.featureId, head: task.head, base: task.base });
+    intents.push({
+      role,
+      kind,
+      taskId: task.id,
+      featureId: task.featureId,
+      head: task.head,
+      base: task.base,
+      step: step.id,
+      preferredProvider: step.provider,
+    });
   };
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
@@ -315,7 +350,7 @@ interface SchedulingState {
   feedbackAt?: number;
 }
 /** Append one dependency and role-gated delivery candidate. */
-type AppendIntent = (role: FactoryRole, kind: FactoryJob['kind'], task: FactoryTask) => void;
+type AppendIntent = (role: FactoryRole | null, kind: FactoryJob['kind'], task: FactoryTask, step: WorkflowStep) => void;
 
 /**
  * Offer one finite lead investigation before new implementation.
@@ -443,64 +478,58 @@ function interleaveDevelopment(input: SchedulingState, candidates: JobIntent[]):
 }
 
 /**
- * Schedule one independently bounded delivery or planning stage.
+ * Schedule merged-main verification and the final check on each workflow's seats.
  *
  * @param input - Durable scheduling state.
- * @param _live - Current exclusive role claims.
+ * @param live - Current exclusive role claims.
  * @param _intents - Accumulated candidate assignments.
  * @param append - Delivery admission helper.
  */
 function scheduleGroup1(
   input: SchedulingState,
-  _live: readonly FactoryJob[],
+  live: readonly FactoryJob[],
   _intents: JobIntent[],
   append: AppendIntent,
 ): void {
   for (const task of input.tasks) {
+    const workflow = taskWorkflow(task, input.features);
     if (task.phase === 'verifying') {
-      append('final-tester', 'verify', task);
+      const verify = spineStep(workflow, 'verify');
+      append(seatFor(verify, live), 'verify', task, verify);
     }
-    if (task.phase === 'merge_ready' && task.error === null && hasApprovals(task)) {
-      append('final-tester', 'final', task);
+    if (task.phase !== 'merge_ready' || task.error !== null || !hasApprovals(task, workflow)) {
+      continue;
     }
+    const final = spineStep(workflow, 'final');
+    append(seatFor(final, live), 'final', task, final);
   }
 }
 
 /**
- * Schedule one independently bounded delivery or planning stage.
+ * Schedule review-stage steps whose predecessors approved the current source.
  *
  * @param input - Durable scheduling state.
- * @param _live - Current exclusive role claims.
+ * @param live - Current exclusive role claims.
  * @param _intents - Accumulated candidate assignments.
  * @param append - Delivery admission helper.
  */
 function scheduleGroup2(
   input: SchedulingState,
-  _live: readonly FactoryJob[],
+  live: readonly FactoryJob[],
   _intents: JobIntent[],
   append: AppendIntent,
 ): void {
   const candidates = input.tasks.filter((candidate) => candidate.phase === 'review');
   for (const task of candidates) {
-    for (const role of ['qa-1', 'qa-2'] as const) {
-      if (
-        task.reviews.every((review) => {
-          return !(
-            review.role === role &&
-            review.head === task.head &&
-            review.base === task.base &&
-            review.outcome === 'success'
-          );
-        })
-      ) {
-        append(role, 'review', task);
-      }
+    const steps = startableSteps(task, taskWorkflow(task, input.features));
+    for (const step of steps) {
+      append(seatFor(step, live), 'review', task, step);
     }
   }
 }
 
 /**
- * Schedule one independently bounded delivery or planning stage.
+ * Schedule implementation on the workflow's developer seats; rework stays with the original owner.
  *
  * @param input - Durable scheduling state.
  * @param _live - Current exclusive role claims.
@@ -525,16 +554,17 @@ function scheduleGroup3(
     ) {
       continue;
     }
-    for (const role of ['developer-1', 'developer-2'] as const) {
+    const implement = spineStep(taskWorkflow(task, input.features), 'implement');
+    for (const role of implement.roles) {
       if (task.developer === null || task.developer === role) {
-        append(role, 'develop', task);
+        append(role, 'develop', task, implement);
       }
     }
   }
 }
 
 /**
- * Schedule one independently bounded delivery or planning stage.
+ * Schedule the next planning step of each objective, in operator order.
  *
  * @param input - Durable scheduling state.
  * @param live - Current exclusive role claims.
@@ -566,18 +596,18 @@ function scheduleGroup4(
       );
     });
   for (const feature of candidates) {
-    const role = feature.productPlan === null ? 'product-owner' : 'team-lead';
-    if (
-      live.every((job) => !(job.role === role || job.featureId === feature.id)) &&
-      intents.every((intent) => intent.role !== role)
-    ) {
+    const next = planningStep(feature, featureWorkflow(feature));
+    const role = next === null ? null : seatFor(next.step, [...live, ...intents]);
+    if (next !== null && role !== null && live.every((job) => job.featureId !== feature.id)) {
       intents.push({
         role,
-        kind: feature.productPlan === null ? 'plan' : 'refine',
+        kind: next.kind,
         taskId: null,
         featureId: feature.id,
         head: null,
         base: null,
+        step: next.step.id,
+        preferredProvider: next.step.provider,
       });
     }
   }

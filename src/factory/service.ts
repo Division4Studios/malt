@@ -4,7 +4,6 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
 
@@ -30,6 +29,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
+import { attemptRecord } from './job-records.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -509,27 +509,8 @@ export class FactoryService {
     if (admitted === null) {
       return;
     }
-    const { provider, routing } = admitted;
-    const id = randomUUID();
-    const now = this.repository.store.now();
-    const job: FactoryJob = {
-      ...intent,
-      target: intent.target ?? null,
-      step: null,
-      id,
-      provider,
-      routing,
-      token: randomUUID(),
-      state: 'running',
-      startedAt: now,
-      finishedAt: null,
-      expiresAt: now + LEASE_MS,
-      reservation: context.settings.providers[provider].reservationTokens,
-      usageTokens: null,
-      pid: null,
-      summary: null,
-      artifact: path.join(this.mesh.directory, 'factory', 'jobs', id),
-    };
+    const job = attemptRecord(context, intent, admitted);
+    const { id } = job;
     if (!this.repository.claim(job, context.settings)) {
       return;
     }
