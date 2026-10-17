@@ -721,6 +721,12 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Human operator only: delete a schedule or trigger at the revision you saw. Fire history is kept.',
   factory_automation_run:
     'Human operator only: fire a schedule or trigger now, once per request id, through the normal objective path.',
+  factory_roles_save:
+    "Human operator only, while paused: replace the project organization (role types and seat members) at the revision you read. Types may set instructions, a provider, an allowed model and effort, a capability floor, reviewed skills, narrowing tool allow/deny lists, local stdio MCP servers and permissions; they never widen a seat's MALT tools.",
+  factory_secret_save:
+    "Human operator only: create, rotate or re-grant a local encrypted secret at the version you saw (null to create). The value is write-only: it is injected as an environment variable into granted role types' provider processes and never returned.",
+  factory_secret_delete:
+    'Human operator only: delete a local secret at the version you saw. Attempts already running keep the value they started with.',
   factory_hold:
     'Operator or designated lead: hold deliveries so no new attempt starts on them (a running attempt finishes normally), or resume them with hold false. Name deliveries, one objective, or all; finished deliveries are skipped.',
   factory_archive:

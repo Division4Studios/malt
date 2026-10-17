@@ -59,6 +59,7 @@ import {
   hasCriticalMemoryPressure,
 } from './resources.ts';
 import { classifySettlement } from './retry-policy.ts';
+import { isManagedToolDenied, roleHandlers } from './role-handlers.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
@@ -229,12 +230,17 @@ export class FactoryService {
    * @returns Dashboard and MCP state.
    */
   public async status(): Promise<unknown> {
-    return factoryStatus(this.repository, this.mesh, {
-      connected: this.connected,
-      error: this.error ?? this.issueGuard.waitingReason(this.repository),
-      resources: this.sampler.latest,
-      admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
-    });
+    return factoryStatus(
+      this.repository,
+      this.mesh,
+      {
+        connected: this.connected,
+        error: this.error ?? this.issueGuard.waitingReason(this.repository),
+        resources: this.sampler.latest,
+        admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
+      },
+      this.learning,
+    );
   }
 
   /** Resume durable requested operation after broker restart. */
@@ -350,6 +356,17 @@ export class FactoryService {
   }
 
   /**
+   * Whether a managed seat's live attempt has a role policy that removed this tool.
+   *
+   * @param actor - Authenticated managed identity (`factory-<seat>`).
+   * @param operation - Requested operation.
+   * @returns True when the call must be refused.
+   */
+  public isToolDenied(actor: string, operation: string): boolean {
+    return isManagedToolDenied(this.repository, actor, operation);
+  }
+
+  /**
    * Execute validated human/designated-lead factory controls.
    *
    * @param operation - Project factory operation.
@@ -408,6 +425,14 @@ export class FactoryService {
       factory_delivery_diff: async () => deliveryDiff(this.configured(), input),
       factory_objective_check: () => checkDefinition(this.configured(), input, actorId),
       ...ledgerHandlers(this.repository, this.mesh, input),
+      ...roleHandlers({
+        configured: () => this.configured(),
+        repository: this.repository,
+        directory: this.mesh.directory,
+        learning: this.learning,
+        setup: (settings) => this.controlSetup(settings),
+        input,
+      }),
     };
     return await handlers[operation]();
   }

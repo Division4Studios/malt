@@ -39,6 +39,7 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
+import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
@@ -576,6 +577,7 @@ export const factorySchemas = {
   ...questionSchemas,
   ...spendSchemas,
   ...objectiveGoalSchemas,
+  ...roleSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -616,5 +618,6 @@ export const FACTORY_OPERATIONS = [
   'factory_gates',
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
+  ...ROLE_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
