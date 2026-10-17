@@ -116,6 +116,7 @@ export class ConsoleViews {
     this.sessions = createSessionsView({ project: hooks.project });
     this.delivery = createDeliveryView({
       control: hooks.control,
+      project: hooks.project,
       back: () => {
         hooks.select('board');
       },
