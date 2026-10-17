@@ -108,6 +108,18 @@ async function copyTree(from: string, to: string, relative: string): Promise<Cop
 }
 
 /**
+ * Whether a path is a folder or lies inside it.
+ *
+ * @param candidate - Absolute path to test.
+ * @param folder - Absolute folder.
+ * @returns True when `candidate` is `folder` or below it.
+ */
+function isWithin(candidate: string, folder: string): boolean {
+  const relative = path.relative(path.resolve(folder), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/**
  * Write a consistent snapshot of a SQLite database.
  *
  * @param source - Live database file.
@@ -133,6 +145,12 @@ export async function backupProject(
   now = Date.now(),
 ): Promise<BackupManifest> {
   const target = path.resolve(destination);
+  if (isWithin(target, config.directory)) {
+    throw new MeshError(
+      'INVALID_INPUT',
+      `Choose a backup folder outside ${config.directory}; a backup cannot hold itself.`,
+    );
+  }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The operator names the backup folder.
   const existing = existsSync(target) ? await readdir(target) : [];
   if (existing.length > 0) {
@@ -185,6 +203,12 @@ export async function restoreProject(
     throw new MeshError('INVALID_INPUT', `${source} is not a MALT backup (no ${BACKUP_MANIFEST}).`);
   }
   const current = path.join(path.resolve(project), STATE_DIRECTORY_NAME);
+  if (isWithin(source, current)) {
+    throw new MeshError(
+      'INVALID_INPUT',
+      `Move the backup outside ${current} first; restoring moves that folder aside.`,
+    );
+  }
   let previous: string | null = null;
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own .malt folder.
   if (existsSync(current)) {

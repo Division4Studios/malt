@@ -200,6 +200,8 @@ await test('build rows report versions and the installed shell revision, or say 
   );
   assert.equal(sources.get('Broker source'), 'abcdef012345 (container image)');
   assert.equal(sources.get('Console source'), 'abcdef012345 with uncommitted changes');
+  const unread = new Map(buildRows({ consoleRevision: { commit, isDirty: null, origin: 'checkout' } }, []));
+  assert.equal(unread.get('Console source'), 'abcdef012345 (uncommitted changes unknown)');
   const unknown = new Map(buildRows({ consoleRevision: { commit: null, isDirty: null, origin: 'unknown' } }, []));
   assert.equal(unknown.get('Console source'), 'unknown (not a Git checkout and no image revision)');
   const missing = new Map(buildRows(null, []));
