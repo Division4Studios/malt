@@ -12,6 +12,8 @@ import { MeshError } from '../protocol.ts';
 
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
+import { automaticWorkflow } from './objectives.ts';
+import { isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
 import { completeTriage } from './triage.ts';
@@ -369,21 +371,23 @@ async function completeDevelopment(
 }
 
 /**
- * Accept only the current immutable head/base from an independent QA role.
+ * Accept only the current immutable head/base from an independent review step.
  *
  * @param context - Current task and GitHub evidence.
- * @param job - Independent QA claim.
+ * @param job - Independent review claim.
  * @param task - Delivery at completion time.
  * @param result - Successful adversarial review.
  */
 function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): void {
   const record = task;
+  const workflow = taskWorkflow(record, context.repository.features());
+  const step = reviewStepOf(workflow, job);
   if (
+    step === undefined ||
     record.phase !== 'review' ||
     record.head !== job.head ||
     record.base !== job.base ||
-    record.pr === null ||
-    (job.role !== 'qa-1' && job.role !== 'qa-2')
+    record.pr === null
   ) {
     return;
   }
@@ -392,9 +396,10 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
     const updated = {
       ...current,
       reviews: [
-        ...current.reviews.filter((review) => review.role !== role),
+        ...current.reviews.filter((review) => !isReviewOf(review, step)),
         {
           role,
+          stepId: step.id,
           head: job.head ?? '',
           base: job.base ?? '',
           outcome: 'success' as const,
@@ -404,12 +409,12 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
       ],
       error: null,
     };
-    return { ...updated, phase: hasApprovals(updated) ? 'merge_ready' : 'review' };
+    return { ...updated, phase: hasApprovals(updated, workflow) ? 'merge_ready' : 'review' };
   });
   queueComment(
     context,
     reviewed,
-    `${role} approved head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
+    `${step.title} (${role}) approved head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
   );
 }
 
@@ -425,13 +430,13 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
 function completeFinal(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): void {
   const record = task;
   if (
-    !hasApprovals(record) ||
+    !hasApprovals(record, taskWorkflow(record, context.repository.features())) ||
     record.head !== job.head ||
     record.base !== job.base ||
     record.head === null ||
     record.base === null
   ) {
-    throw new MeshError('FACTORY_GATED', 'The final approval no longer covers two current independent QA approvals.');
+    throw new MeshError('FACTORY_GATED', 'The final approval no longer covers every current review and approval.');
   }
   context.repository.editTask(record.id, (current) => {
     return {
@@ -517,6 +522,7 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     error: null,
     createdAt: context.repository.store.now(),
     updatedAt: context.repository.store.now(),
+    workflow: automaticWorkflow(context.repository),
     approvals: [],
   });
 }
