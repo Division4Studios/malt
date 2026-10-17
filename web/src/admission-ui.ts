@@ -19,6 +19,16 @@ const GATES: Readonly<Record<string, string>> = {
 };
 
 /**
+ * Explain the first capacity gate dispatch stops at.
+ *
+ * @param code - Backend gate code from the admission evidence.
+ * @returns Readable reason, or `null` when no capacity gate applies or the code is unknown.
+ */
+export function capacityGate(code: string): string | null {
+  return code === '' || code === 'none' ? null : (GATES[code] ?? null);
+}
+
+/**
  * Render missing numbers honestly, including valid zero readings.
  *
  * @param value - Untrusted numeric field.
