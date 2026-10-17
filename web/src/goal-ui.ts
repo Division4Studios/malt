@@ -11,7 +11,15 @@
 import { request, scoped } from './api.js';
 import { ChecklistDialog } from './checklist-dialog.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
-import { LOG_LABELS, STATE_TEXT, definitionText, readGoals, readLogPage } from './goal-model.js';
+import {
+  LOG_LABELS,
+  OPEN_OBJECTIVE_EVENT,
+  STATE_TEXT,
+  definitionText,
+  goalProgress,
+  readGoals,
+  readLogPage,
+} from './goal-model.js';
 import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
@@ -40,6 +48,37 @@ export interface GoalHooks {
 export interface GoalHandle extends ConsoleViewHandle {
   /** Show one objective, or the list with `null`. */
   readonly show: (featureId: string | null) => void;
+}
+
+/**
+ * Definition-of-done progress of unfinished objectives, for the Mission overview.
+ * Each row opens its objective under Board → Objectives.
+ *
+ * @param snapshot - Console snapshot.
+ * @returns List, or `null` when no unfinished objective has a definition of done.
+ */
+export function definitionProgress(snapshot: unknown): HTMLElement | null {
+  const rows = goalProgress(snapshot);
+  if (rows.length === 0) {
+    return null;
+  }
+  const list = element('ul', 'goal-progress');
+  for (const row of rows) {
+    const item = element('li', 'goal-progress-row');
+    const open = button(row.title, {
+      cssClass: 'goal-progress-link',
+      key: `goal-progress-${row.featureId}`,
+      action: () => {
+        document.dispatchEvent(new CustomEvent(OPEN_OBJECTIVE_EVENT, { detail: row.featureId }));
+      },
+    });
+    item.append(open, element('span', 'subtle', row.progress));
+    if (row.awaitsDefinition) {
+      item.append(tag(t('Awaits definition'), 'state-warn'));
+    }
+    list.append(item);
+  }
+  return list;
 }
 
 /**
