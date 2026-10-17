@@ -3,8 +3,8 @@
  * once per console, so filters, open transcripts, expanded results, drafts and
  * dialogs survive every snapshot push; the shell only asks for an element.
  * Telemetry views (sessions, costs) read their own routes on a slower cadence;
- * console views (Inbox, Board, automations, delivery, workflows) read each
- * pushed snapshot.
+ * console views (Inbox, Board, objectives, automations, delivery, workflows)
+ * read each pushed snapshot.
  *
  * @file
  */
@@ -13,6 +13,7 @@ import { createBoardView } from './board-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
+import { createGoalView } from './goal-ui.js';
 import { InboxNotifier } from './inbox-notifier.js';
 import { createInboxView } from './inbox-ui.js';
 import { createSessionsView } from './sessions-ui.js';
@@ -21,6 +22,7 @@ import { createWorkflowsView } from './workflows-ui.js';
 import type { OperatorControl } from './api.js';
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { DeliveryHandle } from './delivery-ui.js';
+import type { GoalHandle } from './goal-ui.js';
 import type { SessionsHandle } from './sessions-ui.js';
 import type { WorkflowsHandle } from './workflows-ui.js';
 
@@ -30,17 +32,24 @@ const TELEMETRY_REFRESH_MS = 10_000;
 /** Views refreshed from their own routes. */
 type RefreshedView = 'sessions' | 'costs';
 /** Views refreshed from each pushed snapshot. */
-type PushedView = 'inbox' | 'board' | 'automations' | 'delivery' | 'workflows';
+type PushedView = 'inbox' | 'board' | 'objective' | 'automations' | 'delivery' | 'workflows';
 /** Views this module owns. */
 export type OwnedView = RefreshedView | PushedView;
 /** Snapshot-pushed view names. */
-const PUSHED_VIEWS: ReadonlySet<string> = new Set(['inbox', 'board', 'automations', 'delivery', 'workflows']);
+const PUSHED_VIEWS: ReadonlySet<string> = new Set([
+  'inbox',
+  'board',
+  'objective',
+  'automations',
+  'delivery',
+  'workflows',
+]);
 
 /**
  * Whether an owned view reads pushed snapshots.
  *
  * @param view - Owned route.
- * @returns True for Inbox, Board, automations, delivery and workflows.
+ * @returns True for Inbox, Board, objectives, automations, delivery and workflows.
  */
 const isPushed = (view: OwnedView): view is PushedView => PUSHED_VIEWS.has(view);
 
@@ -80,6 +89,8 @@ export class ConsoleViews {
   private readonly delivery: DeliveryHandle;
   /** Workflow editor, which shows control failures beside its draft. */
   private readonly workflows: WorkflowsHandle;
+  /** Objective detail, which board cards and the Inbox open. */
+  private readonly goals: GoalHandle;
   /** Last read per route-refreshed view. */
   private readonly reads = new Map<RefreshedView, number>();
   /** Last pushed snapshot, for labels. */
@@ -97,6 +108,11 @@ export class ConsoleViews {
       this.delivery.show(taskId);
       hooks.select('delivery');
     };
+    const openObjective = (featureId: string): void => {
+      this.goals.show(featureId);
+      hooks.select('objective');
+    };
+    this.goals = createGoalView({ control: hooks.control, project: hooks.project });
     this.sessions = createSessionsView({ project: hooks.project });
     this.delivery = createDeliveryView({
       control: hooks.control,
@@ -126,11 +142,16 @@ export class ConsoleViews {
           openRecovery: hooks.recover,
           openSkill: hooks.skill,
           toolbar: this.notifier.element,
+          openObjective,
+          openCosts: () => {
+            hooks.select('costs');
+          },
         }),
       ],
-      ['board', createBoardView({ openDelivery, control: hooks.control })],
+      ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
       ['automations', createAutomationsView({ control: hooks.control })],
       ['delivery', this.delivery],
+      ['objective', this.goals],
       ['workflows', this.workflows],
     ]);
   }

@@ -334,6 +334,7 @@ function render(): void {
     board: () => owned.element('board'),
     automations: () => owned.element('automations'),
     delivery: () => owned.element('delivery'),
+    objective: () => owned.element('objective'),
     workflows: () => owned.element('workflows'),
     sessions: () => owned.element('sessions'),
     costs: () => owned.element('costs'),

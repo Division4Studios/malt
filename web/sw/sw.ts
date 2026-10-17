@@ -70,6 +70,7 @@ const SHELL = [
   '/delivery-ui.js',
   '/goal-model.js',
   '/checklist-dialog.js',
+  '/goal-ui.js',
   '/spend-model.js',
   '/sessions.css',
   '/board.css',
