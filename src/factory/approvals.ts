@@ -9,6 +9,7 @@
 
 import { MeshError } from '../protocol.ts';
 
+import { MERGE_GATE_PENDING } from './merge-path.ts';
 import { awaitingApproval, featureWorkflow, isReviewComplete, planningApprovals, taskWorkflow } from './pipeline.ts';
 import { attemptBudget } from './repair-schema.ts';
 import { factorySchemas } from './schema.ts';
@@ -113,7 +114,7 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
       ],
     };
     return current.phase === 'review' && isReviewComplete(approved, workflow)
-      ? { ...approved, phase: 'merge_ready' }
+      ? { ...approved, phase: 'merge_ready', error: MERGE_GATE_PENDING }
       : approved;
   });
   return { result: 'approved' };

@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { queueComment } from './comments.ts';
 import { runChecks } from './execution.ts';
 import { MergeConflictError } from './merge-conflict.ts';
+import { MERGE_GATE_PENDING } from './merge-path.ts';
 import {
   boundSource,
   dispositionProblems,
@@ -232,7 +233,9 @@ function completeRegression(
         : current.feedback,
       error: null,
     };
-    return isReviewComplete(recorded, workflow) ? { ...recorded, phase: 'merge_ready' } : recorded;
+    return isReviewComplete(recorded, workflow)
+      ? { ...recorded, phase: 'merge_ready', error: MERGE_GATE_PENDING }
+      : recorded;
   });
   queueComment(
     context,

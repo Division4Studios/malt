@@ -15,6 +15,7 @@ import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
 import { MergeConflictError } from './merge-conflict.ts';
+import { MERGE_GATE_PENDING } from './merge-path.ts';
 import { automaticWorkflow } from './objectives.ts';
 import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
 import { completePlanning } from './planning-stage.ts';
@@ -390,7 +391,9 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
       ],
       error: null,
     };
-    return { ...updated, phase: hasApprovals(updated, workflow) ? 'merge_ready' : 'review' };
+    return hasApprovals(updated, workflow)
+      ? { ...updated, phase: 'merge_ready', error: MERGE_GATE_PENDING }
+      : { ...updated, phase: 'review' };
   });
   const verdict = outcome === 'success' ? 'approved' : 'reported findings for the fixer on';
   queueComment(
