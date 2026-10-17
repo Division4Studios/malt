@@ -169,6 +169,10 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'What each seat is: its instructions, provider, model, skills, tools and local MCP servers.':
     '每个席位的定义：指令、提供方、模型、技能、工具和本地 MCP 服务器。',
   'Secrets.': '机密。',
+  'Capabilities.': '能力。',
+  Capabilities: '能力',
+  'What humans and approved roles may do through connectors, beside what the provider supports.':
+    '人工和已批准的角色可以通过连接器做什么，以及提供方支持什么。',
   'Local encrypted keys and tokens, granted to the role types that need them.':
     '本地加密的密钥和令牌，授予需要它们的角色类型。',
   'Factory & validation': '工厂与校验',

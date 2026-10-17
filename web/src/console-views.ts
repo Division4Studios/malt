@@ -2,7 +2,7 @@
  * Views that own a stable root element and their own state. They are created
  * once per console, so filters, open transcripts, expanded results, drafts and
  * dialogs survive every snapshot push; the shell only asks for an element.
- * Telemetry views (sessions, costs) read their own routes on a slower cadence;
+ * Telemetry views (sessions, costs) and capabilities read their own routes on a slower cadence;
  * console views (Inbox, Board, objectives, automations, delivery, workflows,
  * roles, secrets) read each pushed snapshot.
  *
@@ -10,6 +10,7 @@
  */
 import { createAutomationsView } from './automations-ui.js';
 import { createBoardView } from './board-ui.js';
+import { createCapabilityView } from './capability-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
@@ -34,7 +35,7 @@ import type { WorkflowsHandle } from './workflows-ui.js';
 const TELEMETRY_REFRESH_MS = 10_000;
 
 /** Views refreshed from their own routes. */
-type RefreshedView = 'sessions' | 'costs';
+type RefreshedView = 'sessions' | 'costs' | 'capabilities';
 /** Views refreshed from each pushed snapshot. */
 type PushedView = (typeof PUSHED_VIEW_NAMES)[number];
 /** Views this module owns. */
@@ -147,6 +148,7 @@ export class ConsoleViews {
     this.refreshed = new Map<RefreshedView, RefreshingView>([
       ['sessions', this.sessions],
       ['costs', createCostsView({ project: hooks.project, control: hooks.control })],
+      ['capabilities', createCapabilityView({ project: hooks.project, control: hooks.control })],
     ]);
     this.pushed = new Map<PushedView, ConsoleViewHandle>([
       [
@@ -195,6 +197,7 @@ export class ConsoleViews {
     return {
       sessions: this.builder('sessions'),
       costs: this.builder('costs'),
+      capabilities: this.builder('capabilities'),
       inbox: this.builder('inbox'),
       board: this.builder('board'),
       objective: this.builder('objective'),

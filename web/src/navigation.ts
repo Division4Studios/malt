@@ -13,7 +13,7 @@ const GROUPS = {
   workflow: ['workflow', 'team', 'workflows', 'roles'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'settings', 'learning', 'secrets', 'onboarding'],
+  project: ['setup', 'settings', 'learning', 'secrets', 'capabilities', 'onboarding'],
 };
 
 /**
@@ -62,6 +62,7 @@ export type View =
   | 'automations'
   | 'roles'
   | 'secrets'
+  | 'capabilities'
   | 'delivery'
   | 'objective'
   | 'workflows'
@@ -126,6 +127,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
     phrase('What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'),
   ],
   secrets: [phrase('Secrets.'), phrase('Local encrypted keys and tokens, granted to the role types that need them.')],
+  capabilities: [
+    phrase('Capabilities.'),
+    phrase('What humans and approved roles may do through connectors, beside what the provider supports.'),
+  ],
 });
 
 /**
