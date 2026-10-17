@@ -9,7 +9,15 @@
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { t } from './i18n.js';
-import { LANE_LABELS, countLabel, laneGroups, readPage, renderKey, ticketText } from './recommendations-model.js';
+import {
+  LANE_LABELS,
+  countLabel,
+  kindLabel,
+  laneGroups,
+  readPage,
+  renderKey,
+  ticketText,
+} from './recommendations-model.js';
 import { element } from './worker-ui.js';
 
 import type { RecommendationCounts, RecommendationPage, RecommendationSummary } from './recommendations-model.js';
@@ -161,7 +169,7 @@ class RecommendationsView implements RecommendationsHandle {
     const list = element('ul', 'recommendation-list');
     for (const item of items) {
       const row = element('li', item.isUnread ? 'recommendation unread' : 'recommendation');
-      const open = button(`${item.kind} · ${ticketText(item.tickets)} · ${item.action}`, {
+      const open = button(`${kindLabel(item.kind)} · ${ticketText(item.tickets)} · ${item.action}`, {
         cssClass: 'recommendation-open',
         key: `recommendation:${item.id}`,
         action: () => {
