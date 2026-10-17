@@ -1,6 +1,7 @@
 /**
  * Strict query parsing for the read-only telemetry routes `/api/attempts`,
- * `/api/transcript` and `/api/costs`. Every parameter is a known, unrepeated
+ * `/api/transcript` and `/api/costs`, and for an objective's progress log at
+ * `/api/objective-log`. Every parameter is a known, unrepeated
  * key; numbers must be plain decimals. Data comes from broker operations.
  *
  * @file
@@ -14,7 +15,9 @@ import { MeshError } from '../protocol.ts';
 import type { ProjectGateway } from './projects.ts';
 
 /** Read-only routes served by this module. */
-const TELEMETRY_ROUTES = new Set(['/api/attempts', '/api/transcript', '/api/costs']);
+const TELEMETRY_ROUTES = new Set(['/api/attempts', '/api/transcript', '/api/costs', '/api/objective-log']);
+/** Largest progress log page. */
+const LOG_PAGE_MAX = 100;
 /** Maximum project scope identifier. */
 const PROJECT_MAX = 4096;
 /** Longest free-text attempt query. */
@@ -65,6 +68,15 @@ const costsQuerySchema = z
     timeZone: z.string().min(1).max(TIME_ZONE_MAX).optional(),
   })
   .strict();
+/** Objective progress log page query. */
+const objectiveLogQuerySchema = z
+  .object({
+    project,
+    featureId: z.string().uuid(),
+    before: decimal.pipe(z.number().min(1)).optional(),
+    limit: decimal.pipe(z.number().min(1).max(LOG_PAGE_MAX)).optional(),
+  })
+  .strict();
 
 /**
  * Decode query parameters, rejecting any repeated key.
@@ -107,6 +119,10 @@ export async function telemetryRoute(url: URL, gateway: ProjectGateway): Promise
     case '/api/costs': {
       const { project: scope, ...window } = costsQuerySchema.parse(parameters);
       return gateway.costs(scope, window);
+    }
+    case '/api/objective-log': {
+      const { project: scope, ...page } = objectiveLogQuerySchema.parse(parameters);
+      return gateway.objectiveLog(scope, page);
     }
     default: {
       throw new MeshError('NOT_FOUND', 'Unknown inspection route.');

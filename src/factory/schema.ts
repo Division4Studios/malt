@@ -25,7 +25,12 @@ import {
   modelSelectionSchema,
   reviewedRecommendationSchema,
 } from './model-policy.ts';
-import { doneItemSchema, DONE_ITEMS_MAX } from './objective-goal-schema.ts';
+import {
+  doneItemSchema,
+  DONE_ITEMS_MAX,
+  OBJECTIVE_GOAL_OPERATIONS,
+  objectiveGoalSchemas,
+} from './objective-goal-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
@@ -565,6 +570,7 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...objectiveGoalSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -601,5 +607,6 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  ...OBJECTIVE_GOAL_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
