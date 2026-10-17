@@ -11,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod/v3';
 
 import { run, selectAll, selectOne } from '../database.ts';
-import { retireSystemIdentities, SYSTEM_RUNTIME } from '../identity-retirement.ts';
+import { retireEarlierSystemIdentities, retireSystemIdentity, SYSTEM_RUNTIME } from '../identity-retirement.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence, settleConsumedMessages } from './controls.ts';
@@ -113,6 +113,8 @@ export class FactoryRepository {
   public readonly store: Store;
   /** System sender, prepared only when an actual factory is configured. */
   private sender: string | null = null;
+  /** When this supervisor's ledger opened; system identities registered earlier are leftovers. */
+  private readonly startedAt: number;
 
   /**
    * Add versioned factory tables without modifying existing mesh history.
@@ -121,6 +123,7 @@ export class FactoryRepository {
    */
   public constructor(store: Store) {
     this.store = store;
+    this.startedAt = store.now();
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
@@ -221,7 +224,7 @@ export class FactoryRepository {
     if (this.sender !== null) {
       return;
     }
-    this.store.transaction(() => retireSystemIdentities(this.store.db));
+    this.store.transaction(() => retireEarlierSystemIdentities(this.store.db, this.startedAt));
     const suffix = randomUUID().slice(0, IDENTITY_SUFFIX_LENGTH);
     this.sender = this.store.register({
       name: `factory-system-${suffix}`,
@@ -287,11 +290,14 @@ export class FactoryRepository {
    */
   public release(owner: string): void {
     this.store.transaction(() => {
-      run(this.store.db, 'DELETE FROM factory_lease WHERE owner=?', owner);
-      // The system identity ends with its supervisor; the next notice prepares a fresh one.
-      retireSystemIdentities(this.store.db);
+      const { changes } = run(this.store.db, 'DELETE FROM factory_lease WHERE owner=?', owner);
+      // A supervisor that released its own lease ends its own system identity; the next notice prepares a fresh one.
+      if (changes === 0 || this.sender === null) {
+        return;
+      }
+      retireSystemIdentity(this.store.db, this.sender);
+      this.sender = null;
     });
-    this.sender = null;
   }
 
   /**
