@@ -198,6 +198,12 @@ declare module '*/web/dist/console-model.js' {
     readonly prUrl: string | null;
     /** Blocking dependency issues. */
     readonly waitingOn: readonly number[];
+    /** Ledger phase. */
+    readonly phase: string;
+    /** Operator hold. */
+    readonly held: { readonly at: number; readonly reason: string } | null;
+    /** Kept on the board after finishing. */
+    readonly isKept: boolean;
   }
   /** Validated open Inbox item. */
   export interface InboxItem {
@@ -229,6 +235,11 @@ declare module '*/web/dist/console-model.js' {
     }[];
     /** Open decisions. */
     readonly open: readonly InboxItem[];
+    /** Archived total and the latest restorable deliveries. */
+    readonly archived: {
+      readonly total: number;
+      readonly recent: readonly { readonly taskId: string; readonly issue: number; readonly title: string }[];
+    };
     /** Answered decisions. */
     readonly answered: readonly {
       readonly id: string;
@@ -374,6 +385,29 @@ declare module '*/web/dist/board-model.js' {
    * @returns Index to select, or null when the key does not navigate.
    */
   export function tabTarget(current: number, key: string, count: number): number | null;
+
+  /**
+   * The lifecycle control a delivery offers.
+   *
+   * @param delivery - Delivery on the board.
+   * @returns Label, operation and request input.
+   */
+  export function lifecycleControl(delivery: {
+    readonly taskId: string;
+    readonly phase: string;
+    readonly held: { readonly at: number; readonly reason: string } | null;
+  }): { label: string; operation: string; input: Record<string, unknown> };
+
+  /**
+   * Deliveries a bulk action applies to among the cards shown.
+   *
+   * @param groups - Cards currently shown.
+   * @returns Unfinished deliveries to hold and held ones to resume.
+   */
+  export function bulkTargets(groups: { columns: Record<string, readonly unknown[]>; hiddenDone: number }): {
+    hold: string[];
+    resume: string[];
+  };
 }
 
 declare module '*/web/dist/approval-model.js' {
