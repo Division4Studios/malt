@@ -57,6 +57,10 @@ The operator also chooses which factory roles may perform the enabled mutations;
 
 `breakDownJiraIssue` (`src/jira/breakdown.ts`) creates a parent's planned children in order, each with a request ID derived from the parent key and the child's plan key. A failure stops the batch with what was created so far; running the same breakdown again reconciles those children and creates only the rest. Creating children needs the `issue-create` and `relationships` capabilities.
 
+### Traceability and the source of truth
+
+`src/jira/traceability.ts` posts progress, pull request and merged-main evidence as Jira comments, each once per stable request ID: the journal is written before Jira is called and the comment carries a `MALT evidence <project>:<request>` line, so a retry after a lost response finds the comment instead of posting it again. Branch names use the Jira key unchanged (`branchKey` in `src/factory/tracker-key.ts`) so Jira's development panel links them. Before a job starts, `recheckIssue` re-reads the issue and refuses to work it once it is done, resolved or assigned to someone else, and `credentialBlocker` turns a rejected (revoked, rotated or expired) token into one operator blocker instead of repeated failing turns.
+
 ### Authentication and deployment decisions for 1.0
 
 These decisions answer #329; revisit them only through their follow-up issues.

@@ -75,7 +75,7 @@ export function fakeJira(): FakeJira {
 }
 
 /**
- * Write context and ledger for a project whose policy lets the operator create children.
+ * Write context and ledger for a project whose policy lets the operator create children and comment.
  *
  * @param t - Owns cleanup.
  * @param jira - Fixture site.
@@ -91,6 +91,7 @@ export function setup(t: TestContext, jira: FakeJira): { context: JiraWriteConte
   const gate = new CapabilityPolicyStore(store, config);
   gate.set(OPERATOR, 'issue-create', { mode: 'human-only', roles: [] });
   gate.set(OPERATOR, 'relationships', { mode: 'human-only', roles: [] });
+  gate.set(OPERATOR, 'comment', { mode: 'human-only', roles: [] });
   const directory = mkdtempSync(path.join(tmpdir(), 'malt-jira-'));
   defer(() => {
     rmSync(directory, { recursive: true, force: true });
