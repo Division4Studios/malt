@@ -337,7 +337,7 @@ function providerCard(row: ProviderHealth, now: number): HTMLElement {
   const heading = element('div', 'settings-provider-heading');
   let enabled = t('not set up');
   if (row.isEnabled !== null) {
-    enabled = row.isEnabled ? 'enabled' : 'disabled';
+    enabled = t(row.isEnabled ? 'enabled' : 'disabled');
   }
   heading.append(element('h3', '', row.name), tag(label, style), tag(enabled));
   card.append(

@@ -341,5 +341,5 @@ export function truncationText(patch: Extract<DiffPatchView, { state: 'ready' }>
   }
   return patch.bytes === null
     ? t('This file changes too much to show here. Open it in your editor or on GitHub.')
-    : t('Showing the first part of a {value} KiB patch.', { value: Math.ceil(patch.bytes / KIB) });
+    : t('Showing the first part of a {kib} KiB patch.', { kib: Math.ceil(patch.bytes / KIB) });
 }

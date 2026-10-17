@@ -296,11 +296,11 @@ class GoalView {
       const heading = element('h3', 'card-title');
       heading.append(title);
       const facts = element('p', 'subtle');
-      facts.textContent = t('{phase} · {done} of {total} deliveries done · {value}', {
+      facts.textContent = t('{phase} · {done} of {total} deliveries done · {definition}', {
         phase: goal.phase,
         done: goal.deliveries.done,
         total: goal.deliveries.total,
-        value: definitionText(goal),
+        definition: definitionText(goal),
       });
       item.append(heading, facts);
       if (goal.awaitsDefinition) {

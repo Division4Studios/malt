@@ -123,11 +123,11 @@ function plot(bars: ReturnType<typeof stackBars>['bars'], max: number): SVGEleme
         class: `cost-bar ${seriesClass(segment.series)}`,
       });
       const title = svg('title', {});
-      title.textContent = t('{day} · {value}: {value2} (day total {value3})', {
+      title.textContent = t('{day} · {series}: {cost} (day total {total})', {
         day: bar.day,
-        value: seriesLabel(segment.series),
-        value2: formatUsd(segment.value),
-        value3: formatUsd(bar.total),
+        series: seriesLabel(segment.series),
+        cost: formatUsd(segment.value),
+        total: formatUsd(bar.total),
       });
       rect.append(title);
       chart.append(rect);
@@ -199,12 +199,12 @@ export function costChart(summary: Data): HTMLElement {
   chart.setAttribute(
     'aria-label',
     t(
-      'Daily known cost by role from {value} to {value2}. Highest day {day} at {value3}. {length} role series; a data table follows.',
+      'Daily known cost by role from {from} to {to}. Highest day {day} at {cost}. {length} role series; a data table follows.',
       {
-        value: text(summary, 'from'),
-        value2: text(summary, 'to'),
+        from: text(summary, 'from'),
+        to: text(summary, 'to'),
         day: peak.day,
-        value3: formatUsd(peak.total),
+        cost: formatUsd(peak.total),
         length: String(series.length),
       },
     ),

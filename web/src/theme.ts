@@ -107,12 +107,12 @@ export function bindThemeToggle(id: string): void {
     throw new Error(t('The console shell has no {id} button.', { id }));
   }
   const label = (theme: Theme): void => {
-    button.textContent = t('Theme: {value}', { value: THEME_LABELS[theme] });
+    button.textContent = t('Theme: {theme}', { theme: THEME_LABELS[theme] });
     button.setAttribute(
       'aria-label',
-      t('Colour theme: {value}. Activate for {value2}.', {
-        value: THEME_LABELS[theme],
-        value2: THEME_LABELS[nextTheme(theme)],
+      t('Colour theme: {theme}. Activate for {next}.', {
+        theme: THEME_LABELS[theme],
+        next: THEME_LABELS[nextTheme(theme)],
       }),
     );
   };
