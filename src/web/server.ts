@@ -83,6 +83,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'inbox-ui',
     'board-actions',
     'board-ui',
+    'automations-model',
+    'automations-ui',
     'delivery-ui',
     'workflow-model',
     'workflow-checks',

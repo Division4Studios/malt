@@ -332,6 +332,7 @@ function render(): void {
     },
     inbox: () => owned.element('inbox'),
     board: () => owned.element('board'),
+    automations: () => owned.element('automations'),
     delivery: () => owned.element('delivery'),
     workflows: () => owned.element('workflows'),
     sessions: () => owned.element('sessions'),

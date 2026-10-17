@@ -716,3 +716,140 @@ select {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* Schedules & triggers: cards reuse the board's raised surface and tags. */
+.automations-view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.automation-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.automation-section h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.automation-section > .subtle {
+  margin: 0 0 12px;
+}
+.automation-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  gap: 12px;
+}
+.automation-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--raised);
+}
+.automation-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.automation-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.automation-name {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.console-tag.tag-enabled {
+  color: var(--green);
+}
+.console-tag.tag-off {
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  background: none;
+}
+.automation-summary code {
+  font: 12px/1.5 var(--font-terminal);
+  color: var(--cyan);
+  overflow-wrap: anywhere;
+}
+.automation-objective {
+  white-space: pre-line;
+  color: var(--text);
+  font-size: 12px;
+}
+.automation-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.automation-upcoming,
+.automation-fires {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+.automation-history summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.automation-fires .fire-failed {
+  color: var(--red);
+}
+.automation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.automation-actions .danger {
+  color: var(--red);
+}
+.automation-dialog .automation-hint {
+  margin: 6px 0 0;
+}
+.automation-dialog .automation-hint.error {
+  color: var(--red);
+}
+.automation-dialog select {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+.automation-dialog .automation-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.automation-dialog .automation-toggle input {
+  width: auto;
+}
+.automation-secret-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.automation-secret-row input {
+  font: 12px/1.5 var(--font-terminal);
+}
+.automation-example {
+  white-space: pre;
+  overflow-x: auto;
+}
+.automation-copy {
+  margin-top: 6px;
+}
+@media (max-width: 600px) {
+  .automation-secret-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
