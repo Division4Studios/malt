@@ -40,16 +40,20 @@ Lifetime values: `durable` (a named identity whose secret is saved; it can alway
 
 ## Messages
 
-| Tool                       | Arguments                                          | Result                                                               |
-| -------------------------- | -------------------------------------------------- | -------------------------------------------------------------------- |
-| `mesh_send_message`        | `to`, `body`; optional `type`, `taskId`, `handoff` | Message ID, sequence and recipient ID.                               |
-| `mesh_broadcast`           | `body`                                             | Per-recipient message receipts, excluding the sender.                |
-| `mesh_get_messages`        | `unreadOnly` (true), `after` (0), `limit` (50)     | `messages`, `hasMore`, `nextCursor`.                                 |
-| `mesh_get_unread_messages` | `{}`                                               | First unread page. Use the general tool to paginate.                 |
-| `mesh_ack_message`         | `id`                                               | Idempotent acknowledgement for the caller's own inbox.               |
-| `mesh_reply`               | `id`, `body`                                       | A direct message to the original sender, with `reply_to` linking it. |
+| Tool                       | Arguments                                                            | Result                                                                                                                          |
+| -------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `mesh_send_message`        | `to`, `body`; optional `type`, `taskId`, `handoff`, `idempotencyKey` | Message ID, sequence and recipient ID.                                                                                          |
+| `mesh_broadcast`           | `body`; optional `idempotencyKey`                                    | Per-recipient message receipts, excluding the sender; `collapsed` and `repeats` when folded into an identical recent broadcast. |
+| `mesh_get_messages`        | `unreadOnly` (true), `after` (0), `limit` (50)                       | `messages`, `hasMore`, `nextCursor`.                                                                                            |
+| `mesh_get_unread_messages` | `{}`                                                                 | First unread page. Use the general tool to paginate.                                                                            |
+| `mesh_ack_message`         | `id`                                                                 | Idempotent acknowledgement for the caller's own inbox.                                                                          |
+| `mesh_reply`               | `id`, `body`                                                         | A direct message to the original sender, with `reply_to` linking it.                                                            |
 
 Bodies are 1–32,000 characters. Pages contain 1–100 messages. Supported public types: direct, task, handoff, question, blocker, review_request. Broadcast, work_request and worker_left are broker-generated types. A `worker_left` message tells the lead that a session ended while it still held assigned work; its body is JSON with `worker`, `instructions` and `action`. Broadcast recipients are captured at send time; future registrations do not receive historical broadcasts.
+
+Retries are safe with an `idempotencyKey` (1–100 characters, chosen by the sender): a send or broadcast that repeats a key the same sender already used returns the original message IDs and stores nothing new, and reusing the key for a different request fails with `IDEMPOTENCY_CONFLICT`. Keys are scoped to the sender and the operation and are kept with the project's messages. Calls without a key behave as before.
+
+A broadcast whose body exactly matches the same sender's previous broadcast, delivered less than the window ago, is not stored again: the result returns the original receipts with `collapsed: true` and `repeats`, the number of repeats folded in so far. The window is measured from the original delivery, so a repeat at or after it delivers again and starts a new window. Set `AGENTMESH_MESSAGE_DEDUP_MS` on the broker to change the window (default `60000`; `0` turns collapsing off). Different senders and different bodies are never collapsed.
 
 For a handoff, use this nested shape:
 

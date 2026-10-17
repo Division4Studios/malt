@@ -50,6 +50,7 @@ import {
 import { readEvents } from './event-log.ts';
 import { TERMINAL_OPERATIONS } from './factory/terminal-schema.ts';
 import { log } from './log.ts';
+import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from './message-dedup.ts';
 import {
   AGENT_STATES,
   FACTORY_OPERATIONS,
@@ -183,6 +184,10 @@ export interface HeartbeatResult {
 export interface BroadcastResult {
   /** One delivered message per recipient. */
   readonly messages: SentMessage[];
+  /** Present when an identical broadcast inside the window was folded into the original. */
+  readonly collapsed?: true | undefined;
+  /** Repeats folded into the original so far. */
+  readonly repeats?: number | undefined;
 }
 
 /** Confirmation that a message is acknowledged. */
@@ -315,6 +320,8 @@ export type PresentedCredentials = { readonly [K in keyof Credentials]?: Credent
 export interface StoreOptions {
   /** Clock override, used by tests to control time. */
   readonly now?: (() => number) | undefined;
+  /** Same-sender broadcast collapse window; defaults to `AGENTMESH_MESSAGE_DEDUP_MS` or 60 s. */
+  readonly messageDedupMs?: number | undefined;
 }
 
 // -----------------------------------------------------------------------------
@@ -338,6 +345,9 @@ export class Store implements CoordinationHost {
   /** Operation handlers, built once per store. */
   private readonly handlers: Handlers;
 
+  /** Window in which an identical broadcast from the same sender collapses. */
+  private readonly dedupMs: number;
+
   /**
    * Open (creating or migrating as needed) the project's database.
    *
@@ -350,7 +360,9 @@ export class Store implements CoordinationHost {
     this.config = config;
     this.clock = options.now ?? Date.now;
     this.db = new DatabaseSync(config.database);
+    this.dedupMs = options.messageDedupMs ?? messageDedupWindow();
     this.createBaseSchema();
+    ensureDedupTables(this.db);
     this.verifyProject();
     const version = this.schemaVersion();
     this.coordination = new Coordination(this);
@@ -675,16 +687,27 @@ export class Store implements CoordinationHost {
       answer_check_in: (input, actor) => this.coordination.answer(requireActor(actor), input),
       list_agents: (input) => this.listAgents(input.status),
       team_status: () => this.teamStatus(),
-      send_message: (input, actor) => this.send(requireActor(actor), this.recipient(input.to), input),
+      send_message: (input, actor) => {
+        const sender = requireActor(actor);
+        const request = { sender, operation: 'send_message', input, now: this.now() } as const;
+        return sendOnce(this.db, request, () => this.send(sender, this.recipient(input.to), input));
+      },
       broadcast: (input, actor) => {
         const sender = requireActor(actor);
-        const recipients = selectAll(
-          this.db,
-          idRowSchema,
-          "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' ORDER BY name",
-          sender,
-        );
-        return { messages: recipients.map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })) };
+        const now = this.now();
+        const window = { sender, body: input.body, now, windowMs: this.dedupMs };
+        return sendOnce(this.db, { sender, operation: 'broadcast', input, now }, () => {
+          return broadcastOnce(this.db, window, () => {
+            return {
+              messages: selectAll(
+                this.db,
+                idRowSchema,
+                "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' ORDER BY name",
+                sender,
+              ).map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })),
+            };
+          });
+        });
       },
       get_messages: (input, actor) => this.inbox(requireActor(actor), input),
       ack_message: (input, actor) => this.acknowledge(requireActor(actor), input.id),
