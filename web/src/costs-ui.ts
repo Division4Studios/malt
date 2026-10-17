@@ -8,6 +8,7 @@
  */
 import { child, data, number, records, request, scoped, text } from './api.js';
 import { costChart } from './cost-chart.js';
+import { formatDateTime, phrase, t, translated } from './i18n.js';
 import { PriceEditor, priceTable } from './price-editor.js';
 import { SpendEditor } from './spend-editor.js';
 import { browserTimeZone, formatCost, formatPercent, formatTokens, formatUsd } from './telemetry-format.js';
@@ -17,12 +18,12 @@ import { element } from './worker-ui.js';
 import type { Data } from './api.js';
 
 /** Selectable windows: days and label. */
-const WINDOWS = [
-  ['1', 'Today'],
-  ['7', 'Last 7 days'],
-  ['30', 'Last 30 days'],
-  ['90', 'Last 90 days'],
-] as const;
+const WINDOWS = translated([
+  ['1', phrase('Today')],
+  ['7', phrase('Last 7 days')],
+  ['30', phrase('Last 30 days')],
+  ['90', phrase('Last 90 days')],
+] as const);
 /** Default window in days. */
 const DEFAULT_WINDOW = '7';
 
@@ -74,23 +75,31 @@ function tiles(summary: Data): HTMLElement {
   const totals = child(summary, 'totals');
   const tokens = child(summary, 'tokens');
   const count = (key: string): string => String(number(totals, key));
+  const totalTokens = formatTokens(optionalNumber(tokens, 'total'));
   const items = [
     tile(
-      'Known cost',
+      t('Known cost'),
       formatUsd(number(totals, 'costUsd')),
-      `${count('reportedAttempts')} reported · ${count('estimatedAttempts')} estimated`,
+      t('{value} reported · {value2} estimated', {
+        value: count('reportedAttempts'),
+        value2: count('estimatedAttempts'),
+      }),
     ),
-    tile('Attempts', count('attempts'), `${count('unpricedAttempts')} unpriced`),
+    tile(t('Attempts'), count('attempts'), t('{count} unpriced', { count: count('unpricedAttempts') })),
     tile(
-      'Average per priced attempt',
+      t('Average per priced attempt'),
       formatUsd(optionalNumber(totals, 'averagePerPricedAttempt')),
-      'Excludes unpriced attempts',
+      t('Excludes unpriced attempts'),
     ),
-    tile('Waste', formatUsd(number(totals, 'wasteUsd')), `${count('wasteAttempts')} failed or interrupted attempts`),
     tile(
-      'Cache hit',
+      t('Waste'),
+      formatUsd(number(totals, 'wasteUsd')),
+      t('{value} failed or interrupted attempts', { value: count('wasteAttempts') }),
+    ),
+    tile(
+      t('Cache hit'),
       formatPercent(optionalNumber(tokens, 'cacheHitPercent')),
-      `${formatTokens(optionalNumber(tokens, 'total'))} tokens in total`,
+      t('{tokens} tokens in total', { tokens: totalTokens }),
     ),
   ];
   const row = element('div', 'cost-tiles');
@@ -140,9 +149,9 @@ function table(caption: string, columns: readonly string[]): HTMLTableElement {
  */
 function groupTable(caption: string, groups: readonly Data[]): HTMLElement {
   if (groups.length === 0) {
-    return element('p', 'subtle', `${caption}: no attempts in this window.`);
+    return element('p', 'subtle', t('{caption}: no attempts in this window.', { caption }));
   }
-  const node = table(caption, ['Name', 'Known cost', 'Attempts', 'Unpriced', 'Tokens']);
+  const node = table(caption, [t('Name'), t('Known cost'), t('Attempts'), t('Unpriced'), t('Tokens')]);
   for (const group of groups) {
     const row = tableRow(text(group, 'label'), [
       formatUsd(number(group, 'costUsd')),
@@ -163,14 +172,21 @@ function groupTable(caption: string, groups: readonly Data[]): HTMLElement {
  */
 function topTable(attempts: readonly Data[]): HTMLElement {
   if (attempts.length === 0) {
-    return element('p', 'subtle', 'No priced attempts in this window.');
+    return element('p', 'subtle', t('No priced attempts in this window.'));
   }
-  const node = table('Most expensive attempts', ['Started', 'Role · kind', 'Model', 'State', 'Cost', 'Delivery']);
+  const node = table(t('Most expensive attempts'), [
+    t('Started'),
+    t('Role · kind'),
+    t('Model'),
+    t('State'),
+    t('Cost'),
+    t('Delivery'),
+  ]);
   for (const attempt of attempts) {
     const started = new Date(number(attempt, 'startedAt'));
     const model = text(attempt, 'model') === '' ? 'default' : text(attempt, 'model');
     const delivery = text(attempt, 'delivery') === '' ? '—' : text(attempt, 'delivery');
-    const row = tableRow(started.toLocaleString(), [
+    const row = tableRow(formatDateTime(started), [
       `${text(attempt, 'role')} · ${text(attempt, 'kind')}`,
       `${text(attempt, 'provider')} · ${model}`,
       text(attempt, 'state'),
@@ -210,29 +226,39 @@ function summarySections(summary: Data): HTMLElement[] {
   const listed: unknown = summary['unpricedModels'];
   const unpriced = Array.isArray(listed) ? listed.filter((model): model is string => typeof model === 'string') : [];
   if (unpriced.length > 0) {
+    const models = unpriced.join(', ');
     notes.push(
-      element('p', 'notice', `Unpriced models: ${unpriced.join(', ')}. Add their prices below to estimate cost.`),
+      element('p', 'notice', t('Unpriced models: {models}. Add their prices below to estimate cost.', { models })),
     );
   }
   if (summary['truncated'] === true) {
     notes.push(
-      element('p', 'notice', 'This window has more attempts than the summary limit; totals cover the newest ones.'),
+      element('p', 'notice', t('This window has more attempts than the summary limit; totals cover the newest ones.')),
     );
   }
   const tokens = child(summary, 'tokens');
-  const tokenLine = `Tokens: input ${formatTokens(optionalNumber(tokens, 'input'))} · cache read ${formatTokens(optionalNumber(tokens, 'cacheRead'))} · cache write ${formatTokens(optionalNumber(tokens, 'cacheWrite'))} · output ${formatTokens(optionalNumber(tokens, 'output'))} · reasoning ${formatTokens(optionalNumber(tokens, 'reasoning'))}`;
+  const tokenLine = t(
+    'Tokens: input {value} · cache read {value2} · cache write {value3} · output {value4} · reasoning {value5}',
+    {
+      value: formatTokens(optionalNumber(tokens, 'input')),
+      value2: formatTokens(optionalNumber(tokens, 'cacheRead')),
+      value3: formatTokens(optionalNumber(tokens, 'cacheWrite')),
+      value4: formatTokens(optionalNumber(tokens, 'output')),
+      value5: formatTokens(optionalNumber(tokens, 'reasoning')),
+    },
+  );
   return [
     tiles(summary),
     ...notes,
-    panel('Daily cost by role', costChart(summary), element('p', 'subtle', tokenLine)),
+    panel(t('Daily cost by role'), costChart(summary), element('p', 'subtle', tokenLine)),
     panel(
-      'Breakdowns',
-      groupTable('By role', records(summary['byRole'])),
-      groupTable('By provider and model', records(summary['byModel'])),
-      groupTable('By objective', records(summary['byObjective'])),
-      groupTable('By delivery', records(summary['byDelivery'])),
+      t('Breakdowns'),
+      groupTable(t('By role'), records(summary['byRole'])),
+      groupTable(t('By provider and model'), records(summary['byModel'])),
+      groupTable(t('By objective'), records(summary['byObjective'])),
+      groupTable(t('By delivery'), records(summary['byDelivery'])),
     ),
-    panel('Top attempts', topTable(records(summary['topAttempts']))),
+    panel(t('Top attempts'), topTable(records(summary['topAttempts']))),
   ];
 }
 
@@ -285,16 +311,16 @@ class CostsView {
     this.window.addEventListener('change', () => {
       void this.refresh();
     });
-    const picker = element('label', 'sessions-filter', 'Window');
+    const picker = element('label', 'sessions-filter', t('Window'));
     picker.append(this.window);
     const toolbar = element('div', 'sessions-filters');
-    toolbar.append(picker, element('span', 'subtle', `Calendar days in ${this.timeZone}`));
+    toolbar.append(picker, element('span', 'subtle', t('Calendar days in {timeZone}', { timeZone: this.timeZone })));
     this.root.append(
       toolbar,
       this.status,
       this.summary,
-      panel('Spend caps', this.caps.element),
-      panel('Prices', this.editor.element),
+      panel(t('Spend caps'), this.caps.element),
+      panel(t('Prices'), this.editor.element),
     );
   }
 
@@ -324,7 +350,7 @@ class CostsView {
         this.summary.replaceChildren(...summarySections(summary));
       }
     } catch (error) {
-      this.status.textContent = error instanceof Error ? error.message : 'Costs could not be read.';
+      this.status.textContent = error instanceof Error ? error.message : t('Costs could not be read.');
     } finally {
       this.isLoading = false;
     }
