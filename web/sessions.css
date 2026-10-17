@@ -175,3 +175,139 @@
 .transcript-new {
   margin-bottom: 6px;
 }
+.cost-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 20px;
+}
+.cost-tile {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, #241b16, #11101a 70%);
+}
+.cost-tile-value {
+  font-size: 26px;
+  font-weight: 600;
+  margin: 6px 0 2px;
+}
+.cost-figure {
+  margin: 0;
+}
+.cost-chart {
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  display: block;
+}
+.cost-grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+.cost-axis {
+  fill: var(--muted);
+  font: 10px monospace;
+}
+.cost-bar.series-1,
+.cost-swatch.series-1 {
+  fill: var(--series-1);
+  background: var(--series-1);
+}
+.cost-bar.series-2,
+.cost-swatch.series-2 {
+  fill: var(--series-2);
+  background: var(--series-2);
+}
+.cost-bar.series-3,
+.cost-swatch.series-3 {
+  fill: var(--series-3);
+  background: var(--series-3);
+}
+.cost-bar.series-4,
+.cost-swatch.series-4 {
+  fill: var(--series-4);
+  background: var(--series-4);
+}
+.cost-bar.series-5,
+.cost-swatch.series-5 {
+  fill: var(--series-5);
+  background: var(--series-5);
+}
+.cost-bar.series-6,
+.cost-swatch.series-6 {
+  fill: var(--series-6);
+  background: var(--series-6);
+}
+.cost-bar.series-7,
+.cost-swatch.series-7 {
+  fill: var(--series-7);
+  background: var(--series-7);
+}
+.cost-bar.series-8,
+.cost-swatch.series-8 {
+  fill: var(--series-8);
+  background: var(--series-8);
+}
+.cost-bar.series-other,
+.cost-swatch.series-other {
+  fill: var(--series-other);
+  background: var(--series-other);
+}
+.cost-bar:hover {
+  stroke: var(--text);
+  stroke-width: 1;
+}
+.cost-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  font-size: 11px;
+}
+.cost-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cost-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.cost-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  margin: 10px 0 18px;
+}
+.cost-table caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 6px;
+}
+.cost-table th,
+.cost-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.cost-table td {
+  font-family: var(--font-terminal);
+}
+.price-table input {
+  padding: 6px 8px;
+}
+@media (max-width: 900px) {
+  .sessions-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (forced-colors: active) {
+  .cost-bar {
+    stroke: CanvasText;
+  }
+}
