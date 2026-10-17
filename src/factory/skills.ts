@@ -12,6 +12,7 @@ import { z } from 'zod/v3';
 import { writeAtomic } from '../summary.ts';
 
 import { refreshBaselines } from './baselines.ts';
+import { STAGE_SKILLS } from './seats.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { ProjectLearning } from '../learning.ts';
@@ -20,17 +21,7 @@ import type { FactoryJob } from './schema.ts';
 /** Source-distribution bundle independent of target cwd. */
 const BUNDLE = path.resolve(import.meta.dirname, '..', '..', 'resources', 'factory-skills');
 /** Role routing avoids loading unrelated skill instructions. */
-const ROUTES = {
-  plan: 'factory-product',
-  refine: 'factory-product',
-  develop: 'factory-development',
-  review: 'factory-review',
-  final: 'factory-release',
-  verify: 'factory-release',
-  learn: 'factory-learning',
-  skill: 'factory-learning',
-  triage: 'factory-product',
-} as const;
+const ROUTES = STAGE_SKILLS;
 /** Active review provenance must be validated before becoming instructions. */
 const SKILL_TEXT_MAX = 32_000;
 /** Active instruction envelope. */

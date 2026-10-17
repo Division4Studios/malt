@@ -130,6 +130,72 @@ export async function providerPreflight(settings: FactoryConfig, cwd: string): P
   return evidence;
 }
 
+/** Runs one unpaid native diagnostic command; rejects on spawn failure, non-zero exit or timeout. */
+export type DiagnosticRunner = (
+  file: string,
+  args: readonly string[],
+  cwd: string,
+) => Promise<{ readonly stdout: string; readonly stderr: string }>;
+
+/** One provider's secret-free readiness, distinguishing a missing CLI from a missing login. */
+export type ProviderDiagnosis =
+  | { readonly provider: Provider; readonly state: 'missing'; readonly version: null }
+  | { readonly provider: Provider; readonly state: 'unauthenticated'; readonly version: string }
+  | ({ readonly state: 'ready' } & ProviderReadiness);
+
+/**
+ * Run a native diagnostic with the sanitized subscription environment and bounded output.
+ *
+ * @param file - Native executable.
+ * @param args - Its arguments.
+ * @param cwd - Working directory.
+ * @returns Captured text output.
+ */
+export const nativeDiagnostic: DiagnosticRunner = async (file, args, cwd) => {
+  return await execute(file, [...args], {
+    cwd,
+    windowsHide: true,
+    timeout: PREFLIGHT_MS,
+    maxBuffer: PREFLIGHT_BYTES,
+    env: subscriptionEnvironment(process.env),
+    encoding: 'utf8',
+  });
+};
+
+/**
+ * Diagnose one provider CLI without inference: its version, then its subscription login.
+ *
+ * @param provider - Provider family.
+ * @param file - Operator-configured native executable.
+ * @param cwd - Target repository.
+ * @param run - Diagnostic runner, injectable for tests.
+ * @returns Missing, unauthenticated or ready, without account details.
+ */
+export async function diagnoseProvider(
+  provider: Provider,
+  file: string,
+  cwd: string,
+  run: DiagnosticRunner = nativeDiagnostic,
+): Promise<ProviderDiagnosis> {
+  let output: { readonly stdout: string };
+  try {
+    output = await run(file, ['--version'], cwd);
+  } catch {
+    return { provider, state: 'missing', version: null };
+  }
+  const version = output.stdout.trim();
+  if (provider === 'copilot') {
+    // Copilot has no unpaid login probe; its first assignment proves the subscription.
+    return { provider, state: 'ready', version, authentication: 'GitHub Copilot (proven by first assignment)' };
+  }
+  try {
+    const authArguments = provider === 'codex' ? ['login', 'status'] : ['--setting-sources', '', 'auth', 'status'];
+    return { state: 'ready', ...verifiedAuthentication(provider, version, await run(file, authArguments, cwd)) };
+  } catch {
+    return { provider, state: 'unauthenticated', version };
+  }
+}
+
 /**
  * Inspect one unpaid provider auth command with sanitized environment.
  *
@@ -140,33 +206,14 @@ export async function providerPreflight(settings: FactoryConfig, cwd: string): P
  * @throws {MeshError} When the native CLI cannot prove subscription authentication.
  */
 async function inspectProvider(provider: Provider, file: string, cwd: string): Promise<ProviderReadiness> {
-  const options = {
-    cwd,
-    windowsHide: true,
-    timeout: PREFLIGHT_MS,
-    maxBuffer: PREFLIGHT_BYTES,
-    env: subscriptionEnvironment(process.env),
-    encoding: 'utf8' as const,
-  };
-  try {
-    const version = await execute(file, ['--version'], options);
-    if (provider === 'copilot') {
-      return {
-        provider,
-        version: version.stdout.trim(),
-        authentication: 'GitHub Copilot (proven by first assignment)',
-      };
-    }
-    const authArguments = provider === 'codex' ? ['login', 'status'] : ['--setting-sources', '', 'auth', 'status'];
-    const authentication = await execute(file, authArguments, options);
-    return verifiedAuthentication(provider, version.stdout.trim(), authentication);
-  } catch (error) {
+  const diagnosis = await diagnoseProvider(provider, file, cwd);
+  if (diagnosis.state !== 'ready') {
     throw new MeshError(
       'FACTORY_GATED',
       `${provider}: configure a supported native executable and log in using its subscription account before starting the factory. API billing is not permitted.`,
-      { cause: error },
     );
   }
+  return { provider, version: diagnosis.version, authentication: diagnosis.authentication };
 }
 
 /**
