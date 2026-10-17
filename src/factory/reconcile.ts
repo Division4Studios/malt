@@ -15,7 +15,7 @@ import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
-import { featureWorkflow, planningApprovals } from './pipeline.ts';
+import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
@@ -104,8 +104,7 @@ async function provision(context: FactoryContext): Promise<void> {
   const candidates1 = context.repository
     .features()
     .filter(
-      (candidate) =>
-        candidate.phase === 'provisioning' && planningApprovals(candidate, featureWorkflow(candidate)).length === 0,
+      (candidate) => candidate.phase === 'provisioning' && isPlanningComplete(candidate, featureWorkflow(candidate)),
     );
   for (const feature of candidates1) {
     try {

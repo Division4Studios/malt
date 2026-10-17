@@ -377,6 +377,9 @@ function reviewProblems(
     if (implement !== undefined && hasSharedRole(review, implement)) {
       problems.push(`"${review.title}" cannot be performed by the implementer.`);
     }
+    if (implement !== undefined && !ancestorIds(steps, review.id).has(implement.id)) {
+      problems.push(`"${review.title}" must run after "${implement.title}", so it has work to review.`);
+    }
   }
   if (final?.roles.some((role) => authors.has(role)) === true) {
     problems.push('The final step must be independent of everyone who wrote code.');

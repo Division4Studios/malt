@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import {
   awaitingApproval,
   dispositionProblems,
+  isPlanningComplete,
   isReviewComplete,
   isStepRunning,
   planningApprovals,
@@ -299,6 +300,53 @@ await test('planning follows the workflow and holds deliveries for planning appr
   assert.deepEqual(planningApprovals(decided, approved), []);
 });
 
+await test('planning gates and approvals hold every later planning step until decided', () => {
+  const assured = builtin('malt-assured');
+  const spec = {
+    outcome: 'success' as const,
+    summary: 'Spec',
+    findings: [],
+    deliveries: [],
+    skillActions: [],
+    instructionReceipts: [],
+  };
+  const gated = workflowSchema.parse({
+    ...assured,
+    id: 'gated-spec',
+    planning: assured.planning.map((step) => (step.kind === 'specify' ? { ...step, gate: true } : step)),
+  });
+  const specified = objective(gated, { phase: 'refining', productPlan: spec });
+  assert.equal(planningStep(specified, gated), null, 'the plan waits for the specification gate');
+  assert.deepEqual(
+    planningApprovals(specified, gated).map((step) => step.id),
+    ['specify'],
+  );
+  assert.equal(isPlanningComplete(specified, gated), false);
+  const decided = {
+    ...specified,
+    approvals: [{ stepId: 'specify', head: null, base: null, note: '', at: 1, requestId: randomUUID() }],
+  };
+  assert.equal(planningStep(decided, gated)?.step.id, 'plan');
+  assert.equal(isPlanningComplete({ ...decided, plan: spec }, gated), true);
+
+  const between = workflowSchema.parse({
+    ...assured,
+    id: 'approve-between',
+    planning: [
+      assured.planning[0],
+      { id: 'sign-off', kind: 'approve', title: 'Sign off the spec', roles: [], after: ['specify'] },
+      { ...assured.planning[1], after: ['sign-off'] },
+    ],
+  });
+  const waiting = objective(between, { phase: 'refining', productPlan: spec });
+  assert.equal(planningStep(waiting, between), null, 'the plan waits for the approval before it');
+  assert.deepEqual(
+    planningApprovals(waiting, between).map((step) => step.id),
+    ['sign-off'],
+  );
+  assert.deepEqual(planningApprovals(objective(between, { phase: 'queued' }), between), [], 'not before the spec');
+});
+
 await test('the scheduler follows each objective workflow and carries step and provider preference', () => {
   const workflow = quickWith(
     [{ id: 'security', title: 'Security review', roles: ['qa-2'], provider: 'claude' }],
@@ -402,4 +450,14 @@ await test('a disposition ledger rules on every finding exactly once with eviden
   assert.deepEqual(dispositionProblems([], [ruling('ghost', 'adopted')]), [
     'Disposition ghost names no current finding.',
   ]);
+});
+
+await test('fix-stage steps are scheduled as their own assignment kinds, not as reviews', () => {
+  const feature = objective(builtin('direct'));
+  const task = delivery(feature, { reviews: [approval('qa-1', 'review'), approval('qa-2', 'blind-review')] });
+  const intents = jobIntents({ config, tasks: [task], features: [feature], jobs: [], skillRequests: [], now });
+  assert.deepEqual(
+    intents.map((intent) => [intent.role, intent.kind, intent.step]),
+    [['fixer', 'adjudicate', 'fix']],
+  );
 });

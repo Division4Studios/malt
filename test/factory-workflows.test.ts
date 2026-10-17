@@ -127,6 +127,10 @@ await test('independence rules: whoever writes code never judges it', () => {
   step(selfReview, 'acceptance').roles = ['developer-1'];
   assertProblem(selfReview, 'cannot be performed by the implementer');
 
+  const earlyReview = draft();
+  step(earlyReview, 'acceptance').after = [];
+  assertProblem(earlyReview, 'so it has work to review');
+
   const authorFinal = draft();
   step(authorFinal, 'final').roles = ['developer-2'];
   assertProblem(authorFinal, 'final step must be independent');
