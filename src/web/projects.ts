@@ -23,6 +23,7 @@ import { DEFAULT_WORKFLOW_ID, workflowLibrarySchema } from '../factory/workflows
 import { ProjectLearning } from '../learning.ts';
 import { packageVersion } from '../package-info.ts';
 import { MeshError } from '../protocol.ts';
+import { SOURCE_REVISION } from '../source-revision.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { DiffPatch, DiffSummary } from '../factory/diff-schema.ts';
@@ -33,11 +34,23 @@ import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/teleme
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
+import type { SourceRevision } from '../source-revision.ts';
 
 /** How long the broker health probe may take. */
 const HEALTH_MS = 2000;
 /** The broker's unauthenticated health answer. */
-const healthSchema = z.object({ ok: z.literal(true), version: z.string() });
+const healthSchema = z.object({
+  ok: z.literal(true),
+  version: z.string(),
+  /** Absent from brokers started before revisions were reported. */
+  revision: z
+    .object({
+      commit: z.string().nullable(),
+      isDirty: z.boolean().nullable(),
+      origin: z.enum(['image', 'checkout', 'unknown']),
+    })
+    .optional(),
+});
 /** Versions the Settings view shows. */
 export interface ConsoleVersions {
   /** MALT package version the console runs. */
@@ -48,6 +61,10 @@ export interface ConsoleVersions {
   readonly platform: string;
   /** Broker version, or `null` when its health endpoint does not answer. */
   readonly broker: string | null;
+  /** Source the broker was started from; `null` when it does not answer or predates revision reports. */
+  readonly brokerRevision: SourceRevision | null;
+  /** Source this console process was started from. */
+  readonly consoleRevision: SourceRevision;
 }
 
 /** Public team routing metadata. */
@@ -305,14 +322,21 @@ export class ProjectGateway {
    */
   public async versions(id: string): Promise<ConsoleVersions> {
     const config = this.config(id);
-    let broker: string | null;
+    let health: z.output<typeof healthSchema> | null;
     try {
       const response = await fetch(new URL('/health', config.url), { signal: AbortSignal.timeout(HEALTH_MS) });
-      broker = healthSchema.parse(await response.json()).version;
+      health = healthSchema.parse(await response.json());
     } catch {
-      broker = null;
+      health = null;
     }
-    return { malt: packageVersion(), node: process.versions.node, platform: process.platform, broker };
+    return {
+      malt: packageVersion(),
+      node: process.versions.node,
+      platform: process.platform,
+      broker: health?.version ?? null,
+      brokerRevision: health?.revision ?? null,
+      consoleRevision: SOURCE_REVISION,
+    };
   }
 
   /**
