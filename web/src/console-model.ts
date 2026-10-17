@@ -101,8 +101,15 @@ export interface Delivery {
   readonly workflow: WorkflowIdentity;
   /** Steps in workflow order. */
   readonly steps: readonly Step[];
-  /** Live attempt. */
-  readonly running: { readonly jobId: string; readonly role: string; readonly step: string | null } | null;
+  /** Live attempt and its checkpoint liveness. */
+  readonly running: {
+    readonly jobId: string;
+    readonly role: string;
+    readonly step: string | null;
+    readonly liveness: Liveness | null;
+  } | null;
+  /** Retry backoff of the latest failed step, while it delays that step. */
+  readonly retry: Retry | null;
   /** Current head commit. */
   readonly head: string | null;
   /** Current base commit. */
@@ -123,6 +130,32 @@ export interface Delivery {
   readonly isKept: boolean;
   /** Last change time. */
   readonly updatedAt: number;
+}
+
+/** What a running attempt is doing, from its latest progress sample. */
+export interface Liveness {
+  /** `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling`. */
+  readonly state: string;
+  /** Newest meaningful signal. */
+  readonly lastSignal: string | null;
+  /** When it last progressed. */
+  readonly lastProgressAt: number;
+  /** What it waits on, if anything. */
+  readonly awaiting: string | null;
+  /** Next checkpoint. */
+  readonly nextCheckpointAt: number;
+  /** Extensions granted so far. */
+  readonly extensions: number;
+}
+
+/** A failed step waiting to retry, or out of retries. */
+export interface Retry {
+  /** Failure class of the latest attempts. */
+  readonly failureClass: string;
+  /** Consecutive failures of that class. */
+  readonly failures: number;
+  /** When it may run again; null once retries are exhausted. */
+  readonly retryAt: number | null;
 }
 
 /** A finished delivery archived off the board, which the operator can restore. */
@@ -380,7 +413,51 @@ function parseRunning(value: unknown): Delivery['running'] {
   const record = asData(value);
   return record === null
     ? null
-    : { jobId: text(record, 'jobId'), role: text(record, 'role'), step: nullableText(record, 'step') };
+    : {
+        jobId: text(record, 'jobId'),
+        role: text(record, 'role'),
+        step: nullableText(record, 'step'),
+        liveness: parseLiveness(record['liveness']),
+      };
+}
+
+/**
+ * Validate a running attempt's liveness.
+ *
+ * @param value - Untrusted liveness record.
+ * @returns Liveness, or `null`.
+ */
+function parseLiveness(value: unknown): Liveness | null {
+  const record = asData(value);
+  return record === null
+    ? null
+    : {
+        state: text(record, 'state'),
+        lastSignal: nullableText(record, 'lastSignal'),
+        lastProgressAt: number(record, 'lastProgressAt'),
+        awaiting: nullableText(record, 'awaiting'),
+        nextCheckpointAt: number(record, 'nextCheckpointAt'),
+        extensions: number(record, 'extensions'),
+      };
+}
+
+/**
+ * Validate a delivery's retry backoff.
+ *
+ * @param value - Untrusted retry record.
+ * @returns Retry, or `null`.
+ */
+function parseRetry(value: unknown): Retry | null {
+  const record = asData(value);
+  if (record === null) {
+    return null;
+  }
+  const { retryAt } = record;
+  return {
+    failureClass: text(record, 'failureClass'),
+    failures: number(record, 'failures'),
+    retryAt: typeof retryAt === 'number' && Number.isFinite(retryAt) ? retryAt : null,
+  };
 }
 
 /**
@@ -405,6 +482,7 @@ function parseDelivery(record: Data): Delivery | null {
     workflow: parseWorkflow(record['workflow']),
     steps: parseSteps(record['steps']),
     running: parseRunning(record['running']),
+    retry: parseRetry(record['retry']),
     head: nullableText(record, 'head'),
     base: nullableText(record, 'base'),
     prUrl: nullableText(record, 'prUrl'),
@@ -655,4 +733,51 @@ export function runningText(delivery: Delivery): string | null {
   const { role, step } = delivery.running;
   const title = delivery.steps.find((candidate) => candidate.id === step)?.title ?? step;
   return title === null ? role : `${role} · ${title}`;
+}
+
+/** Plain words for each failure class. */
+const FAILURE_LABELS: Readonly<Record<string, string>> = {
+  rate_limit: 'hit a provider limit',
+  transient: 'failed',
+  stalled: 'stalled',
+  invalid_output: 'returned no usable result',
+  gate: 'waited on a gate',
+  cancelled: 'was interrupted',
+};
+
+/**
+ * Describe a running attempt's liveness.
+ *
+ * @param liveness - Latest liveness record.
+ * @param now - Current epoch milliseconds.
+ * @returns Text such as `Progressing · tool Bash 2m 10s ago · next checkpoint in 8m 00s`.
+ */
+export function livenessText(liveness: Liveness, now: number): string {
+  const checkpoint = `next checkpoint in ${formatDuration(Math.max(0, liveness.nextCheckpointAt - now))}`;
+  const extended = liveness.extensions === 0 ? '' : ` · extended ${String(liveness.extensions)}×`;
+  if (liveness.state === 'awaiting_input') {
+    return `Awaiting input · ${liveness.awaiting ?? 'a permission or an answer'} · ${checkpoint}${extended}`;
+  }
+  const signal =
+    liveness.lastSignal === null
+      ? `no progress yet, started ${relativeAge(liveness.lastProgressAt, now)}`
+      : `${liveness.lastSignal} ${relativeAge(liveness.lastProgressAt, now)}`;
+  const state = liveness.state === 'progressing' ? 'Progressing' : 'Idle';
+  return `${state} · ${signal} · ${checkpoint}${extended}`;
+}
+
+/**
+ * Describe a failed step's retry backoff.
+ *
+ * @param retry - Retry state.
+ * @param now - Current epoch milliseconds.
+ * @returns Text such as `Stalled 2 times · retrying in 9m 00s`, or that retries are exhausted.
+ */
+export function retryText(retry: Retry, now: number): string {
+  const label = FAILURE_LABELS[retry.failureClass] ?? 'failed';
+  const times = retry.failures === 1 ? 'once' : `${String(retry.failures)} times`;
+  const what = `${label.charAt(0).toUpperCase()}${label.slice(1)} ${times}`;
+  return retry.retryAt === null
+    ? `${what} · out of automatic retries; recover it or change its scope`
+    : `${what} · retrying in ${formatDuration(Math.max(0, retry.retryAt - now))}`;
 }
