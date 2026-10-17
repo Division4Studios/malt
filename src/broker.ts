@@ -56,6 +56,7 @@ import {
   isOperation,
   parseInput,
 } from './protocol.ts';
+import { redactResolvedSecrets } from './secrets.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { Waiters } from './waiters.ts';
@@ -722,7 +723,7 @@ async function handleRequest(
     const code = isKnown ? error.code : 'INTERNAL';
     log(isKnown ? 'warn' : 'error', 'broker', 'rpc_failed', { operation: operationName, code });
     sendJson(response, isKnown ? error.status : errorStatus('INTERNAL'), {
-      error: { code, message: isKnown ? error.message : 'Internal broker error.' },
+      error: { code, message: isKnown ? redactResolvedSecrets(error.message) : 'Internal broker error.' },
     });
   } finally {
     if (request.url !== '/health') {

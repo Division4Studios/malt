@@ -107,3 +107,41 @@ export class SecretRedactor {
     );
   }
 }
+
+/** Most connector credential values remembered for redaction in this process. */
+const RESOLVED_MAX = 64;
+/** Values resolved from connector credential handles; never persisted. */
+const resolved = new Set<string>();
+
+/**
+ * Remember a credential value resolved from a connector handle, so diagnostics
+ * and error responses of this process can never echo it.
+ *
+ * @param value - Resolved credential value; empty values are ignored.
+ */
+export function registerResolvedSecret(value: string): void {
+  if (value === '' || resolved.has(value)) {
+    return;
+  }
+  if (resolved.size >= RESOLVED_MAX) {
+    const [oldest] = resolved;
+    if (oldest !== undefined) {
+      resolved.delete(oldest);
+    }
+  }
+  resolved.add(value);
+}
+
+/**
+ * Remove every resolved connector credential value from text.
+ *
+ * @param text - Diagnostic or error text.
+ * @returns Text with each remembered value replaced by `[REDACTED]`.
+ */
+export function redactResolvedSecrets(text: string): string {
+  if (resolved.size === 0) {
+    return text;
+  }
+  const redactor = new SecretRedactor([...resolved]);
+  return redactor.redact(text);
+}
