@@ -11,13 +11,26 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
+import { z } from 'zod/v3';
+
 import { startBroker } from '../src/broker.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
+import { factoryConfigSchema } from '../src/factory/schema.ts';
 import { startWebConsole } from '../src/web/server.ts';
 import { appendAdmission } from '../web/dist/admission-ui.js';
 
 import { FakeElement, installDom } from './dom-shim.ts';
 import { brokerUrl, createCleanup, createProject } from './helpers.ts';
 
+/** Provider caps in served admission evidence. */
+const providerLimits = z.object({ codex: z.object({ concurrency: z.number() }) }).passthrough();
+/** The admission evidence fields a served snapshot must carry. */
+const servedAdmission = z.object({
+  sample: z.record(z.unknown()),
+  running: z.array(z.unknown()),
+  brokerReservations: z.number(),
+  limits: z.object({ maxActiveJobs: z.number(), providers: providerLimits }),
+});
 /** A label that would execute if any view parsed it as markup. */
 const HOSTILE = '<img src=x onerror="globalThis.pwnedAdmission=true">';
 
@@ -155,6 +168,15 @@ await test('a real paired loopback snapshot renders admission evidence and keeps
   const mesh = createProject(defer);
   const broker = await startBroker(mesh, { port: 0 });
   defer(async () => broker.close());
+  const repository = new FactoryRepository(broker.store);
+  repository.configure(
+    factoryConfigSchema.parse({
+      testCommands: [{ file: process.execPath }],
+      endToEndCommands: [{ file: process.execPath }],
+      resources: { maxActiveJobs: 3 },
+      providers: { codex: { executable: 'fixture', concurrency: 2 }, claude: { executable: 'fixture' } },
+    }),
+  );
   const web = await startWebConsole({ ...mesh, url: brokerUrl(broker.port) }, 0);
   defer(async () => web.close());
   const pair = await fetch(`${web.url}/api/pair`, {
@@ -169,10 +191,14 @@ await test('a real paired loopback snapshot renders admission evidence and keeps
   const body: unknown = await response.json();
   assert.ok(typeof body === 'object' && body !== null && 'factory' in body);
   const { factory: served } = body;
-  assert.ok(typeof served === 'object' && served !== null);
+  assert.ok(typeof served === 'object' && served !== null && 'admission' in served);
+  const admission = servedAdmission.parse(served.admission);
+  assert.equal(admission.limits.maxActiveJobs, 3, 'limits come from the broker, not a console default');
+  assert.equal(admission.limits.providers.codex.concurrency, 2);
+  assert.deepEqual(admission.running, []);
   const text = render({ ...served }).textContent;
-  assert.match(text, /Why work is running or parked/v);
-  assert.match(text, /selected-project pipelines/v);
+  assert.match(text, /Broker reservations \d+ \/ resources\.maxActiveJobs 3\./v);
+  assert.match(text, /codex: 0 selected-project pipelines · providers\.codex\.concurrency 2/v);
   assert.match(text, /No selected-project pipeline is currently owned/v);
   assert.equal((await fetch(`${web.url}/api/snapshot?project=elsewhere`, { headers })).status, 403);
 });
