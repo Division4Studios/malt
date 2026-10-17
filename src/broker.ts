@@ -551,6 +551,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
       'factory_approve',
       'factory_answer',
       'factory_gates',
+      'factory_step_overrides',
       'factory_schedule_save',
       'factory_trigger_save',
       'factory_automation_delete',
@@ -565,7 +566,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, decide workflow approvals, answer agent questions, change gates, recover objectives, reconcile GitHub, export cross-project maintenance, or change automations, spend caps or definitions of done.',
+      'Only the human operator may acknowledge recommendation reads, approve skill changes, decide workflow approvals, answer agent questions, change gates or step overrides, recover objectives, reconcile GitHub, export cross-project maintenance, or change automations, spend caps or definitions of done.',
     );
   }
   const actor = team.store.authenticate(credentials);

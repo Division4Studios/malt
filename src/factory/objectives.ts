@@ -12,6 +12,7 @@ import { objectiveGates } from './gate-controls.ts';
 import { MAX_OBJECTIVES } from './objective-queue-schema.ts';
 import { unsupportedSteps } from './pipeline.ts';
 import { factorySchemas } from './schema.ts';
+import { overrideProblems } from './step-overrides.ts';
 import { DEFAULT_WORKFLOW_ID, workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -39,7 +40,7 @@ export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow
  * @throws {MeshError} If the same request ID denotes a different objective.
  */
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
-  const { objective, requestId, workflowId = null, gates } = factorySchemas.factory_request.parse(input);
+  const { objective, requestId, workflowId = null, gates, stepOverrides } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
   const workflow = workflowLibrary(repository.store).freeze(workflowId);
   const unsupported = unsupportedSteps(workflow.workflow);
@@ -48,6 +49,10 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       'FACTORY_GATED',
       `Workflow "${workflow.workflow.name}" uses steps this version cannot run yet: ${unsupported.join(', ')}.`,
     );
+  }
+  const overrideErrors = overrideProblems(workflow.workflow, stepOverrides ?? []);
+  if (overrideErrors.length > 0) {
+    throw new MeshError('INVALID_INPUT', overrideErrors.join(' '));
   }
   // Without planning steps the brief itself is the one delivery, ready to provision.
   const isBrief = workflow.workflow.planning.length === 0;
@@ -83,6 +88,7 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       workflow,
       approvals: [],
       gates: objectiveGates(repository, gates),
+      ...(stepOverrides !== undefined && stepOverrides.length > 0 && { stepOverrides }),
     });
     repository.notify(`Product objective queued: ${objective}`);
     return { featureId: id };

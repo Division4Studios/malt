@@ -7,9 +7,11 @@
  * @file
  */
 import { number, text } from './api.js';
+import { parseCustomization } from './step-override-model.js';
 import { formatDuration } from './telemetry-format.js';
 
 import type { Data } from './api.js';
+import type { Customization } from './step-override-model.js';
 
 /** Plain step states, in the order the broker defines them. */
 export const STEP_STATES = ['done', 'running', 'ready', 'needs_you', 'waiting'] as const;
@@ -143,6 +145,8 @@ export interface Delivery {
   readonly repairs: readonly RepairRound[];
   /** Whether the operator kept it on the board after it finished. */
   readonly isKept: boolean;
+  /** Step override editor state, while its steps can still change. */
+  readonly customization: Customization | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -542,6 +546,7 @@ function parseDelivery(record: Data): Delivery | null {
       };
     }),
     isKept: record['isKept'] === true,
+    customization: parseCustomization(record['customization']),
     updatedAt: number(record, 'updatedAt'),
   };
 }

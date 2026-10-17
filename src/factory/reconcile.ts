@@ -88,6 +88,7 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     repairs: [],
     workflow: feature?.workflow,
     ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
+    ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
     updatedAt: context.repository.store.now(),
   };
 }

@@ -40,6 +40,7 @@ import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
+import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
@@ -290,6 +291,8 @@ export const featureSchema = z.object({
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
+  /** Operator step overrides, copied onto each delivery when it is provisioned. */
+  stepOverrides: stepOverridesSchema.optional(),
   /** Typed specification and plan outputs with the source each was planned against, oldest first. */
   planOutputs: z.array(planOutputSchema).optional(),
   /** Operator-owned definition of done; agents propose or check items only with evidence. */
@@ -378,6 +381,8 @@ export const taskSchema = z.object({
   workflow: frozenWorkflowSchema.optional(),
   /** Merge gate frozen when the delivery was provisioned, or changed for it by the operator. */
   gates: deliveryGatesSchema.optional(),
+  /** Step overrides frozen from its objective at provisioning, or changed for it by the operator. */
+  stepOverrides: stepOverridesSchema.optional(),
   /** Operator hold: no new attempt starts while set. */
   hold: holdSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
@@ -502,9 +507,11 @@ export const factorySchemas = {
       requestId: z.string().uuid().optional(),
       workflowId: keySchema.optional(),
       gates: gateOverrideSchema.optional(),
+      stepOverrides: stepOverridesSchema.optional(),
     })
     .strict(),
   factory_gates: gatesControlSchema,
+  factory_step_overrides: stepOverridesControlSchema,
   factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
@@ -612,6 +619,7 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  'factory_step_overrides',
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
   'factory_reconcile_github',

@@ -24,6 +24,8 @@ import {
 } from './pipeline.ts';
 import { questionsStatus } from './questions.ts';
 import { openBlocks, spendGate } from './spend.ts';
+import { attemptedSteps } from './step-override-controls.ts';
+import { customizationView } from './step-override-view.ts';
 import { stepLayers } from './workflows.ts';
 
 import type { LivenessView, RetryView } from './liveness-view.ts';
@@ -31,6 +33,7 @@ import type { DoneItem } from './objective-goal-schema.ts';
 import type { Question } from './question-schema.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
+import type { CustomizationView } from './step-override-view.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
 
 /** Reconcile interval assumed before a project is configured. */
@@ -142,6 +145,8 @@ export interface DeliveryView {
   readonly repairs: readonly RepairView[];
   /** Whether the operator chose to keep it on the board after it finished. */
   readonly isKept: boolean;
+  /** Step override editor state, while its steps can still change. */
+  readonly customization: CustomizationView | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -420,6 +425,7 @@ function stepShape(step: WorkflowStep, layers: ReadonlyMap<string, number>): Omi
  * @param context.live - Running attempts.
  * @param context.jobs - Every attempt, for retry backoff.
  * @param context.timing - Current time and reconcile interval.
+ * @param context.attempted - Steps any attempt ran, for the override editor.
  * @returns Card and pipeline.
  */
 function deliveryView(
@@ -430,6 +436,7 @@ function deliveryView(
     live: readonly FactoryJob[];
     jobs: readonly FactoryJob[];
     timing: { now: number; reconcileMs: number };
+    attempted: ReadonlySet<string>;
   },
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
@@ -479,6 +486,7 @@ function deliveryView(
       };
     }),
     isKept: task.archive?.state === 'kept',
+    customization: customizationView(task, context.features, context.attempted),
     updatedAt: task.updatedAt,
   };
 }
@@ -853,13 +861,14 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const live = jobs.filter((job) => job.state === 'running');
   const now = repository.store.now();
   const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
+  const attempted = attemptedSteps(repository);
   const archived = tasks.filter((task) => isArchived(task, now));
   const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
   const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
   return {
-    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing })),
+    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing, attempted })),
     objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
     goals: [
       ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),

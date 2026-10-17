@@ -84,6 +84,7 @@ export const controlSchema = z
       'factory_approve',
       'factory_answer',
       'factory_gates',
+      'factory_step_overrides',
       'factory_cancel_job',
       'factory_capacity',
       'factory_prices',

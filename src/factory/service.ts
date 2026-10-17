@@ -68,6 +68,7 @@ import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { announceSpendBlocks, refreshSpend, saveCaps, spendGate } from './spend.ts';
 import { factoryStatus } from './status.ts';
+import { changeStepOverrides } from './step-override-controls.ts';
 import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
@@ -369,6 +370,7 @@ export class FactoryService {
       factory_ask: () => askQuestion(this.configured(), parsed, actorId),
       factory_answer: () => answerQuestion(this.repository, input),
       factory_gates: () => changeGates(this.repository, input),
+      factory_step_overrides: () => changeStepOverrides(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),

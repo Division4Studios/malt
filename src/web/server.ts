@@ -88,6 +88,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'board-ui',
     'automations-model',
     'automations-ui',
+    'step-override-model',
+    'step-override-ui',
     'delivery-ui',
     'goal-model',
     'checklist-dialog',
