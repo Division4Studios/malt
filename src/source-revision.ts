@@ -11,8 +11,8 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-/** A full Git commit id. */
-const COMMIT = /^[\da-f]{40}$/v;
+/** A full Git commit id: SHA-1 (40 hex) or SHA-256 (64 hex) object format. */
+const COMMIT = /^(?:[\da-f]{40}|[\da-f]{64})$/v;
 /** Longest wait for a local Git read at startup. */
 const GIT_TIMEOUT_MS = 5000;
 /** The MALT source tree this module belongs to. */

@@ -6,10 +6,11 @@
  * numbers, with the exact commit the file was generated from, are recorded in
  * its header, so re-running with those inputs reproduces the file exactly.
  *
- * Usage: `node scripts/changelog.ts [--ref <rev>] [--skip 12,34] [--labels] [--check]`.
+ * Usage: `node scripts/changelog.ts [--ref <rev>] [--skip 12,34] [--labels] [--check [--at <rev>]]`.
  * `--labels` reads the merged `skip-changelog` pull requests through `gh`;
  * `--check` regenerates from the header's recorded inputs and fails when the
- * committed file differs.
+ * committed file differs, and with `--at` also fails unless the file was
+ * generated exactly at that revision, so a release cannot ship a stale one.
  *
  * @file
  */
@@ -177,6 +178,29 @@ export function recordedInputs(text: string): { commit: string; skipped: Set<num
 }
 
 /**
+ * Why a committed changelog cannot be trusted, if it cannot.
+ *
+ * @param committed - Committed changelog text.
+ * @param regenerate - Renders the changelog for recorded inputs.
+ * @param expected - Commit the changelog must have been generated at, or null to accept any.
+ * @returns The problem, or null when the file is current and reproducible.
+ */
+export function changelogProblem(
+  committed: string,
+  regenerate: (inputs: { readonly commit: string; readonly skipped: ReadonlySet<number> }) => string,
+  expected: string | null,
+): string | null {
+  const inputs = recordedInputs(committed);
+  if (inputs === null) {
+    return 'CHANGELOG.md has no generation header.';
+  }
+  if (expected !== null && inputs.commit !== expected) {
+    return `CHANGELOG.md was generated from ${inputs.commit}, not ${expected}. Regenerate it for this release.`;
+  }
+  return regenerate(inputs) === committed ? null : 'CHANGELOG.md differs from a regeneration with its recorded inputs.';
+}
+
+/**
  * Read first-parent history.
  *
  * @param revision - Revision the history ends at.
@@ -245,19 +269,21 @@ function main(): void {
       skip: { type: 'string' },
       labels: { type: 'boolean', default: false },
       check: { type: 'boolean', default: false },
+      at: { type: 'string' },
     },
   });
   if (values.check) {
     const committed = readFileSync(CHANGELOG, 'utf8');
-    const inputs = recordedInputs(committed);
-    if (inputs === null) {
-      throw new Error('CHANGELOG.md has no generation header.');
+    const expected = values.at === undefined ? null : history(values.at).commit;
+    const problem = changelogProblem(
+      committed,
+      (inputs) => renderChangelog(history(inputs.commit).commits, inputs),
+      expected,
+    );
+    if (problem !== null) {
+      throw new Error(problem);
     }
-    const regenerated = renderChangelog(history(inputs.commit).commits, inputs);
-    if (regenerated !== committed) {
-      throw new Error('CHANGELOG.md differs from a regeneration with its recorded inputs.');
-    }
-    process.stdout.write(`CHANGELOG.md matches ${inputs.commit}.\n`);
+    process.stdout.write('CHANGELOG.md is reproducible from its recorded inputs.\n');
     return;
   }
   let skipped = new Set((values.skip ?? '').match(/\d+/gv)?.map(Number));
