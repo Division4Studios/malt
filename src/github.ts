@@ -16,12 +16,14 @@ import { z } from 'zod/v3';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
+import { createIssueReader } from './github-issues.ts';
 import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
 import type { MeshConfig } from './config.ts';
 import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
+import type { IssueReader } from './github-issues.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
@@ -153,6 +155,14 @@ export class ProjectGitHub {
     this.runner = runner;
     this.directory = path.join(config.directory, 'github');
   }
+
+  /**
+   * Bind read-only capabilities to the current verified source, without copying credentials.
+   *
+   * @returns Repository-fenced native issue reader.
+   */
+  public readonly issues = (): IssueReader =>
+    createIssueReader(this.graphql.bind(this), this.savedConnection().v2.source);
 
   /**
    * Execute an operation after earlier operations for this project finish.

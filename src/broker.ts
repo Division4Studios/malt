@@ -37,6 +37,7 @@ import { z } from 'zod/v3';
 
 import { capabilityStatus, setCapability } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
+import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
@@ -47,9 +48,9 @@ import {
   PROJECT_OPERATION_TIMEOUT_MS,
   errorStatus,
   isCapabilityOperation,
-  isGitHubOperation,
   isFactoryOperation,
   isLearningOperation,
+  isProjectOperation,
   isOperation,
   parseInput,
 } from './protocol.ts';
@@ -58,6 +59,7 @@ import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts'
 import { Waiters } from './waiters.ts';
 
 import type { MeshConfig } from './config.ts';
+import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
@@ -171,6 +173,8 @@ export interface Team {
 export interface Broker {
   /** Memory-only authority for a colocated, paired operator service; never an RPC result. */
   readonly operatorTerminalControl: TerminalOperator;
+  /** Nonserializable human decision authority; never available through agent/MCP RPC. */
+  readonly operatorRecommendationControl: RecommendationOperator;
   /** The home project's store. */
   readonly store: Store;
   /** The HTTP server. */
@@ -509,34 +513,32 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (credentials === undefined) {
     return;
   }
-  if (['factory_skill_decide', 'factory_export_maintenance', 'factory_recover'].includes(operation)) {
+  if (
+    [
+      'factory_skill_decide',
+      'factory_export_maintenance',
+      'factory_recover',
+      'factory_reconcile_github',
+      'factory_recommendation_read',
+    ].includes(operation)
+  ) {
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may approve skill changes, objective recovery or cross-project maintenance.',
+      'Only the human operator may acknowledge recommendation reads, approve skill changes, objective recovery, GitHub reconciliation or cross-project maintenance.',
     );
   }
   const actor = team.store.authenticate(credentials);
   if (
     operation !== 'factory_status' &&
+    operation !== 'factory_recommendations' &&
+    operation !== 'factory_recommendation_propose' &&
     operation !== 'factory_read_source' &&
     operation !== 'factory_progress' &&
     actor !== team.store.coordination.leadId()
   ) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
-}
-
-/**
- * Identify project services that run outside SQLite transactions.
- *
- * @param operation - Validated wire operation.
- * @returns Whether it is a capability policy, GitHub or learning operation.
- */
-function isProjectOperation(
-  operation: Operation,
-): operation is CapabilityOperation | GitHubOperation | LearningOperation {
-  return isCapabilityOperation(operation) || isLearningOperation(operation) || isGitHubOperation(operation);
 }
 
 /**
@@ -817,6 +819,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   log('info', 'broker', 'listening', { host, port: boundPort });
 
   return {
+    operatorRecommendationControl: async (selected, input) => {
+      if (!server.listening) {
+        throw new MeshError('BROKER_UNAVAILABLE', 'The owning broker has stopped.');
+      }
+      const team = selected.team === undefined ? context.home : context.teams.get(selected.team);
+      if (team?.config.projectId !== selected.projectId) {
+        throw new MeshError('NOT_FOUND', 'The selected project is not owned by this broker.');
+      }
+      const configured = team.factory.configured();
+      return decideRecommendation(
+        configured.repository,
+        configured.remote.observedIssue?.bind(configured.remote),
+        input,
+      );
+    },
     operatorTerminalControl: async (selected, operation, input, signal) => {
       if (!server.listening) {
         throw new MeshError('BROKER_UNAVAILABLE', 'The owning broker has stopped.');
