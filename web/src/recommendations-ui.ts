@@ -3,14 +3,14 @@
  * by lane, with tickets, evidence and an unread marker. Rows are buttons, so
  * the keyboard alone opens them; opening an unread row records it as read.
  * Polling an unchanged page leaves the DOM and focus alone. An opened row
- * loads its full detail: the context a decision rests on. All external text
- * is set as text.
+ * loads its full detail, where a proposal awaiting a human decision can be
+ * approved or rejected. All external text is set as text.
  *
  * @file
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { t } from './i18n.js';
-import { recommendationContext } from './recommendation-decision.js';
+import { RecommendationDecision } from './recommendation-decision.js';
 import {
   LANE_LABELS,
   countLabel,
@@ -23,6 +23,7 @@ import {
 } from './recommendations-model.js';
 import { element } from './worker-ui.js';
 
+import type { DecisionHooks } from './recommendation-decision.js';
 import type {
   RecommendationCounts,
   RecommendationDetail,
@@ -38,6 +39,10 @@ export interface RecommendationsHooks {
   readonly markRead: (id: string, revision: string) => Promise<unknown>;
   /** Read one recommendation's current detail. */
   readonly detail: (id: string) => Promise<unknown>;
+  /** Send one exact decision. */
+  readonly decide: DecisionHooks['decide'];
+  /** Fresh operation identity; defaults to `crypto.randomUUID`. */
+  readonly identity?: () => string;
 }
 
 /** A mounted Recommendations pane. */
@@ -89,6 +94,10 @@ class RecommendationsView implements RecommendationsHandle {
   private generation = 0;
   /** Full detail of the open row. */
   private opened: RecommendationDetail | null = null;
+  /** Bumped whenever the decision panel's own state changes. */
+  private version = 0;
+  /** Approve/reject controls of the open row. */
+  private readonly decision: RecommendationDecision;
 
   /**
    * Build the pane.
@@ -98,6 +107,17 @@ class RecommendationsView implements RecommendationsHandle {
   public constructor(hooks: RecommendationsHooks) {
     this.hooks = hooks;
     this.element.setAttribute('aria-label', t('Recommendations'));
+    this.decision = new RecommendationDecision({
+      decide: hooks.decide,
+      ...(hooks.identity !== undefined && { identity: hooks.identity }),
+      redraw: () => {
+        this.version += 1;
+        this.render();
+      },
+      reload: () => {
+        void this.reload();
+      },
+    });
   }
 
   /**
@@ -215,6 +235,14 @@ class RecommendationsView implements RecommendationsHandle {
     this.render();
   }
 
+  /** Re-read the list and the open detail after a decision. */
+  private async reload(): Promise<void> {
+    await this.refresh();
+    if (this.selected !== null) {
+      await this.load(this.selected);
+    }
+  }
+
   /** Rebuild the pane when its key changed, keeping focus on the same row. */
   private render(): void {
     const key = JSON.stringify([
@@ -222,6 +250,7 @@ class RecommendationsView implements RecommendationsHandle {
       this.selected,
       this.opened?.revision ?? null,
       this.opened?.state ?? null,
+      this.version,
       this.error,
     ]);
     if (key === this.shown) {
@@ -319,7 +348,7 @@ class RecommendationsView implements RecommendationsHandle {
     );
     detail.append(element('h4', '', t('Evidence')), evidence, preview);
     if (this.opened?.id === item.id) {
-      detail.append(recommendationContext(this.opened));
+      detail.append(this.decision.render(this.opened));
     }
     return detail;
   }

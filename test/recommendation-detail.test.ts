@@ -57,6 +57,10 @@ await test('opening a row loads its detail and shows the whole context as text',
       await Promise.resolve();
       return { recommendation: record, contentRevision: 'e' };
     },
+    decide: async () => {
+      await Promise.resolve();
+      throw new Error('Not needed here.');
+    },
   });
   const root = fake(pane.element);
   dom.body.append(root);
