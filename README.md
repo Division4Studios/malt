@@ -32,11 +32,13 @@ Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest su
 git clone https://github.com/Division4Studios/malt.git
 cd malt
 npm ci --ignore-scripts
-npm run check
+node src/cli.ts doctor --project /absolute/path/to/your/project
 node src/cli.ts ui --with-broker --project /absolute/path/to/your/project --port 4318
 ```
 
-Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process, and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
+Run `doctor` first. It checks Node.js, Git, the Claude Code and Codex CLIs and their subscription logins, GitHub CLI authentication, the broker and console ports, and whether the project (or its `.malt`) is writable. Each check reports **PASS**, **FAIL** or **FIX-IT** with one fix line; it exits non-zero on any failure and prints one JSON document with `--json`. It never creates or changes project state. Contributors can also run `npm run check`.
+
+Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process (it survives restarts; `node src/cli.ts pairing-code --project <path>` shows it again and `--rotate` re-issues it), and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
 
 See [complete setup and provider authentication](docs/operator-console.md), [GitHub coordination](docs/software-factory.md), and [Docker startup](#quick-start-with-docker-compose). Keep `.malt/`, provider credentials and pairing codes private.
 
@@ -177,7 +179,7 @@ docker compose exec -T broker node src/cli.ts status --project /data
 
 Before running these commands, set `AGENTMESH_HOME_ROOT` to a writable broker-home folder and `AGENTMESH_WORKSPACE_ROOT` to an absolute host folder containing your projects. The first command builds `agentmesh:local`, binds these host folders, initializes .malt and starts the broker. `--wait` waits for its health check. Later starts can omit `--build` unless the code changed.
 
-The health endpoint is `http://127.0.0.1:4317/health`. The separate PWA is `http://127.0.0.1:4318/`; pair using the code printed in the owning container's logs. Published host ports bind only to loopback. Set `AGENTMESH_UI_PORT` if another native console already uses 4318. See [Mission control](docs/operator-console.md#docker-startup-and-provider-authentication) for provider login, native Git identity and container limitations.
+The health endpoint is `http://127.0.0.1:4317/health`. The separate PWA is `http://127.0.0.1:4318/`; pair using the code printed in the owning container's logs (`docker compose logs broker | grep pairing_code`), or show it with `docker compose exec broker node src/cli.ts pairing-code --project /data`. It is kept in `/data/.malt`, so recreating the container keeps it; `--rotate` re-issues it. Published host ports bind only to loopback. Set `AGENTMESH_UI_PORT` if another native console already uses 4318. See [Mission control](docs/operator-console.md#docker-startup-and-provider-authentication) for provider login, native Git identity and container limitations.
 
 ### 2. Observe it
 

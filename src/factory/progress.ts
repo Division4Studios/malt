@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
 import { credentialValues } from './authentication.ts';
+import { logObjective } from './objective-log.ts';
 import { factorySchemas } from './schema.ts';
 import { managedSourceJob } from './source-reader.ts';
 
@@ -91,6 +92,11 @@ export function enqueueProgress(
       error: null,
     });
     if (previous === undefined) {
+      logObjective(context.repository.store, task.featureId, {
+        kind: 'check_in',
+        actor: job.role,
+        body: `#${String(task.issue)} ${value.key}: ${body}`,
+      });
       context.repository.store.event('FACTORY_PROGRESS_QUEUED', null, {
         jobId: job.id,
         issue: task.issue,

@@ -7,6 +7,7 @@
  */
 import { child, number, records, text } from './api.js';
 import { parseDiff } from './diff-parse.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -23,6 +24,27 @@ const COLUMNS = [
   'Done',
   'Blocked',
 ] as const;
+/** Display names of the board columns; the ledger keeps the English status. */
+const COLUMN_LABELS: Readonly<Record<(typeof COLUMNS)[number], string>> = translated({
+  Backlog: phrase('Backlog'),
+  Ready: phrase('Ready'),
+  Development: phrase('Development'),
+  'QA / Review': phrase('QA / Review'),
+  'Merge Ready': phrase('Merge Ready'),
+  'Final Verification': phrase('Final Verification'),
+  Done: phrase('Done'),
+  Blocked: phrase('Blocked'),
+});
+
+/**
+ * The display name of a board column.
+ *
+ * @param column - Ledger status.
+ * @returns Translated column name.
+ */
+function columnLabel(column: (typeof COLUMNS)[number]): string {
+  return COLUMN_LABELS[column];
+}
 /** Short commit identity for display only. */
 const SHORT_HEAD = 8;
 /** Diff lines rendered per file before collapsing the rest behind a toggle. */
@@ -112,7 +134,7 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
   const container = element('div', 'diff');
   const files = parseDiff(diff);
   if (files.length === 0) {
-    container.append(element('p', 'subtle', 'No changes to display.'));
+    container.append(element('p', 'subtle', t('No changes to display.')));
     return container;
   }
   for (const file of files) {
@@ -125,7 +147,7 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
       element('span', 'diff-removed', `−${String(file.removed)}`),
     );
     const table = element('table', 'diff-table');
-    table.setAttribute('aria-label', `Changes in ${file.path}`);
+    table.setAttribute('aria-label', t('Changes in {path}', { path: file.path }));
     const body = element('tbody');
     appendRows(body, file.rows.slice(0, FILE_LINE_LIMIT));
     table.append(body);
@@ -139,17 +161,20 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
     }
     if (file.rows.length > FILE_LINE_LIMIT) {
       const rest = file.rows.slice(FILE_LINE_LIMIT);
-      const more = button(`Show ${String(rest.length)} more lines`, () => {
-        appendRows(body, rest);
-        more.remove();
-      });
+      const more = button(
+        t('Show {count, plural, one {# more line} other {# more lines}}', { count: rest.length }),
+        () => {
+          appendRows(body, rest);
+          more.remove();
+        },
+      );
       details.append(more);
     }
     container.append(details);
   }
   if (isTruncated) {
     container.append(
-      element('p', 'error', 'This diff was truncated for display. Inspect the branch in Git for the rest.'),
+      element('p', 'error', t('This diff was truncated for display. Inspect the branch in Git for the rest.')),
     );
   }
   return container;
@@ -192,7 +217,7 @@ function checks(evidence: Data): HTMLElement {
     list.append(item);
   }
   if (rollup.length === 0) {
-    list.append(element('li', 'subtle', 'Settled pull requests carry no live merge checks.'));
+    list.append(element('li', 'subtle', t('Settled pull requests carry no live merge checks.')));
   }
   return list;
 }
@@ -207,7 +232,7 @@ function checks(evidence: Data): HTMLElement {
 export function detailView(selection: PullSelection, actions: PullActions): HTMLElement {
   const pane = element('section', 'panel pull-detail');
   if (selection.number === null) {
-    pane.append(element('p', 'subtle', 'Select a pull request to review its checks, discussion and diff.'));
+    pane.append(element('p', 'subtle', t('Select a pull request to review its checks, discussion and diff.')));
     return pane;
   }
   if (selection.detail === null) {
@@ -215,7 +240,7 @@ export function detailView(selection: PullSelection, actions: PullActions): HTML
       element(
         'p',
         selection.error === '' ? 'subtle' : 'error',
-        selection.error === '' ? 'Loading diff…' : selection.error,
+        selection.error === '' ? t('Loading diff…') : selection.error,
       ),
     );
     return pane;
@@ -240,7 +265,7 @@ export function detailView(selection: PullSelection, actions: PullActions): HTML
   }
   const toolbar = element('div', 'ticket-actions');
   toolbar.append(
-    button('Comment', () => {
+    button(t('Comment'), () => {
       actions.comment(pullNumber);
     }),
   );
@@ -248,12 +273,12 @@ export function detailView(selection: PullSelection, actions: PullActions): HTML
     head,
     branch,
     element('p', 'pull-body', text(pull, 'body')),
-    element('h3', '', 'Checks'),
+    element('h3', '', t('Checks')),
     checks(evidence),
-    element('h3', '', 'Discussion'),
+    element('h3', '', t('Discussion')),
     timeline(records(pull['comments'])),
     toolbar,
-    element('h3', '', 'Changes'),
+    element('h3', '', t('Changes')),
     diffView(text(selection.detail, 'diff'), selection.detail['truncated'] === true),
   );
   return pane;
@@ -290,7 +315,7 @@ function pullList(pulls: readonly Data[], selected: number | null, actions: Pull
     list.append(item);
   }
   if (ordered.length === 0) {
-    list.append(element('li', 'subtle', 'No pull requests yet. Developers open them after validation.'));
+    list.append(element('li', 'subtle', t('No pull requests yet. Developers open them after validation.')));
   }
   return list;
 }
@@ -306,25 +331,25 @@ function issueCard(issue: Data, actions: PullActions): HTMLElement {
   const card = element('article', `issue-card issue-${text(issue, 'state')}`);
   const issueNumber = number(issue, 'number');
   const parent = String(number(issue, 'parent'));
-  const kind = text(issue, 'kind') === 'feature' ? 'Feature' : `Delivery of #${parent}`;
+  const kind = text(issue, 'kind') === 'feature' ? t('Feature') : t('Delivery of #{parent}', { parent });
   card.append(element('h4', '', `#${String(issueNumber)} ${text(issue, 'title')}`), element('p', 'subtle', kind));
   const tools = element('div', 'ticket-actions');
   if (text(issue, 'kind') === 'feature' && text(issue, 'state') === 'open') {
     tools.append(
-      button('Add delivery', () => {
+      button(t('Add delivery'), () => {
         actions.createDelivery(issueNumber);
       }),
     );
   }
   if (text(issue, 'status') === 'Backlog' && text(issue, 'kind') === 'delivery') {
     tools.append(
-      button('Mark Ready', () => {
+      button(t('Mark Ready'), () => {
         actions.move(issueNumber, 'Ready');
       }),
     );
   }
   tools.append(
-    button('Comment', () => {
+    button(t('Comment'), () => {
       actions.comment(issueNumber);
     }),
   );
@@ -347,15 +372,15 @@ function board(issues: readonly Data[], actions: PullActions): HTMLElement {
       continue;
     }
     const lane = element('section', 'issue-lane');
-    lane.setAttribute('aria-label', `${column} issues`);
+    lane.setAttribute('aria-label', t('{column} issues', { column: columnLabel(column) }));
     lane.append(
-      element('h3', '', `${column} · ${String(members.length)}`),
+      element('h3', '', `${columnLabel(column)} · ${String(members.length)}`),
       ...members.map((issue) => issueCard(issue, actions)),
     );
     container.append(lane);
   }
   if (issues.length === 0) {
-    container.append(element('p', 'subtle', 'No local issues yet. Request an objective or create a feature.'));
+    container.append(element('p', 'subtle', t('No local issues yet. Request an objective or create a feature.')));
   }
   return container;
 }
@@ -369,11 +394,13 @@ function disabled(): HTMLElement {
   const node = element('div', 'empty');
   node.append(
     element('span', 'empty-mark', '◈'),
-    element('h2', '', 'Local delivery is off'),
+    element('h2', '', t('Local delivery is off')),
     element(
       'p',
       '',
-      'This project delivers through GitHub. To keep issues, pull requests and merges on this machine, pause the factory and set "delivery": "local" and "remote": "malt-hub" in Project setup. MALT creates a protected local hub; only your model subscriptions leave the machine.',
+      t(
+        'This project delivers through GitHub. To keep issues, pull requests and merges on this machine, pause the factory and set "delivery": "local" and "remote": "malt-hub" in Project setup. MALT creates a protected local hub; only your model subscriptions leave the machine.',
+      ),
     ),
   );
   return node;
@@ -399,22 +426,23 @@ export function pullsView(
   }
   const view = element('div', 'pulls-view');
   const toolbar = element('div', 'pulls-toolbar');
+  const hub = t('Protected hub · {remote}/{base}', { remote: text(local, 'remote'), base: text(local, 'base') });
   toolbar.append(
-    element('span', 'subtle', `Protected hub · ${text(local, 'remote')}/${text(local, 'base')}`),
-    button('New feature', actions.createFeature),
-    button('Sync my checkout', actions.sync),
+    element('span', 'subtle', hub),
+    button(t('New feature'), actions.createFeature),
+    button(t('Sync my checkout'), actions.sync),
   );
   const pulls = records(local['pulls']);
   const issues = records(local['issues']);
   const columns = element('div', 'pulls-columns');
   const listPanel = element('section', 'panel');
   const listHead = element('div', 'panel-head');
-  listHead.append(element('h2', '', 'Pull requests'), element('span', 'count', String(pulls.length)));
+  listHead.append(element('h2', '', t('Pull requests')), element('span', 'count', String(pulls.length)));
   listPanel.append(listHead, pullList(pulls, selection.number, actions));
   columns.append(listPanel, detail);
   const boardPanel = element('section', 'panel');
   const boardHead = element('div', 'panel-head');
-  boardHead.append(element('h2', '', 'Issues'), element('span', 'count', String(issues.length)));
+  boardHead.append(element('h2', '', t('Issues')), element('span', 'count', String(issues.length)));
   boardPanel.append(boardHead, board(issues, actions));
   view.append(toolbar, columns, boardPanel);
   return view;

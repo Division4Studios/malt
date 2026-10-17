@@ -15,9 +15,7 @@ const SHELL = [
   '/views.js',
   '/worker-ui.js',
   '/learning-ui.js',
-  '/log-tails.js',
   '/pulls-ui.js',
-  '/diff-parse.js',
   '/pulls-controller.js',
   '/pwa.js',
   '/brand-ui.js',
@@ -48,6 +46,69 @@ const SHELL = [
   '/terminal-keys.js',
   '/terminal-writes.js',
   '/terminal-input.js',
+  '/telemetry-format.js',
+  '/transcript-ui.js',
+  '/sessions-ui.js',
+  '/cost-chart.js',
+  '/price-editor.js',
+  '/costs-ui.js',
+  '/i18n.js',
+  '/catalog-zh.js',
+  '/catalog-zh-shell.js',
+  '/catalog-zh-factory.js',
+  '/catalog-zh-board.js',
+  '/catalog-zh-workflows.js',
+  '/catalog-zh-project.js',
+  '/catalog-zh-costs.js',
+  '/theme.js',
+  '/objective-ui.js',
+  '/console-views.js',
+  '/log-tails.js',
+  '/console-model.js',
+  '/board-model.js',
+  '/approval-model.js',
+  '/console-dom.js',
+  '/approval-dialog.js',
+  '/inbox-model.js',
+  '/question-dialog.js',
+  '/inbox-notifier.js',
+  '/inbox-ui.js',
+  '/board-actions.js',
+  '/board-ui.js',
+  '/automations-model.js',
+  '/automations-ui.js',
+  '/diff-parse.js',
+  '/diff-model.js',
+  '/diff-ui.js',
+  '/onboarding-model.js',
+  '/onboarding-ui.js',
+  '/settings-model.js',
+  '/settings-ui.js',
+  '/project-views.js',
+  '/roles-model.js',
+  '/roles-ui.js',
+  '/secrets-model.js',
+  '/secrets-ui.js',
+  '/step-override-model.js',
+  '/workflow-history-model.js',
+  '/workflow-history-ui.js',
+  '/step-override-ui.js',
+  '/delivery-ui.js',
+  '/goal-model.js',
+  '/checklist-dialog.js',
+  '/goal-ui.js',
+  '/spend-model.js',
+  '/spend-editor.js',
+  '/sessions.css',
+  '/board.css',
+  '/workflow-model.js',
+  '/workflow-checks.js',
+  '/workflow-dom.js',
+  '/workflow-preview.js',
+  '/workflow-step-editor.js',
+  '/workflow-editor.js',
+  '/workflows-ui.js',
+  '/workflows.css',
   '/terminal.css',
   '/style.css',
   '/manifest.webmanifest',
@@ -170,4 +231,70 @@ addEventListener('message', (event: Event) => {
   ) {
     event.waitUntil(scope.skipWaiting());
   }
+});
+
+/** Message telling an open console to show its Inbox; matches `inbox-notifier.ts`. */
+const OPEN_INBOX_MESSAGE = 'malt-open-inbox';
+/** Tag prefix of Inbox notifications raised by the console. */
+const INBOX_TAG = 'malt-inbox:';
+/** Notification click with a native promise lifetime. */
+interface NotificationClick extends LifecycleEvent {
+  /** Clicked notification. */
+  readonly notification: { readonly tag: string; readonly close: () => void };
+}
+
+/**
+ * Validate a click on one of the console's Inbox notifications.
+ *
+ * @param event - Native worker event.
+ * @returns Whether it is a click on an Inbox notification.
+ */
+function isInboxClick(event: Event): event is NotificationClick {
+  return (
+    isLifecycleEvent(event) &&
+    'notification' in event &&
+    typeof event.notification === 'object' &&
+    event.notification !== null &&
+    'tag' in event.notification &&
+    typeof event.notification.tag === 'string' &&
+    event.notification.tag.startsWith(INBOX_TAG)
+  );
+}
+
+/**
+ * Narrow the worker scope to one that controls windows.
+ *
+ * @param scope - Worker global object.
+ * @returns Whether window clients are available.
+ */
+function hasClients(scope: object): scope is { clients: Clients } {
+  return 'clients' in scope && typeof scope.clients === 'object' && scope.clients !== null;
+}
+
+/**
+ * Focus an open console on its Inbox, or open one there.
+ *
+ * @param clients - The worker's window clients.
+ */
+async function openInbox(clients: Clients): Promise<void> {
+  const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const open = windows.find((client) => {
+    const url = new URL(client.url);
+    return url.origin === location.origin;
+  });
+  if (open === undefined) {
+    await clients.openWindow('/?view=inbox');
+    return;
+  }
+  const focused = await open.focus();
+  focused.postMessage(OPEN_INBOX_MESSAGE, { transfer: [] });
+}
+
+addEventListener('notificationclick', (event: Event) => {
+  const scope: object = globalThis;
+  if (!isInboxClick(event) || !hasClients(scope)) {
+    return;
+  }
+  event.notification.close();
+  event.waitUntil(openInbox(scope.clients));
 });
