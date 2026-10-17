@@ -1,7 +1,7 @@
 /**
- * Delivery detail view: header facts, and the delivery's pipeline grouped by
+ * Delivery detail view: header facts, the delivery's pipeline grouped by
  * execution layer with each step's state, roles, badges and latest result
- * (findings and the fixer's rulings). Steps waiting on the human offer the
+ * (findings and the fixer's rulings), and its source changes on demand. Steps waiting on the human offer the
  * shared approval dialog. The root is stable; updates keep focus, expanded
  * results and an open dialog.
  *
@@ -21,6 +21,7 @@ import {
   runningText,
   shortSha,
 } from './console-model.js';
+import { DeliveryDiff } from './diff-ui.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -35,6 +36,8 @@ export interface DeliveryHooks {
   readonly back: () => void;
   /** Open the attempts (sessions) view filtered to this delivery. */
   readonly openSessions: (filter: { taskId: string }) => void;
+  /** Selected project id, for reading the delivery's diff. */
+  readonly project: () => string;
 }
 
 /** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
@@ -238,6 +241,8 @@ class DeliveryView {
   private readonly control: ControlSender;
   /** Re-rendered content. */
   private readonly body = element('div', 'delivery-body');
+  /** Changes section; stable, so loaded files survive snapshot pushes. */
+  private readonly diff: DeliveryDiff;
   /** Result panels the operator expanded, by `taskId:stepId`. */
   private readonly expanded = new Set<string>();
   /** Delivery shown. */
@@ -271,6 +276,7 @@ class DeliveryView {
       },
     });
     this.control = hooks.control;
+    this.diff = new DeliveryDiff(hooks.project);
     this.lifecycle = button('Hold', {
       cssClass: 'button secondary',
       key: 'lifecycle',
@@ -360,7 +366,8 @@ class DeliveryView {
     pipeline.append(title, layers);
     const top = header(delivery);
     const repairs = repairsSection(delivery);
-    this.body.replaceChildren(...(repairs === null ? [top, pipeline] : [top, pipeline, repairs]));
+    this.diff.show(delivery.taskId, delivery.head, delivery.base);
+    this.body.replaceChildren(top, pipeline, ...(repairs === null ? [] : [repairs]), this.diff.element);
     restoreFocus(this.root, focused, top.querySelector('h2'));
   }
 

@@ -8,6 +8,7 @@ import { z } from 'zod/v3';
 import { openTeamConfig, rpc } from '../client.ts';
 import { dashboardSchema } from '../dashboard-view.ts';
 import { conversationSchema } from '../factory/conversations.ts';
+import { diffPatchSchema, diffSummarySchema } from '../factory/diff-schema.ts';
 import { logPageSchema } from '../factory/objective-goal-schema.ts';
 import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
@@ -22,6 +23,7 @@ import { ProjectLearning } from '../learning.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { DiffPatch, DiffSummary } from '../factory/diff-schema.ts';
 import type { LogPage } from '../factory/objective-goal-schema.ts';
 import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/telemetry-schema.ts';
@@ -286,6 +288,21 @@ export class ProjectGateway {
    */
   public async objectiveLog(id: string, query: unknown): Promise<LogPage> {
     return logPageSchema.parse(await rpc(this.config(id), 'factory_objective_log', query));
+  }
+
+  /**
+   * Read a delivery's changed files, or one file's patch, through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Delivery and optional listed path parsed from the route.
+   * @returns Validated summary or patch.
+   */
+  public async deliveryDiff(
+    id: string,
+    query: { taskId: string; path?: string | undefined },
+  ): Promise<DiffSummary | DiffPatch> {
+    const result = await rpc(this.config(id), 'factory_delivery_diff', query);
+    return query.path === undefined ? diffSummarySchema.parse(result) : diffPatchSchema.parse(result);
   }
 
   /**

@@ -206,6 +206,10 @@ Approval gates are data. The project setting `defaultGates` (`{ "plan": false, "
 
 **Notify me** in the Inbox turns on browser notifications for this console. While the console is open in the background, each new item that needs a reply raises one notification, and clicking it brings the console to the Inbox. Notifications come from the console's own live snapshot stream through its service worker; nothing is sent to a push service, so no notification arrives while every console window is closed.
 
+## Delivery source changes
+
+The delivery view's **Changes** section compares the delivery's exact head with its base. **Show changes** reads the summary on demand: every changed file with its kind (renames name their source and similarity), line counts, mode changes and binary notes, plus the totals. Private runtime and credential paths are counted but never shown. Open a file to load its numbered patch; small changes open by themselves, files with more than 400 changed lines start collapsed, very large patches are cut at a line boundary and say so, and a file changing more than 20,000 lines is not generated at all. Each row is a native disclosure, so the keyboard opens and closes it, and long lines scroll inside the patch on small screens. A new head clears what was loaded, so the section never shows source the delivery no longer has.
+
 ## Sampling regression fixture
 
 After `npm run build:web`, serve the repository root with a local static server and open `test/fixtures/capacity-sample.html`. It checks actual node identity, keyboard focus, editor/scroll retention, refreshed process figures, hostile text and changed admission limits using the production sampling helpers. It uses no provider session or private project data. This focused fixture complements the DOM-free regressions; it does not claim a complete browser accessibility audit.

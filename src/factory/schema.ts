@@ -16,6 +16,7 @@ import {
   deliveryControlSchemas,
   holdSchema,
 } from './delivery-control-schema.ts';
+import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
 import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
 import {
@@ -568,6 +569,7 @@ export const factorySchemas = {
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
   ...telemetrySchemas,
+  ...diffSchemas,
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
@@ -605,6 +607,7 @@ export const FACTORY_OPERATIONS = [
   'factory_workflow_default',
   'factory_approve',
   ...TELEMETRY_OPERATIONS,
+  ...DIFF_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
