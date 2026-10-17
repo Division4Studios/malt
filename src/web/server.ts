@@ -80,6 +80,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'approval-model',
     'console-dom',
     'approval-dialog',
+    'inbox-model',
+    'question-dialog',
     'inbox-ui',
     'board-actions',
     'board-ui',

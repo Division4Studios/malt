@@ -9,7 +9,7 @@
  */
 import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromStep } from './approval-model.js';
-import { lifecycleControl } from './board-model.js';
+import { lifecycleControl, mergeGateControl } from './board-model.js';
 import { button, emptyState, externalLink, focusedKey, restoreFocus, stateBadge, tag } from './console-dom.js';
 import {
   EMPTY_CONSOLE,
@@ -194,6 +194,8 @@ class DeliveryView {
   private readonly attempts: HTMLButtonElement;
   /** Holds, resumes or archives the delivery shown. */
   private readonly lifecycle: HTMLButtonElement;
+  /** Requires or removes the merge approval of the delivery shown. */
+  private readonly mergeGate: HTMLButtonElement;
   /** Operator control path. */
   private readonly control: ControlSender;
   /** Re-rendered content. */
@@ -238,9 +240,16 @@ class DeliveryView {
         void this.applyLifecycle();
       },
     });
+    this.mergeGate = button('Require merge approval', {
+      cssClass: 'button secondary',
+      key: 'merge-gate',
+      action: () => {
+        void this.applyMergeGate();
+      },
+    });
     const toolbar = element('div', 'delivery-toolbar');
     const actions = element('div', 'delivery-toolbar-actions');
-    actions.append(this.lifecycle, this.attempts);
+    actions.append(this.mergeGate, this.lifecycle, this.attempts);
     toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
   }
@@ -284,6 +293,9 @@ class DeliveryView {
     this.attempts.disabled = delivery === undefined;
     this.lifecycle.disabled = delivery === undefined;
     this.lifecycle.textContent = delivery === undefined ? 'Hold' : lifecycleControl(delivery).label;
+    const gate = delivery === undefined ? null : mergeGateControl(delivery);
+    this.mergeGate.hidden = gate === null;
+    this.mergeGate.textContent = gate?.label ?? 'Require merge approval';
     if (delivery === undefined) {
       const empty = emptyState(
         'This delivery is not on the board',
@@ -325,6 +337,21 @@ class DeliveryView {
       await this.control(operation, input);
     } finally {
       this.lifecycle.disabled = false;
+    }
+  }
+
+  /** Toggle the merge approval of the delivery shown, once; the next snapshot shows the result. */
+  private async applyMergeGate(): Promise<void> {
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    const gate = delivery === undefined ? null : mergeGateControl(delivery);
+    if (gate === null || this.mergeGate.disabled) {
+      return;
+    }
+    this.mergeGate.disabled = true;
+    try {
+      await this.control('factory_gates', gate.input);
+    } finally {
+      this.mergeGate.disabled = false;
     }
   }
 

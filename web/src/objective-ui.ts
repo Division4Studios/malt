@@ -1,12 +1,13 @@
 /**
- * Workflow choice for a new objective. The picker lists every usable workflow
- * with its description, preselects the project default, and offers a brief
- * template when the chosen workflow has no planning: such a brief becomes the
- * single delivery, and its Acceptance list becomes the acceptance criteria.
+ * Workflow and gate choice for a new objective. The picker lists every usable
+ * workflow with its description, preselects the project default, and offers a
+ * brief template when the chosen workflow has no planning: such a brief
+ * becomes the single delivery, and its Acceptance list becomes the acceptance
+ * criteria. The plan and merge gate boxes start at the project defaults.
  *
  * @file
  */
-import { child, records, text } from './api.js';
+import { child, hasFlag, records, text } from './api.js';
 
 import type { Data } from './api.js';
 import type { OperatorEdit } from './recovery-ui.js';
@@ -75,15 +76,37 @@ function pickerNodes(): {
   select: HTMLSelectElement;
   description: HTMLElement;
   body: HTMLTextAreaElement;
+  planGate: HTMLInputElement;
+  mergeGate: HTMLInputElement;
 } {
   const field = document.querySelector<HTMLElement>('#editor-workflow-field');
   const select = document.querySelector<HTMLSelectElement>('#editor-workflow');
   const description = document.querySelector<HTMLElement>('#editor-workflow-description');
   const body = document.querySelector<HTMLTextAreaElement>('#editor-body');
-  if (field === null || select === null || description === null || body === null) {
+  const planGate = document.querySelector<HTMLInputElement>('#editor-plan-gate');
+  const mergeGate = document.querySelector<HTMLInputElement>('#editor-merge-gate');
+  if (
+    field === null ||
+    select === null ||
+    description === null ||
+    body === null ||
+    planGate === null ||
+    mergeGate === null
+  ) {
     throw new Error('The objective workflow picker is missing from the console shell.');
   }
-  return { field, select, description, body };
+  return { field, select, description, body, planGate, mergeGate };
+}
+
+/**
+ * The project's default approval gates.
+ *
+ * @param factory - Untrusted factory snapshot.
+ * @returns Plan and merge gate defaults; both off when unset.
+ */
+export function defaultGates(factory: Data): { plan: boolean; merge: boolean } {
+  const gates = child(child(factory, 'settings'), 'defaultGates');
+  return { plan: hasFlag(gates, 'plan'), merge: hasFlag(gates, 'merge') };
 }
 
 /**
@@ -92,8 +115,11 @@ function pickerNodes(): {
  * @param factory - Untrusted factory snapshot.
  */
 export function mountWorkflowPicker(factory: Data): void {
-  const { field, select, description, body } = pickerNodes();
+  const { field, select, description, body, planGate, mergeGate } = pickerNodes();
   const { choices, defaultId } = workflowChoices(factory);
+  const gates = defaultGates(factory);
+  planGate.checked = gates.plan;
+  mergeGate.checked = gates.merge;
   select.replaceChildren(
     ...choices.map((choice) => {
       const option = document.createElement('option');
@@ -136,6 +162,16 @@ export function chosenWorkflow(): string | null {
 }
 
 /**
+ * The gates chosen in the picker, when it is shown.
+ *
+ * @returns Plan and merge gates, or `null` to use the project defaults.
+ */
+export function chosenGates(): { plan: boolean; merge: boolean } | null {
+  const { field, planGate, mergeGate } = pickerNodes();
+  return field.hidden === false ? { plan: planGate.checked, merge: mergeGate.checked } : null;
+}
+
+/**
  * The new-objective editor: its description and the request it submits.
  *
  * @param factory - Reads the current factory snapshot when the editor opens.
@@ -160,7 +196,13 @@ export function objectiveEditor(factory: () => Data | null): [EditorDescription,
       operation: 'factory_request',
       input: (body) => {
         const workflowId = chosenWorkflow();
-        return workflowId === null ? { objective: body, requestId } : { objective: body, requestId, workflowId };
+        const gates = chosenGates();
+        return {
+          objective: body,
+          requestId,
+          ...(workflowId !== null && { workflowId }),
+          ...(gates !== null && { gates }),
+        };
       },
     },
   ];

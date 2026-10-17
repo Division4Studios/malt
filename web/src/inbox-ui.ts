@@ -1,6 +1,8 @@
 /**
- * Inbox view: every decision waiting on the human ("Needs you") and recent
- * answers. Approvals open a native dialog that sends `factory_approve`; other
+ * Inbox view in three lanes: decisions that need a reply (agent questions,
+ * approvals and skill decisions), notices to look into (blocked deliveries and
+ * stopped planning) and recent answers. Approvals open a native dialog that
+ * sends `factory_approve`, questions one that sends `factory_answer`; other
  * kinds hand off to the console's triage, delivery, recovery and skill flows.
  * The root element is stable; updates keep focus, scroll and an open dialog.
  *
@@ -10,6 +12,7 @@ import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromItem } from './approval-model.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
 import { readConsole } from './console-model.js';
+import { QuestionDialog } from './question-dialog.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -32,6 +35,8 @@ export interface InboxHooks {
   readonly openSkill: (requestId: string) => void;
   /** Current time; defaults to `Date.now`. */
   readonly now?: () => number;
+  /** Controls shown above the lanes, such as the notification toggle. */
+  readonly toolbar?: HTMLElement;
 }
 
 /** Visible label per decision kind. */
@@ -74,8 +79,12 @@ class InboxView {
   private readonly now: () => number;
   /** Approval dialog. */
   private readonly dialog: ApprovalDialog;
-  /** Open decisions lane. */
-  private readonly needs = lane('Needs you', 'inbox-needs-title');
+  /** Question dialog. */
+  private readonly questions: QuestionDialog;
+  /** Decisions that need a reply. */
+  private readonly needs = lane('Needs reply', 'inbox-needs-title');
+  /** Notices to look into. */
+  private readonly notices = lane('Notices', 'inbox-notices-title');
   /** Answered lane. */
   private readonly answered = lane('Answered', 'inbox-answered-title');
   /** Polite announcement of count changes. */
@@ -93,11 +102,19 @@ class InboxView {
   public constructor(hooks: InboxHooks) {
     this.hooks = hooks;
     this.now = hooks.now ?? Date.now;
-    this.dialog = new ApprovalDialog(hooks.control, (key) => {
+    const closed = (key: string): void => {
       restoreFocus(this.root, key, this.heading());
-    });
+    };
+    this.dialog = new ApprovalDialog(hooks.control, closed);
+    this.questions = new QuestionDialog(hooks.control, closed);
     this.status.setAttribute('aria-live', 'polite');
-    this.root.append(this.status, this.needs.section, this.answered.section);
+    this.root.append(
+      ...(hooks.toolbar === undefined ? [] : [hooks.toolbar]),
+      this.status,
+      this.needs.section,
+      this.notices.section,
+      this.answered.section,
+    );
   }
 
   /**
@@ -108,6 +125,7 @@ class InboxView {
   public update(snapshot: unknown): void {
     const model = readConsole(snapshot);
     this.dialog.sync(model.open);
+    this.questions.sync(model.open);
     const key = JSON.stringify([model.open, model.answered]);
     if (key === this.renderKey) {
       refreshAges(this.root, this.now());
@@ -125,15 +143,22 @@ class InboxView {
   private render(model: ConsoleModel): void {
     const focused = focusedKey(this.root);
     const now = this.now();
-    this.needs.count.textContent = String(model.open.length);
+    const replies = model.open.filter((item) => item.lane === 'reply');
+    const notices = model.open.filter((item) => item.lane === 'notice');
+    this.needs.count.textContent = String(replies.length);
+    this.notices.count.textContent = String(notices.length);
     this.answered.count.textContent = String(model.answered.length);
-    this.needs.list.replaceChildren(...model.open.map((item) => this.openItem(item, now)));
+    this.needs.list.replaceChildren(...replies.map((item) => this.openItem(item, now)));
+    this.notices.list.replaceChildren(...notices.map((item) => this.openItem(item, now)));
     this.answered.list.replaceChildren(...model.answered.map((item) => answeredItem(item, now)));
-    if (model.open.length === 0) {
-      this.needs.list.append(emptyItem('Nothing needs you', 'Decisions waiting on you will appear here.'));
+    if (replies.length === 0) {
+      this.needs.list.append(emptyItem('Nothing needs a reply', 'Questions and approvals waiting on you appear here.'));
+    }
+    if (notices.length === 0) {
+      this.notices.list.append(emptyItem('No notices', 'Blocked deliveries and stopped planning appear here.'));
     }
     if (model.answered.length === 0) {
-      this.answered.list.append(emptyItem('No answers yet', 'Your recent approvals will appear here.'));
+      this.answered.list.append(emptyItem('No answers yet', 'Your recent approvals and answers appear here.'));
     }
     restoreFocus(this.root, focused, this.heading());
     const count = model.open.length;
@@ -188,6 +213,9 @@ class InboxView {
     const target = targetFromItem(item);
     if (target !== null) {
       return this.dialog.buttons(target, item.id);
+    }
+    if (item.kind === 'question') {
+      return [this.questions.button(item)];
     }
     const action = (label: string, suffix: string, run: () => void, isPrimary = true): HTMLButtonElement => {
       return button(label, {
