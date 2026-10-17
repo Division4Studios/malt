@@ -315,3 +315,63 @@ declare module '*/web/dist/console-model.js' {
    */
   export function runningText(delivery: Delivery): string | null;
 }
+
+declare module '*/web/dist/board-model.js' {
+  /** Validated console projection, as returned by `readConsole`. */
+  interface ConsoleModel {
+    /** Deliveries. */
+    readonly deliveries: readonly unknown[];
+    /** Objectives. */
+    readonly objectives: readonly unknown[];
+  }
+
+  /** Board filters plus the selected narrow-screen tab. */
+  interface Prefs {
+    /** Text filter. */
+    readonly query: string;
+    /** Workflow filter. */
+    readonly workflow: string;
+    /** Show finished cards. */
+    readonly showDone: boolean;
+    /** Selected tab. */
+    readonly tab: string;
+  }
+
+  /**
+   * Group cards into columns.
+   *
+   * @param model - Console projection.
+   * @param filter - Filters.
+   * @returns Cards per column and hidden finished count.
+   */
+  export function groupBoard(
+    model: ConsoleModel,
+    filter: Omit<Prefs, 'tab'>,
+  ): { columns: Record<string, { type: string; key: string }[]>; hiddenDone: number };
+
+  /**
+   * List workflows on the board.
+   *
+   * @param model - Console projection.
+   * @returns Unique workflows by name.
+   */
+  export function workflowChoices(model: ConsoleModel): { id: string; name: string }[];
+
+  /**
+   * Restore saved preferences.
+   *
+   * @param raw - Stored text.
+   * @returns Valid preferences.
+   */
+  export function parsePrefs(raw: string | null): Prefs;
+
+  /**
+   * Move between tabs.
+   *
+   * @param current - Index of the focused tab.
+   * @param key - `KeyboardEvent.key` value.
+   * @param count - Number of tabs in the list.
+   * @returns Index to select, or null when the key does not navigate.
+   */
+  export function tabTarget(current: number, key: string, count: number): number | null;
+}
