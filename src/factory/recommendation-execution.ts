@@ -10,13 +10,16 @@
  * to retry, so ambiguous results move the record to reconciling until every
  * receipt exists. Permission failures, or effects that keep failing, settle
  * the record as failed with the error; the operator's retry re-queues the same
- * idempotent effects. Revisions are only checked before the first effect,
+ * idempotent effects. Local deliveries for retired tickets hand their dependents
+ * to the survivor and are parked (see recommendation-graph.ts). Revisions are
+ * only checked before the first effect,
  * because the record's own comments change each issue's observed revision.
  *
  * @file
  */
 import { MeshError } from '../protocol.ts';
 
+import { applyTransfer, planTransfer } from './recommendation-graph.ts';
 import { recommendationRetrySchema } from './recommendation-read-schema.ts';
 
 import type { DeliveryRemote } from './remote.ts';
@@ -201,6 +204,33 @@ function settle(context: ExecutionContext, record: Recommendation): void {
 }
 
 /**
+ * Start a fresh approved record: move local dependents onto the survivor and
+ * park retired deliveries, then queue its ticket effects, all in one
+ * transaction. A local plan that no longer holds makes the record stale first.
+ *
+ * @param context - Project ledger.
+ * @param record - Approved record whose observed issues are current.
+ */
+function start(context: ExecutionContext, record: Recommendation): void {
+  const { repository } = context;
+  const fence = { id: record.id, revision: record.revision, state: 'approved' as const };
+  repository.store.transaction(() => {
+    const plan = planTransfer(repository, record);
+    if (plan.kind === 'stale') {
+      repository.recommendations.transition({ ...fence, next: 'stale', reason: `${plan.reason} Nothing was changed.` });
+      return;
+    }
+    applyTransfer(repository, record, plan);
+    const applying = repository.recommendations.transition({
+      ...fence,
+      next: 'applying',
+      reason: 'Observed revisions and local deliveries confirmed at execution.',
+    });
+    queueReady(context, applying);
+  });
+}
+
+/**
  * Start fresh approved records and settle applying ones. Rejected, stale and
  * pending records, and kinds without remote ticket operations, are never read
  * or changed.
@@ -227,14 +257,7 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
         reason: `Issue #${String(fresh.issue)} changed after approval; nothing was changed. Refresh the proposal.`,
       });
     } else if (fresh.state === 'fresh') {
-      repository.store.transaction(() => {
-        const applying = repository.recommendations.transition({
-          ...fence,
-          next: 'applying',
-          reason: 'Observed revisions confirmed at execution.',
-        });
-        queueReady(context, applying);
-      });
+      start(context, record);
     }
   }
 }
