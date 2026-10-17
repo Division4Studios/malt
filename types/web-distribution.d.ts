@@ -44,6 +44,14 @@ declare module '*/web/dist/admission-ui.js' {
    * @returns Measured counters with honest gaps.
    */
   export function admissionSample(factory: Record<string, unknown>, now?: number): string;
+
+  /**
+   * Mount the read-only admission explanation into a panel.
+   *
+   * @param target - Panel element (a test-DOM element under Node).
+   * @param factory - Selected project's factory snapshot.
+   */
+  export function appendAdmission(target: unknown, factory: Record<string, unknown>): void;
 }
 
 declare module '*/web/dist/capacity-details.js' {
