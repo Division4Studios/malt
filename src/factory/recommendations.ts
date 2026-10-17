@@ -179,6 +179,22 @@ export class RecommendationLedger {
   }
 
   /**
+   * Every current revision in this project, oldest first.
+   *
+   * @returns Current records; historical revisions are not included.
+   */
+  public current(): Recommendation[] {
+    return selectAll(
+      this.store.db,
+      z.object({ data: z.string() }),
+      `SELECT r.data FROM factory_recommendation_revisions r
+       JOIN factory_recommendations c ON c.project = r.project AND c.id = r.id AND c.revision = r.revision
+       WHERE r.project = ? ORDER BY r.rowid`,
+      this.project,
+    ).map((row) => recommendationSchema.parse(JSON.parse(row.data)));
+  }
+
+  /**
    * Replay existing content or atomically install a new pending revision.
    *
    * @param input - Bounded proposal, with exact observed issue revisions.
