@@ -297,6 +297,7 @@ function render(): void {
   syncTerminals();
   if (state.current === null) {
     state.renderKey = '';
+    projectViews.clear();
     node('content', HTMLDivElement).replaceChildren();
     return;
   }

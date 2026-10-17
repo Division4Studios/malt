@@ -4,8 +4,8 @@ import { test } from 'node:test';
 
 import { useLocale } from '../web/dist/i18n.js';
 import {
-  RECOMMENDATION_LANES,
   countLabel,
+  kindLabel,
   laneGroups,
   readPage,
   renderKey,
@@ -14,8 +14,6 @@ import {
 
 /** Stable fixture identities. */
 const ID = 'a'.repeat(64);
-/** Second fixture identity. */
-const OTHER = 'b'.repeat(64);
 
 /**
  * A summary record as the broker lists it.
@@ -31,7 +29,6 @@ function row(id: string, state: string, isUnread = true): Record<string, unknown
     revision: 'c'.repeat(64),
     state,
     unread: isUnread,
-    isSummary: true,
     body: {
       kind: 'consolidate',
       tickets: [3, 1, 'x', -2],
@@ -50,44 +47,40 @@ function row(id: string, state: string, isUnread = true): Record<string, unknown
  * @returns Untrusted page.
  */
 function page(items: unknown[], contentRevision = 'd'.repeat(64)): Record<string, unknown> {
-  return { items, counts: { total: 2, unread: 1, pending: 1, awaitingHuman: 1 }, contentRevision };
+  return {
+    items,
+    counts: { unread: 1, pending: 1 },
+    contentRevision,
+    nextCursor: 'e'.repeat(64),
+  };
 }
 
 await test('pages keep valid rows, drop malformed ones and preserve hostile text as data', () => {
-  const read = readPage(page([row(ID, 'awaiting_human'), { id: OTHER }, row(OTHER, 'unknown_state'), 'junk']));
+  const read = readPage(page([row(ID, 'awaiting_human'), { id: ID }, row(ID, 'unknown_state'), 'junk']));
   assert.ok(read !== null);
   assert.equal(read.items.length, 1);
   const [item] = read.items;
   assert.ok(item !== undefined);
   assert.equal(item.lane, 'pending');
-  assert.equal(item.kind, 'Consolidate tickets');
+  assert.equal(kindLabel(item.kind), 'Consolidate tickets');
+  assert.equal(read.nextCursor, 'e'.repeat(64));
   assert.deepEqual(item.tickets, [3, 1]);
   assert.equal(item.action, '<b>Merge</b> #3 into #1', 'markup stays literal text for textContent rendering');
   assert.deepEqual(item.evidence, ['Same acceptance']);
-  assert.deepEqual(read.counts, { total: 2, unread: 1, pending: 1, awaitingHuman: 1 });
+  assert.deepEqual(read.counts, { unread: 1, pending: 1 });
   for (const malformed of [null, [], {}, { items: [] }, { items: 'x', contentRevision: 'r' }]) {
     assert.equal(readPage(malformed), null);
   }
 });
 
 await test('every lifecycle state belongs to one lane and lanes keep their order', () => {
-  const states = [
-    'proposed',
-    'awaiting_human',
-    'approved',
-    'applying',
-    'reconciling',
-    'completed',
-    'rejected',
-    'stale',
-    'failed',
-  ];
+  const states = 'proposed awaiting_human approved applying reconciling completed rejected stale failed'.split(' ');
   const read = readPage(page(states.map((state, index) => row(String(index).repeat(64).slice(0, 64), state))));
   assert.ok(read !== null);
   assert.equal(read.items.length, states.length);
   assert.deepEqual(
     laneGroups(read.items).map((group) => group.lane),
-    RECOMMENDATION_LANES,
+    ['pending', 'approved', 'applying', 'completed', 'rejected', 'stale', 'failed'],
   );
   assert.equal(laneGroups(read.items)[0]?.items.length, 2, 'proposed and awaiting human are both pending');
 });
@@ -111,7 +104,7 @@ await test('counts and tickets read naturally in both languages', (t) => {
   t.after(() => {
     useLocale('en');
   });
-  const counts = { total: 3, unread: 2, pending: 1, awaitingHuman: 1 };
+  const counts = { unread: 2, pending: 1 };
   assert.equal(countLabel(counts), '1 pending and 2 unread recommendations');
   assert.equal(ticketText([1, 3]), '#1, #3');
   assert.equal(ticketText([]), 'No tickets');

@@ -9,15 +9,23 @@
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { t } from './i18n.js';
-import { LANE_LABELS, countLabel, laneGroups, readPage, renderKey, ticketText } from './recommendations-model.js';
+import {
+  LANE_LABELS,
+  countLabel,
+  kindLabel,
+  laneGroups,
+  readPage,
+  renderKey,
+  ticketText,
+} from './recommendations-model.js';
 import { element } from './worker-ui.js';
 
 import type { RecommendationCounts, RecommendationPage, RecommendationSummary } from './recommendations-model.js';
 
 /** Routes the pane reads through the shell. */
 export interface RecommendationsHooks {
-  /** Read the current page of `/api/recommendations`. */
-  readonly list: () => Promise<unknown>;
+  /** Read one page of `/api/recommendations`, after a cursor or from the start. */
+  readonly list: (after: string | null) => Promise<unknown>;
   /** Record that the operator opened one exact revision. */
   readonly markRead: (id: string, revision: string) => Promise<unknown>;
 }
@@ -30,7 +38,11 @@ export interface RecommendationsHandle {
   readonly refresh: () => Promise<void>;
   /** Forget the previous project's page and selection. */
   readonly reset: () => void;
+  /** Redraw every label in the current language, keeping external text as sent. */
+  readonly relabel: () => void;
 }
+/** Most extra pages followed on one refresh. */
+const MAX_PAGES = 10;
 
 /**
  * Show the Project section's pending and unread counts.
@@ -61,6 +73,10 @@ class RecommendationsView implements RecommendationsHandle {
   private selected: string | null = null;
   /** Last read failure. */
   private error = '';
+  /** Extra pages the operator asked for beyond the first. */
+  private extraPages = 0;
+  /** Bumped by `reset`, so a read started for the previous project is discarded. */
+  private generation = 0;
 
   /**
    * Build the pane.
@@ -72,30 +88,71 @@ class RecommendationsView implements RecommendationsHandle {
     this.element.setAttribute('aria-label', t('Recommendations'));
   }
 
-  /** Re-read the page and redraw only when its visible content changed. */
-  public async refresh(): Promise<void> {
+  /**
+   * Re-read the pages and redraw only when their visible content changed.
+   *
+   * @param failure - A mutation error to keep showing after this read.
+   */
+  public async refresh(failure = ''): Promise<void> {
+    const started = this.generation;
     try {
-      const page = readPage(await this.hooks.list());
-      if (page === null) {
-        throw new Error(t('The recommendation list could not be read.'));
+      const page = await this.pages();
+      if (started !== this.generation) {
+        return;
       }
       this.page = page;
-      this.error = '';
+      this.error = failure;
     } catch (error) {
+      if (started !== this.generation) {
+        return;
+      }
       this.error = error instanceof Error ? error.message : t('The recommendation list could not be read.');
     }
     showRecommendationCounts(this.page?.counts ?? null);
     this.render();
   }
 
-  /** Forget the previous project's page and selection. */
+  /** Forget the previous project's page and selection; reads already in flight are discarded. */
   public reset(): void {
+    this.generation += 1;
     this.page = null;
     this.selected = null;
     this.error = '';
+    this.extraPages = 0;
     this.shown = '';
     this.element.replaceChildren();
     showRecommendationCounts(null);
+  }
+
+  /** Redraw every label in the current language, keeping external text as sent. */
+  public relabel(): void {
+    this.shown = '';
+    this.render();
+  }
+
+  /**
+   * Read the first page and the extra pages the operator opened.
+   *
+   * @returns All loaded rows with the latest counts and the next cursor.
+   * @throws {Error} When a page cannot be read.
+   */
+  private async pages(): Promise<RecommendationPage> {
+    const first = readPage(await this.hooks.list(null));
+    if (first === null) {
+      throw new Error(t('The recommendation list could not be read.'));
+    }
+    const items = [...first.items];
+    let last = first;
+    for (let index = 0; index < Math.min(this.extraPages, MAX_PAGES) && last.nextCursor !== null; index += 1) {
+      // eslint-disable-next-line no-await-in-loop -- Each page starts after the previous page's cursor.
+      const next = readPage(await this.hooks.list(last.nextCursor));
+      if (next === null) {
+        throw new Error(t('The recommendation list could not be read.'));
+      }
+      items.push(...next.items);
+      last = next;
+    }
+    return { ...last, items };
   }
 
   /**
@@ -109,12 +166,13 @@ class RecommendationsView implements RecommendationsHandle {
     if (this.selected === null || !item.isUnread) {
       return;
     }
+    let failure = '';
     try {
       await this.hooks.markRead(item.id, item.revision);
     } catch (error) {
-      this.error = error instanceof Error ? error.message : t('The read receipt could not be saved.');
+      failure = error instanceof Error ? error.message : t('The read receipt could not be saved.');
     }
-    await this.refresh();
+    await this.refresh(failure);
   }
 
   /** Rebuild the pane when its key changed, keeping focus on the same row. */
@@ -143,6 +201,18 @@ class RecommendationsView implements RecommendationsHandle {
       for (const group of laneGroups(this.page.items)) {
         nodes.push(this.lane(group.lane, group.items));
       }
+      if (this.page.nextCursor !== null && this.extraPages < MAX_PAGES) {
+        nodes.push(
+          button(t('Show more recommendations'), {
+            cssClass: 'secondary',
+            key: 'recommendations:more',
+            action: () => {
+              this.extraPages += 1;
+              void this.refresh();
+            },
+          }),
+        );
+      }
     }
     this.element.replaceChildren(...nodes);
     restoreFocus(this.element, focus);
@@ -161,7 +231,7 @@ class RecommendationsView implements RecommendationsHandle {
     const list = element('ul', 'recommendation-list');
     for (const item of items) {
       const row = element('li', item.isUnread ? 'recommendation unread' : 'recommendation');
-      const open = button(`${item.kind} · ${ticketText(item.tickets)} · ${item.action}`, {
+      const open = button(`${kindLabel(item.kind)} · ${ticketText(item.tickets)} · ${item.action}`, {
         cssClass: 'recommendation-open',
         key: `recommendation:${item.id}`,
         action: () => {

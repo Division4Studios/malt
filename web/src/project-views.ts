@@ -118,14 +118,19 @@ export class ProjectViews {
       ],
     });
     this.recommendations = createRecommendationsView({
-      list: async () => await request(scoped(hooks.project(), '/api/recommendations')),
+      list: async (after) => {
+        const cursor = after === null ? '' : `&after=${encodeURIComponent(after)}`;
+        return await request(`${scoped(hooks.project(), '/api/recommendations')}${cursor}`);
+      },
       markRead: async (id, revision) =>
         await request(scoped(hooks.project(), '/api/recommendation/read'), { id, revision }),
     });
+    // Recommendations redraw their own labels: proposal text must never pass through catalog translation.
     onLocaleChange(
-      () => [this.onboarding.element, this.settings.element, this.recommendations.element],
+      () => [this.onboarding.element, this.settings.element],
       () => {
         void this.settings.refresh();
+        this.recommendations.relabel();
       },
     );
   }
@@ -146,6 +151,12 @@ export class ProjectViews {
     }
     this.polled = { project, at: Date.now() };
     void this.recommendations.refresh();
+  }
+
+  /** Forget the previous project's recommendations as soon as the selection changes. */
+  public clear(): void {
+    this.recommendations.reset();
+    this.polled = { project: '', at: 0 };
   }
 
   /**
