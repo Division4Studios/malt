@@ -77,6 +77,7 @@ const FILES = [
   'dist/workflow-preview.js',
   'dist/workflow-step-editor.js',
   'dist/workflow-editor.js',
+  'dist/workflows-ui.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');

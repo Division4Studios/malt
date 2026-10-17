@@ -69,6 +69,7 @@ const SHELL = [
   '/workflow-preview.js',
   '/workflow-step-editor.js',
   '/workflow-editor.js',
+  '/workflows-ui.js',
   '/terminal.css',
   '/style.css',
   '/manifest.webmanifest',
