@@ -110,6 +110,7 @@ export const controlSchema = z
       'factory_workflow_default',
       'factory_approve',
       'factory_answer',
+      'factory_checkpoint_decide',
       'factory_gates',
       'factory_step_overrides',
       'factory_cancel_job',

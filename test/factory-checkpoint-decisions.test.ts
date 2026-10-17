@@ -1,8 +1,9 @@
 /**
- * Checkpoint decisions: a held or ceiling-stopped productive attempt asks
- * once, its step waits while the decision is pending, a `continue` grants one
- * bounded attempt without the extension gate, and `wait` returns the step to
- * normal retries. No provider CLI runs.
+ * Operator continue-or-wait decisions at a checkpoint: a held or ceiling-stopped
+ * productive attempt asks once, its step waits while the decision is pending,
+ * `continue` grants one bounded attempt without the extension gate, `wait`
+ * returns the step to normal retries, and decisions are idempotent and fenced
+ * against stale sources, stages and newer attempts. No provider CLI runs.
  *
  * @file
  */
@@ -13,11 +14,14 @@ import test from 'node:test';
 import { run } from '../src/database.ts';
 import {
   askForDecision,
+  decideCheckpoint,
   hasContinuation,
   isAwaitingDecision,
   shouldAskOperator,
   useContinuation,
 } from '../src/factory/checkpoint-decisions.ts';
+import { checkpointItems } from '../src/factory/checkpoint-view.ts';
+import { OPERATOR_ONLY_OPERATIONS } from '../src/factory/operator-only.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { isBackingOff, RETRY_POLICY } from '../src/factory/retry-policy.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
@@ -25,7 +29,7 @@ import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
-import type { Checkpoint, JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
 import type { FactoryJob, FactoryTask } from '../src/factory/schema.ts';
 import type { TestContext } from 'node:test';
 
@@ -184,6 +188,7 @@ await test('only held or ceiling-stopped productive attempts ask the operator', 
   assert.equal(shouldAskOperator({ ...HELD, state: 'ceiling' }, POLICY, 10 * MINUTE), true);
   assert.equal(shouldAskOperator({ ...HELD, state: 'ceiling', lastProgressAt: 0 }, POLICY, 10 * MINUTE), false);
   assert.equal(shouldAskOperator({ ...HELD, state: 'stalled' }, POLICY, 10 * MINUTE), false);
+  assert.ok(OPERATOR_ONLY_OPERATIONS.has('factory_checkpoint_decide'), 'agents can never decide their own checkpoint');
 });
 
 await test('a pending decision holds the step, and a replaced token never records one', (t) => {
@@ -199,43 +204,102 @@ await test('a pending decision holds the step, and a replaced token never record
   assert.equal(isAwaitingDecision(f.reopen().jobs(), f.scope), true, 'a restart keeps the pending decision');
   // The step is not offered again however long it waits: no paid retry bypasses the operator.
   assert.equal(isBackingOff(f.repository.jobs(), f.scope, { now: 10 * 24 * 60 * MINUTE, reconcileMs: MINUTE }), true);
+  const items = checkpointItems(f.repository.jobs(), [f.task]);
+  assert.equal(items.length, 1);
+  const [item] = items;
+  assert.ok(item !== undefined);
+  assert.equal(item.requestId, held.id);
+  assert.equal(item.head, 'h1');
+  assert.match(item.title, /#7 Review the parser/v);
 });
-
-/**
- * Record a decision on a held attempt, as the operator control will.
- *
- * @param f - Fixture.
- * @param job - Held attempt.
- * @param decision - Decided fields.
- */
-function decide(f: Fixture, job: FactoryJob, decision: Partial<Checkpoint>): void {
-  const stored = f.repository.jobs().find((candidate) => candidate.id === job.id);
-  assert.ok(stored?.checkpoint !== undefined);
-  f.repository.saveJob({
-    ...stored,
-    checkpoint: { ...stored.checkpoint, requestId: randomUUID(), decidedAt: 11 * MINUTE, ...decision },
-  });
-}
 
 await test('continue grants one bounded attempt without the gate; wait returns to normal retries', (t) => {
   const f = fixture(t);
   const held = heldAttempt(f);
-  decide(f, held, { state: 'continue', minutes: 30 });
+  assert.throws(() => decideCheckpoint(f.repository, { jobId: held.id, requestId: randomUUID(), action: 'continue' }), {
+    code: 'INVALID_INPUT',
+  });
+  const requestId = randomUUID();
+  const decision = { jobId: held.id, requestId, action: 'continue', minutes: 30, expectedHead: 'h1' } as const;
+  assert.equal(decideCheckpoint(f.repository, decision).result, 'decided');
+  assert.equal(
+    decideCheckpoint(f.repository, decision).result,
+    'repeated',
+    'a retried request reports the first result',
+  );
+  assert.throws(() => decideCheckpoint(f.repository, { ...decision, requestId: randomUUID(), action: 'wait' }), {
+    code: 'FACTORY_GATED',
+  });
   assert.equal(isAwaitingDecision(f.repository.jobs(), f.scope), false);
   assert.equal(hasContinuation(f.repository.jobs(), f.scope), true);
   assert.equal(isBackingOff(f.repository.jobs(), f.scope, { now: 10 * MINUTE, reconcileMs: MINUTE }), false);
   const next = attempt(f, { startedAt: 11 * MINUTE });
-  assert.deepEqual(useContinuation(f.repository, next, POLICY), { ...POLICY, maxMs: 30 * MINUTE });
+  const granted = useContinuation(f.repository, next, POLICY);
+  assert.deepEqual(granted, { ...POLICY, maxMs: 30 * MINUTE });
   assert.equal(useContinuation(f.repository, attempt(f, { role: 'qa-2' }), POLICY), null, 'a grant is used once');
   assert.equal(f.repository.jobs().find((job) => job.id === held.id)?.checkpoint?.consumedBy, next.id);
-  assert.equal(hasContinuation(f.repository.jobs(), f.scope), false);
 
   const g = fixture(t);
   const waiting = heldAttempt(g);
-  decide(g, waiting, { state: 'wait' });
+  decideCheckpoint(g.repository, { jobId: waiting.id, requestId: randomUUID(), action: 'wait' });
   const timing = { now: 10 * MINUTE + 1, reconcileMs: MINUTE };
   assert.equal(isBackingOff(g.repository.jobs(), g.scope, timing), true, 'wait follows the held backoff');
   const after = { ...timing, now: 10 * MINUTE + (RETRY_POLICY.held.baseMs ?? 0) };
   assert.equal(isBackingOff(g.repository.jobs(), g.scope, after), false);
   assert.equal(useContinuation(g.repository, attempt(g), POLICY), null, 'wait grants nothing');
+});
+
+await test('stale decisions are refused: a moved head, another stage or a newer attempt', (t) => {
+  const moved = fixture(t);
+  const first = heldAttempt(moved);
+  moved.repository.editTask(moved.task.id, (task) => ({ ...task, head: 'h2' }));
+  assert.throws(
+    () =>
+      decideCheckpoint(moved.repository, { jobId: first.id, requestId: randomUUID(), action: 'continue', minutes: 30 }),
+    { code: 'FACTORY_GATED', message: /source changed/v },
+  );
+  assert.equal(moved.repository.jobs().find((job) => job.id === first.id)?.checkpoint?.state, 'stale');
+
+  const fenced = fixture(t);
+  const seen = heldAttempt(fenced);
+  assert.throws(
+    () => {
+      return decideCheckpoint(fenced.repository, {
+        jobId: seen.id,
+        requestId: randomUUID(),
+        action: 'continue',
+        minutes: 30,
+        expectedHead: 'h0',
+      });
+    },
+    { code: 'FACTORY_GATED' },
+  );
+
+  const staged = fixture(t);
+  const reviewed = heldAttempt(staged);
+  staged.repository.editTask(staged.task.id, (task) => ({ ...task, phase: 'merge_ready' }));
+  assert.throws(
+    () => decideCheckpoint(staged.repository, { jobId: reviewed.id, requestId: randomUUID(), action: 'wait' }),
+    {
+      code: 'FACTORY_GATED',
+      message: /another stage/v,
+    },
+  );
+
+  const replaced = fixture(t);
+  const older = heldAttempt(replaced);
+  replaced.repository.saveJob({ ...attempt(replaced, { role: 'qa-2' }), state: 'failed', finishedAt: 11 * MINUTE });
+  assert.throws(
+    () => decideCheckpoint(replaced.repository, { jobId: older.id, requestId: randomUUID(), action: 'wait' }),
+    {
+      code: 'FACTORY_GATED',
+      message: /newer attempt/v,
+    },
+  );
+  assert.throws(
+    () => decideCheckpoint(replaced.repository, { jobId: randomUUID(), requestId: randomUUID(), action: 'wait' }),
+    {
+      code: 'NOT_FOUND',
+    },
+  );
 });

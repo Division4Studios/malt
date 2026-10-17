@@ -18,7 +18,14 @@ import {
 } from './delivery-control-schema.ts';
 import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
-import { checkpointSchema, failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import {
+  CHECKPOINT_OPERATIONS,
+  checkpointSchema,
+  checkpointSchemas,
+  failureClassSchema,
+  jobLivenessSchema,
+  livenessSettingsSchema,
+} from './liveness-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -596,6 +603,7 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...checkpointSchemas,
   ...spendSchemas,
   ...objectiveGoalSchemas,
   ...roleSchemas,
@@ -637,6 +645,7 @@ export const FACTORY_OPERATIONS = [
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
+  ...CHECKPOINT_OPERATIONS,
   'factory_gates',
   'factory_step_overrides',
   ...SPEND_OPERATIONS,
