@@ -1,0 +1,626 @@
+/* Workflows view: library, pipeline preview and draft editor. Reuses the console tokens from style.css. */
+.workflows {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.wf-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wf-intro p {
+  margin: 0;
+  max-width: 72ch;
+}
+.wf-outcome {
+  display: grid;
+  gap: 8px;
+}
+.wf-outcome:has(.wf-status:empty):has(.wf-actions:empty) {
+  display: none;
+}
+.wf-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+@media (min-width: 1100px) {
+  .wf-layout {
+    grid-template-columns: minmax(300px, 0.85fr) minmax(0, 1.6fr);
+  }
+}
+.wf-detail {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.wf-detail > .panel {
+  margin-bottom: 0;
+}
+.wf-viewer .panel-body {
+  display: grid;
+  gap: 10px;
+}
+
+/* Library */
+.wf-library {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+.wf-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  min-width: 0;
+}
+.wf-card[aria-current='true'] {
+  border-color: var(--cyan);
+  box-shadow: inset 4px 0 0 var(--cyan);
+}
+.wf-card-title {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.wf-card-description {
+  margin: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.wf-card-description:empty {
+  display: none;
+}
+.wf-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.wf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-actions:empty {
+  display: none;
+}
+.wf-actions .button {
+  min-height: 40px;
+}
+.wf-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wf-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.wf-badge.builtin {
+  color: var(--text);
+}
+.wf-badge.project,
+.wf-badge.provider {
+  color: var(--cyan);
+  border-color: #6b5226;
+}
+.wf-badge.default {
+  color: var(--green);
+  border-color: #315c47;
+  background: #183329;
+}
+.wf-badge.gate {
+  color: var(--amber);
+  border-color: #6b5a26;
+}
+.wf-badge.blind {
+  color: var(--violet);
+  border-color: #6b3a26;
+}
+.wf-badge.problem {
+  color: var(--red);
+  border-color: var(--red);
+}
+
+/* Pipeline preview */
+.wf-pipeline {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+.wf-pipeline-heading {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.wf-layers {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 26px;
+}
+.wf-layer {
+  position: relative;
+  min-width: 0;
+}
+/* Decorative join from one layer into the next; the layer labels say the same in words. */
+.wf-layer + .wf-layer::before {
+  content: '';
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  height: 18px;
+  border-left: 2px solid var(--line);
+}
+.wf-layer-label {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: var(--font-terminal);
+}
+.wf-layer-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.wf-step-card {
+  flex: 1 1 180px;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+}
+.wf-step-card.has-problem {
+  border: 1px dashed var(--red);
+}
+.wf-step-kind {
+  color: var(--cyan);
+  font: 10px var(--font-terminal);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.wf-step-title {
+  overflow-wrap: anywhere;
+}
+.wf-step-roles {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* Editor */
+.wf-head-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.wf-head-title h2 {
+  overflow-wrap: anywhere;
+}
+.wf-editor .panel-body {
+  display: grid;
+  gap: 22px;
+}
+.wf-editor-form {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.wf-editor-section,
+.wf-editor-preview-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.wf-editor-section h3,
+.wf-editor-preview-section h3 {
+  font-size: 15px;
+}
+.wf-field-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 12px 16px;
+}
+.wf-field {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  min-width: 0;
+}
+.wf-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+.wf-field input,
+.wf-field textarea,
+.wf-select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0a111d;
+  color: var(--text);
+}
+.wf-select:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.wf-inline-button {
+  justify-self: start;
+  margin-top: 4px;
+}
+.wf-step-list {
+  display: grid;
+  gap: 14px;
+}
+.wf-step-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #0d0d14;
+}
+.wf-step-editor.has-problem {
+  border-color: var(--red);
+  border-left-width: 4px;
+}
+.wf-step-legend {
+  padding: 0 6px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.wf-step-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.wf-step-toolbar .button {
+  min-height: 40px;
+}
+.wf-danger:not(:disabled):hover {
+  color: var(--red);
+  border-color: var(--red);
+}
+.wf-group {
+  min-width: 0;
+  margin: 0;
+  padding: 6px 12px 10px;
+  border: 1px solid #45352199;
+  border-radius: 8px;
+}
+.wf-group legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.wf-seat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr));
+  column-gap: 12px;
+}
+.wf-subgroup {
+  margin-top: 6px;
+  padding-left: 26px;
+}
+.wf-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 0;
+  font-size: 13px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.wf-check input {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  accent-color: var(--cyan);
+}
+.wf-check input:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.wf-ref-id {
+  color: var(--muted);
+  font: 11px var(--font-terminal);
+}
+.wf-problems {
+  margin: 0;
+  padding: 8px 12px 8px 28px;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  background: #2a1218;
+  color: #ffb3bd;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.wf-problems li + li {
+  margin-top: 4px;
+}
+.wf-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+.wf-add-row .wf-field {
+  flex: 1 1 200px;
+}
+.wf-add-row .button {
+  min-height: 40px;
+}
+.wf-editor-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  gap: 8px;
+  margin: 0 -22px -20px;
+  padding: 14px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+.wf-summary,
+.wf-status {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.wf-summary:empty,
+.wf-status:empty {
+  display: none;
+}
+.wf-stale,
+.wf-drift {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+.wf-stale p,
+.wf-drift p {
+  margin: 0;
+}
+.workflows [tabindex='-1']:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+.workflows [hidden] {
+  display: none !important;
+}
+
+@media (max-width: 600px) {
+  .workflows .panel-head,
+  .workflows .panel-body {
+    padding: 14px 16px;
+  }
+  .wf-editor-actions {
+    margin: 0 -16px -14px;
+    padding: 12px 16px;
+  }
+  .wf-step-editor {
+    padding: 10px 10px 14px;
+  }
+  .wf-intro .button,
+  .wf-editor-actions .button {
+    flex: 1 1 auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .workflows *,
+  .wf-dialog {
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  .workflows .button:not(:disabled):hover {
+    transform: none;
+  }
+}
+
+/* Roles and Secrets: type and secret cards, the seat table and their dialogs. */
+.roles-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.role-status {
+  margin: 0;
+  color: var(--muted);
+}
+.role-toolbar,
+.role-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.role-section h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.role-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+.role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--raised);
+}
+.role-card p {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.role-card code {
+  font: 12px/1.5 var(--font-terminal);
+  color: var(--cyan);
+}
+.role-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.role-name {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.role-actions .danger {
+  color: var(--red);
+}
+.role-members {
+  overflow-x: auto;
+}
+.role-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.role-table th,
+.role-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.role-table select,
+.role-dialog select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+.role-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.role-dialog .role-field {
+  display: block;
+  margin: 14px 0 0;
+}
+.role-field-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.role-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.role-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 4px 12px;
+  margin: 14px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.role-checks legend {
+  padding: 0 4px;
+  font-size: 12px;
+}
+.role-dialog .role-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.role-check input {
+  width: auto;
+}
+.role-subheading {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+.role-server {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+}
+.secret-audit {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+/* Revision history dialog. */
+.wf-history-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+.wf-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.wf-history-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.wf-history-item p {
+  margin: 0 0 4px;
+}
+.wf-history-head {
+  font-weight: 600;
+}
+.wf-history-detail {
+  margin-top: 12px;
+}
+.wf-history-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}

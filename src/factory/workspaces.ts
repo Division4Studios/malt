@@ -7,7 +7,7 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { symlink, lstat, realpath, rmdir, unlink } from 'node:fs/promises';
+import { symlink, lstat, readFile, realpath, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod/v3';
@@ -19,10 +19,27 @@ import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
+import { MergeConflictError } from './merge-conflict.ts';
 import { assertPublicationSize } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
+
+/**
+ * Read one worktree file as text for a conflict-marker scan.
+ *
+ * @param directory - Owned worktree.
+ * @param file - Path relative to it, as Git reported it.
+ * @returns File text, or an empty string when the path no longer exists.
+ */
+async function worktreeText(directory: string, file: string): Promise<string> {
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only paths Git reported inside the owned worktree.
+    return await readFile(path.join(directory, file), 'utf8');
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Compare canonical Git paths using the host's case rules.
@@ -54,6 +71,12 @@ async function verifyMemoryLink(link: string, target: string): Promise<void> {
 }
 /** Named branch id length bound. */
 const BRANCH_ID_LENGTH = 8;
+/** Commits listed per side for each conflicted path. */
+const CONFLICT_HISTORY = 3;
+/** Conflicted paths described in detail per round. */
+const CONFLICT_FINDINGS = 10;
+/** A Git conflict marker at the start of a line. */
+const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)/mv;
 
 /** Ownership evidence for each worktree, retained after cleanup. */
 const ownershipSchema = z.array(
@@ -67,6 +90,58 @@ export interface SourceSnapshot {
   readonly head: string;
   /** Status before running checks/model review. */
   readonly status: string;
+}
+
+/** Which workflow step and attempt produced a supervisor commit. */
+export interface CommitProvenance {
+  /** Workflow step id. */
+  readonly step: string;
+  /** Step kind, which chooses the commit subject. */
+  readonly kind: string;
+  /** Seat that made the change. */
+  readonly role: string;
+  /** Attempt id, for tracing the transcript. */
+  readonly jobId: string;
+}
+
+/** Commit subjects by the kind of step that produced the change. */
+const SUBJECTS: Readonly<Record<string, string>> = { adjudicate: 'Fix review findings for', document: 'Document' };
+
+/**
+ * Commit message arguments: a subject plus provenance trailers when known.
+ *
+ * @param task - Delivery being committed.
+ * @param provenance - Producing step and attempt, if known.
+ * @returns `-m` arguments for `git commit`.
+ */
+export function commitMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
+  const subject = `${SUBJECTS[provenance?.kind ?? ''] ?? 'Deliver'} #${String(task.issue)}: ${task.title}`;
+  if (provenance === null) {
+    return ['-m', subject];
+  }
+  const trailers = [
+    `X-MALT-Delivery: #${String(task.issue)}`,
+    `X-MALT-Step: ${provenance.step}`,
+    `X-MALT-Role: ${provenance.role}`,
+    `X-MALT-Attempt: ${provenance.jobId}`,
+  ];
+  return ['-m', subject, '-m', trailers.join('\n')];
+}
+
+/**
+ * Message arguments for the merge that refreshes a delivery onto main: trailers
+ * when the publishing step is known, otherwise Git's default message.
+ *
+ * @param task - Delivery being refreshed.
+ * @param provenance - Publishing step and attempt, if known.
+ * @returns `-m` arguments for `git merge`, possibly none.
+ */
+export function mergeMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
+  if (provenance === null) {
+    return [];
+  }
+  const trailers = commitMessage(task, provenance).at(-1) ?? '';
+  return ['-m', `Refresh #${String(task.issue)} onto main: ${task.title}`, '-m', trailers];
 }
 
 /** Project-local worktree manager using shell-free Git commands. */
@@ -287,12 +362,14 @@ export class WorkspaceManager {
    *
    * @param task - Original developer assignment with an owned worktree.
    * @param beforePush - Verify the refreshed source and commit its durable publication checkpoint.
+   * @param provenance - Workflow step, seat and attempt recorded as commit trailers.
    * @returns Current head/base and diff summary.
    * @throws {MeshError} For empty or oversized deliveries.
    */
   public async publish(
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
+    provenance: CommitProvenance | null = null,
   ): Promise<{ head: string; base: string; diff: string }> {
     this.assertDeliveryTask(task);
     const record = task;
@@ -305,13 +382,14 @@ export class WorkspaceManager {
     await this.assertDeliveryHead(record, previous, base);
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
     if (status !== '') {
+      await this.assertResolved(directory);
       await this.git(['add', '--all'], directory);
       await this.assertPrivateStateUntracked(directory);
-      await this.git(['commit', '-m', `Deliver #${String(record.issue)}: ${record.title}`], directory);
+      await this.git(['commit', ...commitMessage(record, provenance)], directory);
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
-    await this.mergeBase(record, base, directory);
+    await this.refreshForPublication(record, base, directory, provenance);
     await this.assertPrivateStateUntracked(directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, head, base);
@@ -334,6 +412,47 @@ export class WorkspaceManager {
     assertPublicationSize({ head, base, files: entries.length, lines }, this.config, task.sizeApproval);
     await this.git(['push', '--set-upstream', this.config.remote, record.branch], directory);
     return { head, base, diff };
+  }
+
+  /**
+   * Paths left unmerged by an in-progress merge.
+   *
+   * @param directory - Owned worktree.
+   * @returns Conflicted paths, empty when nothing conflicts.
+   */
+  public async conflictedFiles(directory: string): Promise<string[]> {
+    this.assertOwnedPath(directory);
+    const output = await this.git(['diff', '--name-only', '--diff-filter=U'], directory);
+    return output === '' ? [] : output.split('\n');
+  }
+
+  /**
+   * Both sides' recent history for each conflicted path, as repair findings.
+   *
+   * @param directory - Owned worktree whose HEAD is the delivery's side.
+   * @param base - Main commit merged into it.
+   * @param files - Conflicted paths.
+   * @returns One finding per path naming the commits on each side that touched it.
+   */
+  public async conflictContext(directory: string, base: string, files: readonly string[]): Promise<string[]> {
+    this.assertOwnedPath(directory);
+    const fork = await this.git(['merge-base', 'HEAD', base], directory);
+    const side = async (tip: string, file: string): Promise<string> => {
+      const log = await this.git(
+        ['log', `--max-count=${String(CONFLICT_HISTORY)}`, '--format=%h %s', `${fork}..${tip}`, '--', file],
+        directory,
+      );
+      return log === '' ? 'no commits' : log.replaceAll('\n', '; ');
+    };
+    const findings: string[] = [];
+    for (const file of files.slice(0, CONFLICT_FINDINGS)) {
+      // eslint-disable-next-line no-await-in-loop -- A handful of bounded local Git reads, in path order.
+      const [ours, theirs] = await Promise.all([side('HEAD', file), side(base, file)]);
+      findings.push(
+        `[P1] Merge conflict in ${file}. This delivery changed it in: ${ours}. Main changed it in: ${theirs}. Resolve it keeping both intents, remove every conflict marker and rerun the checks.`,
+      );
+    }
+    return findings;
   }
 
   /**
@@ -513,16 +632,85 @@ export class WorkspaceManager {
   }
 
   /**
+   * Refresh main before publication; a conflict aborts the merge and keeps the delivery's commits.
+   *
+   * @param task - Owned delivery.
+   * @param base - Verified fetched main.
+   * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt publishing, recorded on the merge commit.
+   * @throws {MergeConflictError} When main conflicts with the delivery.
+   */
+  private async refreshForPublication(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null,
+  ): Promise<void> {
+    try {
+      await this.mergeBase(task, base, directory, provenance);
+    } catch (error) {
+      const files = await this.conflictedFiles(directory);
+      if (files.length === 0) {
+        throw error;
+      }
+      const head = await this.git(['rev-parse', 'HEAD'], directory);
+      // The delivery's committed work stays on its branch; the repair round merges again with context.
+      await this.git(['merge', '--abort'], directory);
+      throw new MergeConflictError({ files, head, base });
+    }
+  }
+
+  /**
+   * Refuse to commit a merge that still has conflict markers in its conflicted paths.
+   *
+   * @param directory - Owned worktree.
+   * @throws {MeshError} When a merge is in progress and a conflicted path still has markers.
+   */
+  private async assertResolved(directory: string): Promise<void> {
+    try {
+      await this.git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], directory);
+    } catch {
+      return;
+    }
+    const pending = await this.conflictedFiles(directory);
+    const touched = await this.git(['diff', '--name-only', '--diff-filter=AM', 'HEAD'], directory);
+    const candidates = new Set(pending);
+    const changed = touched === '' ? [] : touched.split('\n');
+    for (const file of changed) {
+      candidates.add(file);
+    }
+    const marked: string[] = [];
+    for (const file of candidates) {
+      // eslint-disable-next-line no-await-in-loop -- Read changed paths inside the owned worktree one at a time.
+      if (CONFLICT_MARKER.test(await worktreeText(directory, file))) {
+        marked.push(file);
+      }
+    }
+    if (marked.length > 0) {
+      throw new MeshError(
+        'FACTORY_GATED',
+        `Unresolved merge-conflict markers remain in ${marked.slice(0, CONFLICT_FINDINGS).join(', ')}. Resolve them before publication.`,
+      );
+    }
+  }
+
+  /**
    * Refresh main and receipt only a merge the supervisor actually created.
    *
    * @param task - Owned delivery.
    * @param base - Verified fetched main.
    * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt the merge serves, recorded as trailers when known.
    * @throws {MeshError} If a concurrent source change prevents attributing the merge.
    */
-  private async mergeBase(task: FactoryTask, base: string, directory: string): Promise<void> {
+  private async mergeBase(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null = null,
+  ): Promise<void> {
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
-    await this.git(['merge', '--no-edit', base], directory);
+    await this.git(['merge', '--no-edit', ...mergeMessage(task, provenance), base], directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     if (head === previous || head === base) {
       return;
