@@ -159,7 +159,8 @@ await test('switching project replaces the mounted panel; nothing is retained fr
   const beta = snapshot('beta', [], 66);
   refreshCapacitySamples(beta['factory']);
   host.replaceChildren(fake(capacityView(beta)));
-  assert.doesNotMatch(dom.body.textContent, /41|CODEX|alpha-only/v);
+  assert.doesNotMatch(dom.body.textContent, /CODEX|alpha-only/v);
+  assert.equal(dom.querySelector('[data-process-usage]')?.textContent, '', "the first project's process row is gone");
   assert.match(dom.body.textContent, /Configure subscription providers and local resource limits in Project setup/v);
   assert.equal(dom.body.querySelectorAll('[data-resource-machine]').length, 1);
   assert.match(dom.querySelector('[data-resource-machine]')?.textContent ?? '', /CPU 66%/v);
