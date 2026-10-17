@@ -88,6 +88,7 @@ const FILES = [
   'dist/secrets-model.js',
   'dist/secrets-ui.js',
   'dist/step-override-model.js',
+  'dist/step-override-ui.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',
   'dist/checklist-dialog.js',
