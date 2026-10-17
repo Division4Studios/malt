@@ -24,15 +24,9 @@ import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
+import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
-import {
-  organizationDialog,
-  mountConnectionFields,
-  mountFactoryPolicyFields,
-  resetConnectionFields,
-  factoryPolicyDialog,
-  githubConnectionDescription,
-} from './organization-ui.js';
+import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -56,6 +50,7 @@ import {
   persistRoles,
   shellNode as node,
   consoleNotice as notice,
+  canFinishEdit,
 } from './worker-ui.js';
 import { workflowView } from './workflow-ui.js';
 
@@ -88,6 +83,8 @@ const state: {
   stream: EventSource | null;
   /** Current explicit operator control. */
   edit: Edit | null;
+  /** Project captured when the operator opened the current draft. */
+  editProject: string | null;
   /** Browser install capability. */
   installEvent: InstallEvent | null;
   /** Selected logical worker roles. */
@@ -104,6 +101,7 @@ const state: {
   view: 'overview',
   stream: null,
   edit: null,
+  editProject: null,
   installEvent: null,
   panes: ['developer-1', 'qa-1'],
   renderKey: '',
@@ -151,6 +149,7 @@ function editor(description: EditorDescription, action: Edit): void {
     return;
   }
   state.edit = action;
+  state.editProject = state.project;
   resetConnectionFields(node('editor-body', HTMLTextAreaElement));
   node('editor-title', HTMLHeadingElement).textContent = description.title;
   node('editor-description', HTMLParagraphElement).textContent = description.explanation;
@@ -165,6 +164,13 @@ function editor(description: EditorDescription, action: Edit): void {
 
 /** Role and ticket interactions feed the durable server control path. */
 const actions: Actions = {
+  modelPolicy: () => {
+    const dialog = modelPolicyDialog(
+      node('editor-body', HTMLTextAreaElement),
+      child(child(state.current?.factory ?? {}, 'settings'), 'modelPolicy'),
+    );
+    editor(dialog.description, dialog.action);
+  },
   recover: openRecovery.bind(null, editor),
   triage: (task, action) => {
     const dialog = triageDialog(task, action);
@@ -224,22 +230,13 @@ const actions: Actions = {
     void control('factory_queue', { order, focusedFeatureId, expectedRevision, existingOnly: shouldLimitToExisting });
   },
   setup: (isConnection) => {
-    const body = node('editor-body', HTMLTextAreaElement);
-    if (isConnection) {
-      editor(githubConnectionDescription(), { operation: 'github_connect', input: () => ({}) });
-      if (state.edit?.operation === 'github_connect') {
-        state.edit = {
-          operation: 'github_connect',
-          input: mountConnectionFields(body, child(state.current?.github ?? {}, 'connection')),
-        };
-      }
-      return;
-    }
-    const dialog = factoryPolicyDialog(child(state.current?.factory ?? {}, 'settings'));
+    const dialog = setupDialog(
+      node('editor-body', HTMLTextAreaElement),
+      child(state.current?.factory ?? {}, 'settings'),
+      child(state.current?.github ?? {}, 'connection'),
+      isConnection,
+    );
     editor(dialog.description, dialog.action);
-    if (state.edit?.operation === 'factory_setup') {
-      state.edit = mountFactoryPolicyFields(body);
-    }
   },
 };
 
@@ -483,12 +480,17 @@ async function submitEdit(): Promise<void> {
   if (state.edit === null) {
     return;
   }
+  if (state.editProject !== state.project) {
+    node('editor-error', HTMLParagraphElement).textContent =
+      'This draft belongs to another project. Return to that project or cancel.';
+    return;
+  }
   try {
     const input = state.edit.input(node('editor-body', HTMLTextAreaElement).value);
     const { operation } = state.edit;
     const { edit } = state;
     const isApplied = await control(operation, input);
-    if (!isApplied || state.edit !== edit) {
+    if (!canFinishEdit(edit, state.edit, isApplied)) {
       return;
     }
     node('editor', HTMLDialogElement).close();

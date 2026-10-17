@@ -63,6 +63,8 @@ export interface LocalIssue {
   readonly dependencies: readonly number[];
   /** Workflow column. */
   readonly status: LocalStatus;
+  /** Column requested at creation, kept so a retried request can be compared with it. */
+  readonly initialStatus: LocalStatus;
   /** Open or closed lifecycle. */
   readonly state: 'open' | 'closed';
   /** Closure reason, absent while open. */
@@ -130,6 +132,26 @@ export interface IssueDraft {
   readonly parent: number | null;
   /** Initial workflow column. */
   readonly status?: LocalStatus;
+}
+
+/**
+ * Decide whether a retried creation request matches the issue it created.
+ * Status is mutable after creation, so a retry is compared with the status it was created in.
+ *
+ * @param original - Issue the request identity already created.
+ * @param draft - Retried creation intent.
+ * @returns Whether every part of the creation intent is unchanged.
+ */
+function isSameRequest(original: LocalIssue, draft: IssueDraft): boolean {
+  return (
+    original.title === draft.title &&
+    original.kind === draft.kind &&
+    original.initialStatus === (draft.status ?? 'Backlog') &&
+    original.body === draft.body &&
+    original.parent === draft.parent &&
+    original.acceptanceCriteria.length === draft.acceptanceCriteria.length &&
+    original.acceptanceCriteria.every((criterion, index) => criterion === draft.acceptanceCriteria[index])
+  );
 }
 
 /** Serialized mutation chains, one per ledger file in this process. */
@@ -296,6 +318,7 @@ function issue(value: unknown): LocalIssue {
     parent: optionalInteger(value, 'parent'),
     dependencies: list(value, 'dependencies', issueNumber),
     status: literal(value, 'status', LOCAL_STATUSES),
+    initialStatus: literal(value, 'initialStatus', LOCAL_STATUSES),
     state: literal(value, 'state', ['open', 'closed'] as const),
     stateReason:
       value['stateReason'] === null ? null : literal(value, 'stateReason', ['completed', 'not_planned'] as const),
@@ -453,20 +476,23 @@ export class LocalTracker {
    *
    * @param draft - Creation intent.
    * @returns The created or previously created issue.
-   * @throws {MeshError} For a missing parent or a reused identity with other content.
+   * @throws {MeshError} For a parent that does not match the kind, or a reused identity with other content.
    */
   public async createIssue(draft: IssueDraft): Promise<LocalIssue> {
     return this.mutate((ledger) => {
       const existing = ledger.requests[draft.requestId];
       if (existing !== undefined) {
         const original = ledger.issues.find((entry) => entry.number === existing);
-        if (original?.title !== draft.title || original.kind !== draft.kind) {
+        if (original === undefined || !isSameRequest(original, draft)) {
           throw new MeshError('INVALID_INPUT', 'This request ID already created a different local issue.');
         }
         return { ledger, value: original };
       }
+      if (draft.kind === 'feature' && draft.parent !== null) {
+        throw new MeshError('INVALID_INPUT', 'A feature must not specify a parent.');
+      }
       if (
-        draft.parent !== null &&
+        draft.kind === 'delivery' &&
         ledger.issues.every((entry) => !(entry.number === draft.parent && entry.kind === 'feature'))
       ) {
         throw new MeshError('INVALID_INPUT', 'A delivery parent must be an existing local feature issue.');
@@ -481,6 +507,7 @@ export class LocalTracker {
         parent: draft.parent,
         dependencies: [],
         status: draft.status ?? 'Backlog',
+        initialStatus: draft.status ?? 'Backlog',
         state: 'open',
         stateReason: null,
         comments: [],
@@ -630,6 +657,15 @@ export class LocalTracker {
         throw new MeshError('NOT_FOUND', `Local pull request #${String(number)} does not exist.`);
       }
       if (current.state === outcome.state) {
+        if (
+          outcome.state === 'MERGED' &&
+          (current.mergeCommit !== outcome.mergeCommit || current.mergedHead !== outcome.mergedHead)
+        ) {
+          throw new MeshError(
+            'FACTORY_GATED',
+            `Local pull request #${String(number)} was already merged as a different commit or head.`,
+          );
+        }
         return { ledger, value: current };
       }
       if (current.state !== 'OPEN') {

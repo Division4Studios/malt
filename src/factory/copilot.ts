@@ -86,10 +86,8 @@ export interface CopilotLaunchInput {
   readonly settings: FactoryConfig;
   /** MALT bridge command arguments. */
   readonly bridge: readonly string[];
-  /** Selected model, when configured. */
-  readonly model: string | undefined;
-  /** Selected effort. */
-  readonly effort: 'low' | 'medium' | 'high';
+  /** Validated native model and effort arguments. */
+  readonly selection: readonly string[];
   /** Whether the assignment owns implementation work. */
   readonly isDeveloper: boolean;
   /** Personal MCP servers to disable. */
@@ -103,7 +101,7 @@ export interface CopilotLaunchInput {
  * @returns Literal argument list for a shell-free spawn.
  */
 export function copilotArguments(input: CopilotLaunchInput): string[] {
-  const { job, settings, bridge, model, effort, isDeveloper, personal } = input;
+  const { job, settings, bridge, selection, isDeveloper, personal } = input;
   const mcpFile = path.join(job.artifact, 'copilot-mcp.json');
   writeAtomic(
     mcpFile,
@@ -121,8 +119,6 @@ export function copilotArguments(input: CopilotLaunchInput): string[] {
     `@${mcpFile}`,
     '--log-dir',
     path.join(job.artifact, 'copilot-logs'),
-    '--reasoning-effort',
-    effort,
     '--allow-all-tools',
   ];
   if (!isDeveloper) {
@@ -132,8 +128,6 @@ export function copilotArguments(input: CopilotLaunchInput): string[] {
   } else {
     args.push('--add-dir', job.artifact);
   }
-  if (model !== undefined) {
-    args.push('--model', model);
-  }
+  args.push(...selection);
   return args;
 }

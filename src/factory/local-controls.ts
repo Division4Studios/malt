@@ -13,13 +13,16 @@ import { MeshError } from '../protocol.ts';
 
 import { command } from './commands.ts';
 import { LocalDelivery, issueBody } from './local-delivery.ts';
+import { LOCAL_STATUSES } from './local-tracker.ts';
 import { GitHubDelivery } from './remote.ts';
 import { factoryConfigSchema, factorySchemas } from './schema.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { ProjectGitHub } from '../github.ts';
+import type { LocalIssue } from './local-tracker.ts';
 import type { DeliveryRemote } from './remote.ts';
 import type { FactoryConfig } from './schema.ts';
+import type { z } from 'zod/v3';
 
 /** Largest diff returned inline; larger diffs are truncated with a marker. */
 const DIFF_LIMIT = 400_000;
@@ -105,6 +108,42 @@ async function sync(mesh: MeshConfig, settings: FactoryConfig): Promise<unknown>
 }
 
 /**
+ * Create one local issue from a validated control request, persisting nothing when it is rejected.
+ *
+ * @param delivery - Local delivery boundary.
+ * @param input - Validated control input.
+ * @returns Created or previously created issue.
+ * @throws {MeshError} When the kind, parent, criteria or initial status is invalid.
+ */
+async function createIssue(
+  delivery: LocalDelivery,
+  input: z.infer<(typeof factorySchemas)['factory_local']>,
+): Promise<LocalIssue> {
+  const kind = required(input.kind, 'kind');
+  const criteria = required(input.acceptanceCriteria, 'acceptanceCriteria');
+  if (kind === 'delivery' && (input.parent === undefined || criteria.length === 0)) {
+    throw new MeshError('INVALID_INPUT', 'A delivery needs a parent feature and acceptance criteria.');
+  }
+  if (kind === 'feature' && input.parent !== undefined) {
+    throw new MeshError('INVALID_INPUT', 'A feature must not specify a parent.');
+  }
+  // Validate the initial column before anything is persisted, so a rejected request creates nothing.
+  const status = LOCAL_STATUSES.find((candidate) => candidate === input.status);
+  if (status === undefined && input.status !== undefined) {
+    throw new MeshError('INVALID_INPUT', `Unknown local workflow status: ${input.status}.`);
+  }
+  return delivery.tracker.createIssue({
+    requestId: required(input.requestId, 'requestId'),
+    kind,
+    title: required(input.title, 'title'),
+    body: issueBody(required(input.description, 'description'), criteria),
+    acceptanceCriteria: criteria,
+    parent: input.parent ?? null,
+    ...(status !== undefined && { status }),
+  });
+}
+
+/**
  * Execute one local delivery control.
  *
  * @param mesh - Target project.
@@ -132,20 +171,7 @@ export async function localControl(mesh: MeshConfig, settings: FactoryConfig, ra
       return describePull(delivery, required(input.number, 'number'));
     }
     case 'create_issue': {
-      const kind = required(input.kind, 'kind');
-      const criteria = required(input.acceptanceCriteria, 'acceptanceCriteria');
-      if (kind === 'delivery' && (input.parent === undefined || criteria.length === 0)) {
-        throw new MeshError('INVALID_INPUT', 'A delivery needs a parent feature and acceptance criteria.');
-      }
-      const issue = await delivery.tracker.createIssue({
-        requestId: required(input.requestId, 'requestId'),
-        kind,
-        title: required(input.title, 'title'),
-        body: issueBody(required(input.description, 'description'), criteria),
-        acceptanceCriteria: criteria,
-        parent: input.parent ?? null,
-      });
-      return input.status === undefined ? issue : delivery.tracker.setStatus(issue.number, input.status);
+      return createIssue(delivery, input);
     }
     case 'set_status': {
       return delivery.tracker.setStatus(required(input.number, 'number'), required(input.status, 'status'));

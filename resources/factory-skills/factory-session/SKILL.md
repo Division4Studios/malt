@@ -5,6 +5,12 @@ description: Restore and finish one bounded MALT role assignment with durable ha
 
 Read the target project's standards, the pinned assignment, recent operator instructions and the current worktree status. Resolve references against actual files; preserve the project's vocabulary and architectural decisions.
 
+## Before starting
+
+Confirm the assignment is still needed before changing anything. Compare the supplied issue state, operator instructions, prior handoff and current source against the supplied base. Stop if the issue is closed, its behavior already exists on that base, a different open PR covers it, or another session or developer has claimed it, unless your assignment is to review, repair or verify that exact delivery. Return blocked with that evidence so the lead or human can reconcile it; do not redo finished work. The supervisor holds claims and refreshes main, so report a stale or ambiguous base rather than fetching, claiming or reassigning work yourself.
+
+## Assignment
+
 The supervisor owns process admission, provider selection, waiting and restart. Do one assignment and exit after returning structured evidence. Idle roles have no model process. Do not spawn nested agents, background shells or polling loops. A process exit alone does not mean work succeeded.
 
 Planning and review assignments can inspect their sealed Git source with `mesh_factory_read_source`: omit `path` to list tracked files, follow `nextCursor`, and supply a relative `path` to read a bounded file. Use `revision: "base"` for a supplied base commit. The response identifies the inspected commit; it excludes private runtime paths. This is a source inspection tool, not a shell or permission escalation. When native reads are unavailable, use this tool and the focused learning tools; report genuinely unavailable evidence without requesting unrestricted reviewer access.
