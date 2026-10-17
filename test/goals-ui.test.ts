@@ -4,16 +4,17 @@
  *
  * @file
  */
-
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { checklistInput, definitionText, readGoals, readLogPage } from '../web/dist/goal-model.js';
+import { NO_CAP, capProgress, capsInput, overrideText, readSpend } from '../web/dist/spend-model.js';
 
 /** Objective ids. */
 const OBJECTIVE = '00000000-0000-4000-8000-000000000001';
 const ITEM = '00000000-0000-4000-8000-000000000002';
 const PROPOSAL = '00000000-0000-4000-8000-000000000003';
+const DELIVERY = '00000000-0000-4000-8000-000000000004';
 
 /** A snapshot carrying one objective with a checklist. */
 const snapshot = {
@@ -99,4 +100,82 @@ void test('log pages keep valid entries and their older-page cursor', () => {
   assert.equal(page.entries.length, 1);
   assert.equal(page.next, 9);
   assert.equal(readLogPage({ entries: [], total: 0, next: null }).next, null);
+});
+
+/** A cost summary carrying caps and spend. */
+const summary = {
+  spend: {
+    revision: 3,
+    caps: {
+      project: 100,
+      windowDays: 30,
+      objectiveDefault: null,
+      deliveryDefault: 2,
+      objectives: {},
+      deliveries: { [DELIVERY]: null },
+      unpriced: 'block',
+    },
+    usage: [
+      { scope: 'project', id: '', label: 'Project', usd: 85, unpricedAttempts: 0, cap: 100, blocked: null },
+      { scope: 'delivery', id: DELIVERY, label: '#4 Card', usd: 2.5, unpricedAttempts: 1, cap: 2, blocked: 'cap' },
+    ],
+  },
+};
+
+void test('spend rows describe progress toward each cap', () => {
+  const status = readSpend(summary);
+  const [project, delivery] = status.usage;
+  assert.ok(project !== undefined && delivery !== undefined);
+  assert.deepEqual(capProgress(project), { percent: 85, text: '$85.00 of $100.00 (85%)', state: 'near' });
+  assert.equal(capProgress(delivery).state, 'reached');
+  assert.match(capProgress(delivery).text, /1 unpriced · cap reached/v);
+  assert.equal(capProgress({ ...project, cap: null }).state, 'uncapped');
+  assert.equal(overrideText(status.caps, delivery), NO_CAP);
+  assert.equal(overrideText(status.caps, project), '');
+});
+
+void test('typed caps validate into a revision-fenced request with overrides', () => {
+  const status = readSpend(summary);
+  const form = {
+    project: '150',
+    windowDays: '7',
+    objectiveDefault: '',
+    deliveryDefault: '2.5',
+    unpriced: 'ignore',
+    overrides: [{ scope: 'delivery', id: DELIVERY, value: '' }],
+  };
+  const result = capsInput(status, form);
+  assert.ok('input' in result);
+  assert.deepEqual(result.input, {
+    expectedRevision: 3,
+    caps: {
+      project: 150,
+      windowDays: 7,
+      objectiveDefault: null,
+      deliveryDefault: 2.5,
+      objectives: {},
+      deliveries: {},
+      unpriced: 'ignore',
+    },
+  });
+  const lifted = capsInput(status, { ...form, overrides: [{ scope: 'objective', id: DELIVERY, value: 'NONE' }] });
+  assert.ok('input' in lifted);
+  assert.deepEqual(lifted.input, {
+    expectedRevision: 3,
+    caps: {
+      project: 150,
+      windowDays: 7,
+      objectiveDefault: null,
+      deliveryDefault: 2.5,
+      objectives: { [DELIVERY]: null },
+      deliveries: { [DELIVERY]: null },
+      unpriced: 'ignore',
+    },
+  });
+  assert.match(JSON.stringify(capsInput(status, { ...form, project: '-1' })), /positive dollar amount/v);
+  assert.match(JSON.stringify(capsInput(status, { ...form, windowDays: '0' })), /1 to 90 days/v);
+  assert.match(
+    JSON.stringify(capsInput(status, { ...form, overrides: [{ scope: 'delivery', id: DELIVERY, value: 'lots' }] })),
+    /Use none/v,
+  );
 });

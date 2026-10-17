@@ -91,6 +91,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'delivery-ui',
     'goal-model',
     'checklist-dialog',
+    'spend-model',
     'workflow-model',
     'workflow-checks',
     'workflow-dom',
