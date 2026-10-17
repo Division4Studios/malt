@@ -32,18 +32,13 @@ const TELEMETRY_REFRESH_MS = 10_000;
 /** Views refreshed from their own routes. */
 type RefreshedView = 'sessions' | 'costs';
 /** Views refreshed from each pushed snapshot. */
-type PushedView = 'inbox' | 'board' | 'objective' | 'automations' | 'delivery' | 'workflows';
+type PushedView = (typeof PUSHED_VIEW_NAMES)[number];
 /** Views this module owns. */
 export type OwnedView = RefreshedView | PushedView;
 /** Snapshot-pushed view names. */
-const PUSHED_VIEWS: ReadonlySet<string> = new Set([
-  'inbox',
-  'board',
-  'objective',
-  'automations',
-  'delivery',
-  'workflows',
-]);
+const PUSHED_VIEW_NAMES = ['inbox', 'board', 'objective', 'automations', 'delivery', 'workflows'] as const;
+/** Snapshot-pushed view names, for membership checks. */
+const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
 
 /**
  * Whether an owned view reads pushed snapshots.
@@ -158,6 +153,24 @@ export class ConsoleViews {
   }
 
   /**
+   * One element builder per owned view, for the shell's route table.
+   *
+   * @returns Builders keyed by view.
+   */
+  public builders(): Record<OwnedView, () => HTMLElement> {
+    return {
+      sessions: this.builder('sessions'),
+      costs: this.builder('costs'),
+      inbox: this.builder('inbox'),
+      board: this.builder('board'),
+      objective: this.builder('objective'),
+      automations: this.builder('automations'),
+      delivery: this.builder('delivery'),
+      workflows: this.builder('workflows'),
+    };
+  }
+
+  /**
    * The root element for a view, refreshing a route-backed view when due.
    *
    * @param view - Owned route being shown.
@@ -218,6 +231,16 @@ export class ConsoleViews {
   /** Re-read route-backed views the next time they are shown, after navigation or a project change. */
   public reset(): void {
     this.reads.clear();
+  }
+
+  /**
+   * A builder that returns one owned view's element.
+   *
+   * @param view - Owned route.
+   * @returns Element builder.
+   */
+  private builder(view: OwnedView): () => HTMLElement {
+    return () => this.element(view);
   }
 
   /**
