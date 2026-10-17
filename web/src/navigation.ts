@@ -8,10 +8,10 @@ const GROUPS = {
   mission: ['overview', 'activity'],
   inbox: ['inbox'],
   board: ['board', 'automations', 'delivery', 'deliveries'],
-  workflow: ['workflow', 'team', 'workflows'],
+  workflow: ['workflow', 'team', 'workflows', 'roles'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'learning'],
+  project: ['setup', 'learning', 'secrets'],
 };
 
 /**
@@ -58,6 +58,8 @@ export type View =
   | 'inbox'
   | 'board'
   | 'automations'
+  | 'roles'
+  | 'secrets'
   | 'delivery'
   | 'workflows'
   | 'team'
@@ -90,6 +92,8 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   activity: ['Activity stream.', 'The committed story of your software factory.'],
   learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
   setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],
+  roles: ['Roles.', 'What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'],
+  secrets: ['Secrets.', 'Local encrypted keys and tokens, granted to the role types that need them.'],
 };
 
 /**

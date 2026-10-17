@@ -35,6 +35,8 @@ const triageRecordSchema = z.record(z.unknown());
 const TERMINAL_HISTORY = 100;
 /** Automations as opaque records; the browser validates each one it shows. */
 const automationRecordsSchema = z.array(z.record(z.unknown()));
+/** Secret metadata and audit entries as opaque records; values are never part of them. */
+const secretRecordsSchema = z.array(z.record(z.unknown()));
 /** Broker address local scripts POST webhook triggers to. */
 const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
 /** Validated factory settings and synchronization details contain no credentials. */
@@ -55,6 +57,10 @@ const factoryViewSchema = dashboardSchema.extend({
   automations: automationRecordsSchema.default([]),
   /** Broker address local scripts call to fire a trigger. */
   triggerEndpoint: triggerEndpointSchema.nullable().default(null),
+  /** Roles editor choices; the browser validates what it shows. */
+  roles: z.record(z.unknown()).nullable().default(null),
+  /** Secret names, grants and fingerprints; the broker never sends values. */
+  secrets: z.object({ entries: secretRecordsSchema, audit: secretRecordsSchema }).default({ entries: [], audit: [] }),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -89,6 +95,9 @@ export const controlSchema = z
       'factory_trigger_save',
       'factory_automation_delete',
       'factory_automation_run',
+      'factory_roles_save',
+      'factory_secret_save',
+      'factory_secret_delete',
       'github_connect',
       'terminal_start',
       'terminal_close',

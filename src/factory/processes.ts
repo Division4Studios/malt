@@ -58,6 +58,12 @@ export interface ProcessSpec {
   readonly env?: Readonly<Record<string, string>>;
   /** Known local credentials to redact from output; never written into launch descriptors. */
   readonly secrets?: readonly string[];
+
+  /**
+   * Granted secret environment variables. They reach the native process
+   * through the wrapper's own environment, never a launch descriptor.
+   */
+  readonly secretEnv?: Readonly<Record<string, string>>;
   /** Record the wrapper PID once launched. */
   readonly onSpawn?: (pid: number) => void;
 }
@@ -94,6 +100,7 @@ export async function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     const child = spawn(process.execPath, [HELPER, descriptor], {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+      ...(spec.secretEnv !== undefined && { env: { ...process.env, ...spec.secretEnv } }),
     });
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- An owned private attempt directory receives only a fixed log filename.
     const output = createWriteStream(path.join(spec.artifact, 'stdout.log'), { mode: 0o600 });
@@ -101,7 +108,7 @@ export async function runProcess(spec: ProcessSpec): Promise<ProcessResult> {
     const errors = createWriteStream(path.join(spec.artifact, 'stderr.log'), { mode: 0o600 });
     let stdout = '';
     let stderr = '';
-    const secrets = [...(spec.secrets ?? []), ...credentialValues(process.env)];
+    const secrets = [...(spec.secrets ?? []), ...credentialValues(process.env), ...Object.values(spec.secretEnv ?? {})];
     const stdoutFilter = new SecretRedactor(secrets);
     const stderrFilter = new SecretRedactor(secrets);
     let bytes = 0;

@@ -36,11 +36,13 @@ import http from 'node:http';
 import { z } from 'zod/v3';
 
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
+import { ROLE_OPERATIONS } from './factory/role-schema.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
+import { assertManagedTool } from './managed-tools.ts';
 import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
@@ -507,6 +509,11 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  const gate = {
+    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
+    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
+  };
+  assertManagedTool(gate, operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
     assertFactoryAuthority(team, operation, credentials);
@@ -553,6 +560,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
       'factory_trigger_save',
       'factory_automation_delete',
       'factory_automation_run',
+      ...ROLE_OPERATIONS,
       'factory_reconcile_github',
       'factory_recommendation_read',
     ].includes(operation)
@@ -560,7 +568,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     team.store.authenticate(credentials);
     throw new MeshError(
       'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, workflow approvals, objective recovery, GitHub reconciliation, cross-project maintenance or automations.',
+      'Only the human operator may acknowledge recommendation reads, approve skill changes, workflow approvals, objective recovery, GitHub reconciliation, cross-project maintenance, automations, roles or secrets.',
     );
   }
   const actor = team.store.authenticate(credentials);

@@ -333,6 +333,8 @@ function render(): void {
     inbox: () => owned.element('inbox'),
     board: () => owned.element('board'),
     automations: () => owned.element('automations'),
+    roles: () => owned.element('roles'),
+    secrets: () => owned.element('secrets'),
     delivery: () => owned.element('delivery'),
     workflows: () => owned.element('workflows'),
     sessions: () => owned.element('sessions'),

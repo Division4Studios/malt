@@ -28,6 +28,7 @@ import { organizationSchema, frozenOrganizationSchema } from './organization.ts'
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
+import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
@@ -535,6 +536,7 @@ export const factorySchemas = {
   ...telemetrySchemas,
   ...deliveryControlSchemas,
   ...automationSchemas,
+  ...roleSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -569,5 +571,6 @@ export const FACTORY_OPERATIONS = [
   ...TELEMETRY_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
+  ...ROLE_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
