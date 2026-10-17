@@ -132,6 +132,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_jobs_by_start ON factory_jobs(json_extract(data, '$.startedAt') DESC, id DESC);
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effect_receipts (id TEXT PRIMARY KEY);
