@@ -7,20 +7,26 @@
  * @file
  */
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
+import { run } from '../src/database.ts';
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
-import { LINE_BYTES_MAX, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
+import { LINE_BYTES_MAX, ProgressSampler, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
+import { classifyAttempt, isBackingOff, retryState, RETRY_POLICY } from '../src/factory/retry-policy.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 import { claudeLine, codexLine } from '../src/factory/transcript-events.ts';
+import { MeshError } from '../src/protocol.ts';
+import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
-import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { JobLiveness, LivenessPolicy, FailureClass } from '../src/factory/liveness-schema.ts';
 import type { ProgressObservation } from '../src/factory/liveness.ts';
 import type { FactoryJob } from '../src/factory/schema.ts';
 
@@ -51,6 +57,17 @@ function write(file: string, text: string): void {
 function append(file: string, text: string): void {
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Paths are inside the test's own temporary project.
   appendFileSync(file, text);
+}
+
+/**
+ * Create a directory inside the test's own temporary project.
+ *
+ * @param directory - Path.
+ * @param options - Creation options.
+ */
+function makeDirectory(directory: string, options?: { recursive: true }): void {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Paths are inside the test's own temporary project.
+  mkdirSync(directory, options);
 }
 
 await test('checkpoints extend on recent progress and stop stalls and the ceiling', () => {
@@ -374,3 +391,149 @@ function jobFields(fields: Partial<FactoryJob>): Record<string, unknown> {
     ...fields,
   };
 }
+
+/**
+ * Run Git in a test repository.
+ *
+ * @param cwd - Repository.
+ * @param args - Git arguments.
+ */
+function git(cwd: string, args: readonly string[]): void {
+  // eslint-disable-next-line sonarjs/no-os-command-from-path -- Shell-free Git against the test's own temporary repository.
+  execFileSync('git', ['-c', 'user.name=MALT', '-c', 'user.email=malt@example.invalid', ...args], {
+    cwd,
+    stdio: 'ignore',
+  });
+}
+
+await test('the sampler sees edits, commits, check-ins and decoded tool completions, not idle trees', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  // Opening the repository creates the factory tables.
+  const repository = new FactoryRepository(store);
+  const worktree = path.join(mesh.root, 'worktree');
+  makeDirectory(worktree);
+  git(worktree, ['init', '-q']);
+  write(path.join(worktree, 'a.txt'), 'one\n');
+  git(worktree, ['add', '.']);
+  git(worktree, ['commit', '-q', '-m', 'start']);
+  const artifact = path.join(mesh.directory, 'factory', 'jobs', 'sampled');
+  makeDirectory(artifact, { recursive: true });
+  const job = jobSchema.parse(jobFields({ artifact }));
+  run(store.db, 'INSERT INTO factory_jobs VALUES(?,?,?,?)', job.id, job.role, job.state, JSON.stringify(job));
+  assert.equal(repository.jobs().length, 1);
+  const sampler = new ProgressSampler({ store, jobId: job.id, provider: 'claude', artifact, worktree: () => worktree });
+  assert.deepEqual(await sampler.sample(), { progress: null, awaiting: null }, 'the first sample is a baseline');
+  assert.equal((await sampler.sample()).progress, null, 'an unchanged tree is not progress');
+  write(path.join(worktree, 'a.txt'), 'two\n');
+  assert.equal((await sampler.sample()).progress, 'tracked edit');
+  git(worktree, ['commit', '-q', '-am', 'second']);
+  assert.equal((await sampler.sample()).progress, 'commit');
+  run(store.db, 'INSERT INTO factory_progress VALUES(?,?,?)', job.id, 'started', 'Started.');
+  assert.equal((await sampler.sample()).progress, null, "the supervisor's start notice is not a check-in");
+  run(store.db, 'INSERT INTO factory_progress VALUES(?,?,?)', job.id, 'reproduced', 'Reproduced the bug.');
+  assert.equal((await sampler.sample()).progress, 'check-in reproduced');
+  const events = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: 'a.txt' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'two' }] } },
+  ];
+  write(path.join(artifact, 'stdout.log'), `${events.map((event) => JSON.stringify(event)).join('\n')}\n`);
+  assert.equal((await sampler.sample()).progress, 'tool Read');
+  append(path.join(artifact, 'stdout.log'), '{"type":"assistant","message":{"content":[]}}\n'.repeat(20));
+  assert.equal((await sampler.sample()).progress, null, 'log growth alone is not progress');
+});
+
+await test('failures are classified and retried with per-class backoff and caps', () => {
+  const base = {
+    waiting: null,
+    reason: null,
+    isCoolingDown: false,
+    isResultMissing: false,
+    stopReason: null,
+    isStopping: false,
+  };
+  assert.equal(classifyAttempt({ ...base, state: 'succeeded' }), null);
+  assert.equal(classifyAttempt({ ...base, state: 'failed', waiting: 'Waiting for checks.' }), 'gate');
+  assert.equal(classifyAttempt({ ...base, state: 'failed', error: new MeshError('FACTORY_GATED', 'Gate.') }), 'gate');
+  assert.equal(classifyAttempt({ ...base, state: 'interrupted', isCoolingDown: true }), 'rate_limit');
+  assert.equal(classifyAttempt({ ...base, state: 'failed', reason: 'Usage limit reached.' }), 'rate_limit');
+  assert.equal(classifyAttempt({ ...base, state: 'interrupted', stopReason: 'stalled 30 min' }), 'stalled');
+  assert.equal(classifyAttempt({ ...base, state: 'interrupted', isStopping: true }), 'cancelled');
+  assert.equal(classifyAttempt({ ...base, state: 'failed', isResultMissing: true }), 'invalid_output');
+  assert.equal(classifyAttempt({ ...base, state: 'failed', reason: 'spawn ENOENT' }), 'transient');
+
+  const taskId = randomUUID();
+  const scope = { kind: 'review' as const, taskId, featureId: null, head: 'h1', step: 'qa-1' };
+
+  /**
+   * A finished review attempt.
+   *
+   * @param finishedAt - Settlement time.
+   * @param failureClass - Recorded class, if any.
+   * @param state - Final state.
+   * @returns Parsed attempt.
+   */
+  const attempt = (
+    finishedAt: number,
+    failureClass?: FailureClass,
+    state: FactoryJob['state'] = 'failed',
+  ): FactoryJob => {
+    return jobSchema.parse(
+      jobFields({
+        kind: 'review',
+        role: 'qa-1',
+        taskId,
+        head: 'h1',
+        step: 'qa-1',
+        state,
+        finishedAt,
+        ...(failureClass !== undefined && { failureClass }),
+      }),
+    );
+  };
+  const timing = { now: 0, reconcileMs: 30_000 };
+  assert.equal(retryState([], scope, timing.reconcileMs), null);
+  assert.deepEqual(retryState([attempt(0)], scope, timing.reconcileMs), {
+    failureClass: 'transient',
+    failures: 1,
+    retryAt: 30_000,
+  });
+  assert.equal(
+    retryState([attempt(0, undefined, 'interrupted')], scope, timing.reconcileMs),
+    null,
+    'legacy interruptions retry now',
+  );
+  const transient = [attempt(0, 'transient'), attempt(1000, 'transient'), attempt(2000, 'transient')];
+  assert.equal(
+    retryState(transient, scope, timing.reconcileMs)?.retryAt,
+    2000 + (RETRY_POLICY.transient.baseMs ?? 0) * 4,
+  );
+  const stalled = [attempt(0, 'stalled'), attempt(1, 'stalled'), attempt(2, 'stalled')];
+  assert.deepEqual(retryState(stalled, scope, timing.reconcileMs), {
+    failureClass: 'stalled',
+    failures: 3,
+    retryAt: null,
+  });
+  assert.ok(
+    isBackingOff(stalled, scope, { ...timing, now: Number.MAX_SAFE_INTEGER }),
+    'exhausted retries stay stopped',
+  );
+  assert.ok(!isBackingOff(stalled, { ...scope, head: 'h2' }, timing), 'a new head resets retries');
+  assert.ok(!isBackingOff([...stalled, attempt(3, undefined, 'succeeded')], scope, timing), 'a success resets retries');
+  const gates = Array.from({ length: 10 }, (_, index) => attempt(index, 'gate'));
+  assert.equal(
+    retryState(gates, scope, timing.reconcileMs)?.retryAt,
+    9 + 30_000,
+    'gates wait one reconcile interval, forever',
+  );
+  assert.ok(!isBackingOff([attempt(0, 'cancelled')], scope, timing), 'cancelled work retries as soon as it resumes');
+  const mixed = [attempt(0, 'stalled'), attempt(1, 'stalled'), attempt(2, 'transient')];
+  assert.equal(retryState(mixed, scope, timing.reconcileMs)?.failures, 1, 'a different class starts a new count');
+});
