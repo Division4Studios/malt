@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 import {
   awaitingApproval,
+  dispositionProblems,
   isReviewComplete,
   isStepRunning,
   planningApprovals,
@@ -20,7 +21,7 @@ import { factoryConfigSchema, featureSchema, jobSchema, taskSchema } from '../sr
 import { builtinWorkflows, workflowDigest, workflowSchema } from '../src/factory/workflows.ts';
 
 import type { Capacity, FactoryTask, Feature } from '../src/factory/schema.ts';
-import type { Workflow, WorkflowStep } from '../src/factory/workflows.ts';
+import type { Disposition, Workflow, WorkflowStep } from '../src/factory/workflows.ts';
 
 const config = factoryConfigSchema.parse({
   testCommands: [{ file: process.execPath }],
@@ -371,8 +372,34 @@ await test('a preferred provider waits while busy and falls back only when disab
   assert.equal(chooseProvider({ config: disabled, capacities, jobs: [], now }, 'claude'), 'codex');
 });
 
-await test('only runnable workflows are offered until fix-stage steps are supported', () => {
-  assert.deepEqual(unsupportedSteps(builtin('malt-assured')), []);
-  const direct = builtin('direct');
-  assert.ok(unsupportedSteps(direct).length > 0);
+await test('every built-in workflow uses only steps the supervisor can run', () => {
+  for (const workflow of builtinWorkflows()) {
+    assert.deepEqual(unsupportedSteps(workflow), [], workflow.id);
+  }
+});
+
+/**
+ * One fixer ruling.
+ *
+ * @param id - Finding id the ruling names.
+ * @param decision - Adopted, rejected or merged.
+ * @param evidence - Supporting evidence text.
+ * @returns Disposition record.
+ */
+function ruling(id: string, decision: 'adopted' | 'rejected' | 'merged', evidence = 'proof'): Disposition {
+  return { id, decision, reason: 'Because', evidence };
+}
+
+await test('a disposition ledger rules on every finding exactly once with evidence', () => {
+  assert.deepEqual(dispositionProblems(['a-1', 'a-2'], [ruling('a-1', 'adopted'), ruling('a-2', 'rejected', '')]), []);
+  assert.deepEqual(dispositionProblems(['a-1'], [ruling('a-1', 'merged', ' ')]), [
+    'Disposition a-1 (merged) needs evidence.',
+  ]);
+  assert.deepEqual(dispositionProblems(['a-1', 'a-2'], [ruling('a-1', 'adopted'), ruling('a-1', 'rejected')]), [
+    'Finding a-1 needs exactly one disposition; found 2.',
+    'Finding a-2 needs exactly one disposition; found 0.',
+  ]);
+  assert.deepEqual(dispositionProblems([], [ruling('ghost', 'adopted')]), [
+    'Disposition ghost names no current finding.',
+  ]);
 });
