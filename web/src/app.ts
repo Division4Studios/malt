@@ -324,6 +324,7 @@ function render(): void {
   updateNavigation(state.view);
   const panes = { roles: state.panes, logs: tails.logs, files, actions };
   const builders: Record<View, () => HTMLElement> = {
+    ...owned.builders(),
     overview: () => overviewView(observed, actions, state.isConnected),
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
@@ -343,14 +344,6 @@ function render(): void {
         }),
       );
     },
-    inbox: () => owned.element('inbox'),
-    board: () => owned.element('board'),
-    automations: () => owned.element('automations'),
-    delivery: () => owned.element('delivery'),
-    objective: () => owned.element('objective'),
-    workflows: () => owned.element('workflows'),
-    sessions: () => owned.element('sessions'),
-    costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
     settings: () => projectViews.element('settings'),

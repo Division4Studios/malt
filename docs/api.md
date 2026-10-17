@@ -133,6 +133,7 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 | `UNAUTHORIZED`, `WRONG_PROJECT` | Project authentication or routing mismatch.                 |
 | `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP. |
 | `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                      |
+| `TOOL_DENIED`                   | The live attempt's role policy removed this tool.           |
 
 ## Managed factory controls
 
@@ -274,6 +275,22 @@ Each settled attempt's cost (provider reported, or estimated from the price tabl
 `factory_preflight` runs, inside the broker, the [`doctor`](../README.md#start-natively) checks that matter where managed jobs run: Node.js against `engines`, Git, each provider CLI's presence and subscription login (using the saved provider executables), GitHub CLI authentication and a writable `.malt`. Ports are skipped because the broker is already listening. The result is `{ok, checks: [{id, label, status, detail, fix}]}` with `status` `pass`, `fail` or `fix-it` and one `fix` line for anything that did not pass; `ok` is false when a check failed. Provider checks spend no inference and return no account details. Managed role bridges do not expose it.
 
 The paired console reads it as `GET /api/preflight?project=<id>`, and reads `GET /api/version?project=<id>` for `{malt, node, platform, broker}`: the MALT package version and runtime of the console process, and the broker's `/health` version, or `null` when the broker does not answer. Both use the usual pairing session and origin checks.
+
+### Roles and secrets
+
+The roles editor and the local secrets store are human-operator only; managed roles and the designated lead receive `NOT_ORCHESTRATOR`.
+
+| Operation               | Input                                  | Behavior                                                                                                                                |
+| ----------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_roles_save`    | `{expectedRevision,organization}`      | Replace the organization while paused and settled. `expectedRevision` is `factory_status.roles.revision`; a concurrent edit is refused. |
+| `factory_secret_save`   | `{name,value?,grants,expectedVersion}` | Create (`expectedVersion: null`, value required), rotate (new `value`) or re-grant (no `value`) a secret. Returns metadata only.        |
+| `factory_secret_delete` | `{name,expectedVersion}`               | Delete at the version the editor saw. Running attempts keep the value they started with.                                                |
+
+A role type may set `provider` (waited for rather than switched), `model` (`{entryId, effort}` naming an entry of the explicit model policy, used when that provider is admitted and no reviewed choice applies; the effort only raises the floor), `tools` (`{allow, deny}` of `mesh_…` tool names and the native families `read`, `edit` and `shell`), `mcpServers` (up to four `{name, command, args}` local stdio servers; the command is one executable and arguments are literal, never shell syntax) and `permissions` (`inbox.ask`). Tool policies only narrow: an allow list keeps just the listed tools of the kinds it names, the deny list removes tools, and neither adds a tool the seat lacks. A save naming a skill the project has not adopted, a tool no seat has, a model outside the policy or a model of another provider than the role prefers is refused with every problem listed.
+
+Each attempt freezes its role's tool policy, MCP servers, permissions and the names of its granted secrets into `routing.organization`. The bridge never registers a removed tool, the provider launch drops removed native tools (Claude `--tools`; Codex `read-only` sandbox without `edit` and `features.shell_tool=false` without `shell`; Codex cannot remove reading), and the broker refuses a removed tool from that live attempt with `TOOL_DENIED`, whatever its client advertises.
+
+Secret names are environment variable names; names of the runtime, the provider CLIs, Git and GitHub (`PATH`, `NODE_OPTIONS`, `GITHUB_*`, `GH_*`, `ANTHROPIC_*`, `MALT_*` and similar) are refused, as are values shorter than eight characters. `factory_status.secrets` lists names, versions, grants and a keyed fingerprint, plus an audit trail of actions; no operation returns a value.
 
 ## Internal HTTP boundary
 
