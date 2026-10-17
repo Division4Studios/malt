@@ -23,6 +23,7 @@ import { startConsoleClock } from './console-clock.js';
 import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
+import { t } from './i18n.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
@@ -148,6 +149,7 @@ const owned = new ConsoleViews({
   skill: () => {
     go('learning');
   },
+  rerender: render,
 });
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
@@ -162,7 +164,7 @@ const freshness = new Freshness();
  */
 function editor(description: EditorDescription, action: Edit): void {
   if (state.current === null || !navigator.onLine || !state.isConnected) {
-    notice('Reconnect to the local console before applying controls.');
+    notice(t('Reconnect to the local console before applying controls.'));
     return;
   }
   state.edit = action;
@@ -226,10 +228,12 @@ const actions: Actions = {
     const requestId = crypto.randomUUID();
     editor(
       {
-        title: shouldReplan ? 'Coordinate a scope change' : `Instruct ${role}`,
-        explanation: shouldReplan
-          ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
-          : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        title: shouldReplan ? t('Coordinate a scope change') : t('Instruct {role}', { role }),
+        explanation: t(
+          shouldReplan
+            ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
+            : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        ),
         initial: '',
       },
       {
@@ -285,7 +289,7 @@ async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<v
     const dialog = skillDialog(data(response), requestId, shouldApprove);
     editor(dialog.description, dialog.action);
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Could not retrieve the skill proposal.');
+    notice(error instanceof Error ? error.message : t('Could not retrieve the skill proposal.'));
   }
 }
 /** Render the selected native view without touching an open operator editor. */
@@ -353,7 +357,7 @@ function render(): void {
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
-  run.textContent = hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory';
+  run.textContent = t(hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory');
   node('new-objective', HTMLButtonElement).disabled = false;
 }
 
@@ -369,9 +373,8 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  node('connection-text', HTMLSpanElement).textContent = isConnected
-    ? 'LOCAL CONSOLE CONNECTED'
-    : 'DISCONNECTED · STATE IS STALE';
+  const connectionText = t(isConnected ? 'LOCAL CONSOLE CONNECTED' : 'DISCONNECTED · STATE IS STALE');
+  node('connection-text', HTMLSpanElement).textContent = connectionText;
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
   refreshHandoffConnection(isConnected);
@@ -407,7 +410,7 @@ async function refresh(): Promise<void> {
         dialog.showModal();
       }
     } else {
-      notice(error instanceof Error ? error.message : 'The broker is unavailable.');
+      notice(error instanceof Error ? error.message : t('The broker is unavailable.'));
     }
   }
 }
@@ -453,7 +456,7 @@ function subscribe(): void {
       render();
     } catch {
       connection(false);
-      notice('Invalid live state received. Refresh the local console.');
+      notice(t('Invalid live state received. Refresh the local console.'));
     }
   });
   stream.addEventListener('disconnected', () => {
@@ -507,8 +510,8 @@ async function submitEdit(): Promise<void> {
     return;
   }
   if (state.editProject !== state.project) {
-    node('editor-error', HTMLParagraphElement).textContent =
-      'This draft belongs to another project. Return to that project or cancel.';
+    const foreign = t('This draft belongs to another project. Return to that project or cancel.');
+    node('editor-error', HTMLParagraphElement).textContent = foreign;
     return;
   }
   try {
@@ -523,7 +526,7 @@ async function submitEdit(): Promise<void> {
     state.edit = null;
   } catch (error) {
     node('editor-error', HTMLParagraphElement).textContent =
-      error instanceof Error ? error.message : 'Invalid control input.';
+      error instanceof Error ? error.message : t('Invalid control input.');
   }
 }
 
@@ -600,8 +603,10 @@ async function start(): Promise<void> {
   node('open-project', HTMLButtonElement).addEventListener('click', () => {
     editor(
       {
-        title: 'Open a project',
-        explanation: 'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        title: t('Open a project'),
+        explanation: t(
+          'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        ),
         initial: '',
       },
       { operation: 'open-project', input: (body) => body.trim() },
@@ -617,7 +622,7 @@ async function start(): Promise<void> {
   addEventListener('offline', () => {
     state.stream?.close();
     connection(false);
-    notice('Offline. Controls are not queued or replayed. Reconnect to the local service.');
+    notice(t('Offline. Controls are not queued or replayed. Reconnect to the local service.'));
   });
   addEventListener('online', () => {
     void refresh();
@@ -666,7 +671,8 @@ async function pair(): Promise<void> {
     await refresh();
     subscribe();
   } catch (error) {
-    node('pair-error', HTMLParagraphElement).textContent = error instanceof Error ? error.message : 'Pairing failed.';
+    node('pair-error', HTMLParagraphElement).textContent =
+      error instanceof Error ? error.message : t('Pairing failed.');
   }
 }
 
@@ -687,7 +693,7 @@ async function openProject(workspace: string): Promise<void> {
     await refresh();
     subscribe();
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Project could not be opened.');
+    notice(error instanceof Error ? error.message : t('Project could not be opened.'));
   }
 }
 /** Revoke browser access without stopping the independently running factory. */
