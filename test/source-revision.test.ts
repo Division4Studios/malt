@@ -48,6 +48,12 @@ await test('an image revision wins, a checkout reports HEAD and its dirty state,
     origin: 'unknown',
   });
   assert.equal(readSourceRevision({ environment: undefined, git: () => 'not a commit' }).origin, 'unknown');
+  const sha256 = 'ab'.repeat(32);
+  assert.equal(
+    readSourceRevision({ environment: sha256, git: never }).commit,
+    sha256,
+    'SHA-256 repositories are accepted',
+  );
 });
 
 await test('the broker health endpoint reports its version and source revision', async (t) => {
