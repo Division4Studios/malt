@@ -71,6 +71,7 @@ const FILES = [
   'dist/delivery-ui.js',
   'sessions.css',
   'board.css',
+  'dist/workflow-model.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
