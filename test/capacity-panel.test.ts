@@ -13,7 +13,7 @@ import { test } from 'node:test';
 import { refreshCapacitySamples } from '../web/dist/capacity-details.js';
 import { capacityView } from '../web/dist/capacity-view.js';
 
-import { fake, installDom, readingOrder } from './dom-shim.ts';
+import { FakeElement, fake, installDom, readingOrder } from './dom-shim.ts';
 
 /** A label that would execute if any view parsed it as markup. */
 const HOSTILE = '<img src=x onerror="globalThis.pwned=true">';
@@ -26,9 +26,15 @@ const OBSERVED = Date.UTC(2026, 9, 17, 9, 30);
  * @param project - Project id.
  * @param capacities - Provider capacity records.
  * @param cpu - Sampled CPU percentage.
+ * @param processes - Owned processes sampled for developer-1.
  * @returns Console snapshot.
  */
-function snapshot(project: string, capacities: Record<string, unknown>[], cpu = 12): Record<string, unknown> {
+function snapshot(
+  project: string,
+  capacities: Record<string, unknown>[],
+  cpu = 12,
+  processes: Record<string, unknown>[] = [],
+): Record<string, unknown> {
   return {
     project: { id: project },
     events: [],
@@ -39,7 +45,7 @@ function snapshot(project: string, capacities: Record<string, unknown>[], cpu = 
       settings: { providers: { codex: { enabled: true }, claude: { enabled: false } } },
       capacities,
       resources: { freeMemoryMb: 8000, cpuPercent: cpu },
-      processUsage: [],
+      processUsage: processes.length === 0 ? [] : [{ role: 'developer-1', sample: { processes } }],
       admission: { sample: { observedAt: OBSERVED, cpuPercent: cpu, freeMemoryMb: 8000 }, running: [] },
       tasks: [],
     },
@@ -110,31 +116,53 @@ await test('hostile window labels render as literal text, never as markup', (t) 
   assert.equal(Reflect.get(globalThis, 'pwned'), undefined);
 });
 
-await test('a live sample refresh updates readings in place and keeps every node', (t) => {
+await test('a live sample refresh updates readings and process rows in place and keeps every other node', (t) => {
   const dom = installDom(t);
-  const view = fake(capacityView(snapshot('home', [codex], 12)));
+  const before = [{ pid: 7, memoryMb: 100, cpuPercent: 10 }];
+  const view = fake(capacityView(snapshot('home', [codex], 12, before)));
   dom.body.append(view);
   const machine = dom.querySelector('[data-resource-machine]');
-  const nodes = view.descendants();
+  const processes = dom.querySelector('[data-process-usage]');
+  assert.ok(processes !== null);
+  const outside = view.descendants().filter((node) => node !== processes && !processes.descendants().includes(node));
   assert.match(machine?.textContent ?? '', /CPU 12%/v);
-  const next = snapshot('home', [codex], 77);
-  refreshCapacitySamples(next['factory']);
-  assert.equal(dom.querySelector('[data-resource-machine]'), machine, 'the same node is updated');
+  assert.match(processes.textContent, /developer-17100\.010\.0%/v);
+  const after = [
+    { pid: 7, memoryMb: 120, cpuPercent: 55 },
+    { pid: 9, memoryMb: 30, cpuPercent: null },
+  ];
+  refreshCapacitySamples(snapshot('home', [codex], 77, after)['factory']);
+  assert.equal(dom.querySelector('[data-resource-machine]'), machine, 'the same reading node is updated');
   assert.match(machine?.textContent ?? '', /CPU 77%/v);
+  assert.equal(dom.querySelector('[data-process-usage]'), processes, 'the same process container is refilled');
   assert.deepEqual(
-    view.descendants().filter((node) => !nodes.includes(node)),
-    [],
-    'no element was rebuilt by a sample',
+    processes.querySelectorAll('tr').map((row) => row.textContent),
+    ['RolePIDResident MiBCPU', 'developer-17120.055.0%', 'developer-1930.0sampling'],
+  );
+  assert.deepEqual(
+    view.descendants().filter((node) => node !== processes && !processes.descendants().includes(node)),
+    outside,
+    'nothing outside the process container was rebuilt by a sample',
   );
 });
 
-await test('switching project replaces every observation; nothing is retained from the previous project', (t) => {
-  installDom(t);
-  const first = fake(capacityView(snapshot('alpha', [{ ...codex, subscriptionWindows: [{ id: 'alpha-only' }] }])));
-  assert.match(first.textContent, /alpha-only/v);
-  const second = fake(capacityView(snapshot('beta', [])));
-  assert.doesNotMatch(second.textContent, /CODEX|alpha-only/v);
-  assert.match(second.textContent, /Configure subscription providers and local resource limits in Project setup/v);
+await test('switching project replaces the mounted panel; nothing is retained from the previous project', (t) => {
+  const dom = installDom(t);
+  const host = new FakeElement('div');
+  dom.body.append(host);
+  const alpha = snapshot('alpha', [{ ...codex, subscriptionWindows: [{ id: 'alpha-only' }] }], 12, [
+    { pid: 41, memoryMb: 64, cpuPercent: 3 },
+  ]);
+  host.append(fake(capacityView(alpha)));
+  assert.match(dom.body.textContent, /alpha-only/v);
+  // The shell's render: refresh samples in the mounted view, then replace the view for the new snapshot.
+  const beta = snapshot('beta', [], 66);
+  refreshCapacitySamples(beta['factory']);
+  host.replaceChildren(fake(capacityView(beta)));
+  assert.doesNotMatch(dom.body.textContent, /41|CODEX|alpha-only/v);
+  assert.match(dom.body.textContent, /Configure subscription providers and local resource limits in Project setup/v);
+  assert.equal(dom.body.querySelectorAll('[data-resource-machine]').length, 1);
+  assert.match(dom.querySelector('[data-resource-machine]')?.textContent ?? '', /CPU 66%/v);
 });
 
 await test('narrow screens wrap long observations and scroll the process table inside the panel', () => {
