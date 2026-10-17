@@ -304,4 +304,5 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'The read receipt could not be saved.': '无法保存已读回执。',
   'Proposals to link, merge or change tickets from the product owner and team lead appear here.':
     '产品负责人和团队负责人关于关联、合并或变更工单的提议会显示在这里。',
+  'Show more recommendations': '显示更多建议',
 };
