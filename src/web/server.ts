@@ -101,6 +101,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'roles-ui',
     'secrets-model',
     'secrets-ui',
+    'step-override-model',
     'delivery-ui',
     'goal-model',
     'checklist-dialog',
