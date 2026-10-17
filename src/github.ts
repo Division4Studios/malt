@@ -7,7 +7,6 @@
  * @file
  */
 
-import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -24,6 +23,12 @@ import { discoverGitHub } from './github-discovery.ts';
 import { STATUS_FIELD, fieldSchema, selectWorkflowField } from './github-fields.ts';
 import { createIssueReader } from './github-issues.ts';
 import { issueFingerprint, issueSchema, journalSchema } from './github-journal.ts';
+import {
+  createProjectOnce,
+  pendingCreationDecision,
+  projectSchema,
+  resolveCreationDecision,
+} from './github-project-create.ts';
 import { isResourceOperation, resourceOperation } from './github-resources.ts';
 import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput } from './protocol.ts';
@@ -59,15 +64,6 @@ const itemAdditionSchema = z.object({ addProjectV2ItemById: z.object({ item: ite
 const subIssueSchema = z.object({ id: z.number() });
 /** Pages of native sub-issue identities. */
 const subIssuesSchema = z.array(z.array(subIssueSchema));
-/** Verified project identity returned by the GitHub CLI. */
-const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
-
-/** Explicit Project creation checkpoint, preventing blind duplicate setup. */
-const setupSchema = z.object({
-  fingerprint: z.string(),
-  phase: z.enum(['creating', 'created']),
-  project: projectSchema.optional(),
-});
 
 export { githubRunner, type GitHubRunner } from './github-runner.ts';
 
@@ -206,6 +202,7 @@ export class ProjectGitHub {
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
+      projectCreation: pendingCreationDecision(this.directory),
     };
   }
 
@@ -354,7 +351,12 @@ export class ProjectGitHub {
     const repositoryAliases = this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
     const project =
       input.projectNumber === undefined
-        ? await this.createProject(owner, repository, input.title ?? `${repository} — MALT`)
+        ? await createProjectOnce(
+            { runner: this.runner, directory: this.directory },
+            owner,
+            repository,
+            input.title ?? `${repository} — MALT`,
+          )
         : projectSchema.parse(
             await this.runner(['project', 'view', String(input.projectNumber), '--owner', owner, '--format', 'json']),
           );
@@ -436,49 +438,10 @@ export class ProjectGitHub {
     });
     this.mkdir(this.directory);
     writeAtomic(path.join(this.directory, 'connection.json'), `${JSON.stringify(record, null, 2)}\n`);
+    if (input.projectNumber !== undefined) {
+      resolveCreationDecision(this.directory, project);
+    }
     return flattenConnection(record);
-  }
-
-  /**
-   * Checkpoint explicit Project creation so retries cannot create duplicate boards.
-   *
-   * @param owner - Account or organization that will host the new board.
-   * @param repository - Canonical target repository.
-   * @param title - Desired Project title.
-   * @returns Created Project identity, reused after interrupted later setup steps.
-   * @throws {MeshError} When a prior creation needs remote reconciliation.
-   */
-  private async createProject(
-    owner: string,
-    repository: string,
-    title: string,
-  ): Promise<z.output<typeof projectSchema>> {
-    this.mkdir(this.directory);
-    const file = path.join(this.directory, 'project-creation.json');
-    const fingerprint = createHash('sha256').update(JSON.stringify({ owner, repository, title })).digest('hex');
-    const isFresh =
-      writeIfAbsent(file, `${JSON.stringify({ fingerprint, phase: 'creating' }, null, 2)}\n`) === 'created';
-    const saved = setupSchema.parse(readJsonFile(file));
-    if (saved.fingerprint !== fingerprint) {
-      throw new MeshError(
-        'INVALID_INPUT',
-        'A different Project creation is already recorded. Reuse an existing Project number.',
-      );
-    }
-    if (saved.project !== undefined) {
-      return saved.project;
-    }
-    if (!isFresh) {
-      throw new MeshError(
-        'GITHUB_OPERATION_PENDING',
-        "Project creation may have reached GitHub. Inspect the owner's Projects and reconnect using the existing projectNumber; do not blindly create another board.",
-      );
-    }
-    const project = projectSchema.parse(
-      await this.runner(['project', 'create', '--owner', owner, '--title', title, '--format', 'json']),
-    );
-    writeAtomic(file, `${JSON.stringify({ fingerprint, phase: 'created', project }, null, 2)}\n`);
-    return project;
   }
 
   /**
@@ -617,6 +580,7 @@ export class ProjectGitHub {
       complete: snapshot.items.length >= snapshot.totalCount,
       fetchedAt: timestamp(),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
+      projectCreation: pendingCreationDecision(this.directory),
     };
     writeAtomic(path.join(this.directory, 'board.json'), `${JSON.stringify(result, null, 2)}\n`);
     return result;
@@ -652,7 +616,7 @@ export class ProjectGitHub {
       const itemId = await this.addItem(connection, this.requireIssue(saved).node_id);
       const reconciled = { ...saved, itemId };
       this.saveJournal(reconciled);
-      return reconciled;
+      return { ...reconciled, outcome: { issue: 'existing', membership: 'attached', status: 'unchanged' } };
     }
     let journal = saved.issue === undefined ? await this.createRemoteIssue(saved, isFresh, connection) : saved;
     const issue = this.requireIssue(journal);
@@ -668,7 +632,10 @@ export class ProjectGitHub {
     await this.updateItem(connection, journal.itemId ?? '', 'Backlog');
     journal = { ...journal, phase: 'complete' };
     this.saveJournal(journal);
-    return journal;
+    return {
+      ...journal,
+      outcome: { issue: isFresh ? 'created' : 'resumed', membership: 'attached', status: 'Backlog' },
+    };
   }
 
   /**
