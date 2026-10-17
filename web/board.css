@@ -122,6 +122,92 @@ select {
   max-width: 100%;
 }
 
+/* ---------- step strip and chips ---------- */
+.step-strip-segments {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-segment {
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--state-waiting);
+  background: none;
+}
+.step-segment[data-state='done'] {
+  background: var(--state-done);
+  border-color: var(--state-done);
+}
+.step-segment[data-state='running'] {
+  background: var(--state-running);
+  border-color: var(--state-running);
+  animation: console-pulse 1.4s ease-in-out infinite;
+}
+.step-segment[data-state='ready'] {
+  border: 1px dashed var(--state-ready);
+}
+.step-segment[data-state='needs_you'] {
+  border-color: var(--state-needs);
+  background: repeating-linear-gradient(135deg, var(--state-needs) 0 3px, transparent 3px 6px);
+}
+.step-strip-caption {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.step-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--state-waiting);
+  color: var(--muted);
+  font-size: 11px;
+}
+.step-chip[data-state='done'] {
+  border-color: var(--state-done);
+}
+.step-chip[data-state='done'] .state-glyph {
+  color: var(--state-done);
+}
+.step-chip[data-state='running'] {
+  border-color: var(--state-running);
+  color: var(--text);
+}
+.step-chip[data-state='running'] .state-glyph {
+  color: var(--state-running);
+}
+.step-chip[data-state='ready'] {
+  border: 1px dashed var(--state-ready);
+}
+.step-chip[data-state='needs_you'] {
+  border-color: var(--state-needs);
+  color: var(--text);
+}
+.step-chip[data-state='needs_you'] .state-glyph {
+  color: var(--state-needs);
+}
+@keyframes console-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-segment[data-state='running'] {
+    animation: none;
+  }
+}
+
 /* ---------- inbox ---------- */
 .inbox-view {
   display: grid;
