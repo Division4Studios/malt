@@ -59,6 +59,8 @@ const FILES = [
   'dist/price-editor.js',
   'dist/costs-ui.js',
   'dist/theme.js',
+  'dist/objective-ui.js',
+  'dist/console-views.js',
   'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */

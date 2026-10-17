@@ -20,16 +20,19 @@ import {
 import { QueueState } from './brand-ui.js';
 import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
 import { startConsoleClock } from './console-clock.js';
+import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
+import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
 import { TerminalWorkspace } from './terminal-workspace.ts';
+import { bindThemeToggle } from './theme.js';
 import { triageDialog } from './triage-ui.js';
 import {
   ROLES,
@@ -137,6 +140,8 @@ const control = createOperatorControl({
   refresh,
   notice,
 });
+/** Stable self-refreshing views that survive snapshot pushes. */
+const owned = new ConsoleViews({ project: () => state.project, control });
 /** Prevent overlapping reads from duplicating a captured output chunk. */
 const pendingLogs = new Set<string>();
 /** Durable event sequence deduplication for the currently selected project. */
@@ -158,6 +163,7 @@ function editor(description: EditorDescription, action: Edit): void {
   state.edit = action;
   state.editProject = state.project;
   resetConnectionFields(node('editor-body', HTMLTextAreaElement));
+  hideWorkflowPicker();
   node('editor-title', HTMLHeadingElement).textContent = description.title;
   node('editor-description', HTMLParagraphElement).textContent = description.explanation;
   const evidence = node('editor-evidence', HTMLPreElement);
@@ -319,6 +325,8 @@ function render(): void {
         }),
       );
     },
+    sessions: () => owned.element('sessions'),
+    costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
   };
@@ -527,18 +535,9 @@ function applyLog(id: string, value: ReturnType<typeof data>): void {
     }
   }
 }
-/** Queue an explicit product objective for owner/lead refinement. */
+/** Queue an explicit product objective with its chosen workflow. */
 function objective(): void {
-  const requestId = crypto.randomUUID();
-  editor(
-    {
-      title: 'Define the next mission',
-      explanation:
-        'Describe the outcome and boundaries. Your product owner and team lead will turn it into small, reviewable GitHub deliveries.',
-      initial: '',
-    },
-    { operation: 'factory_request', input: (body) => ({ objective: body, requestId }) },
-  );
+  editor(...objectiveEditor(() => state.current?.factory ?? null));
 }
 /** Submit once; uncertain outcomes keep the exact editor intent available for explicit retry. */
 async function submitEdit(): Promise<void> {
@@ -574,9 +573,11 @@ async function start(): Promise<void> {
       return;
     }
     state.view = selected;
+    owned.reset();
     render();
     void readLogs();
   });
+  bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
     void control(hasFlag(state.current?.factory ?? {}, 'active') ? 'factory_pause' : 'factory_start', {});
