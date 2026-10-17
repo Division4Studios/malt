@@ -18,12 +18,17 @@ import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
 import type { Disposition, PlanningResult, StepKind, StepResult, Workflow, WorkflowStep } from './workflows.ts';
 
-/** Step kinds the supervisor can run today; fix, documentation, regression and plan-review steps follow. */
+/** Step kinds the supervisor can run today. */
 const RUNNABLE_KINDS: ReadonlySet<StepKind> = new Set([
   'specify',
   'plan',
+  'plan_review',
+  'plan_revise',
   'implement',
   'review',
+  'adjudicate',
+  'document',
+  'regress',
   'approve',
   'final',
   'verify',
@@ -495,7 +500,7 @@ export function isStepRunning(
 export function planningStep(
   feature: Feature,
   workflow: Workflow,
-): { step: WorkflowStep; kind: 'plan' | 'refine' } | null {
+): { step: WorkflowStep; kind: 'plan' | 'refine' | 'plan_review' } | null {
   const specify = workflow.planning.find((step) => step.kind === 'specify');
   if (specify !== undefined && feature.productPlan === null) {
     return { step: specify, kind: 'plan' };
@@ -506,6 +511,12 @@ export function planningStep(
   }
   if (feature.plan === null) {
     return { step: plan, kind: 'refine' };
+  }
+  const review = workflow.planning.find(
+    (step) => step.kind === 'plan_review' && planReview(feature, step) === undefined,
+  );
+  if (review !== undefined) {
+    return { step: review, kind: 'plan_review' };
   }
   const revise = workflow.planning.find((step) => step.kind === 'plan_revise');
   return revise === undefined || isRevised(feature, workflow, revise) ? null : { step: revise, kind: 'refine' };
