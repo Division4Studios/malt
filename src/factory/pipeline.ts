@@ -626,7 +626,7 @@ export function stepEvidence(task: FactoryTask, workflow: Workflow, step: Workfl
     return task;
   }
   if (step.blind) {
-    return { ...task, reviews: [], stepResults: [], approvals: [], feedback: [] };
+    return { ...task, reviews: [], stepResults: [], approvals: [], feedback: [], repairs: [] };
   }
   const readable = new Set(step.inputs ?? ancestorIds(workflow.delivery, step.id));
   const visible = workflow.delivery.filter((candidate) => readable.has(candidate.id));

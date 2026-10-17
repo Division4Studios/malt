@@ -202,6 +202,14 @@ declare module '*/web/dist/console-model.js' {
     readonly phase: string;
     /** Operator hold. */
     readonly held: { readonly at: number; readonly reason: string } | null;
+    /** Recent CI-failure and merge-conflict repair rounds, oldest first. */
+    readonly repairs: readonly {
+      readonly kind: 'ci' | 'conflict';
+      readonly at: number;
+      readonly head: string;
+      readonly summary: string;
+      readonly findings: readonly string[];
+    }[];
     /** Kept on the board after finishing. */
     readonly isKept: boolean;
   }

@@ -16,7 +16,7 @@ import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
 import type { ConsoleViewHandle } from './console-dom.js';
-import type { ConsoleModel, Delivery, Step, StepResult } from './console-model.js';
+import type { ConsoleModel, Delivery, RepairRound, Step, StepResult } from './console-model.js';
 
 /** Callbacks supplied by the console shell. */
 export interface DeliveryHooks {
@@ -168,6 +168,44 @@ function resultBody(result: StepResult): HTMLElement {
   return body;
 }
 
+/** Visible label per repair kind. */
+const REPAIR_LABELS: Readonly<Record<RepairRound['kind'], string>> = {
+  ci: 'CI repair',
+  conflict: 'Merge-conflict repair',
+};
+
+/**
+ * Build the repair rounds section: each failed CI run or conflicted refresh the
+ * supervisor returned to the developer, with its redacted evidence.
+ *
+ * @param delivery - Delivery shown.
+ * @returns Section element, or `null` when the delivery had no repair round.
+ */
+function repairsSection(delivery: Delivery): HTMLElement | null {
+  if (delivery.repairs.length === 0) {
+    return null;
+  }
+  const section = element('section', 'delivery-repairs');
+  section.append(element('h3', 'delivery-section-title', 'Repair rounds'));
+  const list = element('ol', 'repair-rounds');
+  for (const [index, round] of delivery.repairs.entries()) {
+    const item = element('li', 'repair-round');
+    item.dataset['kind'] = round.kind;
+    const details = element('details', 'step-result');
+    const label = `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`;
+    details.append(element('summary', '', label), element('p', 'step-summary', round.summary));
+    if (round.findings.length > 0) {
+      const findings = element('ul', 'step-findings');
+      findings.append(...round.findings.map((finding) => element('li', 'repair-finding', finding)));
+      details.append(findings);
+    }
+    item.append(details);
+    list.append(item);
+  }
+  section.append(list);
+  return section;
+}
+
 /** Delivery detail controller. */
 class DeliveryView {
   /** Stable root. */
@@ -293,7 +331,8 @@ class DeliveryView {
     }
     pipeline.append(title, layers);
     const top = header(delivery);
-    this.body.replaceChildren(top, pipeline);
+    const repairs = repairsSection(delivery);
+    this.body.replaceChildren(...(repairs === null ? [top, pipeline] : [top, pipeline, repairs]));
     restoreFocus(this.root, focused, top.querySelector('h2'));
   }
 

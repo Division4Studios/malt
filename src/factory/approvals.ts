@@ -10,6 +10,7 @@
 import { MeshError } from '../protocol.ts';
 
 import { awaitingApproval, featureWorkflow, isReviewComplete, planningApprovals, taskWorkflow } from './pipeline.ts';
+import { attemptBudget } from './repair-schema.ts';
 import { factorySchemas } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -81,11 +82,11 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
     throw new MeshError('INVALID_REVISION', 'The delivery has new source since you reviewed it. Review the new head.');
   }
   if (!decision.approve) {
-    const maxAttempts = repository.config()?.maxAttempts ?? Infinity;
+    const config = repository.config();
     repository.editTask(task.id, (current) => {
       return {
         ...current,
-        phase: current.attempts >= maxAttempts ? 'blocked' : 'development',
+        phase: config !== null && current.attempts >= attemptBudget(current, config) ? 'blocked' : 'development',
         reviews: [],
         approvals: [],
         finalReview: null,

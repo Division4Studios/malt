@@ -119,10 +119,26 @@ export interface Delivery {
   readonly error: string | null;
   /** Operator hold: no new attempt starts while set. */
   readonly held: { readonly at: number; readonly reason: string } | null;
+  /** Recent CI-failure and merge-conflict repair rounds, oldest first. */
+  readonly repairs: readonly RepairRound[];
   /** Whether the operator kept it on the board after it finished. */
   readonly isKept: boolean;
   /** Last change time. */
   readonly updatedAt: number;
+}
+
+/** One CI-failure or merge-conflict repair round. */
+export interface RepairRound {
+  /** What failed. */
+  readonly kind: 'ci' | 'conflict';
+  /** When the round started. */
+  readonly at: number;
+  /** Source that failed. */
+  readonly head: string;
+  /** One-line description. */
+  readonly summary: string;
+  /** Redacted evidence previews. */
+  readonly findings: readonly string[];
 }
 
 /** A finished delivery archived off the board, which the operator can restore. */
@@ -415,6 +431,15 @@ function parseDelivery(record: Data): Delivery | null {
     attempts: number(record, 'attempts'),
     error: nullableText(record, 'error'),
     held: parseHold(record['held']),
+    repairs: objects(record['repairs']).map((round) => {
+      return {
+        kind: round['kind'] === 'conflict' ? 'conflict' : 'ci',
+        at: number(round, 'at'),
+        head: text(round, 'head'),
+        summary: text(round, 'summary'),
+        findings: strings(round['findings']),
+      };
+    }),
     isKept: record['isKept'] === true,
     updatedAt: number(record, 'updatedAt'),
   };
