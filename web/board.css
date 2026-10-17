@@ -570,7 +570,8 @@ select {
   border-left: 4px solid var(--red);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #2a141c;
+  background: var(--state-bad);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;

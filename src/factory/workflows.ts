@@ -167,7 +167,13 @@ export class WorkflowLibrary {
     const { workflow: raw, expectedRevision } = input;
     const parsed = workflowSchema.safeParse(raw);
     if (!parsed.success) {
-      throw new MeshError('INVALID_INPUT', parsed.error.issues.map((issue) => issue.message).join(' '));
+      // Every problem ends as a sentence, so the console can list them separately.
+      throw new MeshError(
+        'INVALID_INPUT',
+        parsed.error.issues
+          .map((issue) => (/[!.?]$/v.test(issue.message) ? issue.message : `${issue.message}.`))
+          .join(' '),
+      );
     }
     const workflow = parsed.data;
     if (builtinWorkflows().some((candidate) => candidate.id === workflow.id)) {
