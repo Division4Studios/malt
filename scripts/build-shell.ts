@@ -73,6 +73,8 @@ const FILES = [
   'board.css',
   'dist/workflow-model.js',
   'dist/workflow-checks.js',
+  'dist/workflow-dom.js',
+  'dist/workflow-preview.js',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
