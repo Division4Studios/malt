@@ -72,6 +72,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'cost-chart',
     'price-editor',
     'costs-ui',
+    'i18n',
+    'catalog-zh',
     'theme',
     'objective-ui',
     'console-views',

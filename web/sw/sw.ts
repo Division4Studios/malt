@@ -50,6 +50,8 @@ const SHELL = [
   '/cost-chart.js',
   '/price-editor.js',
   '/costs-ui.js',
+  '/i18n.js',
+  '/catalog-zh.js',
   '/theme.js',
   '/objective-ui.js',
   '/console-views.js',

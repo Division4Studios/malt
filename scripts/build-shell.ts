@@ -58,6 +58,8 @@ const FILES = [
   'dist/cost-chart.js',
   'dist/price-editor.js',
   'dist/costs-ui.js',
+  'dist/i18n.js',
+  'dist/catalog-zh.js',
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',
