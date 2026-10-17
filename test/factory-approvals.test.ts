@@ -5,6 +5,7 @@ import { test } from 'node:test';
 
 import { decideApproval } from '../src/factory/approvals.ts';
 import { briefPlan } from '../src/factory/briefs.ts';
+import { MERGE_GATE_PENDING } from '../src/factory/merge-path.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
@@ -117,6 +118,7 @@ await test('an approval binds the reviewed head and moves the delivery to merge 
   assert.deepEqual(decideApproval(repository, decision), { result: 'repeated' });
   const stored = repository.task(task.id);
   assert.equal(stored.phase, 'merge_ready');
+  assert.equal(stored.error, MERGE_GATE_PENDING, 'no final tester before the unpaid GitHub gate inspection');
   assert.deepEqual(
     stored.approvals.map((entry) => [entry.stepId, entry.head]),
     [['sign-off', 'h']],

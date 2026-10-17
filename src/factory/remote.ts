@@ -92,6 +92,12 @@ const prSchema = z.object({
 });
 /** Exact current PR evidence used by merge gates. */
 export type PullRequest = z.output<typeof prSchema>;
+/** GitHub merge states that stop final testing, with what they mean. */
+const MERGE_STATE_BLOCKERS: Readonly<Record<string, string>> = {
+  DIRTY: 'The PR conflicts with its base branch and needs a merge-conflict repair.',
+  BEHIND: 'The PR branch is behind its base branch and is refreshed before final testing.',
+  UNKNOWN: 'GitHub is still computing whether the PR can merge.',
+};
 /** Current state of one delivery issue in the connected repository. */
 export interface IssueState {
   /** Native open/closed state. */
@@ -403,6 +409,12 @@ export class GitHubDelivery implements DeliveryRemote {
     if (blocker !== null) {
       throw new MeshError('FACTORY_GATED', blocker);
     }
+    if (current.reviewDecision === 'REVIEW_REQUIRED') {
+      throw new MeshError(
+        'FACTORY_GATED',
+        'GitHub requires authenticated review approval. Local MALT QA reports do not satisfy protected-branch review rules.',
+      );
+    }
     if (config.requireBranchProtection) {
       const branch = z
         .object({ protected: z.boolean() })
@@ -632,12 +644,16 @@ async function verifyRepositoryIdentity(runner: GitHubRunner, origin: string, re
 }
 
 /**
- * Explain mandatory CI/branch gates before launching a paid final review.
+ * Whether a reviewed PR is ready for final testing and merge. GitHub review
+ * approval and a `CLEAN` merge state are not required here: local QA cannot
+ * satisfy protected-branch reviews, so the merge step decides between merging,
+ * auto-merge, the merge queue and a precise wait. This gate still waits,
+ * unpaid, on anything that makes the reviewed source unmergeable or untested.
  *
- * @param pr - Actual GitHub snapshot.
- * @param task - Expected reviewed delivery.
- * @param config - Project-specific branch and required check policy.
- * @returns Gate reason, null when this snapshot is eligible for final testing.
+ * @param pr - Current PR state.
+ * @param task - Delivery at its reviewed head and base.
+ * @param config - Base branch and mandatory checks.
+ * @returns What blocks final testing, or null when it may proceed.
  */
 export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: FactoryConfig): string | null {
   if (
@@ -649,11 +665,12 @@ export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: Factory
   ) {
     return 'The PR is closed, draft, stale or targets another base.';
   }
-  if (pr.mergeStateStatus !== 'CLEAN') {
-    return 'GitHub branch protection, conflicts or required checks still block this PR.';
+  const state = MERGE_STATE_BLOCKERS[pr.mergeStateStatus];
+  if (state !== undefined) {
+    return state;
   }
-  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.reviewDecision === 'CHANGES_REQUESTED') {
-    return 'GitHub requires authenticated review approval or resolution of requested changes. Local MALT QA reports do not satisfy protected-branch review rules.';
+  if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+    return 'A GitHub reviewer requested changes. Resolve them before final testing.';
   }
   const checks = (pr.statusCheckRollup ?? []).map((check) => {
     return {
@@ -661,12 +678,16 @@ export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: Factory
       state: check.conclusion ?? check.state ?? check.status ?? 'UNKNOWN',
     };
   });
-  if (
-    config.requiredChecks.some((name) => checks.every((check) => !(check.name === name && check.state === 'SUCCESS')))
-  ) {
-    return 'A configured mandatory CI check is missing or has not succeeded.';
+  const missing = config.requiredChecks.find((name) =>
+    checks.every((check) => !(check.name === name && check.state === 'SUCCESS')),
+  );
+  if (missing !== undefined) {
+    return `The configured mandatory check ${missing} is missing or has not succeeded.`;
   }
-  return checks.some((check) => !['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.state))
-    ? 'A GitHub check is still pending or failing.'
-    : null;
+  const unfinished = checks.find((check) => !['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.state));
+  if (unfinished === undefined) {
+    return null;
+  }
+  const label = unfinished.name === '' ? 'unnamed' : unfinished.name;
+  return `GitHub check ${label} is ${unfinished.state.toLowerCase()}.`;
 }
