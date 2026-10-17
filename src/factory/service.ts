@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { decideApproval } from './approvals.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -63,7 +64,7 @@ import { factoryStatus } from './status.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
-import { workflowLibrary } from './workflows.ts';
+import { chooseDefaultWorkflow, saveWorkflow } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -384,12 +385,9 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
-      factory_workflow_save: () =>
-        workflowLibrary(this.repository.store).save(factorySchemas.factory_workflow_save.parse(input)),
-      factory_workflow_default: async () => {
-        workflowLibrary(this.repository.store).setDefault(factorySchemas.factory_workflow_default.parse(input));
-        return this.status();
-      },
+      factory_workflow_save: () => saveWorkflow(this.repository, input),
+      factory_workflow_default: () => chooseDefaultWorkflow(this.repository, input),
+      factory_approve: () => decideApproval(this.repository, input),
     };
     return await handlers[operation]();
   }

@@ -67,6 +67,7 @@ export const controlSchema = z
       'factory_reorder_objective',
       'factory_workflow_save',
       'factory_workflow_default',
+      'factory_approve',
       'factory_cancel_job',
       'factory_capacity',
       'github_connect',
