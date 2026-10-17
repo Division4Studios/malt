@@ -92,6 +92,25 @@ function rowFields(row: Data): string[] {
 }
 
 /**
+ * Describe an attempt's checkpoint liveness and failure class.
+ *
+ * @param row - Validated attempt row.
+ * @returns Text such as `stalled · stalled 31 min · extended 2× · retry class stalled`.
+ */
+function livenessLine(row: Data): string {
+  const liveness = child(row, 'liveness');
+  const state = text(liveness, 'state');
+  const parts = [
+    state === '' ? 'not recorded' : state.replace('_', ' '),
+    text(liveness, 'stopReason'),
+    number(liveness, 'extensions') > 0 ? `extended ${String(number(liveness, 'extensions'))}×` : '',
+    text(liveness, 'lastSignal') === '' ? '' : `last signal ${text(liveness, 'lastSignal')}`,
+    text(row, 'failureClass') === '' ? '' : `retry class ${text(row, 'failureClass').replace('_', ' ')}`,
+  ];
+  return parts.filter((part) => part !== '').join(' · ');
+}
+
+/**
  * Build the inline metrics panel of one attempt.
  *
  * @param row - Validated attempt row.
@@ -118,6 +137,7 @@ function metricsPanel(row: Data): HTMLElement {
     ['Turns', optionalNumber(metrics, 'turns') === null ? '—' : String(number(metrics, 'turns'))],
     ['API time', formatDuration(optionalNumber(metrics, 'apiDurationMs'))],
     ['Tools', toolNames === '' ? 'none' : toolNames],
+    ['Liveness', livenessLine(row)],
   ];
   const list = element('dl', 'attempt-metrics');
   for (const [term, value] of entries) {

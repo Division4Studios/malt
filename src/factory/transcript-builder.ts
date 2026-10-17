@@ -396,6 +396,16 @@ export class TranscriptBuilder {
     this.model ??= clip(model, LABEL_MAX).text;
   }
 
+  /**
+   * Show that the provider stopped to wait for a permission or an answer.
+   *
+   * @param reason - What it waits on.
+   * @param _id - Tool call that waits, if any; only progress tracking uses it.
+   */
+  public awaitInput(reason: string, _id: string | null): void {
+    this.text('status', 'Awaiting input', reason, 'warning');
+  }
+
   /** Count one line that was not a JSON event object. */
   public countMalformed(): void {
     this.malformedLines += 1;

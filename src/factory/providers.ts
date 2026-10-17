@@ -17,6 +17,7 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
+import { livenessPolicy } from './liveness-schema.ts';
 import { nativeModelArguments } from './provider-selection.ts';
 import { claudeQuota, claudeWindows } from './quota-windows.ts';
 import { AGENT_OUTPUT_SCHEMA, COOLDOWN_MS, resultSchema } from './schema.ts';
@@ -26,6 +27,8 @@ import type { SubscriptionWindow } from './quota-windows.ts';
 import type { MeshConfig } from '../config.ts';
 import type { ProcessResult, ProcessRunner, ProcessSpec } from './processes.ts';
 import type { AgentResult, FactoryConfig, FactoryJob } from './schema.ts';
+/** Extra time the provider process gets beyond the supervisor's liveness ceiling. */
+const PROCESS_GRACE_MS = 60_000;
 /** Named milliseconds per second bound. */
 const MILLISECONDS_PER_SECOND = 1000;
 
@@ -339,7 +342,8 @@ export async function runAgent(request: AgentRequest, runner: ProcessRunner): Pr
     input: request.prompt,
     artifact: request.job.artifact,
     secrets: [request.mesh.token, home.token, identity.secret, ...credentialValues(process.env)],
-    timeoutMs: request.settings.jobTimeoutMs,
+    // The supervisor's liveness ceiling stops the attempt first; this bound only backs it up.
+    timeoutMs: livenessPolicy(request.settings).maxMs + PROCESS_GRACE_MS,
     memoryMb: request.settings.resources.jobMemoryMb,
     cpuPercent: request.settings.resources.jobCpuPercent,
     processLimit: request.settings.resources.jobProcessLimit,

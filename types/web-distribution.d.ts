@@ -190,8 +190,15 @@ declare module '*/web/dist/console-model.js' {
     readonly workflow: { readonly id: string; readonly name: string };
     /** Steps. */
     readonly steps: readonly Step[];
-    /** Live attempt. */
-    readonly running: { readonly jobId: string; readonly role: string; readonly step: string | null } | null;
+    /** Live attempt and its checkpoint liveness. */
+    readonly running: {
+      readonly jobId: string;
+      readonly role: string;
+      readonly step: string | null;
+      readonly liveness: Liveness | null;
+    } | null;
+    /** Retry backoff of the latest failed step. */
+    readonly retry: Retry | null;
     /** Current head. */
     readonly head: string | null;
     /** Pull request link. */
@@ -325,6 +332,50 @@ declare module '*/web/dist/console-model.js' {
    * @returns Role and step title, or null.
    */
   export function runningText(delivery: Delivery): string | null;
+
+  /** A running attempt's liveness. */
+  export interface Liveness {
+    /** `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling`. */
+    readonly state: string;
+    /** Newest meaningful signal. */
+    readonly lastSignal: string | null;
+    /** When it last progressed. */
+    readonly lastProgressAt: number;
+    /** What it waits on. */
+    readonly awaiting: string | null;
+    /** Next checkpoint. */
+    readonly nextCheckpointAt: number;
+    /** Extensions granted. */
+    readonly extensions: number;
+  }
+
+  /** A failed step's retry backoff. */
+  export interface Retry {
+    /** Failure class. */
+    readonly failureClass: string;
+    /** Consecutive failures. */
+    readonly failures: number;
+    /** When it may run again; null once exhausted. */
+    readonly retryAt: number | null;
+  }
+
+  /**
+   * Describe a running attempt's liveness.
+   *
+   * @param liveness - Latest record.
+   * @param now - Current time.
+   * @returns State, signal and next checkpoint.
+   */
+  export function livenessText(liveness: Liveness, now: number): string;
+
+  /**
+   * Describe a failed step's retry backoff.
+   *
+   * @param retry - Retry state.
+   * @param now - Current time.
+   * @returns Failures and when it retries, or that retries are exhausted.
+   */
+  export function retryText(retry: Retry, now: number): string;
 }
 
 declare module '*/web/dist/board-model.js' {

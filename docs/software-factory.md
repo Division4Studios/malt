@@ -228,6 +228,27 @@ A coordinated scope change is committed with its durable instruction and replace
 
 Superseded child deliveries reconcile through stable outbox identities: explanatory comments, same-head open-PR closure, issue closure with `not_planned`, then owned-source retirement. Remote receipts precede cleanup; dirty or newer worktrees and source history are retained. Parked work is not represented as delivered. Superseded parents wait for settled local children and closed actual native children before checkpointed `not_planned` closure. When GitHub completes a merge during scope replacement, retained exact-head/base QA and final evidence from a historical merging revision restore actual-main verification; obsolete pending close effects are retired with audit events. An unexpected merge without that proof preserves its actual commit and blocks for investigation. Changed PR heads remain gated rather than deleting their source.
 
+## Assignment liveness and retries
+
+A managed assignment is no longer stopped by one blind deadline. `jobTimeoutMs` is the **checkpoint interval**. Between checkpoints the unpaid supervisor samples progress signals it already owns, every `liveness.sampleMs`: the attempt's own provider stream (`stdout.log`), the owned worktree's HEAD, status and tracked diff for code-editing steps, and `mesh_factory_progress` check-ins. At each checkpoint it extends an assignment that made meaningful progress within `liveness.stallMs` by one more interval, and stops one that stalled or reached the hard `liveness.maxMs` ceiling, measured from the attempt's start. The provider process bound is the ceiling plus one minute, so the supervisor always stops first with its own reason.
+
+Only **meaningful** events count as progress: completed tool and check calls (a failed test run still completed), provider-reported file changes, commits, tracked edits and developer check-ins. Thinking, assistant prose, usage reports, heartbeats, repeated identical completions and raw log growth do not. A provider that stops for a permission it was not granted, an `AskUserQuestion`, or a Codex approval request is recorded as **awaiting input**, never as progressing. The stream is decoded incrementally with the transcript viewer's own decoders: at most 4 MiB per sample, partial lines are carried to the next read and lines over 1 MiB are skipped without being held.
+
+Without explicit settings, `stallMs` defaults to the smaller of 15 minutes and the interval, `maxMs` to the larger of two hours and the interval, and `sampleMs` to the smaller of one minute and the interval. An assignment that shows no progress therefore still stops at its first checkpoint, exactly as before; only productive ones are extended, within the ceiling. Saved configurations parse unchanged. Each attempt records `liveness` (`state`, `extensions`, `lastProgressAt`, `lastSignal`, `awaiting`, `nextCheckpointAt`, `ceilingAt`, `stopReason`), and a stopped attempt's handoff reason reads `stalled N min` or `hard ceiling`. Cancellation, pause, shutdown, invalidated assignments and operator instructions still abort immediately, and cleanup touches only the owned process tree.
+
+Every settled attempt that did not succeed also records a `failureClass`. The scheduler waits a class-specific delay before offering the same step again, doubling it for consecutive failures of the same class, and stops offering the step once the class cap is reached so no paid turn repeats the same failure:
+
+| Class            | Meaning                                        | First delay      | Longest delay | Cap  |
+| ---------------- | ---------------------------------------------- | ---------------- | ------------- | ---- |
+| `rate_limit`     | Provider cooldown or limit text                | 1 min            | 15 min        | 6    |
+| `transient`      | Process, network or other unexpected failure   | 30 s             | 10 min        | 5    |
+| `stalled`        | Stopped at a checkpoint: stalled or ceiling    | 5 min            | 30 min        | 3    |
+| `invalid_output` | The provider ran but returned no usable result | 2 min            | 10 min        | 3    |
+| `gate`           | An unpaid gate parked the attempt              | Reconcile period | —             | none |
+| `cancelled`      | Operator, pause or shutdown interruption       | none             | —             | none |
+
+A new head, a different step or a success resets the count. Attempts saved before classification keep the earlier rule: a failure waits one reconcile interval and an interruption retries at once. The delivery detail shows a running attempt's liveness and a step's retry backoff, or that it is out of automatic retries; the attempts view shows each attempt's liveness and failure class.
+
 ## Bounded parallel objectives
 
 The unpaid supervisor can overlap development for independent objectives and product planning for a queued objective while another is developing. Logical roles remain exclusive; owned worktrees isolate developers. Effective broker-wide job/provider caps, resource pressure, cooldowns and dependency gates still govern admission. With a single job slot, a successor waits until the entire previous pipeline releases its reservation; a completed model response alone does not release it. Default provider concurrency is two and default local limits remain configurable; this does not create extra execution seats.
