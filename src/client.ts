@@ -62,6 +62,8 @@ export interface ClientResults
   readonly github_discover: unknown;
   /** Per-section verification of the saved connection. */
   readonly github_verify: unknown;
+  /** Independently saved, still unverified tracker or source section. */
+  readonly github_section_save: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

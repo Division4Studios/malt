@@ -150,6 +150,10 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
     case 'github_sync': {
       return [];
     }
+    case 'github_section_save': {
+      parseInput(operation, input);
+      return ['project-connect'];
+    }
     case 'github_connect': {
       return parseInput(operation, input).createProject ? ['project-connect', 'project-create'] : ['project-connect'];
     }
