@@ -292,6 +292,11 @@ class SessionsView {
     this.deliveryChip.hidden = true;
     this.expanded.clear();
     this.transcript.close();
+    // The previous project's attempts never show under this one, even if the next read fails.
+    this.rows = [];
+    this.nextCursor = null;
+    this.renderKey = '';
+    this.render();
   }
 
   /**
@@ -333,9 +338,15 @@ class SessionsView {
         this.accept(page, isOlder);
       }
     } catch (error) {
-      this.status.textContent = error instanceof Error ? error.message : t('Attempts could not be read.');
+      if (project === this.project) {
+        this.status.textContent = error instanceof Error ? error.message : t('Attempts could not be read.');
+      }
     } finally {
       this.isLoading = false;
+      // The project changed while this read was in flight: read the current one now.
+      if (project !== this.project) {
+        void this.load(false);
+      }
     }
   }
 
