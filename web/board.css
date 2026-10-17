@@ -1,0 +1,190 @@
+/*
+ * Inbox, Board and delivery detail views. Reuses the console tokens from
+ * style.css; the tokens below are new semantics (step states) only. Every
+ * state color is paired with a glyph, text or pattern in the markup.
+ */
+:root {
+  --state-done: var(--green);
+  --state-running: #74c7ff;
+  --state-ready: var(--amber);
+  --state-needs: var(--red);
+  --state-waiting: var(--muted);
+  --card-gap: 12px;
+}
+
+/* ---------- shared ---------- */
+.console-count {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px/1.5 var(--font-terminal);
+  text-align: center;
+  vertical-align: middle;
+}
+.console-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #45352166;
+  color: var(--muted);
+  font: 10px/1.5 var(--font-terminal);
+  white-space: nowrap;
+}
+.console-tag.tag-waiting {
+  color: var(--amber);
+  border: 1px dashed var(--amber);
+  background: none;
+}
+.console-tag.severity {
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--muted);
+}
+.console-tag.severity[data-severity='P0'] {
+  background: var(--red);
+}
+.console-tag.severity[data-severity='P1'] {
+  background: var(--amber);
+}
+.console-tag.severity[data-severity='P2'] {
+  background: var(--state-running);
+}
+.console-age {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.console-link {
+  font: 11px var(--font-terminal);
+}
+.console-empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+}
+.console-empty-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.console-empty .subtle {
+  margin: 0;
+}
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font: 10px/1.5 var(--font-terminal);
+  white-space: nowrap;
+}
+.state-glyph {
+  font-weight: 700;
+}
+[data-state='done'] > .state-glyph,
+.state-badge[data-state='done'] {
+  color: var(--state-done);
+}
+.state-badge[data-state='running'] {
+  color: var(--state-running);
+}
+.state-badge[data-state='ready'] {
+  color: var(--state-ready);
+}
+.state-badge[data-state='needs_you'] {
+  color: var(--state-needs);
+}
+.state-badge[data-state='waiting'] {
+  color: var(--state-waiting);
+  border-style: dashed;
+}
+summary:focus-visible,
+select:focus-visible,
+.board-scroll:focus-visible,
+[tabindex='-1']:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+select {
+  background: #0a111d;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  max-width: 100%;
+}
+
+/* ---------- inbox ---------- */
+.inbox-view {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 20px;
+  align-items: start;
+}
+.inbox-lane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.inbox-list,
+.kanban-cards,
+.pipeline-layers,
+.pipeline-steps,
+.step-findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--card-gap);
+}
+.inbox-item {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--state-needs);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.inbox-item[data-kind='skill'] {
+  border-left-color: var(--violet);
+}
+.inbox-answered {
+  border-left-color: var(--state-done);
+  opacity: 0.9;
+}
+.inbox-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inbox-item-title {
+  margin: 8px 0 4px;
+  overflow-wrap: anywhere;
+}
+.inbox-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
