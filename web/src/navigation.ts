@@ -7,7 +7,7 @@
 const GROUPS = {
   mission: ['overview', 'activity'],
   inbox: ['inbox'],
-  board: ['board', 'delivery', 'deliveries'],
+  board: ['board', 'automations', 'delivery', 'deliveries'],
   workflow: ['workflow', 'team', 'workflows'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
@@ -57,6 +57,7 @@ export type View =
   | 'overview'
   | 'inbox'
   | 'board'
+  | 'automations'
   | 'delivery'
   | 'workflows'
   | 'team'
@@ -74,6 +75,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
   inbox: ['Inbox.', 'Every decision waiting on you, oldest first, with what you already answered.'],
   board: ['Delivery board.', 'Each delivery placed by what it needs next, with its whole pipeline at a glance.'],
+  automations: [
+    'Schedules and triggers.',
+    'Objectives filed on a cron schedule or by a local script, through the same review gates.',
+  ],
   delivery: ['Delivery.', 'Its pipeline, findings, rulings and source, step by step.'],
   workflows: ['Workflow library.', 'How objectives become verified deliveries: steps, seats, gates and reviews.'],
   workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],

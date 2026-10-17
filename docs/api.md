@@ -231,6 +231,23 @@ Structured provider outcomes contain `outcome`, `summary`, `findings`, `deliveri
 
 `factory_export_maintenance` is human-only and accepts `{requestId,workspace}`. The request must identify an independently reviewed, human-approved project skill revision. The absolute workspace must be the MALT source Git root with package identity `malt` (or the supported legacy `agentmesh` identity). A durable handoff journal fences the destination/revision and queues an idempotent source objective using the proposal UUID. Source setup, scheduling, validation and review remain independent; this operation never creates a GitHub Project or enables dispatch. See [source maintenance](operator-console.md#model-and-skill-routing).
 
+### Schedules and triggers
+
+Automations file ordinary objectives without a person at the console. Every fire goes through `factory_request`, so workflow, planning, review, capacity and merge gates apply unchanged. All four controls are human-operator only; managed roles and the designated lead receive `NOT_ORCHESTRATOR`.
+
+| Operation                   | Input                                                                         | Behavior                                                                                                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_schedule_save`     | `{id?,expectedRevision?,name,objective,workflowId?,isEnabled?,cron,timeZone}` | Create or edit a five-field cron schedule (or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`) in an IANA zone. Expressions that never fire are refused. |
+| `factory_trigger_save`      | `{id?,expectedRevision?,name,objective,workflowId?,isEnabled?,rotateSecret?}` | Create or edit a webhook trigger. A new trigger, or `rotateSecret: true`, returns `{trigger, secret}` once; only the SHA-256 of the secret is stored.          |
+| `factory_automation_delete` | `{id,expectedRevision}`                                                       | Delete at the revision the editor saw. Fire history is kept.                                                                                                   |
+| `factory_automation_run`    | `{id,requestId}`                                                              | Fire now, even while disabled. The same `requestId` files the objective once.                                                                                  |
+
+Edits name the revision they started from; a concurrent change fails with `INVALID_REVISION`. A project holds at most 200 automations. `factory_status.automations` lists each one without secrets: schedules carry `nextAt` and the next three fires, triggers carry their `path`, and both carry their last ten fires (`schedule`, `trigger` or `manual`, with the objective filed or the reason it was not). `factory_status.triggerEndpoint` is the broker `url` and workspace `team` scripts address.
+
+Schedules fire only while the factory runs; the supervisor checks them on each reconcile pass. Slots missed while it was paused coalesce into one fire, and each slot maps to a fixed request id, so a restart never files a slot twice. Daylight saving follows classic cron: a wall time skipped when clocks spring forward fires at the first minute after the gap, and a fixed-hour wall time repeated when clocks fall back fires once.
+
+A trigger fires with `POST /triggers/<id>` on the broker, `Authorization: Bearer <secret>`, an optional `Idempotency-Key` (up to 200 characters) and an optional JSON body. `x-agentmesh-team` addresses a workspace project. The secret, not the project token, authenticates the call, and browser origins are refused as for every broker route. A non-empty body is appended to the objective as fenced, untrusted data, never as instructions. A key that already filed an objective returns it again without a new fire, and the same key with a different body is refused, so a retry never files twice; keys do not expire. Each trigger accepts ten new fires a rolling minute (`RATE_LIMITED`, HTTP 429), and a disabled trigger answers `FACTORY_GATED`.
+
 ## Internal HTTP boundary
 
 This is **not** an HTTP MCP endpoint. MCP runs over stdio. The bridge uses `POST /rpc` with an application/json body:
