@@ -160,6 +160,8 @@ export const factoryConfigSchema = z
     modelPolicy: modelPolicySchema.optional(),
     organization: organizationSchema(FACTORY_ROLES),
     requireBranchProtection: z.boolean().default(true),
+    /** GitHub delivery, or the project-private local hub and ledger with no hosted service. */
+    delivery: z.enum(['github', 'local']).default('github'),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
     remote: keySchema.default('origin'),
