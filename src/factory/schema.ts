@@ -42,7 +42,7 @@ import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
-import { stepOverridesSchema } from './step-override-schema.ts';
+import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
@@ -514,6 +514,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_gates: gatesControlSchema,
+  factory_step_overrides: stepOverridesControlSchema,
   factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
@@ -625,6 +626,7 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  'factory_step_overrides',
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
   ...ROLE_OPERATIONS,
