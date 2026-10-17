@@ -6,6 +6,7 @@
  * @file
  */
 import { asData } from './console-model.js';
+import { phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -104,22 +105,22 @@ export interface ChecklistRow {
 }
 
 /** Visible label per log entry kind. */
-export const LOG_LABELS: Readonly<Record<string, string>> = {
-  plan: 'Plan',
-  delivery: 'Delivery',
+export const LOG_LABELS: Readonly<Record<string, string>> = translated({
+  plan: phrase('Plan'),
+  delivery: phrase('Delivery'),
   check_in: 'Check-in',
-  criteria: 'Definition of done',
-  note: 'Note',
-  objective: 'Objective',
-};
+  criteria: phrase('Definition of done'),
+  note: phrase('Note'),
+  objective: phrase('Objective'),
+});
 
 /** Visible label per checklist state. */
-export const STATE_TEXT: Readonly<Record<DoneState, string>> = {
-  open: 'Open',
-  proposed: 'Proposed',
-  checked: 'Checked',
-  waived: 'Waived',
-};
+export const STATE_TEXT: Readonly<Record<DoneState, string>> = translated({
+  open: phrase('Open'),
+  proposed: phrase('Proposed'),
+  checked: phrase('Checked'),
+  waived: phrase('Waived'),
+});
 
 /**
  * Read a string field.
@@ -250,11 +251,15 @@ export function readGoals(snapshot: unknown): Goal[] {
  */
 export function definitionText(goal: Pick<Goal, 'items' | 'met' | 'proposed'>): string {
   if (goal.items.length === 0) {
-    return 'No definition of done yet';
+    return t('No definition of done yet');
   }
   const accepted = goal.items.length - goal.proposed;
-  const proposals = goal.proposed === 0 ? '' : ` · ${String(goal.proposed)} proposed`;
-  return `${String(goal.met)} of ${String(accepted)} criteria met${proposals}`;
+  const proposals = goal.proposed === 0 ? '' : t(' · {proposed} proposed', { proposed: goal.proposed });
+  return t('{met} of {accepted} criteria met{proposals}', {
+    met: goal.met,
+    accepted,
+    proposals,
+  });
 }
 
 /**
@@ -267,25 +272,39 @@ export function definitionText(goal: Pick<Goal, 'items' | 'met' | 'proposed'>): 
 export function checklistInput(goal: Goal, rows: readonly ChecklistRow[]): { input: Data } | { error: string } {
   const filled = rows.filter((row) => row.text.trim() !== '' || row.id !== '');
   if (filled.length > DONE_ITEMS_MAX) {
-    return { error: `Keep the definition of done to ${String(DONE_ITEMS_MAX)} items or fewer.` };
+    return {
+      error: t('Keep the definition of done to {doneItemsMax} items or fewer.', {
+        doneItemsMax: DONE_ITEMS_MAX,
+      }),
+    };
   }
   const known = new Set(goal.items.map((item) => item.id));
   const items: Data[] = [];
   for (const [index, row] of filled.entries()) {
     const text = row.text.trim();
-    const label = `Item ${String(index + 1)}`;
+    const label = t('Item {value}', { value: index + 1 });
     if (text === '' || text.length > ITEM_TEXT_MAX) {
-      return { error: `${label} needs text of at most ${String(ITEM_TEXT_MAX)} characters.` };
+      return {
+        error: t('{label} needs text of at most {itemTextMax} characters.', {
+          label,
+          itemTextMax: ITEM_TEXT_MAX,
+        }),
+      };
     }
     if (!SAVED_SET.has(row.state)) {
-      return { error: `${label}: choose open, checked or waived.` };
+      return { error: t('{label}: choose open, checked or waived.', { label }) };
     }
     const evidence = row.evidence.trim();
     if (evidence.length > EVIDENCE_MAX) {
-      return { error: `${label}: evidence is limited to ${String(EVIDENCE_MAX)} characters.` };
+      return {
+        error: t('{label}: evidence is limited to {evidenceMax} characters.', {
+          label,
+          evidenceMax: EVIDENCE_MAX,
+        }),
+      };
     }
     if (row.id !== '' && !known.has(row.id)) {
-      return { error: 'The checklist changed. Reopen the editor and apply your edits again.' };
+      return { error: t('The checklist changed. Reopen the editor and apply your edits again.') };
     }
     items.push({
       ...(row.id !== '' && { id: row.id }),
