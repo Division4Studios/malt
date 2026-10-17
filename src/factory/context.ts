@@ -10,7 +10,7 @@ import type { ProcessRunner } from './processes.ts';
 import type { AgentCompletion, AgentRunner } from './providers.ts';
 import type { DeliveryRemote } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
-import type { FactoryConfig } from './schema.ts';
+import type { FactoryConfig, Provider } from './schema.ts';
 import type { SourceSnapshot, WorkspaceManager } from './workspaces.ts';
 
 /** Project-specific execution dependencies; never a global app-data context. */
@@ -23,6 +23,8 @@ export interface FactoryContext {
   readonly repository: FactoryRepository;
   /** Delivery gates and resource policy. */
   readonly settings: FactoryConfig;
+  /** Verified startup versions; fixture mode exists only with an injected in-process agent. */
+  providerVersions?: Partial<Record<Provider, string>> | 'fixture';
   /** Target GitHub integration. */
   readonly remote: DeliveryRemote;
   /** Durable project learning. */

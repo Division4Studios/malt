@@ -17,7 +17,44 @@ declare module '*/web/dist/brand-ui.js' {
   ): { title: string; items: Record<string, unknown>[] }[];
 }
 
+declare module '*/web/dist/selection-ui.js' {
+  /**
+   * Format only immutable recorded assignment fields for display.
+   *
+   * @param job - Validated public job data.
+   * @returns Plain native definition-list rows.
+   */
+  export function selectionRows(job: Record<string, unknown>): [string, string][];
+}
+
+declare module '*/web/dist/admission-ui.js' {
+  /**
+   * Read-only dispatch evidence lines.
+   *
+   * @param factory - Selected project snapshot.
+   * @returns Bounded plain evidence.
+   */
+  export function admissionLines(factory: Record<string, unknown>): string[];
+
+  /**
+   * Describe actual cached resource sample age.
+   *
+   * @param factory - Selected project snapshot.
+   * @param now - Injectable observation clock.
+   * @returns Measured counters with honest gaps.
+   */
+  export function admissionSample(factory: Record<string, unknown>, now?: number): string;
+}
+
 declare module '*/web/dist/capacity-details.js' {
+  /**
+   * Format a verified percent, including zero, without inventing unknown values.
+   *
+   * @param value - Untrusted utilization.
+   * @returns Accessible usage or unknown.
+   */
+  export function quotaUsage(value: unknown): string;
+
   /**
    * Remove every sample-derived field from factory state.
    *

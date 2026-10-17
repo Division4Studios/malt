@@ -4,7 +4,9 @@
  * @file
  */
 import { organizationRevision } from './organization.ts';
+import { resolvePolicy } from './policy-routing.ts';
 
+import type { FactoryContext } from './context.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryConfig, FactoryJob, FactoryTask, Provider } from './schema.ts';
 
@@ -47,15 +49,15 @@ function taskTier(
   ) {
     return { tier: 'advanced', reason: 'Recorded rework or a high-risk scope requires deeper reasoning.' };
   }
-  const assignment = task?.assignmentProfiles?.find((profile) => profile.role === intent.role);
-  if (assignment !== undefined) {
-    return { tier: assignment.tier, reason: `Lead-reviewed role assignment: ${assignment.reason}` };
-  }
   if (['refine', 'final', 'skill'].includes(intent.kind)) {
     return {
       tier: 'advanced',
       reason: 'Architecture, integration and independent adoption decisions require advanced review.',
     };
+  }
+  const assignment = task?.assignmentProfiles?.find((profile) => profile.role === intent.role);
+  if (assignment !== undefined) {
+    return { tier: assignment.tier, reason: `Lead-reviewed role assignment: ${assignment.reason}` };
   }
   if (task?.capabilityTier === 'advanced') {
     return { tier: 'advanced', reason: 'The independently reviewed delivery plan requires advanced capability.' };
@@ -102,6 +104,7 @@ export function routeAssignment(context: {
   provider: Provider;
   settings: FactoryConfig;
   task: FactoryTask | null;
+  versions?: FactoryContext['providerVersions'];
 }): NonNullable<FactoryJob['routing']> {
   const decision = taskTier(context.intent, context.task);
   const member = context.settings.organization.members[context.intent.role];
@@ -110,13 +113,22 @@ export function routeAssignment(context: {
   const floor = profile?.minimumTier ?? 'small';
   const tier = tiers.indexOf(floor) > tiers.indexOf(decision.tier) ? floor : decision.tier;
   const provider = context.settings.providers[context.provider];
-  const { model, effort } = resolveProfile(provider, context.task, context.intent.role, tier);
+  const legacy = resolveProfile(provider, context.task, context.intent.role, tier);
+  const selected = resolvePolicy({
+    ...legacy,
+    settings: context.settings,
+    provider: context.provider,
+    tier,
+    versions: context.versions,
+    modelChoice: context.task?.assignmentProfiles?.find((assignment) => assignment.role === context.intent.role)
+      ?.modelChoice,
+  });
   return {
     ...decision,
     tier,
-    model,
-    effort,
-    reason: routingReason(decision.reason, tier !== decision.tier, floor, model),
+    ...selected,
+    ...reviewedIntent(context.task, context.intent.role),
+    reason: `${routingReason(decision.reason, tier !== decision.tier, floor, selected.model)} ${choiceReason(selected.selection, context.task, context.intent.role)}`,
     skillNames: [
       ...new Set([
         SHARED_SKILL,
@@ -137,6 +149,54 @@ export function routeAssignment(context: {
         },
       }),
   };
+}
+
+/**
+ * Freeze only this role's approved intent, independently of mutable task history.
+ *
+ * @param task - Independently reviewed delivery, absent for taskless roles.
+ * @param role - Exact managed seat receiving this assignment.
+ * @returns Optional immutable recommendation metadata.
+ */
+function reviewedIntent(
+  task: FactoryTask | null,
+  role: FactoryJob['role'],
+): Pick<NonNullable<FactoryJob['routing']>, 'reviewed'> {
+  const reviewed = task?.assignmentProfiles?.find((assignment) => assignment.role === role);
+  return reviewed === undefined
+    ? {}
+    : {
+        reviewed: {
+          tier: reviewed.tier,
+          effort: reviewed.effort,
+          reason: reviewed.reason,
+          modelChoice: reviewed.modelChoice ?? null,
+        },
+      };
+}
+
+/**
+ * Distinguish a lead's exact choice from deterministic stage defaults.
+ *
+ * @param selection - Frozen native request, absent for legacy profiles.
+ * @param task - Persisted independently reviewed delivery.
+ * @param role - Exact scheduled role.
+ * @returns Bounded auditable explanation.
+ */
+function choiceReason(
+  selection: NonNullable<FactoryJob['routing']>['selection'],
+  task: FactoryTask | null,
+  role: FactoryJob['role'],
+): string {
+  if (selection === undefined) {
+    return 'Legacy CLI profile routing.';
+  }
+  const requested = task?.assignmentProfiles?.find((assignment) => assignment.role === role)?.modelChoice;
+  const origin =
+    requested === undefined || requested === null
+      ? 'project default for this stage'
+      : 'independently reviewed exact choice';
+  return `Policy revision ${String(selection.policyRevision)}, entry ${selection.entry.id}; ${origin}.`;
 }
 
 /**

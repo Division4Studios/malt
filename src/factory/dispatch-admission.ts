@@ -3,14 +3,18 @@
  *
  * @file
  */
+import { recordPolicyBlocker } from './policy-blockers.ts';
+import { PolicyBlockedError } from './policy-routing.ts';
 import { resourceBlocker } from './resources.ts';
+import { routeAssignment } from './routing.ts';
 import { chooseProvider } from './scheduler.ts';
 import { PROVIDERS } from './schema.ts';
 
 import type { AdmissionPool } from './admission.ts';
 import type { FactoryContext } from './context.ts';
 import type { ResourceSnapshot } from './resources.ts';
-import type { Provider } from './schema.ts';
+import type { JobIntent } from './scheduler.ts';
+import type { Provider, FactoryJob } from './schema.ts';
 
 /**
  * Select against current broker reservations, never a pre-await snapshot.
@@ -18,19 +22,26 @@ import type { Provider } from './schema.ts';
  * @param context - Selected project's durable policy/accounting.
  * @param sample - Latest local resource measurement.
  * @param pool - Shared broker-wide owned pipelines.
- * @returns Currently admissible provider, or null while capacity is unavailable.
+ * @param intent - Exact role/scope before any claim or token reservation.
+ * @returns Provider and frozen routing, or null while capacity/policy is unavailable.
+ * @throws {Error} For unexpected routing failures; policy ineligibility is handled separately.
  */
-export function admittedProvider(
+export function admittedAssignment(
   context: FactoryContext,
   sample: ResourceSnapshot,
   pool: AdmissionPool,
-): Provider | null {
+  intent: JobIntent,
+): { provider: Provider; routing: NonNullable<FactoryJob['routing']> } | null {
   const config = pool.policy(context.settings);
-  if (resourceBlocker(config, sample, pool.size) !== null) {
+  if (resourceBlocker(config, sample, pool.size) !== null || !isCurrentScope(context, intent)) {
     return null;
   }
+  const routings = eligibleRoutings(context, intent);
+  for (const name of PROVIDERS) {
+    config.providers[name].enabled &&= routings.has(name);
+  }
   const now = context.repository.store.now();
-  return chooseProvider({
+  const provider = chooseProvider({
     config,
     capacities: pool.capacities(
       PROVIDERS.map((name) => context.repository.capacity(name, context.settings)),
@@ -39,4 +50,70 @@ export function admittedProvider(
     jobs: pool.jobs(),
     now,
   });
+  const routing = provider === null ? undefined : routings.get(provider);
+  return provider === null || routing === undefined ? null : { provider, routing };
+}
+
+/**
+ * Fence stale policy and scopes before inspecting model eligibility.
+ *
+ * @param context - Current project authority.
+ * @param intent - Exact offered assignment.
+ * @returns Whether this scope still permits policy resolution.
+ */
+function isCurrentScope(context: FactoryContext, intent: JobIntent): boolean {
+  const current = context.repository.config();
+  if (JSON.stringify(current?.modelPolicy) !== JSON.stringify(context.settings.modelPolicy)) {
+    return false;
+  }
+  const task = intent.taskId === null ? null : context.repository.task(intent.taskId);
+  const feature = context.repository.features().find((item) => item.id === intent.featureId);
+  if (task === null && (feature?.phase === 'blocked' || feature?.scopeReplacement !== undefined)) {
+    return false;
+  }
+  if (task?.scopeReplacement !== undefined || (task?.phase === 'blocked' && intent.kind !== 'triage')) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Resolve eligible providers independently before utilization balancing.
+ *
+ * @param context - Authoritative project policy and readiness.
+ * @param intent - Offered role and scope.
+ * @returns Frozen routings; an empty result records a durable explicit-policy gate.
+ * @throws {Error} For unexpected implementation failures.
+ */
+function eligibleRoutings(
+  context: FactoryContext,
+  intent: JobIntent,
+): Map<Provider, NonNullable<FactoryJob['routing']>> {
+  const task = intent.taskId === null ? null : context.repository.task(intent.taskId);
+  const routings = new Map<Provider, NonNullable<FactoryJob['routing']>>();
+  const reasons: string[] = [];
+  for (const provider of PROVIDERS) {
+    if (!context.settings.providers[provider].enabled) {
+      continue;
+    }
+    try {
+      routings.set(
+        provider,
+        routeAssignment({ intent, provider, settings: context.settings, task, versions: context.providerVersions }),
+      );
+    } catch (error) {
+      if (!(error instanceof PolicyBlockedError)) {
+        throw error;
+      }
+      reasons.push(error.message);
+    }
+  }
+  if (routings.size === 0 && context.settings.modelPolicy !== undefined) {
+    recordPolicyBlocker(
+      context,
+      `Model policy revision ${String(context.settings.modelPolicy.revision)} blocks ${intent.role}. ${reasons.length === 0 ? 'Enable a supported subscription provider.' : reasons.join(' ')}`,
+      intent,
+    );
+  }
+  return routings;
 }

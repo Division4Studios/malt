@@ -8,6 +8,8 @@ Earlier terminal main [187dc5a](https://github.com/Division4Studios/malt/tree/18
 
 ## Implemented source
 
+Subsequent merged main `4ee09aa` also adds stable unused-provider capacity, runtime dependency-license policy, unpaid operator adoption of delivered issues and explicit objective retirement. Stack #251 carries this main through every prepared branch; its PRs remain unmerged.
+
 - Project-local MCP communication, SQLite claims/instructions, bounded handoffs and restart recovery.
 - Subscription CLI delivery, owned worktrees/processes, independent QA roles, defect return, expected-head merge and actual-main verification gates.
 - Objective ordering/focus, existing-delivery clearance, actionable blocker decisions and head-specific size exceptions.
@@ -18,6 +20,14 @@ Earlier terminal main [187dc5a](https://github.com/Division4Studios/malt/tree/18
 - GitHub Project form and tracker/source records; capability and recommendation stores are foundations, not completed connector/approval consoles.
 
 ## Partial or queued
+
+[Stack #251](https://github.com/Division4Studios/malt/stack/251) prepares the capacity/admission and revisioned model-policy slices below, plus recommendation reads, managed proposals, paired human decisions, scoped notices and unpaid intake. Its twenty implementation slices, focused provisioning-recovery repair and documentation wrap-up await owner review/merge. The factory remains paused with no rollout. Confirmed creation receipts survive failed dependency linking without admitting tasks early or treating own issues as external overlap.
+
+Before the later main integration, combined implementation source `c6846ef` passed **392 tests**, strict types, zero-warning lint, formatting and browser compilation. The isolated Docker smoke passed actual MCP/PWA persistence and native PTY cleanup. Model inference and GitHub mutation boundaries were fixtures; authenticated corpus smokes were read-only. This evidence does not establish live paid delivery, independent human review or a comprehensive installed-PWA audit.
+
+The main-integrated check subsequently passed **398 tests**, strict types, zero-warning lint, formatting and browser compilation. Final stack tree `95e4ba4` exactly matches checked tree `a6c905c`; the extraction moved earlier without changing final contents. Docker MCP/PWA persistence and Linux PTY cleanup passed with the integrated main source. Remaining receipt edits are documentation-only and have separate format/link checks.
+
+The table describes remaining boundaries on merged main. For the prepared source, #50 still needs approved remote effects, safe graph transfer, inactive skill candidates, the dedicated decision pane and full-loop verification (#59–#64). Approval currently records an inert intent. Independent exact-source review, actual merged-main verification and deliberate runtime deployment remain distinct gates. See [Operations](Operations) and the [versioned capability map](https://github.com/Division4Studios/malt/blob/main/docs/current-status.md).
 
 | Feature                                                                                 | Remaining boundary                                                                                                                                                                                                              |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -71,13 +71,22 @@ const bucketSchema = z.object({ primary: windowSchema.nullable(), secondary: win
 const accountSchema = z.object({ rateLimits: bucketSchema.nullable().optional() });
 /** One native Claude utilization fraction and reset deadline. */
 const claudeWindowSchema = z.object({
-  utilization: z.number().nonnegative(),
-  resetsAt: z.number().int().nonnegative(),
+  utilization: z.number().finite().nonnegative(),
+  resetsAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER / SECOND_MS),
 });
 /** Supported stream telemetry, including current unified subscription windows. */
 const claudeInfoSchema = z.object({
-  utilization: z.number().nonnegative().optional(),
-  resetsAt: z.number().int().nonnegative().optional(),
+  utilization: z.number().finite().nonnegative().optional(),
+  resetsAt: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(Number.MAX_SAFE_INTEGER / SECOND_MS)
+    .optional(),
   unifiedWindows: z.record(claudeWindowSchema).optional(),
 });
 /** Validated native percentage window. */
@@ -183,8 +192,10 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
   if (!parsed.success) {
     return [];
   }
-  return Object.entries(parsed.data.unifiedWindows ?? {})
-    .slice(0, MAX_WINDOWS)
+  const { utilization, resetsAt } = parsed.data;
+  const hasLegacy = utilization !== undefined && (resetsAt === undefined || resetsAt * SECOND_MS > now);
+  const windows = Object.entries(parsed.data.unifiedWindows ?? {})
+    .filter(([id]) => id !== 'legacy-reported' || !hasLegacy)
     .flatMap(([id, window]) => {
       const minutes = id === 'five_hour' ? FIVE_HOUR_MINUTES : null;
       const observation = subscriptionWindowSchema.safeParse({
@@ -196,7 +207,22 @@ export function claudeWindows(input: unknown, now = Date.now()): SubscriptionWin
         source: 'claude-stream',
       });
       return observation.success && window.resetsAt * SECOND_MS > now ? [observation.data] : [];
+    })
+    .slice(0, hasLegacy ? MAX_WINDOWS - 1 : MAX_WINDOWS);
+  if (hasLegacy) {
+    const legacy = subscriptionWindowSchema.safeParse({
+      id: 'legacy-reported',
+      minutes: null,
+      usedPercent: Math.min(PERCENT_MAX, utilization * PERCENT_MAX),
+      resetAt: resetsAt === undefined ? null : resetsAt * SECOND_MS,
+      observedAt: now,
+      source: 'claude-stream',
     });
+    if (legacy.success) {
+      windows.push(legacy.data);
+    }
+  }
+  return windows;
 }
 
 /**

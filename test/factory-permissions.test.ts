@@ -131,11 +131,13 @@ await test('managed provider environments retain subscription discovery and disa
     OPENAI_API_KEY: 'fixture-api-key',
     ANTHROPIC_API_KEY: 'fixture-anthropic-key',
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '0',
+    CLAUDE_CODE_EFFORT_LEVEL: 'high',
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '0',
     PATH: 'fixture-native-tools',
   });
   assert.equal(environment['OPENAI_API_KEY'], undefined);
   assert.equal(environment['ANTHROPIC_API_KEY'], undefined);
+  assert.equal(environment['CLAUDE_CODE_EFFORT_LEVEL'], undefined);
   assert.equal(environment['PATH'], 'fixture-native-tools');
   assert.equal(environment['CLAUDE_CODE_DISABLE_AUTO_MEMORY'], '1');
   assert.equal(environment['CLAUDE_CODE_DISABLE_BACKGROUND_TASKS'], '1');
