@@ -14,7 +14,7 @@ import { run, selectAll, selectOne } from '../database.ts';
 import { retireSystemIdentities, SYSTEM_RUNTIME } from '../identity-retirement.ts';
 import { MeshError } from '../protocol.ts';
 
-import { retireManagedPresence } from './controls.ts';
+import { retireManagedPresence, settleConsumedMessages } from './controls.ts';
 import { isClaimEligible } from './delivery-controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
@@ -717,6 +717,7 @@ export class FactoryRepository {
       });
       const finished = settledJob(current, { state, usage, finishedAt: this.store.now(), settlement });
       run(this.store.db, 'UPDATE factory_jobs SET state=?,data=? WHERE id=?', state, JSON.stringify(finished), job.id);
+      settleConsumedMessages(this.store, current, state);
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
