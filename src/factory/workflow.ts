@@ -5,9 +5,10 @@
  * @file
  */
 import { FACTORY_ROLES } from './schema.ts';
+import { workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
-import type { FactoryTask } from './schema.ts';
+import type { FactoryJob, FactoryRole, FactoryTask } from './schema.ts';
 
 /** Bound this operator projection independently of durable history. */
 const VISIBLE_SCOPES = 40;
@@ -54,6 +55,24 @@ function nextStage(task: FactoryTask): { roles: string[]; gate: string } {
 }
 
 /**
+ * Seats worth showing: those the default workflow uses, the learning steward, and
+ * any seat with recorded attempts. Unused specialist seats stay out of the map.
+ *
+ * @param repository - Selected project.
+ * @param jobs - Its recorded attempts.
+ * @returns Seats in their canonical order.
+ */
+function visibleSeats(repository: FactoryRepository, jobs: readonly FactoryJob[]): FactoryRole[] {
+  const { workflow } = workflowLibrary(repository.store).freeze();
+  const used = new Set<string>([
+    'learning-steward',
+    ...[...workflow.planning, ...workflow.delivery].flatMap((step) => step.roles),
+    ...jobs.map((job) => job.role),
+  ]);
+  return FACTORY_ROLES.filter((role) => used.has(role));
+}
+
+/**
  * Project the actual team rather than embedding eight nodes in browser code.
  * Attached peers are visible but are never claimed to be factory-owned processes.
  *
@@ -67,7 +86,7 @@ export function workflowState(repository: FactoryRepository): unknown {
   const organization = repository.config()?.organization;
   const members = organization?.members ?? {};
   const actorIds = new Map(peers.map((peer) => [peer.name, peer.id]));
-  const nodes = FACTORY_ROLES.map((role) => {
+  const nodes = visibleSeats(repository, jobs).map((role) => {
     const name = `factory-${role}`;
     const job = jobs.findLast((entry) => entry.role === role);
     const assigned = tasks.findLast(
