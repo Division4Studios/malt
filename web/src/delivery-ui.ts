@@ -440,7 +440,7 @@ class DeliveryView {
     if (delivery === undefined || customization === null) {
       return;
     }
-    this.overrides.open(delivery.taskId, customization, {
+    this.overrides.open({ taskId: delivery.taskId }, customization, {
       seats: seatNames(this.factory),
       profiles: profileNames(this.factory),
     });
