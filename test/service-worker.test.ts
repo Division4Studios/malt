@@ -61,10 +61,11 @@ function pathOf(input: Request): string {
 /**
  * Load the compiled worker into an isolated context with fake caches and network.
  *
+ * @param stores - Cache storage that outlives one worker run, as the browser's does.
  * @returns The worker and its platform.
  */
-function loadWorker(): Worker {
-  const worker: Worker = { listeners: new Map(), stores: new Map(), fetched: [], isOnline: true };
+function loadWorker(stores = new Map<string, Map<string, string>>()): Worker {
+  const worker: Worker = { listeners: new Map(), stores, fetched: [], isOnline: true };
   const cacheFor = (name: string): Map<string, string> => {
     const existing = worker.stores.get(name) ?? new Map<string, string>();
     worker.stores.set(name, existing);
@@ -87,10 +88,13 @@ function loadWorker(): Worker {
             store.set(pathOf(entry), bodies[index] ?? '');
           }
         },
-        match: async (input: Request) => {
+        match: async (input: Request | string) => {
           await tick();
-          const body = store.get(pathOf(input));
+          const body = store.get(typeof input === 'string' ? input : pathOf(input));
           return body === undefined ? undefined : new Response(body);
+        },
+        put: async (key: string, response: Response) => {
+          store.set(key, await response.text());
         },
       };
     },
@@ -233,6 +237,24 @@ await test('offline answers come only from this revision, and an offline-loaded 
     'a window loaded offline keeps loading its own revision after the network returns',
   );
   assert.equal(await dispatchFetch(worker, { path: '/app.js', client: 'online' }), 'network /app.js');
+
+  const restarted = loadWorker(worker.stores);
+  assert.equal(
+    await dispatchFetch(restarted, { path: '/app.js', client: 'offline' }),
+    'cached revision',
+    'a restarted worker keeps the window on its revision',
+  );
+});
+
+await test('a module that fails under a page loaded from the network does not pin its window', async () => {
+  const worker = loadWorker();
+  await lifecycle(worker, 'install');
+  assert.equal(await dispatchFetch(worker, { path: '/', isNavigation: true, client: 'live' }), 'network /');
+  worker.isOnline = false;
+  worker.stores.get(revision())?.set('/app.js', 'cached revision');
+  assert.equal(await dispatchFetch(worker, { path: '/app.js', client: 'live' }), 'cached revision');
+  worker.isOnline = true;
+  assert.equal(await dispatchFetch(worker, { path: '/api.js', client: 'live' }), 'network /api.js');
 });
 
 await test('the console serves the shell no-cache and every API response no-store', async (t) => {

@@ -157,11 +157,44 @@ function isRequestEvent(event: Event): event is RequestEvent {
 }
 
 /**
- * Windows that loaded their shell from this worker's cache. They keep loading
- * every module from the same revision, even once the network is back, so a page
- * never mixes an offline shell with newer modules.
+ * Windows whose page loaded from this worker's cache. They keep loading every
+ * module from the same revision, even once the network is back, so a page never
+ * mixes an offline shell with newer modules. Each pin is also recorded in the
+ * revision's own cache, so it survives the browser stopping an idle worker, and
+ * it is retired with that revision.
  */
 const offlineWindows = new Set<string>();
+/** Cache key prefix of recorded pins; never a shell path, so never served. */
+const PIN_PREFIX = '/__malt/offline-window/';
+
+/**
+ * Whether a window loaded its page from this revision's cache.
+ *
+ * @param window - Window id.
+ * @returns True once pinned, including by an earlier run of this worker.
+ */
+async function isPinned(window: string): Promise<boolean> {
+  if (offlineWindows.has(window)) {
+    return true;
+  }
+  const cache = await caches.open(CACHE);
+  const marker = await cache.match(`${PIN_PREFIX}${encodeURIComponent(window)}`);
+  if (marker !== undefined) {
+    offlineWindows.add(window);
+  }
+  return marker !== undefined;
+}
+
+/**
+ * Pin a window to this revision because its page came from the cache.
+ *
+ * @param window - Window id.
+ */
+async function pin(window: string): Promise<void> {
+  offlineWindows.add(window);
+  const cache = await caches.open(CACHE);
+  await cache.put(`${PIN_PREFIX}${encodeURIComponent(window)}`, new Response(''));
+}
 
 /**
  * One shell asset from this worker's own revision cache, never another revision's.
@@ -177,20 +210,22 @@ async function cachedAsset(request: Request): Promise<Response> {
 
 /**
  * Prefer the latest public shell, falling back to this revision's cache offline.
+ * Only a page that itself came from the cache pins its window; a module that
+ * fails while its page came from the network is answered from the cache once.
  *
  * @param request - Exact public shell request.
  * @param window - Window the response is for, if known.
  * @returns Network response, or this revision's cached shell.
  */
 async function publicAsset(request: Request, window: string): Promise<Response> {
-  if (window !== '' && offlineWindows.has(window)) {
+  if (window !== '' && (await isPinned(window))) {
     return cachedAsset(request);
   }
   try {
     return await fetch(request);
   } catch {
-    if (window !== '') {
-      offlineWindows.add(window);
+    if (window !== '' && request.mode === 'navigate') {
+      await pin(window);
     }
     return cachedAsset(request);
   }
