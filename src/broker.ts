@@ -549,6 +549,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
       'factory_export_maintenance',
       'factory_recover',
       'factory_approve',
+      'factory_gates',
       'factory_schedule_save',
       'factory_trigger_save',
       'factory_automation_delete',

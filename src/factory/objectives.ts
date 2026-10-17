@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { MeshError } from '../protocol.ts';
 
 import { briefPlan } from './briefs.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { MAX_OBJECTIVES } from './objective-queue-schema.ts';
 import { unsupportedSteps } from './pipeline.ts';
 import { factorySchemas } from './schema.ts';
@@ -38,7 +39,7 @@ export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow
  * @throws {MeshError} If the same request ID denotes a different objective.
  */
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
-  const { objective, requestId, workflowId = null } = factorySchemas.factory_request.parse(input);
+  const { objective, requestId, workflowId = null, gates } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
   const workflow = workflowLibrary(repository.store).freeze(workflowId);
   const unsupported = unsupportedSteps(workflow.workflow);
@@ -81,6 +82,7 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       updatedAt: now,
       workflow,
       approvals: [],
+      gates: objectiveGates(repository, gates),
     });
     repository.notify(`Product objective queued: ${objective}`);
     return { featureId: id };

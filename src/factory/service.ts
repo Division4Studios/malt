@@ -26,6 +26,7 @@ import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
+import { changeGates } from './gate-controls.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { instructControl } from './instruction-control.ts';
@@ -359,6 +360,7 @@ export class FactoryService {
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_gates: () => changeGates(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),

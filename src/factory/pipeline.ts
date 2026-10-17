@@ -13,6 +13,7 @@
  * @file
  */
 
+import { MERGE_GATE_STEP } from './gate-schema.ts';
 import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.ts';
 
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
@@ -84,24 +85,67 @@ export function unsupportedSteps(workflow: Workflow): string[] {
 }
 
 /**
- * The workflow an objective runs.
+ * A workflow with frozen gates applied: the plan gate gates the plan step, and
+ * the merge gate adds one approval step right before the final check. Gates
+ * live beside the frozen copy, so its revision still names what was frozen.
  *
- * @param feature - Objective, possibly saved before workflows existed.
- * @returns Its frozen workflow, or the legacy pipeline.
+ * @param workflow - Frozen workflow.
+ * @param gates - Gates frozen on the objective or delivery.
+ * @param gates.plan - Approve the plan before deliveries exist.
+ * @param gates.merge - Approve the exact head before the final check.
+ * @returns The workflow the interpreter runs.
  */
-export function featureWorkflow(feature: Feature | null | undefined): Workflow {
-  return feature?.workflow?.workflow ?? legacyWorkflow();
+export function withGates(workflow: Workflow, gates: { plan?: boolean; merge?: boolean }): Workflow {
+  const planning =
+    gates.plan === true
+      ? workflow.planning.map((step) => (step.kind === 'plan' ? { ...step, gate: true } : step))
+      : workflow.planning;
+  const final = workflow.delivery.find((step) => step.kind === 'final');
+  if (final === undefined || gates.merge !== true || workflow.delivery.some((step) => step.id === MERGE_GATE_STEP)) {
+    return planning === workflow.planning ? workflow : { ...workflow, planning };
+  }
+  const gate: WorkflowStep = {
+    id: MERGE_GATE_STEP,
+    kind: 'approve',
+    title: 'Merge approval',
+    roles: [],
+    profile: null,
+    after: [...final.after],
+    inputs: null,
+    blind: false,
+    gate: false,
+    optional: false,
+    provider: null,
+    instructions: '',
+  };
+  const delivery = workflow.delivery.flatMap((step) =>
+    step === final ? [gate, { ...step, after: [...step.after, MERGE_GATE_STEP] }] : [step],
+  );
+  return { ...workflow, planning, delivery };
 }
 
 /**
- * The workflow one delivery runs: its own frozen copy, else its objective's.
+ * The workflow an objective runs.
+ *
+ * @param feature - Objective, possibly saved before workflows existed.
+ * @returns Its frozen workflow with its gates, or the legacy pipeline.
+ */
+export function featureWorkflow(feature: Feature | null | undefined): Workflow {
+  return withGates(feature?.workflow?.workflow ?? legacyWorkflow(), feature?.gates ?? {});
+}
+
+/**
+ * The workflow one delivery runs: its own frozen copy, else its objective's,
+ * with the merge gate the delivery froze (or its objective's, for older ones).
  *
  * @param task - Delivery.
  * @param features - Known objectives, consulted for deliveries without a frozen copy.
  * @returns Frozen workflow, or the legacy pipeline for deliveries saved before workflows.
  */
 export function taskWorkflow(task: FactoryTask, features: readonly Feature[] = []): Workflow {
-  return task.workflow?.workflow ?? featureWorkflow(features.find((feature) => feature.id === task.featureId));
+  const feature = features.find((candidate) => candidate.id === task.featureId);
+  const workflow = task.workflow?.workflow ?? feature?.workflow?.workflow ?? legacyWorkflow();
+  return withGates(workflow, { merge: task.gates?.merge ?? feature?.gates?.merge ?? false });
 }
 
 /**
