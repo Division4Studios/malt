@@ -164,6 +164,161 @@ function stepShapeProblems(step: WorkflowStep): string[] {
 }
 
 /**
+ * Count the steps of one kind.
+ *
+ * @param steps - One section.
+ * @param kind - Kind to count.
+ * @returns Matching steps in order.
+ */
+export function stepsOf(steps: readonly WorkflowStep[], kind: StepKind): WorkflowStep[] {
+  return steps.filter((step) => step.kind === kind);
+}
+
+/**
+ * Whether two steps share a seat.
+ *
+ * @param left - First step.
+ * @param right - Second step.
+ * @returns True when any role appears in both.
+ */
+export function hasSharedRole(left: WorkflowStep, right: WorkflowStep): boolean {
+  return left.roles.some((role) => right.roles.includes(role));
+}
+
+/**
+ * Planning must produce exactly one delivery list, in a sensible order.
+ *
+ * @param steps - Planning section.
+ * @returns Problems found.
+ */
+export function planningProblems(steps: readonly WorkflowStep[]): string[] {
+  if (steps.length === 0) {
+    return [];
+  }
+  const problems: string[] = [];
+  const [plan] = stepsOf(steps, 'plan');
+  const [specify] = stepsOf(steps, 'specify');
+  if (stepsOf(steps, 'plan').length !== 1) {
+    problems.push('Planning needs exactly one plan step, which produces the deliveries.');
+  }
+  if (stepsOf(steps, 'specify').length > 1 || stepsOf(steps, 'plan_revise').length > 1) {
+    problems.push('Planning allows at most one specify step and one revision step.');
+  }
+  if (specify !== undefined && plan !== undefined && !ancestorIds(steps, plan.id).has(specify.id)) {
+    problems.push('The plan step must come after the specify step.');
+  }
+  return [...problems, ...planReviewProblems(steps, plan)];
+}
+
+/**
+ * Reviewed plans are revised, and nobody reviews their own plan.
+ *
+ * @param steps - Planning section.
+ * @param plan - Its plan step, if present.
+ * @returns Problems found.
+ */
+function planReviewProblems(steps: readonly WorkflowStep[], plan: WorkflowStep | undefined): string[] {
+  const problems: string[] = [];
+  const reviews = stepsOf(steps, 'plan_review');
+  const [revise] = stepsOf(steps, 'plan_revise');
+  for (const review of reviews) {
+    if (plan === undefined || !ancestorIds(steps, review.id).has(plan.id)) {
+      problems.push(`"${review.title}" must come after the plan step.`);
+    } else if (hasSharedRole(review, plan)) {
+      problems.push('The planner cannot review its own plan.');
+    }
+  }
+  if (revise === undefined && reviews.length > 0) {
+    problems.push('A reviewed plan needs a revision step that addresses the findings.');
+  }
+  if (revise !== undefined) {
+    const before = ancestorIds(steps, revise.id);
+    if (reviews.length === 0 || reviews.some((review) => !before.has(review.id))) {
+      problems.push('The revision step must come after every plan review.');
+    }
+    if (reviews.some((review) => hasSharedRole(review, revise))) {
+      problems.push('A plan reviewer cannot also revise the plan it reviewed.');
+    }
+  }
+  return problems;
+}
+
+/**
+ * Implement first; final then verify last; nothing runs after the final check except verify.
+ *
+ * @param steps - Delivery section.
+ * @param implement - Its implement step, if present.
+ * @param final - Its final step, if present.
+ * @returns Problems found.
+ */
+export function deliveryShapeProblems(
+  steps: readonly WorkflowStep[],
+  implement: WorkflowStep | undefined,
+  final: WorkflowStep | undefined,
+): string[] {
+  const problems: string[] = [];
+  if (stepsOf(steps, 'implement').length !== 1 || steps[0] !== implement || implement?.after.length !== 0) {
+    problems.push('Delivery needs exactly one implement step, and it must be first.');
+  }
+  if (stepsOf(steps, 'final').length !== 1 || stepsOf(steps, 'verify').length !== 1) {
+    problems.push('Delivery needs exactly one final step and one verify step.');
+  }
+  const verify = steps.at(-1);
+  if (final === undefined || verify?.kind !== 'verify' || !verify.after.includes(final.id)) {
+    problems.push('The verify step must be last and come directly after the final step.');
+  }
+  return [...problems, ...finalJoinProblems(steps, final)];
+}
+
+/**
+ * The final check joins every other step, so nothing changes code after it.
+ *
+ * @param steps - Delivery section.
+ * @param final - Its final step, if present.
+ * @returns Problems found.
+ */
+function finalJoinProblems(steps: readonly WorkflowStep[], final: WorkflowStep | undefined): string[] {
+  if (final === undefined) {
+    return [];
+  }
+  const before = ancestorIds(steps, final.id);
+  return steps
+    .filter((step) => step !== final && step.kind !== 'verify' && !before.has(step.id))
+    .map((step) => `"${step.title}" must finish before the final step.`);
+}
+
+/**
+ * At least one review; reviewers and the final checker are independent of authors.
+ *
+ * @param steps - Delivery section.
+ * @param implement - Its implement step, if present.
+ * @param final - Its final step, if present.
+ * @param authors - Roles that write code.
+ * @returns Problems found.
+ */
+export function reviewProblems(
+  steps: readonly WorkflowStep[],
+  implement: WorkflowStep | undefined,
+  final: WorkflowStep | undefined,
+  authors: ReadonlySet<string>,
+): string[] {
+  const problems: string[] = [];
+  const reviews = stepsOf(steps, 'review');
+  if (reviews.length === 0) {
+    problems.push('Delivery needs at least one independent review.');
+  }
+  for (const review of reviews) {
+    if (implement !== undefined && hasSharedRole(review, implement)) {
+      problems.push(`"${review.title}" cannot be performed by the implementer.`);
+    }
+  }
+  if (final?.roles.some((role) => authors.has(role)) === true) {
+    problems.push('The final step must be independent of everyone who wrote code.');
+  }
+  return problems;
+}
+
+/**
  * Every step reachable backwards through `after` edges.
  *
  * @param steps - One section.
