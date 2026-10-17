@@ -20,7 +20,7 @@ import { writeAtomic } from '../summary.ts';
 import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
 import { MergeConflictError } from './merge-conflict.ts';
-import { assertPublicationSize } from './publication-size.ts';
+import { assertPublicationSize, emptyPublicationReason, EmptyPublicationError } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -365,6 +365,8 @@ export class WorkspaceManager {
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, previous, base);
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
+    // Measured from the base this delivery last built on, so work main absorbed since still counts as its own.
+    const ownCommitsBefore = await this.ownCommits(record.base ?? base, previous, directory);
     if (status !== '') {
       await this.assertResolved(directory);
       await this.git(['add', '--all'], directory);
@@ -387,9 +389,9 @@ export class WorkspaceManager {
       }
     }
     if (entries.length === 0) {
-      throw new MeshError(
-        'FACTORY_GATED',
-        'The delivery diff is empty. Reconcile already-delivered work before implementation.',
+      const ownCommitsAfter = await this.ownCommits(base, head, directory);
+      throw new EmptyPublicationError(
+        emptyPublicationReason({ ownCommitsBefore, ownCommitsAfter, hadEdits: status !== '' }),
       );
     }
     await beforePush({ head, base });
@@ -601,6 +603,18 @@ export class WorkspaceManager {
     if (isTerminal || task.branch?.startsWith('malt/terminal/') === true) {
       throw new MeshError('FACTORY_GATED', 'Terminal scratch work cannot be adopted as a delivery branch or worktree.');
     }
+  }
+
+  /**
+   * Commits a branch head has that main does not.
+   *
+   * @param base - Fetched main.
+   * @param head - Branch commit.
+   * @param directory - Owned worktree.
+   * @returns Commit count.
+   */
+  private async ownCommits(base: string, head: string, directory: string): Promise<number> {
+    return Number(await this.git(['rev-list', '--count', `${base}..${head}`], directory));
   }
 
   /**
