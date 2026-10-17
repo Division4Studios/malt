@@ -7,9 +7,11 @@
  * @file
  */
 import { number, text } from './api.js';
+import { parseCustomization } from './step-override-model.js';
 import { formatDuration } from './telemetry-format.js';
 
 import type { Data } from './api.js';
+import type { Customization } from './step-override-model.js';
 
 /** Plain step states, in the order the broker defines them. */
 export const STEP_STATES = ['done', 'running', 'ready', 'needs_you', 'waiting'] as const;
@@ -143,6 +145,10 @@ export interface Delivery {
   readonly repairs: readonly RepairRound[];
   /** Whether the operator kept it on the board after it finished. */
   readonly isKept: boolean;
+  /** Step override editor state, while its steps can still change. */
+  readonly customization: Customization | null;
+  /** The lead's brief revalidation verdict, when recorded. */
+  readonly revalidation: { readonly outcome: string; readonly summary: string; readonly at: number } | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -542,8 +548,23 @@ function parseDelivery(record: Data): Delivery | null {
       };
     }),
     isKept: record['isKept'] === true,
+    customization: parseCustomization(record['customization']),
+    revalidation: parseRevalidation(record['revalidation']),
     updatedAt: number(record, 'updatedAt'),
   };
+}
+
+/**
+ * Validate a brief revalidation verdict.
+ *
+ * @param value - Untrusted verdict.
+ * @returns Outcome, summary and time, or `null` when none was recorded.
+ */
+function parseRevalidation(value: unknown): Delivery['revalidation'] {
+  const verdict = asData(value);
+  return verdict === null
+    ? null
+    : { outcome: text(verdict, 'outcome'), summary: text(verdict, 'summary'), at: number(verdict, 'at') };
 }
 
 /**

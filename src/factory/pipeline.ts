@@ -14,6 +14,7 @@
  */
 
 import { MERGE_GATE_STEP } from './gate-schema.ts';
+import { withOverrides } from './step-overrides.ts';
 import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.ts';
 
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
@@ -128,15 +129,17 @@ export function withGates(workflow: Workflow, gates: { plan?: boolean; merge?: b
  * The workflow an objective runs.
  *
  * @param feature - Objective, possibly saved before workflows existed.
- * @returns Its frozen workflow with its gates, or the legacy pipeline.
+ * @returns Its frozen workflow with its step overrides and gates, or the legacy pipeline.
  */
 export function featureWorkflow(feature: Feature | null | undefined): Workflow {
-  return withGates(feature?.workflow?.workflow ?? legacyWorkflow(), feature?.gates ?? {});
+  const workflow = withOverrides(feature?.workflow?.workflow ?? legacyWorkflow(), feature?.stepOverrides);
+  return withGates(workflow, feature?.gates ?? {});
 }
 
 /**
  * The workflow one delivery runs: its own frozen copy, else its objective's,
- * with the merge gate the delivery froze (or its objective's, for older ones).
+ * with the step overrides and merge gate the delivery froze (or its
+ * objective's, for older ones).
  *
  * @param task - Delivery.
  * @param features - Known objectives, consulted for deliveries without a frozen copy.
@@ -144,7 +147,10 @@ export function featureWorkflow(feature: Feature | null | undefined): Workflow {
  */
 export function taskWorkflow(task: FactoryTask, features: readonly Feature[] = []): Workflow {
   const feature = features.find((candidate) => candidate.id === task.featureId);
-  const workflow = task.workflow?.workflow ?? feature?.workflow?.workflow ?? legacyWorkflow();
+  const workflow = withOverrides(
+    task.workflow?.workflow ?? feature?.workflow?.workflow ?? legacyWorkflow(),
+    task.stepOverrides ?? feature?.stepOverrides,
+  );
   return withGates(workflow, { merge: task.gates?.merge ?? feature?.gates?.merge ?? false });
 }
 

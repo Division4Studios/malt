@@ -18,6 +18,7 @@ import {
 } from './pipeline.ts';
 import { attemptBudget } from './repair-schema.ts';
 import { isBackingOff } from './retry-policy.ts';
+import { isRevalidationDue, revalidationIntents } from './revalidation.ts';
 import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
 
 import type {
@@ -277,6 +278,7 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
   appendTriage(input, live, intents);
+  intents.push(...revalidationIntents(input, live));
   const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
   const candidates = intents.splice(developmentStart);
@@ -551,7 +553,8 @@ function scheduleGroup3(
       task.dependencies.some((id) =>
         input.tasks.every((dependency) => !(dependency.id === id && dependency.phase === 'done')),
       ) ||
-      task.attempts >= attemptBudget(task, input.config)
+      task.attempts >= attemptBudget(task, input.config) ||
+      isRevalidationDue(task, input.tasks, input.config)
     ) {
       continue;
     }

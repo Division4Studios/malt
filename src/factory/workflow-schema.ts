@@ -521,6 +521,8 @@ export const approveRequestSchema = z
 export const saveWorkflowRequestSchema = z
   .object({ workflow: z.unknown(), expectedRevision: revisionSchema.nullable() })
   .strict();
+/** Revision history request for one workflow. */
+export const workflowHistoryRequestSchema = z.object({ workflowId: keySchema }).strict();
 /** Default workflow selection request. */
 export const defaultWorkflowRequestSchema = z.object({ workflowId: keySchema }).strict();
 /** Bound dispositions recorded by one fix. */
@@ -538,9 +540,14 @@ export const dispositionSchema = z
 export type Disposition = z.output<typeof dispositionSchema>;
 /** A bounded disposition ledger. */
 export const dispositionsSchema = z.array(dispositionSchema).max(MAX_DISPOSITIONS);
+/** Version of every typed step output; results saved before it existed parse as version 1. */
+export const STEP_OUTPUT_VERSION = 1;
+/** Output version field shared by every typed step output. */
+const outputVersionSchema = z.literal(STEP_OUTPUT_VERSION).default(STEP_OUTPUT_VERSION);
 /** A fix-stage step result, bound to the source it produced (fix, docs) or judged (regression). */
 export const stepResultSchema = z
   .object({
+    schemaVersion: outputVersionSchema,
     stepId: keySchema,
     kind: z.enum(['adjudicate', 'document', 'regress']),
     role: z.enum(FACTORY_ROLES),
@@ -559,6 +566,7 @@ export type StepResult = z.output<typeof stepResultSchema>;
 /** A planning review or revision result, bound to the plan it judged or produced. */
 export const planningResultSchema = z
   .object({
+    schemaVersion: outputVersionSchema,
     stepId: keySchema,
     kind: z.enum(['plan_review', 'plan_revise']),
     role: z.enum(FACTORY_ROLES),
@@ -572,3 +580,28 @@ export const planningResultSchema = z
   .strict();
 /** One recorded planning result. */
 export type PlanningResult = z.output<typeof planningResultSchema>;
+/** Bound a commit identity in typed outputs. */
+const COMMIT_MAX = 64;
+
+/**
+ * A typed specification or plan output: which step produced it, which exact
+ * source commit the attempt read, and how many deliveries it named. Brief
+ * revalidation compares a delivery's predecessors against this source.
+ */
+export const planOutputSchema = z
+  .object({
+    schemaVersion: outputVersionSchema,
+    /** Producing step; `null` for objectives planned before workflows. */
+    stepId: keySchema.nullable(),
+    kind: z.enum(['specify', 'plan', 'plan_revise']),
+    role: z.enum(FACTORY_ROLES),
+    jobId: z.string().uuid(),
+    /** Exact source commit the attempt was sealed to, when known. */
+    source: z.string().min(1).max(COMMIT_MAX).nullable(),
+    /** Deliveries the output named. */
+    deliveries: z.number().int().nonnegative(),
+    at: z.number(),
+  })
+  .strict();
+/** One recorded specification or plan output. */
+export type PlanOutput = z.output<typeof planOutputSchema>;

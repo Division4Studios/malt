@@ -111,6 +111,7 @@ export const controlSchema = z
       'factory_approve',
       'factory_answer',
       'factory_gates',
+      'factory_step_overrides',
       'factory_cancel_job',
       'factory_capacity',
       'factory_prices',
@@ -359,6 +360,17 @@ export class ProjectGateway {
   ): Promise<DiffSummary | DiffPatch> {
     const result = await rpc(this.config(id), 'factory_delivery_diff', query);
     return query.path === undefined ? diffSummarySchema.parse(result) : diffPatchSchema.parse(result);
+  }
+
+  /**
+   * Read one workflow's revision history through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Workflow id parsed from the route.
+   * @returns Untrusted history, validated by the console view.
+   */
+  public async workflowHistory(id: string, query: unknown): Promise<unknown> {
+    return await rpc(this.config(id), 'factory_workflow_history', query);
   }
 
   /**

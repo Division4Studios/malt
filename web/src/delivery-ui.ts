@@ -7,6 +7,7 @@
  *
  * @file
  */
+import { child, data } from './api.js';
 import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromStep } from './approval-model.js';
 import { lifecycleControl, mergeGateControl } from './board-model.js';
@@ -22,8 +23,11 @@ import {
   shortSha,
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
+import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
+import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
 
+import type { Data } from './api.js';
 import type { ControlSender } from './approval-dialog.js';
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { ConsoleModel, Delivery, RepairRound, Step, StepResult } from './console-model.js';
@@ -65,6 +69,26 @@ function fact(list: HTMLDListElement, term: string, value: string | HTMLElement)
 }
 
 /**
+ * Describe the delivery's step overrides and brief revalidation, when it has them.
+ *
+ * @param facts - Header facts.
+ * @param delivery - Delivery shown.
+ */
+function customizedFact(facts: HTMLDListElement, delivery: Delivery): void {
+  const custom = delivery.customization;
+  const summary = custom === null ? '' : overrideSummary(custom.steps, custom.overrides);
+  if (summary !== '') {
+    fact(facts, 'Customized', summary);
+  }
+  const verdict = delivery.revalidation;
+  if (verdict === null) {
+    return;
+  }
+  const label = verdict.outcome === 'confirmed' ? 'Confirmed' : 'Needs revising';
+  fact(facts, 'Brief revalidation', verdict.summary === '' ? label : `${label}: ${verdict.summary}`);
+}
+
+/**
  * Build the delivery header.
  *
  * @param delivery - Delivery shown.
@@ -98,6 +122,7 @@ function header(delivery: Delivery): HTMLElement {
       delivery.held.reason === '' ? 'No new attempt starts until you resume it.' : delivery.held.reason,
     );
   }
+  customizedFact(facts, delivery);
   if (delivery.waitingOn.length > 0) {
     fact(facts, 'Waiting on', delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
   }
@@ -237,6 +262,12 @@ class DeliveryView {
   private readonly lifecycle: HTMLButtonElement;
   /** Requires or removes the merge approval of the delivery shown. */
   private readonly mergeGate: HTMLButtonElement;
+  /** Opens the step override dialog. */
+  private readonly customize: HTMLButtonElement;
+  /** Step override dialog. */
+  private readonly overrides: StepOverrideDialog;
+  /** Latest factory snapshot, for seats and profiles. */
+  private factory: Data = {};
   /** Operator control path. */
   private readonly control: ControlSender;
   /** Re-rendered content. */
@@ -291,9 +322,19 @@ class DeliveryView {
         void this.applyMergeGate();
       },
     });
+    this.overrides = new StepOverrideDialog(hooks.control, () => {
+      restoreFocus(this.root, 'customize', this.root.querySelector<HTMLElement>('.delivery-title'));
+    });
+    this.customize = button('Customize steps', {
+      cssClass: 'button secondary',
+      key: 'customize',
+      action: () => {
+        this.openOverrides();
+      },
+    });
     const toolbar = element('div', 'delivery-toolbar');
     const actions = element('div', 'delivery-toolbar-actions');
-    actions.append(this.mergeGate, this.lifecycle, this.attempts);
+    actions.append(this.customize, this.mergeGate, this.lifecycle, this.attempts);
     toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
   }
@@ -320,6 +361,7 @@ class DeliveryView {
    */
   public update(snapshot: unknown): void {
     this.model = readConsole(snapshot);
+    this.factory = child(data(snapshot), 'factory');
     this.dialog.sync(this.model.open);
     this.render();
   }
@@ -340,6 +382,7 @@ class DeliveryView {
     const gate = delivery === undefined ? null : mergeGateControl(delivery);
     this.mergeGate.hidden = gate === null;
     this.mergeGate.textContent = gate?.label ?? 'Require merge approval';
+    this.customize.hidden = (delivery?.customization ?? null) === null;
     if (delivery === undefined) {
       const empty = emptyState(
         'This delivery is not on the board',
@@ -384,6 +427,19 @@ class DeliveryView {
     } finally {
       this.lifecycle.disabled = false;
     }
+  }
+
+  /** Open the step override dialog for the delivery shown. */
+  private openOverrides(): void {
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    const customization = delivery?.customization ?? null;
+    if (delivery === undefined || customization === null) {
+      return;
+    }
+    this.overrides.open(delivery.taskId, customization, {
+      seats: seatNames(this.factory),
+      profiles: profileNames(this.factory),
+    });
   }
 
   /** Toggle the merge approval of the delivery shown, once; the next snapshot shows the result. */
