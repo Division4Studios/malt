@@ -62,8 +62,9 @@ import { workflowView } from './workflow-ui.js';
 import type { Snapshot } from './api.js';
 import type { View } from './navigation.js';
 import type { OperatorEdit as Edit } from './recovery-ui.js';
+import type { ShellState } from './shell-state.js';
 import type { Actions } from './views.js';
-import type { EditorDescription, InstallEvent } from './worker-ui.js';
+import type { EditorDescription } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
@@ -77,30 +78,7 @@ const layoutKey = 'malt-worker-layout-v1';
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
-const state: {
-  /** Last observed backend snapshot. */
-  current: Snapshot | null;
-  /** Selected public project identifier. */
-  project: string;
-  /** Local navigation route. */
-  view: View;
-  /** Authenticated observation stream. */
-  stream: EventSource | null;
-  /** Current explicit operator control. */
-  edit: Edit | null;
-  /** Project captured when the operator opened the current draft. */
-  editProject: string | null;
-  /** Browser install capability. */
-  installEvent: InstallEvent | null;
-  /** Selected logical worker roles. */
-  panes: string[];
-  /** Preserve native controls and resized panes while semantic state is unchanged. */
-  renderKey: string;
-  /** Whether authenticated state is currently arriving. */
-  isConnected: boolean;
-  /** Consecutive native stream errors. */
-  reconnects: number;
-} = {
+const state: ShellState = {
   current: null,
   project: 'home',
   view: 'overview',
@@ -142,6 +120,12 @@ const owned = new ConsoleViews({
   project: () => state.project,
   control,
   select: go,
+  selectProject: (project) => {
+    scopeTo(project);
+    node('project', HTMLSelectElement).value = project;
+    void refresh();
+    subscribe();
+  },
   triage: investigate,
   recover: () => {
     go('overview');
@@ -486,6 +470,25 @@ async function projects(): Promise<void> {
     select.append(option);
   }
   select.value = state.project;
+  if (select.value === state.project) {
+    return;
+  }
+  // A notification's project that is no longer open falls back to the root project.
+  scopeTo('home');
+  select.value = state.project;
+}
+
+/**
+ * Scope the console to a project before reading its state.
+ *
+ * @param project - Project id.
+ */
+function scopeTo(project: string): void {
+  state.project = project;
+  history.select(project);
+  state.current = null;
+  tails.clear();
+  render();
 }
 /** Inspect captured stdout by bounded byte cursors, retaining only a small tail. */
 async function readLogs(): Promise<void> {
@@ -573,12 +576,13 @@ function go(selected: string): void {
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
   bindNavigation(go);
-  // An Inbox notification opens a new console window at `/?view=inbox`.
+  // An Inbox notification opens a new console window at `/?view=inbox&project=…`.
   const parameters = new URLSearchParams(location.search);
   const requested = parameters.get('view');
   if (requested !== null && isView(requested)) {
     state.view = requested;
   }
+  state.project = parameters.get('project') ?? state.project;
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
@@ -592,11 +596,7 @@ async function start(): Promise<void> {
     void submitEdit();
   });
   node('project', HTMLSelectElement).addEventListener('change', () => {
-    state.project = node('project', HTMLSelectElement).value;
-    history.select(state.project);
-    state.current = null;
-    tails.clear();
-    render();
+    scopeTo(node('project', HTMLSelectElement).value);
     void refresh();
     subscribe();
   });
@@ -684,11 +684,7 @@ async function pair(): Promise<void> {
 async function openProject(workspace: string): Promise<void> {
   try {
     const value = data(await request('/api/projects', { workspace }));
-    state.project = text(value, 'id');
-    history.select(state.project);
-    state.current = null;
-    tails.clear();
-    render();
+    scopeTo(text(value, 'id'));
     await projects();
     await refresh();
     subscribe();

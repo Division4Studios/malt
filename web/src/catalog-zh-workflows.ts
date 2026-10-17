@@ -324,4 +324,6 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
     '新目标现在使用“{name}”。运行中的目标不受影响。',
   'The default was not changed. The console notice explains why.': '默认值未更改。控制台提示说明了原因。',
   'The default was not changed: {error}': '默认值未更改：{error}',
+  'This draft was opened in another project. Switch back to that project to save it.':
+    '此草稿是在另一个项目中打开的。请切换回该项目再保存。',
 };

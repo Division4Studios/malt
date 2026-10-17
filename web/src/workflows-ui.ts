@@ -100,6 +100,8 @@ class WorkflowsView {
   private isPending = false;
   /** Failure text captured while a control is in flight. */
   private failure = '';
+  /** Project selected when the open draft was opened; it is saved only there. */
+  private draftProject = '';
 
   /**
    * Build the view shell.
@@ -109,7 +111,15 @@ class WorkflowsView {
   public constructor(hooks: WorkflowsHooks) {
     this.hooks = hooks;
     this.editor = new WorkflowEditor({
-      send: async (operation, input) => this.send(operation, input),
+      send: async (operation, input) => {
+        if (this.draftProject !== this.selectedProject()) {
+          return {
+            ok: false,
+            error: t('This draft was opened in another project. Switch back to that project to save it.'),
+          };
+        }
+        return this.send(operation, input);
+      },
       library: () => this.library,
       saved: (id) => {
         this.saved(id);
@@ -196,6 +206,15 @@ class WorkflowsView {
     if (!isSuccess && this.isPending) {
       this.failure = message;
     }
+  }
+
+  /**
+   * The project the shell has selected.
+   *
+   * @returns Project id, or an empty string when the shell does not report one.
+   */
+  private selectedProject(): string {
+    return this.hooks.project?.() ?? '';
   }
 
   /**
@@ -419,6 +438,7 @@ class WorkflowsView {
     const { draft, origin, title } = make();
     this.status.textContent = '';
     this.followUp.replaceChildren();
+    this.draftProject = this.selectedProject();
     this.editor.open(draft, origin, title);
     this.render();
   }
@@ -466,6 +486,7 @@ class WorkflowsView {
       return;
     }
     const { draft, origin } = draftFrom(item, this.library);
+    this.draftProject = this.selectedProject();
     this.editor.open(draft, origin, t('Edit “{name}”', { name: item.workflow.name }));
     this.status.textContent = t('Loaded the latest revision of “{id}”.', { id });
     this.render();

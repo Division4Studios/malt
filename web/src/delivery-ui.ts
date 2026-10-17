@@ -47,6 +47,40 @@ export interface DeliveryHooks {
 
 /** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
 const TITLE_KEY = 'delivery-title';
+/** How often relative times (liveness checkpoint, retry wait) are recomputed. */
+const CLOCK_MS = 1000;
+
+/**
+ * The relative-time facts of a delivery, by the `data-clock` name of their element.
+ *
+ * @param delivery - Delivery shown.
+ * @param now - Current time.
+ * @returns Text per clocked fact the delivery has.
+ */
+function clockedFacts(delivery: Delivery, now: number): ReadonlyMap<string, string> {
+  const facts = new Map<string, string>();
+  const liveness = delivery.running?.liveness ?? null;
+  if (liveness !== null) {
+    facts.set('liveness', livenessText(liveness, now));
+  }
+  if (delivery.retry !== null) {
+    facts.set('retry', retryText(delivery.retry, now));
+  }
+  return facts;
+}
+
+/**
+ * A fact value that the view's clock keeps current.
+ *
+ * @param name - Clocked fact name.
+ * @param value - Text at render time.
+ * @returns Value element.
+ */
+function clocked(name: string, value: string): HTMLElement {
+  const span = element('span', '', value);
+  span.dataset['clock'] = name;
+  return span;
+}
 
 /** A mounted delivery view. */
 export interface DeliveryHandle extends ConsoleViewHandle {
@@ -109,12 +143,14 @@ function header(delivery: Delivery): HTMLElement {
   fact(facts, t('Base'), shortSha(delivery.base));
   fact(facts, t('Pull request'), delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, t('Open pull request')));
   fact(facts, t('Running now'), runningText(delivery) ?? t('Nothing'));
-  const liveness = delivery.running?.liveness ?? null;
-  if (liveness !== null) {
-    fact(facts, t('Liveness'), livenessText(liveness, Date.now()));
+  const timed = clockedFacts(delivery, Date.now());
+  const liveness = timed.get('liveness');
+  if (liveness !== undefined) {
+    fact(facts, t('Liveness'), clocked('liveness', liveness));
   }
-  if (delivery.retry !== null) {
-    fact(facts, t('Retry'), retryText(delivery.retry, Date.now()));
+  const retry = timed.get('retry');
+  if (retry !== undefined) {
+    fact(facts, t('Retry'), clocked('retry', retry));
   }
   if (delivery.held !== null) {
     fact(
@@ -338,6 +374,10 @@ class DeliveryView {
     actions.append(this.customize, this.mergeGate, this.lifecycle, this.attempts);
     toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
+    // Snapshots skip unchanged deliveries, so relative times advance on their own clock.
+    setInterval(() => {
+      this.tick();
+    }, CLOCK_MS);
   }
 
   /**
@@ -365,6 +405,24 @@ class DeliveryView {
     this.factory = child(data(snapshot), 'factory');
     this.dialog.sync(this.model.open);
     this.render();
+  }
+
+  /** Recompute the shown delivery's relative times. */
+  private tick(): void {
+    if (!this.root.isConnected) {
+      return;
+    }
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    if (delivery === undefined) {
+      return;
+    }
+    const facts = clockedFacts(delivery, Date.now());
+    for (const node of this.body.querySelectorAll<HTMLElement>('[data-clock]')) {
+      const value = facts.get(node.dataset['clock'] ?? '');
+      if (value !== undefined && node.textContent !== value) {
+        node.textContent = value;
+      }
+    }
   }
 
   /** Re-render when the shown delivery or its approvals changed. */
