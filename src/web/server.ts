@@ -99,6 +99,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'project-views',
     'roles-model',
     'roles-ui',
+    'secrets-model',
+    'secrets-ui',
     'delivery-ui',
     'goal-model',
     'checklist-dialog',
