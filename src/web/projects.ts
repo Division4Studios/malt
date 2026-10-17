@@ -73,6 +73,8 @@ export const controlSchema = z
       'factory_cancel_job',
       'factory_capacity',
       'factory_prices',
+      'factory_hold',
+      'factory_archive',
       'github_connect',
       'terminal_start',
       'terminal_close',
