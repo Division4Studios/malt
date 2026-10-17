@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Native model policy regression</title>
+  <link rel="stylesheet" href="../../web/style.css" />
+  <form id="editor-form">
+    <label id="editor-label" for="editor-body">Instruction</label>
+    <textarea id="editor-body"></textarea>
+    <button type="submit">Validate draft</button>
+  </form>
+  <output id="result" aria-live="polite">PENDING</output>
+  <p id="editor-error"></p>
+  <script type="module">
+    import { mountModelPolicy } from '../../web/dist/model-policy-ui.js';
+    import { canFinishEdit } from '../../web/dist/worker-ui.js';
+    const check = (condition, message) => {
+      if (!condition) throw new Error(message);
+    };
+    const policy = {
+      revision: 3,
+      entries: [
+        {
+          id: 'small',
+          provider: 'codex',
+          model: 'fixture',
+          capability: 'small',
+          effortSupport: 'unknown',
+          efforts: [],
+          evidence: null,
+        },
+      ],
+      defaults: [{ provider: 'codex', tier: 'small', entryId: 'small', effort: null }],
+    };
+    const read = mountModelPolicy(document.querySelector('#editor-body'), policy);
+    const oldEdit = {};
+    check(!canFinishEdit(oldEdit, {}, true), 'Late successful save cannot close a replacement editor');
+    check(document.querySelector('#editor-error').textContent === '', 'Replacement editor gets no unrelated failure');
+    check(!canFinishEdit(oldEdit, oldEdit, false), 'Failed current save retains draft');
+    check(document.querySelector('#editor-error').textContent.includes('Not saved'), 'Current failure is actionable');
+    document.querySelector('#editor-error').textContent = '';
+    check(read().expectedRevision === 3 && read().policy.revision === 4, 'Exact revision retained');
+    check(read().policy.entries[0].effortSupport === 'unknown', 'Unknown support honest');
+    check(document.querySelectorAll('input[type=checkbox]:disabled').length === 3, 'Unknown effort not selectable');
+    const row = document.querySelector('fieldset');
+    row.querySelector('input').value = 'revised';
+    check(read().policy.entries[0].id === 'revised', 'Draft uses current native inputs');
+    check(policy.entries[0].id === 'small', 'Saved policy not mutated');
+    const model = Array.from(row.querySelectorAll('label'))
+      .find((label) => label.textContent.startsWith('Literal model'))
+      .querySelector('input');
+    model.value = '<img src=x onerror=1>';
+    check(
+      document.querySelector('img') === null && read().policy.entries[0].model.includes('<img'),
+      'Hostile text remains inert',
+    );
+    const add = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Add allowed model',
+    );
+    add.click();
+    check(document.querySelectorAll('fieldset').length === 3, 'Add model');
+    check(
+      document.activeElement === document.querySelectorAll('fieldset')[1].querySelector('input'),
+      'New input focused',
+    );
+    document.querySelectorAll('fieldset')[1].querySelector('button').click();
+    check(
+      document.activeElement === add && document.querySelectorAll('fieldset').length === 2,
+      'Remove restores focus',
+    );
+    document.querySelector('#editor-form').addEventListener('submit', (event) => event.preventDefault());
+    document.querySelector('#result').textContent =
+      'PASS: exact revisions, draft preservation, unknown support, native add/remove focus and inert hostile text';
+  </script>
+</html>

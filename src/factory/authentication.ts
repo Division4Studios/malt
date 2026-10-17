@@ -14,7 +14,7 @@ import type { FactoryConfig, Provider } from './schema.ts';
 
 /** Native unpaid CLI diagnostics. */
 const execute = promisify(execFile);
-/** Keys which can redirect inference to API billing or external gateways. */
+/** Keys which redirect billing/gateways or override the assignment's frozen effort. */
 const API_ENVIRONMENT = new Set([
   'OPENAI_API_KEY',
   'OPENAI_BASE_URL',
@@ -28,6 +28,7 @@ const API_ENVIRONMENT = new Set([
   'CLAUDE_CODE_SIMPLE',
   'COPILOT_OFFLINE',
   'COPILOT_ALLOW_ALL',
+  'CLAUDE_CODE_EFFORT_LEVEL',
 ]);
 /** Copilot bring-your-own-key and telemetry-export prefixes, which bill or export outside the subscription. */
 const API_PREFIXES = ['COPILOT_PROVIDER_', 'COPILOT_OTEL_'];

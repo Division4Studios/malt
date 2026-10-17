@@ -8,8 +8,8 @@
  * @file
  */
 
-import { constants, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { access, chmod, realpath } from 'node:fs/promises';
+import { existsSync, mkdirSync } from 'node:fs';
+import { chmod, open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
@@ -27,6 +27,26 @@ const HEAD_TRAILER = 'MALT-Head';
 const RECOVERY_DEPTH = 200;
 /** Owner-only, executable hook mode; Git silently skips hooks without the execute bit on POSIX. */
 const HOOK_MODE = 0o700;
+/** Owner execute bit Git requires before it runs a hook on POSIX. */
+const OWNER_EXECUTE = 0o100;
+/** Hub-local hook directory, relative to the bare repository where Git runs receive hooks. */
+const HOOKS_PATH = 'hooks';
+
+/**
+ * Read a hook's text only if Git would execute it. One handle supplies both the
+ * mode and the text, so the file checked is the file read.
+ *
+ * @param file - Hook path.
+ * @returns Hook text, or null when Git would skip the hook.
+ */
+async function executableText(file: string): Promise<string | null> {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook path inside the private hub.
+  await using handle = await open(file, 'r');
+  const stats = await handle.stat();
+  // Git for Windows does not check the execute bit, so only POSIX requires it.
+  const isExecutable = process.platform === 'win32' || Math.floor(stats.mode / OWNER_EXECUTE) % 2 === 1;
+  return isExecutable ? await handle.readFile('utf8') : null;
+}
 
 /** Git boundary, injectable for failure tests. */
 export type HubGit = (args: readonly string[], cwd: string) => Promise<string>;
@@ -309,7 +329,11 @@ export class LocalHub {
     }
   }
 
-  /** Install or restore the protection hook. */
+  /**
+   * Install or restore the protection hook, and pin Git's hook directory to it.
+   * A global or system `core.hooksPath` would otherwise make Git run hooks from
+   * elsewhere and skip this one; the repository-local setting takes precedence.
+   */
   private async protect(): Promise<void> {
     const hook = path.join(this.directory, 'hooks', 'pre-receive');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook directory inside the private hub.
@@ -317,20 +341,19 @@ export class LocalHub {
     writeAtomic(hook, protectionHook(this.base));
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook path inside the private hub.
     await chmod(hook, HOOK_MODE);
+    await this.git(['config', '--local', 'core.hooksPath', HOOKS_PATH], this.directory);
   }
 
   /**
    * Check that the exact protection hook is installed and Git will run it.
    *
-   * @returns Whether the hook matches and Git can execute it.
+   * @returns Whether the hook matches, Git's effective hook directory is the hub's own and Git can execute it.
    */
   private async isProtected(): Promise<boolean> {
     const hook = path.join(this.directory, 'hooks', 'pre-receive');
     try {
-      // Windows treats X_OK as an existence check, matching Git for Windows.
-      await access(hook, constants.X_OK);
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixed hook path inside the private hub.
-      return readFileSync(hook, 'utf8') === protectionHook(this.base);
+      const hooksPath = await this.git(['config', '--get', 'core.hooksPath'], this.directory);
+      return hooksPath === HOOKS_PATH && (await executableText(hook)) === protectionHook(this.base);
     } catch {
       return false;
     }

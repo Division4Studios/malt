@@ -30,7 +30,10 @@ export async function startNativeConsole(
     url.port = String(broker.port);
     const selected = { ...config, url: url.origin };
     saveBrokerDiscovery(selected);
-    const ui = await startWebConsole(selected, port, undefined, broker.operatorTerminalControl);
+    const ui = await startWebConsole(selected, port, undefined, {
+      terminal: broker.operatorTerminalControl,
+      recommendation: broker.operatorRecommendationControl,
+    });
     let closing: Promise<void> | undefined;
     return {
       ...ui,

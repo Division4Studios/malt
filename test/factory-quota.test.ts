@@ -271,6 +271,101 @@ await test('actual unified Claude quota windows reach provider telemetry and ret
   assert.equal(completion.subscriptionWindows?.length, 2);
 });
 
+await test('legacy Claude quota remains an explicit unknown-duration observation through restart', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const observedAt = 1000;
+  const event = { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', utilization: 0, credits: 999 } };
+  const completion = decodeCompletion(
+    { stdout: JSON.stringify(event), stderr: '', exitCode: 0, interrupted: false },
+    path.join(mesh.directory, 'missing-result.json'),
+    observedAt,
+  );
+  assert.deepEqual(completion.subscriptionWindows, [
+    {
+      id: 'legacy-reported',
+      usedPercent: 0,
+      resetAt: null,
+      observedAt,
+      source: 'claude-stream' as const,
+      minutes: null,
+    },
+  ]);
+  const settings = factoryConfigSchema.parse({
+    testCommands: [{ file: 'node' }],
+    endToEndCommands: [{ file: 'node' }],
+  });
+  let store = new Store(mesh, { now: () => observedAt });
+  let repository = new FactoryRepository(store);
+  repository.saveCapacity({
+    ...repository.capacity('claude', settings),
+    subscriptionWindows: [...completion.subscriptionWindows],
+    subscriptionUsedPercent: completion.subscriptionUsedPercent,
+    subscriptionResetAt: completion.subscriptionResetAt,
+    cooldownUntil: 9000,
+  });
+  store.close();
+  store = new Store(mesh, { now: () => 301_000 });
+  defer(() => {
+    store.close();
+  });
+  repository = new FactoryRepository(store);
+  const restored = repository.capacity('claude', settings);
+  assert.equal(restored.subscriptionWindows?.[0]?.observedAt, observedAt);
+  assert.equal(restored.subscriptionWindows[0].freshness, 'stale');
+  assert.equal(restored.cooldownUntil, 9000);
+});
+
+await test('Claude window validation excludes credits, expired and malformed telemetry without guessing durations', () => {
+  for (const input of [
+    { credits: 99 },
+    { utilization: -1 },
+    { utilization: Infinity },
+    { utilization: 0.2, resetsAt: 1 },
+    { unifiedWindows: { five_hour: { utilization: 0.2, resetsAt: Number.MAX_SAFE_INTEGER } } },
+  ]) {
+    assert.deepEqual(claudeWindows(input, 2000), [], JSON.stringify(input));
+  }
+  const info = {
+    utilization: 0.1,
+    resetsAt: 90,
+    apiBalance: 999,
+    unifiedWindows: { seven_day: { utilization: 1.2, resetsAt: 80 }, custom: { utilization: 0, resetsAt: 50 } },
+  };
+  assert.equal(claudeQuota(info, 1000)?.usedPercent, 100);
+  assert.deepEqual(
+    claudeWindows(info, 1000).map(({ id, minutes, usedPercent }) => [id, minutes, usedPercent]),
+    [
+      ['seven_day', 10_080, 100],
+      ['custom', null, 0],
+      ['legacy-reported', null, 10],
+    ],
+  );
+  const manyWindows: Record<string, { utilization: number; resetsAt: number }> = {};
+  for (let index = 0; index < 20; index += 1) {
+    manyWindows[`window_${String(index)}`] = { utilization: 0.5, resetsAt: 50 };
+  }
+  assert.equal(
+    claudeWindows(
+      {
+        unifiedWindows: manyWindows,
+        utilization: 0.2,
+      },
+      1000,
+    ).length,
+    16,
+  );
+  const expiredScalar = claudeWindows({ unifiedWindows: manyWindows, utilization: 0.2, resetsAt: 1 }, 2000);
+  assert.equal(expiredScalar.length, 16);
+  assert.equal(
+    expiredScalar.some(({ id }) => id === 'legacy-reported'),
+    false,
+  );
+  assert.equal(expiredScalar.at(-1)?.id, 'window_15');
+  const expiredFirst = { old: { utilization: 0.9, resetsAt: 1 }, ...manyWindows };
+  assert.equal(claudeWindows({ unifiedWindows: expiredFirst }, 2000).length, 16);
+});
+
 await test('Codex window durations follow native telemetry rather than a guessed five-hour plan', () => {
   const windows = accountWindows(
     {

@@ -132,10 +132,15 @@ export function child(value: Data, key: string): Data {
  */
 export function resourceSummary(factory: Data): string {
   const resources = child(factory, 'resources');
-  const free = Math.round(number(resources, 'freeMemoryMb'));
-  const measured = Math.round(number(resources, 'cpuPercent'));
-  const cpu = resources['cpuPercent'] === null ? 'sampling' : `${String(measured)}%`;
-  return `${String(free)} MiB free memory · CPU ${cpu}`;
+  const memory = resources['freeMemoryMb'];
+  const free =
+    typeof memory === 'number' && Number.isFinite(memory) && memory >= 0 ? String(Math.round(memory)) : 'unknown';
+  const measured = resources['cpuPercent'];
+  const cpu =
+    typeof measured === 'number' && Number.isFinite(measured) && measured >= 0
+      ? `${String(Math.round(measured))}%`
+      : 'sampling / unknown';
+  return `${free} MiB free memory · CPU ${cpu}`;
 }
 /** State delivered by the authenticated local broker gateway. */
 export interface Snapshot {
