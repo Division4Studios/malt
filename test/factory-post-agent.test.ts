@@ -101,6 +101,8 @@ await test('a failed validation step is recorded in failure.json and named in th
     failed.message,
     /^The agent finished, but the supervisor's validation step failed: Project test command 1/v,
   );
+  assert.equal(failed.message.includes(f.mesh.token), false, 'the handoff reason is redacted too');
+  assert.match(failed.message, /\[REDACTED\]/v);
   const record = failureRecord(f);
   assert.equal(record['step'], 'validate');
   assert.equal(record['agentOutcome'], 'success');
