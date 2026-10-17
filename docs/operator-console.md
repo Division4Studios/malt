@@ -209,6 +209,8 @@ Each objective and delivery can run its workflow with **step overrides**. In the
 
 **History** on a workflow library card opens its revision history: every saved revision, the current built-in, and every revision running work froze, each with its save time and the objectives and deliveries that run it. **View** previews a revision read-only, **Compare with newer** (or **older**) lists the steps added, removed or changed between two revisions field by field, and **Open as draft** starts the editor from that revision: a project workflow is edited at its current revision, so saving makes the past definition current again, while a built-in or retired workflow is copied under a new id.
 
+With `briefRevalidation` enabled in the factory policy, a dependent delivery's header shows **Brief revalidation**: **Confirmed** once the lead checked its brief against what its predecessors merged, or **Needs revising** with the lead's summary when the delivery stopped for your decision. Retry it to implement the brief unchanged, or send the lead a replanning instruction.
+
 **Notify me** in the Inbox turns on browser notifications for this console. While the console is open in the background, each new item that needs a reply raises one notification, and clicking it brings the console to the Inbox. Notifications come from the console's own live snapshot stream through its service worker; nothing is sent to a push service, so no notification arrives while every console window is closed.
 
 ## Delivery source changes
