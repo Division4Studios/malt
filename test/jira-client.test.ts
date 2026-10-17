@@ -135,6 +135,49 @@ await test('HTTP failures map to kinds, with Retry-After for rate limits', async
   await failure(jiraGet(oversized.transport, '/rest/api/3/myself'), 'invalid');
 });
 
+await test('self-hosted sites, oversized streams and failed body reads are refused before the token can leak', async () => {
+  const selfHosted = answering(200, '{}');
+  const site = { origin: 'https://jira.example.com', deployment: 'data-center' } as const;
+  await failure(jiraGet({ ...selfHosted.transport, site }, '/rest/api/3/myself'), 'invalid');
+  assert.equal(selfHosted.calls.length, 0, 'no request reaches a self-hosted site');
+  const declared = answering(200, '{}', { 'content-length': String(2 * 1_048_576) });
+  await failure(jiraGet(declared.transport, '/rest/api/3/myself'), 'invalid');
+  let pulled = 0;
+  const endless = new ReadableStream<Uint8Array>({
+    pull: (controller) => {
+      pulled += 1;
+      controller.enqueue(new Uint8Array(65_536));
+    },
+  });
+  const streaming: JiraFetch = async () => {
+    await Promise.resolve();
+    return {
+      status: 200,
+      headers: { get: () => null },
+      body: endless,
+      text: async () => {
+        await Promise.resolve();
+        throw new Error('the stream is read instead');
+      },
+    };
+  };
+  await failure(jiraGet({ ...selfHosted.transport, fetch: streaming }, '/rest/api/3/myself'), 'invalid');
+  assert.ok(pulled <= 20, 'reading stops at the bound instead of buffering the whole body');
+  const broken: JiraFetch = async () => {
+    await Promise.resolve();
+    return {
+      status: 200,
+      headers: { get: () => null },
+      text: async () => {
+        await Promise.resolve();
+        throw new Error(`stream reset after ${CREDENTIAL.token}`);
+      },
+    };
+  };
+  const error = await failure(jiraGet({ ...selfHosted.transport, fetch: broken }, '/rest/api/3/myself'), 'unreachable');
+  assert.equal(error.message.includes(CREDENTIAL.token), false);
+});
+
 await test('transport errors and messages never carry the token', async () => {
   const leaky: JiraFetch = async (_url, init) => {
     await Promise.resolve();
@@ -148,6 +191,31 @@ await test('transport errors and messages never carry the token', async () => {
   assert.equal(error.message.includes(CREDENTIAL.token), false);
   assert.equal(error.message.includes(BASIC), false);
   assert.equal(redactCredential(CREDENTIAL, `a ${CREDENTIAL.token} b ${BASIC}`).includes(CREDENTIAL.token), false);
+});
+
+/**
+ * A transport answering 429 whose body never arrives.
+ *
+ * @returns A rate-limited response with a failing body.
+ */
+const stalled: JiraFetch = async () => {
+  await Promise.resolve();
+  return {
+    status: 429,
+    headers: { get: (name) => (name === 'retry-after' ? '7' : null) },
+    text: async () => {
+      await Promise.resolve();
+      throw new Error('body stalled');
+    },
+  };
+};
+
+await test('a validation message is redacted before it is bounded, and error statuses never wait on bodies', async () => {
+  const echoed = answering(400, JSON.stringify({ errorMessages: [`${'x'.repeat(290)}${CREDENTIAL.token}`] }));
+  const error = await failure(jiraSend(echoed.transport, 'PUT', '/rest/api/3/issue/PROJ-1', {}), 'invalid');
+  assert.equal(error.message.includes(CREDENTIAL.token.slice(0, 8)), false, 'no part of the credential survives');
+  const limited = await failure(jiraGet({ ...echoed.transport, fetch: stalled }, '/rest/api/3/myself'), 'rate_limited');
+  assert.equal(limited.retryAfterSeconds, 7);
 });
 
 await test('mutations send JSON bodies and report Jira validation messages, redacted', async () => {

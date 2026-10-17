@@ -78,41 +78,58 @@ export interface IntakeRead {
   readonly skipped: readonly { readonly key: JiraIssueKey; readonly reason: SkipReason }[];
   /** Whether more matches exist beyond the bounded read. */
   readonly isTruncated: boolean;
+  /** Cursor the next read resumes from, or `null` at the end of the filter. */
+  readonly next: string | null;
   /** Seconds to wait when Jira rate-limited the read; earlier pages are kept. */
   readonly retryAfterSeconds: number | null;
 }
 
+/** A bounded intake read, with where the next read resumes. */
+export interface IntakeSearch {
+  /** Issues of every page read, in search order. */
+  readonly issues: IntakeIssue[];
+  /** Whether more matches exist beyond this read. */
+  readonly isTruncated: boolean;
+  /** Cursor the next read resumes from, or `null` when the filter was read to its end. */
+  readonly next: string | null;
+  /** Seconds to wait when Jira rate-limited the read. */
+  readonly retryAfterSeconds: number | null;
+}
+
 /**
- * Read every match of a JQL filter, up to the intake bound.
+ * Read matches of a JQL filter, whole pages at a time, until the intake bound.
+ * A truncated read returns its cursor; passing it back resumes after the
+ * pages already read, so a filter with more matches than the bound is still
+ * read in full over successive reads.
  *
  * @param transport - Site, credential and transport.
  * @param jql - Configured filter.
- * @param limit - Most issues to read.
- * @returns Matching issues, whether the read was truncated, and any rate-limit wait.
+ * @param options - Bound and resume point.
+ * @param options.limit - Issues after which no further page is read.
+ * @param options.cursor - Cursor returned by the previous truncated read.
+ * @returns Matching issues, the cursor to resume from and any rate-limit wait.
  * @throws {JiraRequestError} For anything other than a rate limit.
  */
 export async function searchIntake(
   transport: JiraTransport,
   jql: string,
-  limit = INTAKE_LIMIT,
-): Promise<{ issues: IntakeIssue[]; isTruncated: boolean; retryAfterSeconds: number | null }> {
+  options: { readonly limit?: number; readonly cursor?: string | null } = {},
+): Promise<IntakeSearch> {
   const filter = jqlSchema.parse(jql);
+  const limit = options.limit ?? INTAKE_LIMIT;
   const issues: IntakeIssue[] = [];
-  let cursor: string | undefined;
+  let cursor = options.cursor ?? undefined;
   do {
     // eslint-disable-next-line no-await-in-loop -- Each page's cursor comes from the previous page.
     const page = await readPage(transport, filter, cursor);
     if (page.retryAfterSeconds !== null) {
-      return { issues, isTruncated: true, retryAfterSeconds: page.retryAfterSeconds };
+      // Resume with the page that was refused, after the wait.
+      return { issues, isTruncated: true, next: cursor ?? null, retryAfterSeconds: page.retryAfterSeconds };
     }
     issues.push(...page.issues);
     cursor = page.next;
   } while (cursor !== undefined && issues.length < limit);
-  return {
-    issues: issues.slice(0, limit),
-    isTruncated: cursor !== undefined || issues.length > limit,
-    retryAfterSeconds: null,
-  };
+  return { issues, isTruncated: cursor !== undefined, next: cursor ?? null, retryAfterSeconds: null };
 }
 
 /**
@@ -190,6 +207,7 @@ export function unworkableReason(issue: IntakeIssue, account: string): Exclude<S
  * @param read - Search result.
  * @param read.issues - Matching issues in search order.
  * @param read.isTruncated - Whether more matches exist.
+ * @param read.next - Cursor the next read resumes from.
  * @param read.retryAfterSeconds - Rate-limit wait, if any.
  * @param account - MALT's Jira account.
  * @param queuedIds - Jira issue IDs already filed as objectives.
@@ -199,6 +217,7 @@ export function chooseIntake(
   read: {
     readonly issues: readonly IntakeIssue[];
     readonly isTruncated: boolean;
+    readonly next: string | null;
     readonly retryAfterSeconds: number | null;
   },
   account: string,
@@ -216,5 +235,5 @@ export function chooseIntake(
       skipped.push({ key: issue.key, reason });
     }
   }
-  return { queue, skipped, isTruncated: read.isTruncated, retryAfterSeconds: read.retryAfterSeconds };
+  return { queue, skipped, isTruncated: read.isTruncated, next: read.next, retryAfterSeconds: read.retryAfterSeconds };
 }
