@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { advanceRecommendations } from '../src/factory/recommendation-execution.ts';
+import { advanceRecommendations, retryRecommendation } from '../src/factory/recommendation-execution.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { MeshError } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
@@ -60,6 +60,8 @@ class Tickets {
   public readonly revisions = new Map<number, string>();
   /** Issue reads. */
   public reads = 0;
+  /** Error returned for an effect, if any. */
+  public deny: ((effect: FactoryEffect) => string | null) | null = null;
 
   /**
    * Observe one issue.
@@ -76,9 +78,13 @@ class Tickets {
    * Apply one outbox effect idempotently, as the GitHub adapter does.
    *
    * @param effect - Durable effect.
-   * @throws {Error} For a lost response.
+   * @throws {Error} For a denied effect or a lost response.
    */
   public apply(effect: FactoryEffect): void {
+    const denied = this.deny?.(effect) ?? null;
+    if (denied !== null) {
+      throw new Error(denied);
+    }
     if (effect.kind === 'close_not_planned') {
       if (!this.closed.has(effect.issue)) {
         this.closed.set(effect.issue, effect.value);
@@ -244,4 +250,50 @@ await test('a failed issue read is isolated to its record: missing issues go sta
   assert.equal(repository.recommendations.get(missing.id)?.state, 'stale');
   assert.equal(repository.recommendations.get(flaky.id)?.state, 'approved', 'retried on the next pass');
   assert.equal(repository.recommendations.get(id)?.state, 'applying', 'other records still execute');
+});
+
+await test('a permission failure fails the record, and a retry finishes it without repeating ticket changes', async (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const tickets = new Tickets();
+  tickets.deny = (effect) => (effect.kind === 'close_not_planned' ? 'HTTP 403: forbidden' : null);
+  const { repository, id, revision } = seed(store, consolidation, ['approved']);
+  const context = contextFor(repository, tickets);
+  await drive(context, tickets);
+  const failed = repository.recommendations.get(id);
+  assert.equal(failed?.state, 'failed');
+  assert.match(failed.audit.at(-1)?.reason ?? '', /#2: HTTP 403/v);
+  assert.equal(repository.effects().length, 0, 'the outbox stops retrying a failed record');
+  await assert.rejects(retryRecommendation(context, { id, revision: '0'.repeat(64) }), { code: 'FACTORY_GATED' });
+  tickets.deny = null;
+  assert.deepEqual(await retryRecommendation(context, { id, revision }), { state: 'applying' });
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'completed');
+  assert.equal(tickets.comments.get(1)?.length, 1);
+  assert.equal(tickets.comments.get(2)?.length, 1);
+  assert.deepEqual(tickets.closed.keys().toArray(), [2]);
+  await assert.rejects(retryRecommendation(context, { id, revision }), { code: 'FACTORY_GATED' });
+});
+
+await test('a retry before any ticket changed revalidates every observed issue first', async (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const tickets = new Tickets();
+  tickets.deny = () => 'HTTP 403: forbidden';
+  const { repository, id, revision } = seed(store, consolidation, ['approved']);
+  const context = contextFor(repository, tickets);
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'failed');
+  tickets.deny = null;
+  tickets.revisions.set(2, 'c'.repeat(64));
+  assert.deepEqual(await retryRecommendation(context, { id, revision }), { state: 'approved' });
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'stale', 'the edited ticket is not changed');
+  assert.equal(tickets.comments.size + tickets.closed.size, 0);
 });

@@ -5,10 +5,14 @@
  * ordinary outbox effects with deterministic ids. Markers and closed-state
  * checks keep retries idempotent; revisions are only checked before the first
  * effect, because the record's own comments change each issue's revision.
+ * Permission errors, or effects that keep failing, settle the record as failed
+ * and stop its effects; the operator's retry revalidates and re-queues them.
  *
  * @file
  */
 import { MeshError } from '../protocol.ts';
+
+import { recommendationRetrySchema } from './recommendation-read-schema.ts';
 
 import type { ObservedIssue } from '../github-issues.ts';
 import type { DeliveryRemote } from './remote.ts';
@@ -17,6 +21,12 @@ import type { FactoryEffect, Recommendation } from './schema.ts';
 
 /** Recommendation kinds that change remote tickets. */
 const EXECUTED_KINDS: ReadonlySet<string> = new Set(['duplicate', 'consolidate']);
+/** Attempts one effect may fail before its record settles as failed. */
+const MAX_EFFECT_ATTEMPTS = 5;
+/** Errors that retrying cannot fix without operator action. */
+const PERMISSION_ERROR = /\b(?:401|403|forbidden|not accessible|permission|unauthorized)\b/iv;
+/** Longest audit reason the ledger accepts. */
+const REASON_MAX = 4000;
 /** Characters of a recommendation identity shown in public comments. */
 const SHORT_ID = 12;
 /** Read errors that mean the observed issue is gone from the selected repository. */
@@ -183,6 +193,23 @@ function settle(context: ExecutionContext, record: Recommendation): void {
   }
   const ids = new Set(plannedEffects(record).map((effect) => effect.id));
   const failing = repository.effects().filter((effect) => ids.has(effect.id) && effect.error !== null);
+  const fatal = failing.find(
+    (effect) => PERMISSION_ERROR.test(effect.error ?? '') || effect.attempts >= MAX_EFFECT_ATTEMPTS,
+  );
+  if (fatal !== undefined) {
+    const pending = repository.effects().filter((effect) => ids.has(effect.id));
+    repository.store.transaction(() => {
+      for (const effect of pending) {
+        repository.discardEffect(effect.id, `Recommendation ${record.id} failed; the operator can retry it.`);
+      }
+      repository.recommendations.transition({
+        ...fence,
+        next: 'failed',
+        reason: `Issue #${String(fatal.issue)}: ${fatal.error ?? 'remote effect failed'}`.slice(0, REASON_MAX),
+      });
+    });
+    return;
+  }
   if (failing.length > 0 && record.state === 'applying') {
     repository.recommendations.transition({
       ...fence,
@@ -227,4 +254,45 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
       });
     }
   }
+}
+
+/**
+ * Operator retry of a failed record. With no ticket changed yet it returns to
+ * approved, so the next pass revalidates everything; otherwise the tickets no
+ * effect touched are re-read first and a changed one keeps the record failed.
+ *
+ * @param context - Project ledger and native issue reader.
+ * @param input - Exact failed revision.
+ * @returns The record's new state.
+ * @throws {MeshError} When the record is not failed at that revision, or an untouched ticket changed.
+ */
+export async function retryRecommendation(context: ExecutionContext, input: unknown): Promise<{ state: string }> {
+  const { repository } = context;
+  const request = recommendationRetrySchema.parse(input);
+  const record = repository.recommendations.get(request.id);
+  if (record?.revision !== request.revision || record.state !== 'failed' || !isExecutable(record)) {
+    throw new MeshError('FACTORY_GATED', 'Only a failed duplicate or consolidation can be retried at its revision.');
+  }
+  const fence = { id: record.id, revision: record.revision, state: 'failed' as const };
+  const effects = plannedEffects(record);
+  const touched = new Set(
+    effects.filter((effect) => repository.effectCompleted(effect.id)).map((effect) => effect.issue),
+  );
+  if (touched.size === 0) {
+    repository.recommendations.transition({ ...fence, next: 'approved', reason: 'Operator retry; revalidating.' });
+    return { state: 'approved' };
+  }
+  const untouched = record.body.observedIssues.filter((observed) => !touched.has(observed.issue));
+  const fresh = await freshness(context, { ...record, body: { ...record.body, observedIssues: untouched } });
+  if (fresh.state !== 'fresh') {
+    throw new MeshError(
+      'FACTORY_GATED',
+      'An untouched ticket changed or cannot be read; refresh the proposal instead.',
+    );
+  }
+  return repository.store.transaction(() => {
+    const applying = repository.recommendations.transition({ ...fence, next: 'applying', reason: 'Operator retry.' });
+    queueReady(context, applying);
+    return { state: applying.state };
+  });
 }

@@ -36,7 +36,7 @@ import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
-import { recommendationReadSchemas } from './recommendation-read-schema.ts';
+import { recommendationReadSchemas, recommendationRetrySchema } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { revalidationSchema } from './revalidation-schema.ts';
@@ -483,6 +483,7 @@ export type SkillRequest = z.output<typeof skillRequestSchema>;
 export const factorySchemas = {
   factory_recommendation_propose: z.object({ key: keySchema, proposal: recommendationBodySchema }).strict(),
   ...recommendationReadSchemas,
+  factory_recommendation_retry: recommendationRetrySchema,
   factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
@@ -606,6 +607,7 @@ export const FACTORY_OPERATIONS = [
   'factory_recommendation_propose',
   'factory_recommendations',
   'factory_recommendation_read',
+  'factory_recommendation_retry',
   'factory_model_policy',
   'factory_progress',
   'factory_read_source',

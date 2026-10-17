@@ -664,6 +664,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read a bounded current-project recommendation page or exact historical detail. This does not acknowledge, approve or execute a proposal.',
   factory_recommendation_read:
     'Human operator only: mark one exact current recommendation revision read. This receipt never approves a proposal or starts work.',
+  factory_recommendation_retry:
+    'Human operator only: retry one failed duplicate or consolidation at its exact revision. Its marked comments and not-planned closures are re-queued idempotently, so tickets already changed are not changed twice.',
   factory_read_source:
     'Managed readonly assignment only: read its exact pinned Git source. Omit path to list tracked files or supply a nonprivate relative path for a bounded file. Runtime state and secrets are excluded, and the live role claim is enforced by the backend.',
   factory_setup:
