@@ -55,6 +55,38 @@ export const jobLivenessSchema = z
 /** Recorded attempt liveness. */
 export type JobLiveness = z.output<typeof jobLivenessSchema>;
 
+/** Shortest continuation the operator may grant at a checkpoint. */
+export const CONTINUE_MIN_MINUTES = 5;
+/** Longest continuation the operator may grant at a checkpoint. */
+export const CONTINUE_MAX_MINUTES = 240;
+
+/**
+ * The operator decision a productive attempt asked for when a checkpoint held
+ * it or it reached the ceiling: `pending` until answered, then `continue` (a
+ * bounded fresh session from the preserved worktree), `wait` (normal retry
+ * rules) or `stale` (the source or stage moved on, so it no longer applies).
+ */
+export const checkpointSchema = z
+  .object({
+    state: z.enum(['pending', 'continue', 'wait', 'stale']),
+    /** Recorded stop reason the operator decides on. */
+    reason: z.string().max(LIVENESS_TEXT_MAX),
+    /** Newest meaningful signal and when it happened, as evidence. */
+    lastSignal: z.string().max(LIVENESS_TEXT_MAX).nullable(),
+    lastProgressAt: z.number(),
+    extensions: z.number().int().nonnegative(),
+    askedAt: z.number(),
+    /** Granted continuation, for `continue`. */
+    minutes: z.number().int().min(CONTINUE_MIN_MINUTES).max(CONTINUE_MAX_MINUTES).nullable(),
+    requestId: z.string().uuid().nullable(),
+    decidedAt: z.number().nullable(),
+    /** The attempt that used a `continue` grant; a grant is used once. */
+    consumedBy: z.string().nullable(),
+  })
+  .strict();
+/** One checkpoint decision. */
+export type Checkpoint = z.output<typeof checkpointSchema>;
+
 /** Why an attempt did not succeed, which decides when its step may run again. */
 export const FAILURE_CLASSES = [
   'rate_limit',

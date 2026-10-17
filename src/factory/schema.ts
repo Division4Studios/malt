@@ -18,7 +18,7 @@ import {
 } from './delivery-control-schema.ts';
 import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
-import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import { checkpointSchema, failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -444,6 +444,8 @@ export const jobSchema = z.object({
   liveness: jobLivenessSchema.optional(),
   /** Why a finished attempt did not succeed, which spaces its retries. */
   failureClass: failureClassSchema.optional(),
+  /** Operator decision a held or ceiling-stopped productive attempt asked for. */
+  checkpoint: checkpointSchema.optional(),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
