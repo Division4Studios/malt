@@ -68,7 +68,7 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { announceSpendBlocks, refreshSpend, saveCaps, spendGate } from './spend.ts';
-import { factoryStatus } from './status.ts';
+import { factoryStatus, preflight } from './status.ts';
 import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
@@ -382,6 +382,7 @@ export class FactoryService {
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
       factory_instruct: () => instructControl(this.repository, this.running, parsed),
       factory_status: async () => this.status(),
+      factory_preflight: async () => preflight(this.repository.config(), this.mesh),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
       factory_setup: () => this.controlSetup(parsed),
       factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),

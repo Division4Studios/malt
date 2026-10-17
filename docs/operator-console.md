@@ -28,7 +28,7 @@ node src/cli.ts ui --with-broker --project "C:\work\malt" --port 4318
 
 The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
-Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
+Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. The code is persisted owner-only in the console project's `.malt/console-pairing.json`, so restarting the console or its container keeps it. Startup prints it once in the terminal and writes one `console`/`pairing_code` log record; no other log line, API response, error or URL contains it. If you lose it, run `node src/cli.ts pairing-code --project <path>`; `pairing-code --rotate` re-issues it, and a running console accepts only the new code from its next pairing attempt while already paired browsers keep their sessions. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
 `--with-broker` owns the broker and UI in one process lifetime and supplies memory-only scratch-terminal and human recommendation-decision capabilities. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI still supports ordinary durable controls and inspection; a project token alone cannot grant those two owner capabilities. Docker already colocates both services.
 
@@ -61,7 +61,7 @@ The product/lead skill requires a duplicate/related-ticket check during intake a
 
 ## Private state and Git
 
-Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. Pairing codes and browser sessions are generated in backend memory and are not persisted in project state. The CLI displays the code for local pairing; avoid publishing terminal captures containing it.
+Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. The console pairing code is local authentication material kept owner-only in `.malt/console-pairing.json`; it does not expire and is not single-use, so rotate it with `pairing-code --rotate` if it may have leaked. Browser sessions remain bounded, expiring and in backend memory only. Avoid publishing terminal captures or logs containing the code.
 
 Git ignores do not remove already tracked files and cannot prevent an explicit `git add --force`. Check `git ls-files -- .malt` before publishing an existing repository. If private files were previously committed, remove them from tracking deliberately and rotate exposed credentials; deleting them in a new commit does not remove Git history. Back up `.malt` only to a private location while the broker is cleanly stopped; publish a separately reviewed, redacted export when sharing lessons or skills.
 
@@ -131,6 +131,7 @@ $env:AGENTMESH_WORKSPACE_ROOT = 'E:\YourProjects'
 $env:AGENTMESH_UI_PORT = '4328' # choose 4318 if no native console uses it
 docker compose up -d --build --wait
 docker compose logs broker # owning console prints the pairing code
+docker compose exec broker node src/cli.ts pairing-code --project /data # show it again; add --rotate to re-issue
 docker compose exec broker codex login --device-auth
 docker compose exec broker claude auth login
 docker compose exec broker gh auth login
@@ -306,6 +307,25 @@ After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks rea
 New scope can also wait on **Project intake**. Its pending objective explains how many native observations have been collected or names the exact recommendation requiring human disposition. Cursor progress survives restart; collection and human waiting consume no model sessions. Existing development remains independently eligible. The [paired inspection/read/decision API](api.md#recommendation-inspection-and-read-receipts) is available, while the dedicated Project-management decision pane remains tracked in #62/#63. An approval records an inert intent; execution and graph/skill changes remain #59–#61. Rejection means keeping this request separate and releases only that objective. Do not reset delivery QA or relax provider/resource limits to clear an intake hold.
 
 Local machine includes a keyboard-accessible **Why work is running or parked** disclosure. It reads the supervisor admission snapshot: effective resource/provider ceilings, selected-project roles and assignment stages with objective/ticket identity, and anonymous other broker reservations. Process activity is not delivery success. Job cap, provider concurrency/cooldown, CPU and memory gates name the existing configuration fields; change policy in Project setup while paused and settled. Spare capacity alone never guarantees an eligible launch. Missing or stale samples stay explicit, including unknown CPU before a second measurement. Sample-only refresh preserves the disclosure, pending editor and keyboard focus. No model process starts when inspecting this evidence.
+
+## Get started and Settings
+
+**Project → Get started** is a checklist from an empty project to the first role at work. It opens by itself the first time a project is shown without factory setup, a GitHub connection or any objective, unless you choose **Hide guide**, which hides it for that project in this browser; it can always be reopened from the Project group. Each step opens the same dialog used later, so there is no second place to configure anything:
+
+1. **Check this machine** runs the broker-side preflight (Node.js, Git, provider CLIs and subscription logins, GitHub CLI, writable `.malt`) and lists each result as pass, fail or fix-it with its fix line.
+2. **Connect the GitHub repository and Project** opens the connection dialog.
+3. **Choose providers, checks and model policy** opens factory setup and the model and effort policy.
+4. **Pick how objectives are delivered** opens the workflow library and names the default workflow.
+5. **Submit a first objective** opens the objective editor.
+6. **Start the factory** starts dispatch.
+7. **See the first role start** follows the newest objective. It names the role, stage and provider once an attempt starts, or the exact reason none can: factory not set up, factory paused, the objective blocked (with its error), a model-policy blocker, the admission capacity gate (job cap, provider cap, cooldown, CPU or memory), or no eligible provider. When no gate is reported and no role has started for two minutes, it points at **Why work is running or parked**.
+
+**Project → Settings** holds what is not owned by another dialog:
+
+- **Appearance**: System, Light or Dark, remembered in this browser and kept in step with the header toggle.
+- **Provider health**: per provider, whether it is enabled, its executable, the preflight's presence, version and login result with any fix line, observed subscription windows, a cooldown in force, the dispatch gate admission reports, and the latest failed attempt. **Check providers now** runs the preflight again; it spends no inference.
+- **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
+- **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.
 
 ## Schedules and triggers
 

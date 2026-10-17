@@ -11,7 +11,7 @@ const GROUPS = {
   workflow: ['workflow', 'team', 'workflows'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'learning'],
+  project: ['setup', 'settings', 'learning', 'onboarding'],
 };
 
 /**
@@ -69,7 +69,9 @@ export type View =
   | 'costs'
   | 'activity'
   | 'learning'
-  | 'setup';
+  | 'setup'
+  | 'settings'
+  | 'onboarding';
 
 /** UI navigation descriptions. */
 export const HEADINGS: Record<View, readonly [string, string]> = {
@@ -92,6 +94,8 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   activity: ['Activity stream.', 'The committed story of your software factory.'],
   learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
   setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],
+  settings: ['Settings.', 'Appearance, provider health and build facts, with every setting one step away.'],
+  onboarding: ['Get started.', 'From an empty project to the first role at work, with the reason if it cannot start.'],
 };
 
 /**
