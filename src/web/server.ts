@@ -77,6 +77,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'console-model',
     'board-model',
     'approval-model',
+    'console-dom',
+    'approval-dialog',
   ].map((name): [string, [string, string]] => [`/${name}.js`, [`dist/${name}.js`, 'text/javascript; charset=utf-8']]),
   ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
   ['/sessions.css', ['sessions.css', 'text/css; charset=utf-8']],

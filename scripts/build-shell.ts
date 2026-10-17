@@ -64,6 +64,8 @@ const FILES = [
   'dist/console-model.js',
   'dist/board-model.js',
   'dist/approval-model.js',
+  'dist/console-dom.js',
+  'dist/approval-dialog.js',
   'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
