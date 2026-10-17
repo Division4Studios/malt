@@ -133,10 +133,21 @@ const control = createOperatorControl({
   scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
   openProject,
   refresh,
-  notice,
+  notice: controlNotice,
 });
-/** Stable self-refreshing views that survive snapshot pushes. */
-const owned = new ConsoleViews({ project: () => state.project, control });
+/** Stable views that survive snapshot pushes; their hooks reuse the shell's dialogs. */
+const owned = new ConsoleViews({
+  project: () => state.project,
+  control,
+  select: go,
+  triage: investigate,
+  recover: () => {
+    go('overview');
+  },
+  skill: () => {
+    go('learning');
+  },
+});
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
@@ -274,6 +285,7 @@ function render(): void {
     return;
   }
   const observed = state.current;
+  owned.update(observed);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
@@ -318,6 +330,10 @@ function render(): void {
         }),
       );
     },
+    inbox: () => owned.element('inbox'),
+    board: () => owned.element('board'),
+    delivery: () => owned.element('delivery'),
+    workflows: () => owned.element('workflows'),
     sessions: () => owned.element('sessions'),
     costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
@@ -498,18 +514,48 @@ async function submitEdit(): Promise<void> {
   }
 }
 
+/**
+ * Show a control outcome in the console and beside a workflow draft.
+ *
+ * @param message - Notice text.
+ * @param isSuccess - Whether the control succeeded.
+ */
+function controlNotice(message: string, isSuccess?: boolean): void {
+  notice(message, isSuccess);
+  owned.notice(message, isSuccess);
+}
+
+/**
+ * Open the investigation dialog for a blocked delivery from the Inbox.
+ *
+ * @param taskId - Delivery to investigate.
+ */
+function investigate(taskId: string): void {
+  const task = records(state.current?.factory['tasks']).find((candidate) => text(candidate, 'id') === taskId);
+  if (task !== undefined) {
+    actions.triage(task, 'investigate');
+  }
+}
+
+/**
+ * Route to a local view; unknown names are ignored.
+ *
+ * @param selected - Requested view from navigation or a view hook.
+ */
+function go(selected: string): void {
+  if (!isView(selected)) {
+    return;
+  }
+  state.view = selected;
+  owned.reset();
+  render();
+  void readLogs();
+}
+
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
-  bindNavigation((selected) => {
-    if (!isView(selected)) {
-      return;
-    }
-    state.view = selected;
-    owned.reset();
-    render();
-    void readLogs();
-  });
+  bindNavigation(go);
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {

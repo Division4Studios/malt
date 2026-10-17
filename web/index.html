@@ -11,6 +11,8 @@
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/terminal.css" />
     <link rel="stylesheet" href="/sessions.css" />
+    <link rel="stylesheet" href="/board.css" />
+    <link rel="stylesheet" href="/workflows.css" />
     <script type="module" src="/app.js"></script>
   </head>
   <body>
@@ -23,6 +25,10 @@
         <div class="rail-section">WORKSPACE</div>
         <nav id="navigation" aria-label="Console sections">
           <button data-group="mission" data-view="overview" class="nav active"><span>◈</span> Mission</button>
+          <button data-group="inbox" data-view="inbox" class="nav">
+            <span>◉</span> Inbox <span id="inbox-count" class="nav-count" hidden></span>
+          </button>
+          <button data-group="board" data-view="board" class="nav"><span>▤</span> Board</button>
           <button data-group="workflow" data-view="workflow" class="nav"><span>◎</span> Workflow</button>
           <button data-group="workers" data-view="sessions" class="nav"><span>▣</span> Sessions</button>
           <button data-group="costs" data-view="costs" class="nav"><span>◔</span> Costs</button>
@@ -70,7 +76,11 @@
           <div data-navigation="workflow" hidden>
             <button data-view="workflow" class="nav">Live map</button
             ><button data-view="team" class="nav">Team & organization</button
-            ><button data-view="deliveries" class="nav">Deliveries</button>
+            ><button data-view="workflows" class="nav">Workflow library</button>
+          </div>
+          <div data-navigation="board" hidden>
+            <button data-view="board" class="nav">Board</button
+            ><button data-view="deliveries" class="nav">Pipeline list</button>
           </div>
           <div data-navigation="workers" hidden>
             <button data-view="sessions" class="nav">Attempts & transcripts</button
