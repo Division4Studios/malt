@@ -14,9 +14,11 @@ import { z } from 'zod/v3';
 import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
+import { ensurePairingCode, readPairingCode } from './pairing.ts';
 import { ProjectGateway } from './projects.ts';
 import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
+import { telemetryRoute } from './telemetry-routes.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -33,7 +35,6 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/views.js', ['dist/views.js', 'text/javascript; charset=utf-8']],
   ['/worker-ui.js', ['dist/worker-ui.js', 'text/javascript; charset=utf-8']],
   ['/learning-ui.js', ['dist/learning-ui.js', 'text/javascript; charset=utf-8']],
-  ['/log-tails.js', ['dist/log-tails.js', 'text/javascript; charset=utf-8']],
   ['/pwa.js', ['dist/pwa.js', 'text/javascript; charset=utf-8']],
   ['/brand-ui.js', ['dist/brand-ui.js', 'text/javascript; charset=utf-8']],
   ['/workflow-ui.js', ['dist/workflow-ui.js', 'text/javascript; charset=utf-8']],
@@ -65,8 +66,71 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'terminal-keys',
     'terminal-writes',
     'terminal-input',
+    'telemetry-format',
+    'transcript-ui',
+    'sessions-ui',
+    'cost-chart',
+    'price-editor',
+    'costs-ui',
+    'i18n',
+    'catalog-zh',
+    'catalog-zh-shell',
+    'catalog-zh-factory',
+    'catalog-zh-board',
+    'catalog-zh-workflows',
+    'catalog-zh-project',
+    'catalog-zh-costs',
+    'theme',
+    'objective-ui',
+    'console-views',
+    'log-tails',
+    'console-model',
+    'board-model',
+    'approval-model',
+    'console-dom',
+    'approval-dialog',
+    'inbox-model',
+    'question-dialog',
+    'inbox-notifier',
+    'inbox-ui',
+    'board-actions',
+    'board-ui',
+    'automations-model',
+    'automations-ui',
+    'diff-parse',
+    'diff-model',
+    'diff-ui',
+    'onboarding-model',
+    'onboarding-ui',
+    'settings-model',
+    'settings-ui',
+    'project-views',
+    'roles-model',
+    'roles-ui',
+    'secrets-model',
+    'secrets-ui',
+    'step-override-model',
+    'workflow-history-model',
+    'workflow-history-ui',
+    'step-override-ui',
+    'delivery-ui',
+    'goal-model',
+    'checklist-dialog',
+    'goal-ui',
+    'spend-model',
+    'spend-editor',
+    'workflow-model',
+    'workflow-checks',
+    'workflow-dom',
+    'workflow-preview',
+    'workflow-step-editor',
+    'workflow-editor',
+    'workflows-ui',
   ].map((name): [string, [string, string]] => [`/${name}.js`, [`dist/${name}.js`, 'text/javascript; charset=utf-8']]),
   ['/terminal.css', ['terminal.css', 'text/css; charset=utf-8']],
+  ['/sessions.css', ['sessions.css', 'text/css; charset=utf-8']],
+  ['/board.css', ['board.css', 'text/css; charset=utf-8']],
+  ['/workflows.css', ['workflows.css', 'text/css; charset=utf-8']],
   ['/style.css', ['style.css', 'text/css; charset=utf-8']],
   ['/manifest.webmanifest', ['manifest.webmanifest', 'application/manifest+json']],
   ['/sw.js', ['dist/sw.js', 'text/javascript; charset=utf-8']],
@@ -304,7 +368,7 @@ function canWriteStream(response: ServerResponse): boolean {
 export interface WebConsole {
   /** Local browser origin. */
   readonly url: string;
-  /** Local pairing code, shown by the owning CLI. */
+  /** Local pairing code at startup, shown by the owning CLI; `pairing-code --rotate` may replace it later. */
   readonly pairingCode: string;
   /** Stop only the UI server, keeping factory ownership with the broker. */
   readonly close: () => Promise<void>;
@@ -330,7 +394,8 @@ export async function startWebConsole(
       .strict()
       .parse(binding);
   }
-  const sessions = new OperatorSessions();
+  ensurePairingCode(config.directory);
+  const sessions = new OperatorSessions(() => readPairingCode(config.directory));
   const capabilities = typeof operators === 'function' ? { terminal: operators } : operators;
   const gateway = new ProjectGateway(config, capabilities?.terminal, capabilities?.recommendation);
   const streams = new Streams();
@@ -501,12 +566,21 @@ async function inspectApi(
       json(response, HTTP.ok, await gateway.localPull(project, number));
       return;
     }
+    case '/api/version': {
+      json(response, HTTP.ok, await gateway.versions(project));
+      return;
+    }
+    case '/api/preflight': {
+      json(response, HTTP.ok, await gateway.preflight(project));
+      return;
+    }
     case '/api/artifact': {
       json(response, HTTP.ok, await readArtifact(gateway.config(project), Object.fromEntries(url.searchParams)));
       return;
     }
     default: {
-      json(response, HTTP.notFound, { error: 'Unknown inspection route.' });
+      // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
+      json(response, HTTP.ok, await telemetryRoute(url, gateway));
     }
   }
 }

@@ -4,10 +4,13 @@
  *
  * @file
  */
+import { awaitingApproval, spineStep, startableSteps, taskWorkflow } from './pipeline.ts';
 import { FACTORY_ROLES } from './schema.ts';
+import { workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
-import type { FactoryTask } from './schema.ts';
+import type { FactoryJob, FactoryRole, FactoryTask } from './schema.ts';
+import type { Workflow } from './workflows.ts';
 
 /** Bound this operator projection independently of durable history. */
 const VISIBLE_SCOPES = 40;
@@ -15,34 +18,63 @@ const VISIBLE_SCOPES = 40;
 const VISIBLE_PEERS = 24;
 
 /**
+ * The review stage's next roles and gate text: who acts next, and why.
+ *
+ * @param task - Delivery under review.
+ * @param workflow - Its workflow.
+ * @returns Conditional next roles and the real gate.
+ */
+function reviewStage(task: FactoryTask, workflow: Workflow): { roles: string[]; gate: string } {
+  const waiting = awaitingApproval(task, workflow);
+  if (waiting.length > 0) {
+    return { roles: ['operator'], gate: `Waiting for your decision: ${waiting.map((step) => step.title).join(', ')}.` };
+  }
+  const startable = startableSteps(task, workflow);
+  if (startable.length > 0) {
+    return {
+      roles: startable.flatMap((step) => step.roles.slice(0, 1)),
+      gate: `After ${startable.map((step) => step.title).join(' and ')} of the exact current head/base.`,
+    };
+  }
+  return { roles: spineStep(workflow, 'final').roles, gate: 'After every review and approval of the exact head/base.' };
+}
+
+/**
  * Describe the supervisor's conditional next stage, never predict an approval.
  *
  * @param task - Current durable delivery.
+ * @param workflow - Its workflow.
  * @returns Conditional next role and its real gate.
  */
-function nextStage(task: FactoryTask): { roles: string[]; gate: string } {
+function nextStage(task: FactoryTask, workflow: Workflow): { roles: string[]; gate: string } {
   if (task.scopeReplacement !== undefined) {
     return { roles: ['product-owner', 'team-lead'], gate: 'Replacement planning; old scope is parked.' };
   }
+  const reviewers = workflow.delivery
+    .filter((step) => step.kind === 'review' && step.after.includes(spineStep(workflow, 'implement').id))
+    .flatMap((step) => step.roles.slice(0, 1));
   switch (task.phase) {
     case 'ready':
     case 'development':
     case 'publishing': {
-      return { roles: ['qa-1', 'qa-2'], gate: 'After developer checks, current-main refresh and PR publication.' };
+      return { roles: reviewers, gate: 'After developer checks, current-main refresh and PR publication.' };
     }
     case 'review': {
-      return { roles: ['final-tester'], gate: 'After two independent approvals of the exact current head/base.' };
+      return reviewStage(task, workflow);
     }
     case 'merge_ready':
     case 'merging': {
       return {
-        roles: ['final-tester'],
+        roles: spineStep(workflow, 'final').roles,
         gate: 'Protected serialized merge, followed by actual merged-main verification.',
       };
     }
     case 'verifying':
     case 'closing': {
-      return { roles: ['final-tester'], gate: 'Current merged-main acceptance proof and confirmed ticket cleanup.' };
+      return {
+        roles: spineStep(workflow, 'verify').roles,
+        gate: 'Current merged-main acceptance proof and confirmed ticket cleanup.',
+      };
     }
     case 'blocked': {
       return { roles: [], gate: 'Explicit blocker resolution is required.' };
@@ -51,6 +83,24 @@ function nextStage(task: FactoryTask): { roles: string[]; gate: string } {
       return { roles: [], gate: 'Delivered and verified; no next assignment.' };
     }
   }
+}
+
+/**
+ * Seats worth showing: those the default workflow uses, the learning steward, and
+ * any seat with recorded attempts. Unused specialist seats stay out of the map.
+ *
+ * @param repository - Selected project.
+ * @param jobs - Its recorded attempts.
+ * @returns Seats in their canonical order.
+ */
+function visibleSeats(repository: FactoryRepository, jobs: readonly FactoryJob[]): FactoryRole[] {
+  const { workflow } = workflowLibrary(repository.store).freeze();
+  const used = new Set<string>([
+    'learning-steward',
+    ...[...workflow.planning, ...workflow.delivery].flatMap((step) => step.roles),
+    ...jobs.map((job) => job.role),
+  ]);
+  return FACTORY_ROLES.filter((role) => used.has(role));
 }
 
 /**
@@ -63,11 +113,12 @@ function nextStage(task: FactoryTask): { roles: string[]; gate: string } {
 export function workflowState(repository: FactoryRepository): unknown {
   const jobs = repository.jobs();
   const tasks = repository.tasks();
+  const features = repository.features();
   const peers = repository.store.execute('list_agents', {}, null);
   const organization = repository.config()?.organization;
   const members = organization?.members ?? {};
   const actorIds = new Map(peers.map((peer) => [peer.name, peer.id]));
-  const nodes = FACTORY_ROLES.map((role) => {
+  const nodes = visibleSeats(repository, jobs).map((role) => {
     const name = `factory-${role}`;
     const job = jobs.findLast((entry) => entry.role === role);
     const assigned = tasks.findLast(
@@ -117,7 +168,7 @@ export function workflowState(repository: FactoryRepository): unknown {
         stage: task.phase,
         owner: task.developer,
         prUrl: task.prUrl,
-        next: nextStage(task),
+        next: nextStage(task, taskWorkflow(task, features)),
       };
     }),
     omittedScopes: Math.max(0, tasks.length - VISIBLE_SCOPES),
