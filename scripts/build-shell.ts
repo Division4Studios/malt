@@ -75,6 +75,7 @@ const FILES = [
   'dist/board-ui.js',
   'dist/automations-model.js',
   'dist/automations-ui.js',
+  'dist/diff-parse.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',
   'dist/checklist-dialog.js',
