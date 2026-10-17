@@ -104,6 +104,8 @@ export interface AgentRequest {
   readonly signal: AbortSignal;
   /** Record the owned wrapper PID. */
   readonly onSpawn: (pid: number) => void;
+  /** Secrets granted to the role type, injected as environment variables and redacted from output. */
+  readonly environment?: Readonly<Record<string, string>>;
 }
 /** Injectable inference boundary; fixtures never consume paid model capacity. */
 export type AgentRunner = (request: AgentRequest) => Promise<AgentCompletion>;
@@ -335,13 +337,21 @@ export async function runAgent(request: AgentRequest, runner: ProcessRunner): Pr
     settings: request.settings,
     cwd: request.cwd,
   });
+  const granted = request.environment ?? {};
   const spec: ProcessSpec = {
     file: request.settings.providers[request.job.provider].executable,
     args: launch.args,
     cwd: request.cwd,
     input: request.prompt,
     artifact: request.job.artifact,
-    secrets: [request.mesh.token, home.token, identity.secret, ...credentialValues(process.env)],
+    secrets: [
+      request.mesh.token,
+      home.token,
+      identity.secret,
+      ...credentialValues(process.env),
+      ...Object.values(granted),
+    ],
+    ...(Object.keys(granted).length > 0 && { secretEnv: granted }),
     // The supervisor's liveness ceiling stops the attempt first; this bound only backs it up.
     timeoutMs: livenessPolicy(request.settings).maxMs + PROCESS_GRACE_MS,
     memoryMb: request.settings.resources.jobMemoryMb,

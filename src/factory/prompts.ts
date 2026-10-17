@@ -6,6 +6,8 @@
  * @file
  */
 
+import { canAsk } from './organization.ts';
+
 import type { RepairRound } from './repair-schema.ts';
 import type { FactoryJob, FactoryTask, Feature, SkillRequest } from './schema.ts';
 import type { WorkflowStep } from './workflows.ts';
@@ -153,7 +155,7 @@ export function assignmentPrompt(context: {
     'The structured result is your durable supervisor handoff. Do not require a live peer identity or send to an unregistered role to continue. For blockers identify the cause, the smallest safe recovery, evidence needed and a specific operator decision only if necessary. Retain existing issue/PR identities; never invent replacement tickets just to unblock planning.',
     ...(context.job.kind === 'review' ? [REVIEW_FOCUS[context.job.role] ?? REVIEW_FOCUS['default']] : []),
     ...stepGuidance(step),
-    ...(ASKING_KINDS.has(context.job.kind) ? [ASK_RULE] : []),
+    ...(ASKING_KINDS.has(context.job.kind) && canAsk(context.job.routing?.organization?.permissions) ? [ASK_RULE] : []),
     ...(context.repair === undefined || context.repair === null ? [] : [REPAIR_GUIDANCE[context.repair.kind]]),
     ...definitionGuidance(context.job.kind, context.feature),
     'The factory supervisor starts your next assignment autonomously. Finish this assignment and return its structured result, then exit. Do not call mesh_wait_for_work or ask whether to continue/find work. Do not spawn additional agents or background shell tasks. Human stop instructions always apply.',

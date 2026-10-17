@@ -13,6 +13,7 @@ import { startBroker } from '../src/broker.ts';
 import { AgentClient } from '../src/client.ts';
 import { consoleView } from '../src/factory/console-view.ts';
 import { refundUnpaidAttempt } from '../src/factory/controls.ts';
+import { canAsk } from '../src/factory/organization.ts';
 import { assignmentPrompt } from '../src/factory/prompts.ts';
 import {
   MAX_OPEN_QUESTIONS,
@@ -246,6 +247,29 @@ await test('a managed question holds its step, sets the attempt aside and return
   const { inbox } = consoleView(factory.repository);
   assert.ok(inbox.open.every((candidate) => candidate.kind !== 'question'));
   assert.match(inbox.answered[0]?.note ?? '', /SQLite — Keep one file per project/v);
+});
+
+await test('a role type without inbox.ask cannot ask, and its prompt omits the question rule', async (t) => {
+  const f = fixture(t);
+  const { factory, store } = f;
+  const actor = store.register({ ...registration('factory-developer-1'), runtime: 'factory-managed' });
+  const job = claimDeveloper(f);
+  const organization = { revision: 'r', type: 'builder', label: 'Builder', instructions: '', reportsTo: null };
+  factory.repository.saveJob({
+    ...job,
+    routing: {
+      tier: 'standard',
+      model: null,
+      reason: 'Test.',
+      skillNames: [],
+      organization: { ...organization, permissions: [] },
+    },
+  });
+  const ask = { key: 'q', question: 'May I?', choices: ['Yes'], allowText: false };
+  await assert.rejects(factory.execute('factory_ask', ask, actor.id), { code: 'TOOL_DENIED' });
+  assert.equal(canAsk([]), false);
+  assert.equal(canAsk(['inbox.ask']), true);
+  assert.equal(canAsk(undefined), true, 'attempts frozen before roles keep the question tool');
 });
 
 await test('open questions per delivery and questions per step are bounded', async (t) => {

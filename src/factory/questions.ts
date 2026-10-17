@@ -22,6 +22,7 @@ import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
 import { credentialValues } from './authentication.ts';
+import { canAsk } from './organization.ts';
 import { answerSchema, askSchema, questionSchema } from './question-schema.ts';
 import { managedSourceJob } from './source-reader.ts';
 
@@ -155,6 +156,9 @@ function assertCanAsk(context: FactoryContext, job: FactoryJob): void {
   }
   if (!ASKING_KINDS.has(job.kind) || (job.taskId === null && job.featureId === null)) {
     throw new MeshError('FACTORY_GATED', 'Only assignments on a delivery or an objective may ask the operator.');
+  }
+  if (!canAsk(job.routing?.organization?.permissions)) {
+    throw new MeshError('TOOL_DENIED', 'This role type may not ask the operator questions.');
   }
 }
 

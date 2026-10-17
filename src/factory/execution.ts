@@ -26,6 +26,7 @@ import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
 import { isCurrentTriage, pendingTriage } from './triage.ts';
 import { validationEnvironment } from './validation-environment.ts';
+import { grantedEnvironment } from './vault.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { RepairRound } from './repair-schema.ts';
@@ -98,7 +99,8 @@ export async function runChecks(
       cwd: options.cwd,
       input: '',
       artifact,
-      secrets: [context.mesh.token],
+      // A role's granted secrets may surface in check output through files the attempt wrote.
+      secrets: [context.mesh.token, ...Object.values(attemptEnvironment(context, job))],
       timeoutMs: context.settings.jobTimeoutMs,
       memoryMb: context.settings.resources.jobMemoryMb,
       cpuPercent: context.settings.resources.jobCpuPercent,
@@ -123,6 +125,22 @@ export async function runChecks(
     }
   }
   return evidence;
+}
+
+/**
+ * Open the secrets granted to an attempt's role type, for its provider process only.
+ *
+ * @param context - Project ledger and private directory.
+ * @param job - Attempt with the secret names frozen into its routing.
+ * @returns Environment variables; empty when nothing is granted.
+ */
+function attemptEnvironment(context: FactoryContext, job: FactoryJob): Record<string, string> {
+  const organization = job.routing?.organization;
+  return grantedEnvironment(
+    { store: context.repository.store, directory: context.mesh.directory },
+    organization?.secrets ?? [],
+    organization?.type,
+  );
 }
 
 /**
@@ -194,6 +212,7 @@ export async function executeJob(
     prompt,
     signal: controls.signal,
     onSpawn: controls.onSpawn,
+    environment: attemptEnvironment(context, record),
   });
   if (snapshot !== null) {
     await context.workspaces.assertUnchanged(snapshot);
