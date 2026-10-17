@@ -12,6 +12,7 @@ import { request, scoped } from './api.js';
 import { ChecklistDialog } from './checklist-dialog.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
 import { LOG_LABELS, STATE_TEXT, definitionText, readGoals, readLogPage } from './goal-model.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -141,7 +142,7 @@ class GoalView {
     this.dialog = new ChecklistDialog(hooks.control, () => {
       restoreFocus(this.root, 'goal-edit', this.root.querySelector<HTMLElement>('h2'));
     });
-    this.older = button('Load older entries', {
+    this.older = button(t('Load older entries'), {
       cssClass: 'button secondary',
       key: 'goal-log-older',
       action: () => {
@@ -153,9 +154,9 @@ class GoalView {
     this.note.rows = 3;
     this.note.maxLength = NOTE_MAX;
     this.note.id = `goal-note-${crypto.randomUUID()}`;
-    const label = element('label', '', 'Add a note to the log');
+    const label = element('label', '', t('Add a note to the log'));
     label.htmlFor = this.note.id;
-    const add = element('button', 'button primary', 'Add note');
+    const add = element('button', 'button primary', t('Add note'));
     add.type = 'submit';
     const form = element('form', 'goal-note');
     form.append(label, this.note, this.noteStatus, add);
@@ -164,7 +165,7 @@ class GoalView {
       void this.addNote();
     });
     const head = element('div', 'panel-head');
-    head.append(element('h2', '', 'Progress log'));
+    head.append(element('h2', '', t('Progress log')));
     const panelBody = element('div', 'panel-body');
     panelBody.append(form, this.log, this.logStatus, this.older);
     this.logSection.append(head, panelBody);
@@ -230,11 +231,11 @@ class GoalView {
   private list(): HTMLElement {
     const section = element('section', 'panel');
     const head = element('div', 'panel-head');
-    head.append(element('h2', '', 'Objectives'));
+    head.append(element('h2', '', t('Objectives')));
     const list = element('ul', 'goal-list');
     for (const goal of this.goals.toReversed()) {
       const item = element('li', 'goal-card');
-      const title = button(goal.title === '' ? 'Untitled objective' : goal.title, {
+      const title = button(goal.title === '' ? t('Untitled objective') : goal.title, {
         cssClass: 'card-open',
         key: `goal:${goal.featureId}`,
         action: () => {
@@ -244,15 +245,22 @@ class GoalView {
       const heading = element('h3', 'card-title');
       heading.append(title);
       const facts = element('p', 'subtle');
-      facts.textContent = `${goal.phase} · ${String(goal.deliveries.done)} of ${String(goal.deliveries.total)} deliveries done · ${definitionText(goal)}`;
+      facts.textContent = t('{phase} · {done} of {total} deliveries done · {value}', {
+        phase: goal.phase,
+        done: goal.deliveries.done,
+        total: goal.deliveries.total,
+        value: definitionText(goal),
+      });
       item.append(heading, facts);
       if (goal.awaitsDefinition) {
-        item.append(tag('Waiting on the definition of done', 'tag-held'));
+        item.append(tag(t('Waiting on the definition of done'), 'tag-held'));
       }
       list.append(item);
     }
     const body = element('div', 'panel-body');
-    body.append(this.goals.length === 0 ? emptyState('No objectives yet', 'Objectives you start appear here.') : list);
+    body.append(
+      this.goals.length === 0 ? emptyState(t('No objectives yet'), t('Objectives you start appear here.')) : list,
+    );
     section.append(head, body);
     return section;
   }
@@ -264,7 +272,7 @@ class GoalView {
    * @returns Detail sections.
    */
   private detail(goal: Goal): HTMLElement[] {
-    const back = button('← All objectives', {
+    const back = button(t('← All objectives'), {
       cssClass: 'button ghost',
       key: 'goal-back',
       action: () => {
@@ -272,33 +280,37 @@ class GoalView {
       },
     });
     const header = element('header', 'delivery-header');
-    const heading = element('h2', 'delivery-title', goal.title === '' ? 'Untitled objective' : goal.title);
+    const heading = element('h2', 'delivery-title', goal.title === '' ? t('Untitled objective') : goal.title);
     heading.tabIndex = -1;
     heading.dataset['focusKey'] = TITLE_KEY;
     const facts = element(
       'p',
       'subtle',
-      `${goal.phase} · ${String(goal.deliveries.done)} of ${String(goal.deliveries.total)} deliveries done`,
+      t('{phase} · {done} of {total} deliveries done', {
+        phase: goal.phase,
+        done: goal.deliveries.done,
+        total: goal.deliveries.total,
+      }),
     );
     const brief = element('details', 'goal-brief');
-    brief.append(element('summary', '', 'Objective'), element('p', 'goal-objective', goal.objective));
+    brief.append(element('summary', '', t('Objective')), element('p', 'goal-objective', goal.objective));
     header.append(heading, facts, brief);
     if (goal.awaitsDefinition) {
       header.append(
         element(
           'p',
           'notice',
-          'Every delivery is done. Check or waive the remaining criteria to complete this objective.',
+          t('Every delivery is done. Check or waive the remaining criteria to complete this objective.'),
         ),
       );
     }
     const checklist = element('section', 'panel');
     const head = element('div', 'panel-head');
-    head.append(element('h2', '', 'Definition of done'), element('span', 'subtle', definitionText(goal)));
+    head.append(element('h2', '', t('Definition of done')), element('span', 'subtle', definitionText(goal)));
     const items = element('ul', 'goal-items');
     const now = this.now();
     items.append(...goal.items.map((item) => checklistItem(item, now)));
-    const edit = button(goal.items.length === 0 ? 'Add a definition of done…' : 'Edit definition of done…', {
+    const edit = button(t(goal.items.length === 0 ? 'Add a definition of done…' : 'Edit definition of done…'), {
       cssClass: 'button primary',
       key: 'goal-edit',
       action: () => {
@@ -308,7 +320,7 @@ class GoalView {
     const body = element('div', 'panel-body');
     body.append(
       goal.items.length === 0
-        ? emptyState('No criteria yet', 'Without a checklist the objective completes when its deliveries do.')
+        ? emptyState(t('No criteria yet'), t('Without a checklist the objective completes when its deliveries do.'))
         : items,
       edit,
     );
@@ -336,7 +348,7 @@ class GoalView {
         this.showPage(page, isFirst);
       }
     } catch (error) {
-      this.logStatus.textContent = error instanceof Error ? error.message : 'The progress log could not be read.';
+      this.logStatus.textContent = error instanceof Error ? error.message : t('The progress log could not be read.');
     } finally {
       this.isLoading = false;
     }
@@ -356,8 +368,8 @@ class GoalView {
     this.older.hidden = this.next === null;
     this.logStatus.textContent =
       this.entries.length === 0
-        ? 'Nothing logged yet.'
-        : `${String(this.entries.length)} of ${String(page.total)} entries.`;
+        ? t('Nothing logged yet.')
+        : t('{length} of {total} entries.', { length: this.entries.length, total: page.total });
   }
 
   /** Append the typed note to the shown objective's log. */
@@ -368,17 +380,17 @@ class GoalView {
     }
     const note = this.note.value.trim();
     if (note === '') {
-      this.noteStatus.textContent = 'Write a note first.';
+      this.noteStatus.textContent = t('Write a note first.');
       return;
     }
-    this.noteStatus.textContent = 'Saving…';
+    this.noteStatus.textContent = t('Saving…');
     const isSaved = await this.hooks.control('factory_objective_note', { featureId, note });
     if (isSaved) {
       this.note.value = '';
-      this.noteStatus.textContent = 'Note added.';
+      this.noteStatus.textContent = t('Note added.');
       await this.loadLog(true);
     } else {
-      this.noteStatus.textContent = 'The note was not saved; it is kept so you can try again.';
+      this.noteStatus.textContent = t('The note was not saved; it is kept so you can try again.');
     }
   }
 }
