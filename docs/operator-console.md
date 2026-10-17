@@ -1,5 +1,11 @@
 # Mission control and human skill governance
 
+Each worker's **Model selection evidence · requested launch** disclosure shows the immutable recorded assignment: reviewed recommendation/rationale, requested provider/model/effort, enforced capability floor, policy revision and selection/override reason. Older records with no effort evidence say unknown. Provider-applied effort is not independently confirmed by a requested CLI argument. Later task or policy changes cannot rewrite that historical evidence. The current supervisor diagnostic is shown separately: it can describe a policy no-launch gate, connection problem or attempt/reconciliation failure and is not automatically an admission decision. Correct an actual policy gate before resuming rather than resetting completed reviews.
+
+In **Project setup → Edit model and effort policy**, inspect and edit this project's allowed native models, declared capability floors, effort interfaces, evidence and provider/tier defaults. Pause the factory and wait for owned assignments and terminals to settle before saving. Unknown support is shown explicitly and cannot launch an explicit-policy assignment; the editor never invents available models or subscription quotas.
+
+Saving uses the observed policy revision and preserves unrelated factory settings. Server validation or revision conflicts retain the draft; inspect the message before refreshing and reopening against current server state. A draft opened for one project cannot be submitted to another selected project. These are requested native arguments, not a claim that the provider applied the effort or certified the model's capability.
+
 See [current capabilities](current-status.md) and the [issue-by-issue audit](issue-audit-2026-10-15.md). Source, runtime deployment and live-provider verification are separate states.
 
 The installable PWA uses semantic HTML, native CSS and compiled TypeScript without frontend production npm dependencies. Backend MCP SDK, Zod, SQLite and the isolated node-pty host remain server-side.
@@ -18,7 +24,7 @@ The overview separates **Pending objectives** (product requests not yet delivere
 
 Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
-`--with-broker` owns the broker and UI in one process lifetime and enables scratch terminal control through a memory-only capability. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI can inspect factory/log state but cannot grant terminal authority from a project token. Docker already colocates both services.
+`--with-broker` owns the broker and UI in one process lifetime and supplies memory-only scratch-terminal and human recommendation-decision capabilities. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI still supports ordinary durable controls and inspection; a project token alone cannot grant those two owner capabilities. Docker already colocates both services.
 
 ## GitHub connection and board visibility
 
@@ -272,3 +278,15 @@ Recovery is revision-fenced and exact-request idempotent. Repeated submission af
 
 A publication-size blocker now reports actual changed lines and files separately from an empty diff. After refreshed-source validation passes, the delivery is parked with its exact head/base measurement. **Approve this size exception** requires your reason and applies only to that measured source pair. It resumes the durable publication stage without another paid developer turn. The project defaults remain unchanged. Tests, two independent QA reviews, final verification, GitHub checks and merge policy still apply. New edits or advancing main invalidate the source-specific approval. Empty diffs cannot be approved this way; reconcile already-delivered work instead. CLI `factory-triage` accepts `approve_size` against the displayed task version and a nonempty note.
 Recovery decisions are operator-only. Recovery guidance is bound to the selected objective and is included only in that objective's next relevant assignment; it does not become global role guidance. Reordering or focusing the queue preserves clearance mode unless `existingOnly` is explicitly changed.
+
+### Subscription-first capacity reading
+
+The capacity panel presents **Subscription limits**, **Diagnostic usage**, then **Local machine** in DOM and visual order. Disabled providers remain visible but are not eligible for dispatch. Each window names its observed percentage, reset, observation time, freshness and source; unknown utilization is never rendered as zero. Reached limits have readable text. Legacy scalar summaries do not infer window durations or absolute allowances. Token counts are diagnostics, not API credits or subscription remaining. Locally launched subscription CLIs still use provider-hosted models.
+
+After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks real browser reading order, multiple windows, zero, saturation, stale and missing data, disabled providers, hostile labels, legacy summaries and project replacement. This fixture uses public synthetic state, not account telemetry.
+
+### Why local work is parked
+
+New scope can also wait on **Project intake**. Its pending objective explains how many native observations have been collected or names the exact recommendation requiring human disposition. Cursor progress survives restart; collection and human waiting consume no model sessions. Existing development remains independently eligible. The [paired inspection/read/decision API](api.md#recommendation-inspection-and-read-receipts) is available, while the dedicated Project-management decision pane remains tracked in #62/#63. An approval records an inert intent; execution and graph/skill changes remain #59–#61. Rejection means keeping this request separate and releases only that objective. Do not reset delivery QA or relax provider/resource limits to clear an intake hold.
+
+Local machine includes a keyboard-accessible **Why work is running or parked** disclosure. It reads the supervisor admission snapshot: effective resource/provider ceilings, selected-project roles and assignment stages with objective/ticket identity, and anonymous other broker reservations. Process activity is not delivery success. Job cap, provider concurrency/cooldown, CPU and memory gates name the existing configuration fields; change policy in Project setup while paused and settled. Spare capacity alone never guarantees an eligible launch. Missing or stale samples stay explicit, including unknown CPU before a second measurement. Sample-only refresh preserves the disclosure, pending editor and keyboard focus. No model process starts when inspecting this evidence.

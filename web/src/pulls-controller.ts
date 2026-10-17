@@ -4,7 +4,7 @@
  *
  * @file
  */
-import { data, number, records, request, scoped } from './api.js';
+import { data, number, records, request, scoped, text } from './api.js';
 import { detailView } from './pulls-ui.js';
 
 import type { Data } from './api.js';
@@ -42,6 +42,9 @@ interface TicketText {
   /** Lines beginning with "- ". */
   readonly acceptanceCriteria: string[];
 }
+
+/** Longest an open pull request's review evidence is shown before it is re-read. */
+const EVIDENCE_REFRESH_MS = 15_000;
 
 /** Editor guidance shared by feature and delivery dialogs. */
 const TICKET_FORMAT =
@@ -84,6 +87,10 @@ export class PullController {
   private rendered: { readonly selection: PullSelection; readonly node: HTMLElement } | null = null;
   /** Project whose ledger the current selection belongs to. */
   private observedProject: string | null = null;
+  /** Pull request whose detail is being read, so refreshes never overlap. */
+  private loading: number | null = null;
+  /** When the selected detail was last read. */
+  private loadedAt = 0;
 
   /**
    * Bind controller callbacks.
@@ -165,7 +172,9 @@ export class PullController {
 
   /**
    * Apply a new snapshot: forget another project's selection, and reload the
-   * open diff when its pull request changed.
+   * selected detail when its record changed. Pushes to an open pull request's
+   * branch and base advances change the hub without touching the ledger, so an
+   * open pull request is also re-read once its evidence is older than the bound.
    *
    * @param local - Latest ledger summary.
    */
@@ -181,8 +190,13 @@ export class PullController {
       return;
     }
     const current = records(local['pulls']).find((pull) => number(pull, 'number') === selected);
+    if (current === undefined) {
+      return;
+    }
     const loaded = data(detail['pull']);
-    if (current !== undefined && number(current, 'updatedAt') !== number(loaded, 'updatedAt')) {
+    const isChanged = number(current, 'updatedAt') !== number(loaded, 'updatedAt');
+    const isStale = text(current, 'state') === 'OPEN' && Date.now() - this.loadedAt >= EVIDENCE_REFRESH_MS;
+    if (isChanged || isStale) {
       void this.load(selected);
     }
   }
@@ -193,17 +207,26 @@ export class PullController {
    * @param pull - Pull-request number.
    */
   private async load(pull: number): Promise<void> {
+    if (this.loading === pull) {
+      return;
+    }
+    this.loading = pull;
     const project = this.dependencies.project();
+    const isCurrent = (): boolean => this.selection.number === pull && this.dependencies.project() === project;
     try {
       const detail = data(await request(`${scoped(project, '/api/local-pull')}&number=${String(pull)}`));
-      if (this.selection.number === pull && this.dependencies.project() === project) {
+      this.loadedAt = Date.now();
+      // Unchanged evidence keeps the rendered pane, with its expanded files and revealed lines.
+      if (isCurrent() && JSON.stringify(detail) !== JSON.stringify(this.selection.detail)) {
         this.selection = { number: pull, detail, error: '' };
       }
     } catch (error) {
-      if (this.selection.number === pull) {
+      if (isCurrent()) {
         const message = error instanceof Error ? error.message : 'Could not load this pull request.';
         this.selection = { number: pull, detail: null, error: message };
       }
+    } finally {
+      this.loading = null;
     }
     this.dependencies.render();
   }

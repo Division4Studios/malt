@@ -32,6 +32,7 @@ export const FACTORY_COMMANDS = [
   'factory-capacity',
   'factory-local',
   'factory-manager',
+  'factory-reconcile-github',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -55,6 +56,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-capacity': 'factory_capacity',
   'factory-local': 'factory_local',
   'factory-manager': 'factory_manager',
+  'factory-reconcile-github': 'factory_reconcile_github',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([
@@ -88,14 +90,14 @@ export function isFactoryCommand(value: string): value is FactoryCommand {
  *
  * @param command - Validated command.
  * @param config - Target workspace.
- * @param options - Optional structured file and product objective.
+ * @param options - Optional structured file, product objective and explicit reconciliation apply.
  * @returns JSON result, or undefined for an interactive dashboard.
  * @throws {Error} When input options are missing.
  */
 export async function runFactoryCommand(
   command: FactoryCommand,
   config: MeshConfig,
-  options: { file?: string | undefined; body?: string | undefined },
+  options: { file?: string | undefined; body?: string | undefined; apply?: boolean | undefined },
 ): Promise<unknown> {
   if (command === 'dashboard') {
     const { runDashboard } = await import('./dashboard.ts');
@@ -106,21 +108,47 @@ export async function runFactoryCommand(
   if (operation === undefined) {
     throw new Error('Unsupported factory command.');
   }
-  let input: unknown = {};
+  return rpc(config, operation, commandInput(command, options));
+}
+
+/** Command options: structured file, product objective or manager message, and explicit reconciliation apply. */
+interface CommandOptions {
+  /** JSON input file. */
+  readonly file?: string | undefined;
+  /** Product objective or manager message. */
+  readonly body?: string | undefined;
+  /** Explicit reconciliation apply. */
+  readonly apply?: boolean | undefined;
+}
+
+/** Commands whose input comes from flags instead of a JSON file. */
+const FLAG_INPUTS: Partial<Record<FactoryCommand, (options: CommandOptions) => unknown>> = {
+  'factory-manager': (options) => managerInput(options),
+  'factory-request': (options) => {
+    if (options.body === undefined) {
+      throw new Error('--body must describe the product objective.');
+    }
+    return { objective: options.body };
+  },
+  'factory-reconcile-github': (options) => ({ apply: options.apply === true }),
+};
+
+/**
+ * Build one command's control input from its options.
+ *
+ * @param command - Validated command.
+ * @param options - File, objective, message or apply flag.
+ * @returns Control input.
+ * @throws {Error} When input options are missing.
+ */
+function commandInput(command: FactoryCommand, options: CommandOptions): unknown {
   if (FILE_COMMANDS.has(command)) {
     if (options.file === undefined) {
       throw new Error('--file must name a JSON input file.');
     }
-    input = readJsonFile(path.resolve(options.file));
-  } else if (command === 'factory-manager') {
-    input = managerInput(options);
-  } else if (command === 'factory-request') {
-    if (options.body === undefined) {
-      throw new Error('--body must describe the product objective.');
-    }
-    input = { objective: options.body };
+    return readJsonFile(path.resolve(options.file));
   }
-  return rpc(config, operation, input);
+  return FLAG_INPUTS[command]?.(options) ?? {};
 }
 
 /**
