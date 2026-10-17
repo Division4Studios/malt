@@ -6,6 +6,7 @@
  */
 import { labelOperation } from './github-labels.ts';
 import { milestoneOperation } from './github-milestones.ts';
+import { fieldOperation } from './github-project-fields.ts';
 import { viewOperation } from './github-views.ts';
 
 import type { GitHubRunner } from './github-runner.ts';
@@ -21,6 +22,7 @@ const RESOURCE_OPERATIONS = [
   'github_milestone_manage',
   'github_views',
   'github_view_create',
+  'github_field_manage',
 ] as const;
 /** A repository resource operation. */
 type ResourceOperation = (typeof RESOURCE_OPERATIONS)[number];
@@ -39,6 +41,8 @@ export interface ResourceContext {
   readonly projectId: string;
   /** Connected Project number. */
   readonly projectNumber: number;
+  /** Connected Status field ID, which field changes never touch. */
+  readonly workflowFieldId: string;
 }
 
 /**
@@ -78,6 +82,9 @@ export async function resourceOperation(
     case 'github_views':
     case 'github_view_create': {
       return viewOperation(context, operation, input);
+    }
+    case 'github_field_manage': {
+      return fieldOperation(context, input);
     }
   }
 }

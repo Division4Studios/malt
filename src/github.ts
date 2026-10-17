@@ -212,7 +212,7 @@ export class ProjectGitHub {
    * @returns Runner, connected repository and this project's integration directory.
    */
   private resourceContext(): ResourceContext {
-    const { repository, owner, project } = this.connection();
+    const { repository, owner, project, statusField } = this.connection();
     return {
       runner: this.runner,
       repository,
@@ -220,6 +220,7 @@ export class ProjectGitHub {
       owner,
       projectId: project.id,
       projectNumber: project.number,
+      workflowFieldId: statusField.id,
     };
   }
 

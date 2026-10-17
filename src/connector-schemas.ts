@@ -47,8 +47,23 @@ const milestoneTitleSchema = z.string().min(1).max(MILESTONE_TITLE_MAX);
 /** Longest saved view name accepted. */
 const VIEW_NAME_MAX = 100;
 
+/** Longest Project field name accepted. */
+const FIELD_NAME_MAX = 100;
+/** Most options a created single-select field may carry. */
+const FIELD_OPTIONS_MAX = 50;
+
 /** Connector operation inputs, keyed by operation name. */
 export const connectorSchemas = {
+  github_field_manage: z
+    .object({
+      requestId: z.string().regex(/^[\w\-]{1,64}$/v),
+      action: z.enum(['create', 'change', 'delete']),
+      fieldId: z.string().min(1).max(IDENTIFIER_MAX).optional(),
+      name: z.string().min(1).max(FIELD_NAME_MAX),
+      dataType: z.enum(['text', 'number', 'date', 'single_select']).optional(),
+      options: z.array(z.string().min(1).max(FIELD_NAME_MAX)).max(FIELD_OPTIONS_MAX).optional(),
+    })
+    .strict(),
   github_views: z.object({}).strict(),
   github_view_create: z
     .object({
