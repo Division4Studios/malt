@@ -23,7 +23,13 @@ import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
-import { approvalSchema, frozenWorkflowSchema } from './workflow-schema.ts';
+import {
+  approvalSchema,
+  approveRequestSchema,
+  defaultWorkflowRequestSchema,
+  frozenWorkflowSchema,
+  saveWorkflowRequestSchema,
+} from './workflow-schema.ts';
 
 export { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 
@@ -447,7 +453,10 @@ export const factorySchemas = {
   factory_status: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
-  factory_request: z.object({ objective: textSchema, requestId: z.string().uuid().optional() }).strict(),
+  factory_request: z
+    .object({ objective: textSchema, requestId: z.string().uuid().optional(), workflowId: keySchema.optional() })
+    .strict(),
+  factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
     .object({
@@ -510,11 +519,8 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
-  /** The library validates the definition; any revision other than the stored one is stale. */
-  factory_workflow_save: z
-    .object({ workflow: z.unknown(), expectedRevision: z.string().max(TITLE_MAX).nullable() })
-    .strict(),
-  factory_workflow_default: z.object({ workflowId: keySchema }).strict(),
+  factory_workflow_save: saveWorkflowRequestSchema,
+  factory_workflow_default: defaultWorkflowRequestSchema,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -545,6 +551,7 @@ export const FACTORY_OPERATIONS = [
   'factory_instruct',
   'factory_workflow_save',
   'factory_workflow_default',
+  'factory_approve',
   'factory_reconcile_github',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
