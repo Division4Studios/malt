@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "id": "quick",
+  "name": "Quick change",
+  "description": "The lowest-cost path for small, low-risk changes. No planning: the objective is the single delivery. One independent review on the exact head, then the final check, merge and main verification. Review defects return to the original developer.",
+  "planning": [],
+  "delivery": [
+    { "id": "implement", "kind": "implement", "title": "Implementation", "roles": ["developer-1", "developer-2"] },
+    { "id": "review", "kind": "review", "title": "Independent review", "roles": ["qa-1"], "after": ["implement"] },
+    {
+      "id": "final",
+      "kind": "final",
+      "title": "Final end-to-end check",
+      "roles": ["final-tester"],
+      "after": ["review"]
+    },
+    { "id": "verify", "kind": "verify", "title": "Verify merged main", "roles": ["final-tester"], "after": ["final"] }
+  ]
+}

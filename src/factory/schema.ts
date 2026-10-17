@@ -42,6 +42,11 @@ const DEFAULT_JOB_CPU = 50;
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
+/**
+ * Specialist seats used by configurable workflows. Projects saved before these
+ * existed receive default members for them, so older settings stay valid.
+ */
+export const SPECIALIST_ROLES = ['plan-reviewer', 'fixer', 'librarian', 'regression-verifier'] as const;
 /** Roles have independent process slots even when they use the same provider. */
 export const FACTORY_ROLES = [
   'product-owner',
@@ -52,6 +57,7 @@ export const FACTORY_ROLES = [
   'qa-2',
   'final-tester',
   'learning-steward',
+  ...SPECIALIST_ROLES,
 ] as const;
 /** Provider CLI families supported by the managed runtime. */
 export const PROVIDERS = ['codex', 'claude'] as const;
@@ -158,7 +164,7 @@ export const factoryConfigSchema = z
   .object({
     version: z.literal(1).default(1),
     modelPolicy: modelPolicySchema.optional(),
-    organization: organizationSchema(FACTORY_ROLES),
+    organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
