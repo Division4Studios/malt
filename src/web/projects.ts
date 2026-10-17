@@ -130,6 +130,7 @@ export const controlSchema = z
       'capability_policy_set',
       'github_connect',
       'github_verify',
+      'github_section_save',
       'terminal_start',
       'terminal_close',
       'terminal_input',

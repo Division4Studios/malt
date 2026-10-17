@@ -335,6 +335,24 @@ export class MeshError extends Error {
 // Operation schemas
 // -----------------------------------------------------------------------------
 
+/** A Project and its existing Status field, chosen for the tracker section. */
+const savedTrackerSchema = z
+  .object({
+    owner: z.string().regex(/^[\w\-]+$/v),
+    projectId: z.string().min(1).max(ISSUE_TITLE_MAX),
+    projectNumber: z.number().int().positive(),
+    url: z.string().url(),
+    workflowField: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
+  })
+  .strict();
+/** A repository and its node ID, chosen for the source section. */
+const savedSourceSchema = z
+  .object({
+    repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
+    repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
+  })
+  .strict();
+
 /**
  * Input schema of every RPC operation, keyed by operation name.
  *
@@ -391,6 +409,9 @@ export const schemas = {
     .strict(),
   github_status: z.object({}).strict(),
   github_verify: z.object({}).strict(),
+  github_section_save: z
+    .object({ tracker: savedTrackerSchema.optional(), source: savedSourceSchema.optional() })
+    .strict(),
   github_discover: z
     .object({
       repository: z
@@ -533,6 +554,7 @@ export function isFactoryOperation(operation: Operation): operation is FactoryOp
 export const GITHUB_OPERATIONS = [
   'github_status',
   'github_verify',
+  'github_section_save',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -808,6 +830,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read the active version of one project-specific skill from .malt/skills. Both Codex and Claude use the same library through these tools and the project AGENTS.md / CLAUDE.md references.',
   github_status:
     "Inspect THIS workspace's saved GitHub Project connection and pending operations. No network calls or credentials are returned.",
+  github_section_save:
+    "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
     "Verify THIS workspace's saved tracker and source sections against read-only discovery and record each one's state: verified, degraded, failed or external (Jira setup). Repositories compare by node ID; the saved Status field is never created or changed. Only two verified sections report connected.",
   github_discover:

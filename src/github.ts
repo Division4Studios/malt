@@ -15,6 +15,7 @@ import { z } from 'zod/v3';
 
 import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
+import { savedSections } from './connection-sections.ts';
 import { isConnected, sectionStates, verifyConnection } from './connection-verify.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedProbe, connectionCredentials, ghAuthProbe } from './credentials.ts';
@@ -22,15 +23,17 @@ import { cachedBoard, readBoard } from './github-board.ts';
 import { discoverGitHub } from './github-discovery.ts';
 import { STATUS_FIELD, fieldSchema, selectWorkflowField } from './github-fields.ts';
 import { createIssueReader } from './github-issues.ts';
+import { issueFingerprint, issueSchema, journalSchema } from './github-journal.ts';
 import { githubRunner } from './github-runner.ts';
-import { MeshError, parseInput, schemas } from './protocol.ts';
+import { MeshError, parseInput } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
 import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
-import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
+import type { LegacyConnection, SavedConnection } from './connector.ts';
 import type { PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
+import type { IssueJournal } from './github-journal.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
@@ -56,45 +59,6 @@ const subIssueSchema = z.object({ id: z.number() });
 const subIssuesSchema = z.array(z.array(subIssueSchema));
 /** Verified project identity returned by the GitHub CLI. */
 const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
-
-/** Public repository issue details needed for board and parent linking. */
-const issueSchema = z.object({
-  id: z.number().int().positive(),
-  node_id: z.string(),
-  number: z.number().int().positive(),
-  html_url: z.string().url(),
-  body: z.string().nullable(),
-});
-
-/** Each issue-creation request is persisted before contacting GitHub. */
-const journalSchema = z.object({
-  fingerprint: z.string(),
-  input: schemas.github_create_issue,
-  phase: z.enum(['creating', 'created', 'attached', 'linked', 'complete']),
-  issue: issueSchema.optional(),
-  itemId: z.string().optional(),
-});
-
-/** Persisted issue-creation progress. */
-type IssueJournal = z.output<typeof journalSchema>;
-
-/**
- * Bind an issue intent to its repository identity, Project and exact input.
- *
- * @param input - Validated immutable request.
- * @param connection - Selected Project.
- * @param repository - Stable node ID, or a legacy repository name.
- * @returns Content fingerprint.
- */
-function issueFingerprint(
-  input: OperationInput<'github_create_issue'>,
-  connection: LegacyConnection,
-  repository: string,
-): string {
-  return createHash('sha256')
-    .update(JSON.stringify({ repository, project: connection.project.id, input }))
-    .digest('hex');
-}
 
 /** Explicit Project creation checkpoint, preventing blind duplicate setup. */
 const setupSchema = z.object({
@@ -193,6 +157,9 @@ export class ProjectGitHub {
         parseInput(operation, input);
         return await this.status();
       }
+      case 'github_section_save': {
+        return await this.saveSections(parseInput(operation, input));
+      }
       case 'github_verify': {
         parseInput(operation, input);
         return await this.verify();
@@ -224,24 +191,36 @@ export class ProjectGitHub {
    * @throws {Error} For damaged saved state.
    */
   private async status(): Promise<unknown> {
-    let connection: LegacyConnection | null = null;
-    let connectionV2: ConnectionV2 | null = null;
-    try {
-      ({ legacy: connection, v2: connectionV2 } = this.savedConnection());
-    } catch (error) {
-      if (!(error instanceof MeshError) || error.code !== 'GITHUB_NOT_CONNECTED') {
-        throw error;
-      }
-    }
+    const saved = this.optionalConnection();
+    const connectionV2 = saved?.v2 ?? null;
     return {
       workspace: this.config.workspace ?? this.config.root,
       connected: connectionV2 !== null && isConnected(connectionV2),
       verification: connectionV2 === null ? null : sectionStates(connectionV2),
-      connection,
+      connection: saved?.legacy ?? null,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
     };
+  }
+
+  /**
+   * Save the tracker and/or source section unverified; pending ticket operations fence a switch.
+   *
+   * @param input - Sections chosen from discovery.
+   * @returns Status after the save.
+   */
+  private async saveSections(input: OperationInput<'github_section_save'>): Promise<unknown> {
+    const record = savedSections(this.optionalConnection()?.v2 ?? null, input, timestamp());
+    const { source, tracker } = record;
+    this.assertConnectionChange(source.repository, source.repositoryId, tracker.owner, tracker.projectNumber);
+    this.mkdir(this.directory);
+    writeAtomic(
+      path.join(this.directory, 'connection.json'),
+      `${JSON.stringify(record, null, 2)}
+`,
+    );
+    return await this.status();
   }
 
   /**
@@ -258,6 +237,23 @@ export class ProjectGitHub {
 `,
     );
     return await this.status();
+  }
+
+  /**
+   * Read the saved record, or null before anything is saved.
+   *
+   * @returns Validated connection views, if saved.
+   * @throws {Error} For damaged saved state.
+   */
+  private optionalConnection(): SavedConnection | null {
+    try {
+      return this.savedConnection();
+    } catch (error) {
+      if (error instanceof MeshError && error.code === 'GITHUB_NOT_CONNECTED') {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
