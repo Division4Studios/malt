@@ -17,6 +17,7 @@ import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, planningApprovals } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
+import { advanceRecommendations } from './recommendation-execution.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
@@ -518,6 +519,8 @@ export async function reconcile(context: FactoryContext): Promise<void> {
   }
   await flushEffects(context);
   await reconcileSuperseded(context);
+  await flushEffects(context);
+  await advanceRecommendations(context);
   await flushEffects(context);
   await closeParents(context);
   await flushEffects(context);

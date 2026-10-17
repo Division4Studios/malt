@@ -179,6 +179,24 @@ export class RecommendationLedger {
   }
 
   /**
+   * Current revisions in the given states, oldest first; settled history is not read.
+   *
+   * @param states - Lifecycle states to return.
+   * @returns Matching current records; historical revisions are not included.
+   */
+  public current(states: readonly RecommendationState[]): Recommendation[] {
+    return selectAll(
+      this.store.db,
+      z.object({ data: z.string() }),
+      `SELECT r.data FROM factory_recommendation_revisions r
+       JOIN factory_recommendations c ON c.project = r.project AND c.id = r.id AND c.revision = r.revision
+       WHERE r.project = ? AND json_extract(r.data, '$.state') IN (SELECT value FROM json_each(?)) ORDER BY r.rowid`,
+      this.project,
+      JSON.stringify(states),
+    ).map((row) => recommendationSchema.parse(JSON.parse(row.data)));
+  }
+
+  /**
    * Replay existing content or atomically install a new pending revision.
    *
    * @param input - Bounded proposal, with exact observed issue revisions.
