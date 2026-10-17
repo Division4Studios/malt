@@ -14,6 +14,7 @@ import { z } from 'zod/v3';
 import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
+import { ensurePairingCode, readPairingCode } from './pairing.ts';
 import { ProjectGateway } from './projects.ts';
 import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
@@ -335,7 +336,7 @@ function canWriteStream(response: ServerResponse): boolean {
 export interface WebConsole {
   /** Local browser origin. */
   readonly url: string;
-  /** Local pairing code, shown by the owning CLI. */
+  /** Local pairing code at startup, shown by the owning CLI; `pairing-code --rotate` may replace it later. */
   readonly pairingCode: string;
   /** Stop only the UI server, keeping factory ownership with the broker. */
   readonly close: () => Promise<void>;
@@ -361,7 +362,8 @@ export async function startWebConsole(
       .strict()
       .parse(binding);
   }
-  const sessions = new OperatorSessions();
+  ensurePairingCode(config.directory);
+  const sessions = new OperatorSessions(() => readPairingCode(config.directory));
   const capabilities = typeof operators === 'function' ? { terminal: operators } : operators;
   const gateway = new ProjectGateway(config, capabilities?.terminal, capabilities?.recommendation);
   const streams = new Streams();

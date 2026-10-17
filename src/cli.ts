@@ -31,6 +31,7 @@ import { parseArgs } from 'node:util';
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { STATE_DIRECTORY_NAME, loadConfig, readJsonFile, saveBrokerDiscovery } from './config.ts';
 import { FACTORY_COMMANDS, isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
+import { log } from './log.ts';
 import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
@@ -48,6 +49,7 @@ Usage: node src/cli.ts <command> [options]
   start                        Start the broker (foreground; Ctrl+C to stop)
   ui --port 4318              Serve the installable local PWA; prints a pairing code
   ui --with-broker             Own broker and console together; enables native terminals
+  pairing-code [--rotate]      Show (or re-issue) the persisted console pairing code
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
@@ -88,6 +90,7 @@ Options:
   --verbose                    Log detailed broker/bridge activity to stderr
 
 Docker: docker compose up -d --build
+        docker compose exec broker node src/cli.ts pairing-code --project /data
         docker compose exec broker node src/cli.ts status --project /data
         docker compose down
 `;
@@ -95,6 +98,7 @@ Docker: docker compose up -d --build
 /** Every command the CLI accepts. */
 const COMMANDS = [
   'doctor',
+  'pairing-code',
   'ui',
   ...FACTORY_COMMANDS,
   'init',
@@ -114,7 +118,7 @@ const COMMANDS = [
 type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
-type TeamCommand = Exclude<Command, 'doctor' | 'init' | 'mcp' | 'start' | 'teams' | 'ui'>;
+type TeamCommand = Exclude<Command, 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'start' | 'teams' | 'ui'>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
@@ -157,6 +161,8 @@ interface CliOptions {
   readonly apply?: boolean | undefined;
   /** `--json`: print one machine-readable document (doctor). */
   readonly json?: boolean | undefined;
+  /** `--rotate`: re-issue the console pairing code. */
+  readonly rotate?: boolean | undefined;
 }
 
 /**
@@ -364,6 +370,10 @@ async function run(command: Command, options: CliOptions): Promise<void> {
         await runBridge(home, record);
         return;
       }
+      case 'pairing-code': {
+        await runPairingCode(home, record);
+        return;
+      }
       case 'ui': {
         await runConsole(home, record);
       }
@@ -372,7 +382,7 @@ async function run(command: Command, options: CliOptions): Promise<void> {
 }
 
 /**
- * Serve the local PWA, printing its pairing code once.
+ * Serve the local PWA, printing and logging its pairing code once.
  *
  * @param home - Home project.
  * @param record - Port and broker ownership options.
@@ -385,16 +395,36 @@ async function runConsole(home: MeshConfig, record: CliOptions): Promise<void> {
     throw new Error('Use a valid local UI port.');
   }
   const console = await startNativeConsole(home, port, record['with-broker'] === true);
+  // The one log record that contains the code, so it survives a scrolled-away terminal.
+  log('info', 'console', 'pairing_code', { url: console.url, pairingCode: console.pairingCode });
   print({
     url: console.url,
     pairingCode: console.pairingCode,
-    note: 'Pair locally; browser installation does not install the native daemon.',
+    note: 'Pair locally; browser installation does not install the native daemon. Re-show it with pairing-code.',
   });
   process.once('SIGINT', () => {
     void console.close();
   });
   process.once('SIGTERM', () => {
     void console.close();
+  });
+}
+
+/**
+ * Show or re-issue the persisted console pairing code.
+ *
+ * @param home - Home project whose console owns the code.
+ * @param record - `--rotate` re-issues it.
+ */
+async function runPairingCode(home: MeshConfig, record: CliOptions): Promise<void> {
+  const { ensurePairingCode, rotatePairingCode } = await import('./web/pairing.ts');
+  const isRotated = record.rotate === true;
+  print({
+    pairingCode: isRotated ? rotatePairingCode(home.directory) : ensurePairingCode(home.directory),
+    rotated: isRotated,
+    note: isRotated
+      ? 'A running console accepts only this code from its next pairing attempt; paired browsers keep their sessions.'
+      : 'Pair locally; keep this code private.',
   });
 }
 
@@ -518,6 +548,7 @@ async function main(): Promise<void> {
       all: { type: 'boolean' },
       apply: { type: 'boolean' },
       json: { type: 'boolean' },
+      rotate: { type: 'boolean' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -556,5 +587,5 @@ try {
  * @returns Whether it addresses one workspace team.
  */
 function isTeamCommand(value: Command): value is TeamCommand {
-  return !['doctor', 'init', 'start', 'mcp', 'teams', 'ui'].includes(value);
+  return !['doctor', 'init', 'start', 'mcp', 'pairing-code', 'teams', 'ui'].includes(value);
 }
