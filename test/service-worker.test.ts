@@ -198,7 +198,7 @@ await test('install fetches the whole shell past the HTTP cache into this revisi
   await lifecycle(worker, 'install');
   const shell = worker.stores.get(revision());
   assert.ok(shell !== undefined);
-  assert.ok(shell.has('/') && shell.has('/app.js') && shell.has('/manifest.webmanifest'));
+  assert.ok(shell.has('/') && shell.has('/app.js') && shell.has('/connection-status.js'));
   assert.ok(worker.fetched.length > 0);
   assert.ok(
     worker.fetched.every((entry) => entry.cache === 'reload'),

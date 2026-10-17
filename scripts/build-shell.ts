@@ -33,6 +33,7 @@ const FILES = [
   'dist/navigation.js',
   'dist/freshness.js',
   'dist/console-clock.js',
+  'dist/connection-status.js',
   'dist/capacity-details.js',
   'dist/capacity-view.js',
   'dist/admission-ui.js',
