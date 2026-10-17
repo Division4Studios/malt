@@ -131,7 +131,7 @@ Slices are ordered by dependency. Each keeps `npm run check` green.
 | S1    | Schedules and triggers                                                                                    | Done   |
 | G1    | Objective definition of done and progress log                                                             | Done   |
 | R2    | Stall detection and failure-class retry policy                                                            | Done   |
-| R3    | Commit trailers and remote salvage                                                                        | Done   |
+| R3    | Commit trailers (remote salvage declined: owned worktrees keep WIP)                                       | Done   |
 | R4    | CI-failure and conflict repair attempts                                                                   | Done   |
 | P1    | Settings: theme, provider health, build                                                                   | Done   |
 | P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Done   |

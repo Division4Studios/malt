@@ -18,7 +18,7 @@ import { runProcess } from '../src/factory/processes.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { builtinWorkflows, workflowDigest } from '../src/factory/workflows.ts';
-import { WorkspaceManager } from '../src/factory/workspaces.ts';
+import { WorkspaceManager, mergeMessage } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
@@ -382,4 +382,14 @@ await test('documentation runs after every fix round, before the regression chec
   publishPullRequest(fix);
   const verified = await perform(fix, { role: 'regression-verifier', kind: 'regress', step: 'regress' }, {});
   assert.equal(verified.phase, 'merge_ready');
+});
+
+await test('a merge that refreshes a delivery onto main carries the same provenance trailers', async (t) => {
+  const fix = await fixture(t);
+  const task = fix.context.repository.task(fix.taskId);
+  const provenance = { step: 'fix', kind: 'adjudicate', role: 'fixer', jobId: randomUUID() } as const;
+  const [, subject, , trailers = ''] = mergeMessage(task, provenance);
+  assert.equal(subject, 'Refresh #4 onto main: Greeting file');
+  assert.match(trailers, /X-MALT-Delivery: #4\nX-MALT-Step: fix\nX-MALT-Role: fixer/v);
+  assert.deepEqual(mergeMessage(task, null), []);
 });

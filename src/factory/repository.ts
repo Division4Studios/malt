@@ -458,6 +458,30 @@ export class FactoryRepository {
   }
 
   /**
+   * Record an operator mark such as a hold or an archive choice without
+   * bumping the delivery's version, so a running attempt fenced on that version
+   * still publishes normally.
+   *
+   * @param id - Delivery identity.
+   * @param change - Pure edit that touches only operator marks.
+   * @returns Stored delivery.
+   */
+  public markTask(id: string, change: (task: FactoryTask) => FactoryTask): FactoryTask {
+    return this.store.transaction(() => {
+      const previous = this.task(id);
+      const task = taskSchema.parse({ ...change(previous), version: previous.version, updatedAt: previous.updatedAt });
+      this.putTask(task);
+      this.store.event('FACTORY_TASK_UPDATED', null, {
+        taskId: id,
+        issue: task.issue,
+        phase: task.phase,
+        head: task.head,
+      });
+      return task;
+    });
+  }
+
+  /**
    * Retrieve source/worktree history for safe cleanup after a repaired merge.
    *
    * @param id - Delivery identity.
