@@ -611,6 +611,7 @@ export class FactoryService {
       settings: context.settings,
       controller,
       worktree: () => owned.cwd,
+      gate: { refresh: async () => this.quota.observe(context), resources: () => this.sampler.latest },
     });
     try {
       await this.executeAttempt(job, controller, attempt, owned);

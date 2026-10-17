@@ -14,6 +14,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { run } from '../src/database.ts';
+import { DEFAULT_QUOTA_MARGIN_PERCENT, extensionHold } from '../src/factory/extension-gate.ts';
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
 import { LINE_BYTES_MAX, ProgressSampler, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
@@ -28,7 +29,7 @@ import { createCleanup, createProject } from './helpers.ts';
 
 import type { JobLiveness, LivenessPolicy, FailureClass } from '../src/factory/liveness-schema.ts';
 import type { ProgressObservation } from '../src/factory/liveness.ts';
-import type { FactoryJob } from '../src/factory/schema.ts';
+import type { Capacity, FactoryJob } from '../src/factory/schema.ts';
 
 /** One minute. */
 const MINUTE = 60_000;
@@ -149,9 +150,10 @@ interface Harness {
 /**
  * Build a monitor on the test policy whose clock and samples the test controls.
  *
+ * @param gate - Optional extension gate.
  * @returns Monitor, its records, stops and timer requests.
  */
-function harness(): Harness {
+function harness(gate?: () => Promise<string | null>): Harness {
   let clock = 0;
   let next: ProgressObservation = { progress: null, awaiting: null };
   const records: JobLiveness[] = [];
@@ -177,6 +179,7 @@ function harness(): Harness {
         delays.push(-1);
       };
     },
+    ...(gate !== undefined && { gate }),
   });
   monitor.start();
   return {
@@ -536,4 +539,112 @@ await test('failures are classified and retried with per-class backoff and caps'
   assert.ok(!isBackingOff([attempt(0, 'cancelled')], scope, timing), 'cancelled work retries as soon as it resumes');
   const mixed = [attempt(0, 'stalled'), attempt(1, 'stalled'), attempt(2, 'transient')];
   assert.equal(retryState(mixed, scope, timing.reconcileMs)?.failures, 1, 'a different class starts a new count');
+});
+
+/**
+ * A Codex capacity snapshot with one native window.
+ *
+ * @param now - Checkpoint time; the window resets an hour later.
+ * @param usedPercent - Window usage, or null for no reading at all.
+ * @param observedAt - When the window was observed.
+ * @returns Capacity snapshot.
+ */
+function capacityAt(now: number, usedPercent: number | null, observedAt = now): Capacity {
+  return {
+    provider: 'codex',
+    usedTokens: 0,
+    reservedTokens: 0,
+    resetAt: 0,
+    cooldownUntil: 0,
+    subscriptionUsedPercent: usedPercent,
+    subscriptionResetAt: null,
+    subscriptionWindows:
+      usedPercent === null
+        ? []
+        : [{ id: 'primary', usedPercent, resetAt: now + 60 * MINUTE, observedAt, source: 'codex-app-server' }],
+    telemetrySource: usedPercent === null ? null : 'codex-app-server',
+    updatedAt: observedAt,
+  };
+}
+
+await test('extensions need fresh verified quota headroom, no cooldown and no machine pressure', () => {
+  const settings = factoryConfigSchema.parse(COMMANDS);
+  const now = 100 * MINUTE;
+  const calm = { freeMemoryMb: 32_000, totalMemoryMb: 64_000, cpuPercent: 10 };
+  const facts = { settings, resources: calm, sharing: 1, now };
+  assert.equal(extensionHold({ ...facts, capacity: capacityAt(now, 40) }), null);
+  assert.equal(extensionHold({ ...facts, capacity: capacityAt(now, 95) })?.code, 'quota_low');
+  assert.equal(extensionHold({ ...facts, capacity: capacityAt(now, null) })?.code, 'quota_unknown');
+  assert.equal(extensionHold({ ...facts, capacity: capacityAt(now, 10, now - 10 * MINUTE) })?.code, 'quota_stale');
+  const single = { ...capacityAt(now, 30), subscriptionWindows: [] };
+  assert.equal(extensionHold({ ...facts, capacity: single }), null, 'a fresh single reading counts');
+  assert.equal(extensionHold({ ...facts, capacity: { ...single, updatedAt: now - 10 * MINUTE } })?.code, 'quota_stale');
+  assert.equal(
+    extensionHold({ ...facts, capacity: { ...capacityAt(now, 10), cooldownUntil: now + MINUTE } })?.code,
+    'provider_cooldown',
+  );
+  assert.equal(
+    extensionHold({ ...facts, capacity: capacityAt(now, 10), resources: { ...calm, freeMemoryMb: 10 } })?.code,
+    'resource_memory',
+  );
+  assert.equal(
+    extensionHold({ ...facts, capacity: capacityAt(now, 10), resources: { ...calm, cpuPercent: 99 } })?.code,
+    'resource_cpu',
+  );
+  // Two attempts sharing one subscription window each need the margin.
+  const shared = 100 - DEFAULT_QUOTA_MARGIN_PERCENT * 2 + 5;
+  assert.equal(extensionHold({ ...facts, capacity: capacityAt(now, shared) })?.code ?? null, null);
+  assert.equal(extensionHold({ ...facts, sharing: 2, capacity: capacityAt(now, shared) })?.code, 'quota_low');
+  const strict = factoryConfigSchema.parse({ ...COMMANDS, liveness: { quotaMarginPercent: 70 } });
+  assert.equal(extensionHold({ ...facts, settings: strict, capacity: capacityAt(now, 40) })?.code, 'quota_low');
+});
+
+await test('a held checkpoint stops productive work with its reason; a stall never consults the gate', async () => {
+  const held = harness(async () => {
+    await Promise.resolve();
+    return 'no verified codex quota reading';
+  });
+  await held.advance(8 * MINUTE, { progress: 'tool Bash', awaiting: null });
+  await held.advance(10 * MINUTE, { progress: null, awaiting: null });
+  assert.deepEqual(held.stops, ['no extension: no verified codex quota reading']);
+  assert.equal(held.monitor.liveness.state, 'held');
+  assert.equal(held.monitor.liveness.extensions, 0);
+
+  const failing = harness(async () => {
+    await Promise.resolve();
+    throw new Error('probe failed');
+  });
+  await failing.advance(8 * MINUTE, { progress: 'tool Bash', awaiting: null });
+  await failing.advance(10 * MINUTE, { progress: null, awaiting: null });
+  assert.deepEqual(failing.stops, ['no extension: extension safety could not be verified']);
+
+  const allowed = harness(async () => {
+    await Promise.resolve();
+    return null;
+  });
+  await allowed.advance(8 * MINUTE, { progress: 'tool Bash', awaiting: null });
+  await allowed.advance(10 * MINUTE, { progress: null, awaiting: null });
+  assert.equal(allowed.monitor.liveness.extensions, 1);
+
+  let asked = 0;
+  const quiet = harness(async () => {
+    asked += 1;
+    await Promise.resolve();
+    return null;
+  });
+  await quiet.advance(10 * MINUTE, { progress: null, awaiting: null });
+  assert.equal(asked, 0);
+  assert.deepEqual(quiet.stops, ['stalled 10 min']);
+
+  const facts = {
+    state: 'interrupted',
+    waiting: null,
+    reason: 'Assignment stopped at its checkpoint: no extension: codex quota reading is stale.',
+    isCoolingDown: false,
+    isResultMissing: false,
+    stopReason: 'no extension: codex quota reading is stale',
+    isStopping: false,
+  } as const;
+  assert.equal(classifyAttempt(facts), 'held', 'a held attempt is not mistaken for a rate limit');
+  assert.equal(RETRY_POLICY.held.cap, 2);
 });
