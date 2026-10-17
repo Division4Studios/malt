@@ -42,13 +42,15 @@ export class PostAgentStepError extends MeshError {
   public readonly step: PostAgentStep;
 
   /**
-   * Name the failed step in front of the original reason.
+   * Name the failed step in front of the original reason, redacted: the message
+   * becomes the handoff reason, task error, notification and learning evidence.
    *
    * @param step - Step that failed.
    * @param cause - Original error.
+   * @param secrets - Known credentials to redact from the reason.
    */
-  public constructor(step: PostAgentStep, cause: unknown) {
-    const reason = Error.isError(cause) ? cause.message : 'Unknown failure.';
+  public constructor(step: PostAgentStep, cause: unknown, secrets: readonly string[]) {
+    const reason = redactLog(Error.isError(cause) ? cause.message : 'Unknown failure.', secrets).slice(0, MESSAGE_MAX);
     super(
       cause instanceof MeshError ? cause.code : 'INTERNAL',
       `The agent finished, but the supervisor's ${STEP_LABELS[step]} step failed: ${reason}`,
@@ -122,7 +124,17 @@ export function failureRecord(job: FactoryJob, step: PostAgentStep, error: unkno
  */
 export function writeFailureRecord(mesh: MeshConfig, job: FactoryJob, record: FailureRecord): void {
   const text = `${JSON.stringify(record, null, 2)}\n`;
-  writeAtomic(path.join(job.artifact, 'failure.json'), redactLog(text, [mesh.token, ...credentialValues(process.env)]));
+  writeAtomic(path.join(job.artifact, 'failure.json'), redactLog(text, knownSecrets(mesh)));
+}
+
+/**
+ * Credentials that must never reach a failure record or handoff reason.
+ *
+ * @param mesh - Project configuration holding the broker token.
+ * @returns The broker token and known provider and GitHub credentials.
+ */
+function knownSecrets(mesh: MeshConfig): string[] {
+  return [mesh.token, ...credentialValues(process.env)];
 }
 
 /**
@@ -166,6 +178,6 @@ export async function publishDelivery(
       throw error;
     }
     writeFailureRecord(context.mesh, scope.job, failureRecord(scope.job, step, error, context.now()));
-    throw new PostAgentStepError(step, error);
+    throw new PostAgentStepError(step, error, knownSecrets(context.mesh));
   }
 }
