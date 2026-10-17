@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod/v3';
 
 import { run, selectAll, selectOne } from '../database.ts';
+import { retireSystemIdentities, SYSTEM_RUNTIME } from '../identity-retirement.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
@@ -212,11 +213,15 @@ export class FactoryRepository {
     saveFactorySettings(this, config);
   }
 
-  /** Prepare the factory sender without making it a coding-work participant. */
+  /**
+   * Prepare the factory sender without making it a coding-work participant,
+   * retiring any system identity an earlier broker left behind.
+   */
   public prepareSender(): void {
     if (this.sender !== null) {
       return;
     }
+    this.store.transaction(() => retireSystemIdentities(this.store.db));
     const suffix = randomUUID().slice(0, IDENTITY_SUFFIX_LENGTH);
     this.sender = this.store.register({
       name: `factory-system-${suffix}`,
@@ -224,7 +229,7 @@ export class FactoryRepository {
       sessionId: randomUUID(),
       role: 'observer',
       provider: 'system',
-      runtime: 'factory',
+      runtime: SYSTEM_RUNTIME,
       ephemeral: true,
     }).id;
   }
@@ -283,7 +288,10 @@ export class FactoryRepository {
   public release(owner: string): void {
     this.store.transaction(() => {
       run(this.store.db, 'DELETE FROM factory_lease WHERE owner=?', owner);
+      // The system identity ends with its supervisor; the next notice prepares a fresh one.
+      retireSystemIdentities(this.store.db);
     });
+    this.sender = null;
   }
 
   /**
