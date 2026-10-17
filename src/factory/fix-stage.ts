@@ -24,6 +24,7 @@ import {
 } from './pipeline.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { recordConflict } from './repairs.ts';
+import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
@@ -91,6 +92,7 @@ function stepResult(
   result: AgentResult,
 ): StepResult {
   return {
+    schemaVersion: STEP_OUTPUT_VERSION,
     stepId: step.id,
     kind: step.kind === 'regress' || step.kind === 'document' ? step.kind : 'adjudicate',
     role: job.role,
