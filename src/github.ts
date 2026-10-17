@@ -24,6 +24,7 @@ import { discoverGitHub } from './github-discovery.ts';
 import { STATUS_FIELD, fieldSchema, selectWorkflowField } from './github-fields.ts';
 import { createIssueReader } from './github-issues.ts';
 import { issueFingerprint, issueSchema, journalSchema } from './github-journal.ts';
+import { labelOperation } from './github-labels.ts';
 import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
@@ -34,6 +35,7 @@ import type { LegacyConnection, SavedConnection } from './connector.ts';
 import type { PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
 import type { IssueJournal } from './github-journal.ts';
+import type { LabelContext } from './github-labels.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
@@ -157,6 +159,11 @@ export class ProjectGitHub {
         parseInput(operation, input);
         return await this.status();
       }
+      case 'github_labels':
+      case 'github_label_apply':
+      case 'github_label_manage': {
+        return await labelOperation(this.labelContext(), operation, input);
+      }
       case 'github_section_save': {
         return await this.saveSections(parseInput(operation, input));
       }
@@ -202,6 +209,15 @@ export class ProjectGitHub {
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
     };
+  }
+
+  /**
+   * What label operations need: the connected repository and this project's directory.
+   *
+   * @returns Runner, connected repository and this project's integration directory.
+   */
+  private labelContext(): LabelContext {
+    return { runner: this.runner, repository: this.connection().repository, directory: this.directory };
   }
 
   /**

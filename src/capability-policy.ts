@@ -150,6 +150,17 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
     case 'github_sync': {
       return [];
     }
+    case 'github_labels': {
+      return [];
+    }
+    case 'github_label_apply': {
+      parseInput(operation, input);
+      return ['label-use'];
+    }
+    case 'github_label_manage': {
+      parseInput(operation, input);
+      return ['label-manage'];
+    }
     case 'github_section_save': {
       parseInput(operation, input);
       return ['project-connect'];
