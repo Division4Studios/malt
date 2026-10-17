@@ -5,14 +5,17 @@
  *
  * @file
  */
+import { ZH_FACTORY } from './catalog-zh-factory.js';
 import { ZH_SHELL } from './catalog-zh-shell.js';
 
 /** Catalog parts by area, for the uniqueness check. */
 export const ZH_PARTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
   shell: ZH_SHELL,
+  factory: ZH_FACTORY,
 };
 
 /** Every Simplified Chinese message. */
 export const ZH_CN: Readonly<Record<string, string>> = {
   ...ZH_SHELL,
+  ...ZH_FACTORY,
 };

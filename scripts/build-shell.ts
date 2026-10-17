@@ -61,6 +61,7 @@ const FILES = [
   'dist/i18n.js',
   'dist/catalog-zh.js',
   'dist/catalog-zh-shell.js',
+  'dist/catalog-zh-factory.js',
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',
