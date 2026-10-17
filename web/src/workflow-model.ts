@@ -9,6 +9,7 @@
  * @file
  */
 import { child, data, hasFlag, records, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -55,20 +56,20 @@ export const INSTRUCTIONS_MAX = 8000;
 /** The server's key rule: a lowercase letter or digit, then up to 63 word characters or hyphens. */
 const KEY_PATTERN = /^[\da-z][\w\-]{0,63}$/v;
 /** Readable names for each step kind. */
-export const KIND_LABELS: Readonly<Record<string, string>> = {
-  specify: 'Specify',
-  plan: 'Plan',
-  plan_review: 'Plan review',
-  plan_revise: 'Plan revision',
-  approve: 'Human approval',
-  implement: 'Implement',
-  review: 'Review',
-  adjudicate: 'Adjudicate and fix',
-  document: 'Document',
-  regress: 'Regression check',
-  final: 'Final check',
-  verify: 'Verify main',
-};
+export const KIND_LABELS: Readonly<Record<string, string>> = translated({
+  specify: phrase('Specify'),
+  plan: phrase('Plan'),
+  plan_review: phrase('Plan review'),
+  plan_revise: phrase('Plan revision'),
+  approve: phrase('Human approval'),
+  implement: phrase('Implement'),
+  review: phrase('Review'),
+  adjudicate: phrase('Adjudicate and fix'),
+  document: phrase('Document'),
+  regress: phrase('Regression check'),
+  final: phrase('Final check'),
+  verify: phrase('Verify main'),
+});
 /** Seats a newly added step of each kind starts with. */
 const DEFAULT_ROLES: Readonly<Record<string, readonly string[]>> = {
   specify: ['product-owner'],
@@ -673,7 +674,7 @@ export function copyNames(
   let index = 1;
   while (names.has(name)) {
     index += 1;
-    name = `${workflow.name} (copy ${String(index)})`;
+    name = t('{name} (copy {index})', { name: workflow.name, index });
   }
   return { id: uniqueKey(`${stem}${COPY_SUFFIX}`, ids), name };
 }
@@ -688,7 +689,7 @@ export function blankDraft(library: Library): { draft: DraftWorkflow; origin: Dr
   const ids = new Set(library.items.map((item) => item.id));
   let draft: DraftWorkflow = {
     id: uniqueKey('workflow', ids),
-    name: 'New workflow',
+    name: t('New workflow'),
     description: '',
     planning: [],
     delivery: [],
