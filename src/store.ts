@@ -1040,7 +1040,7 @@ export class Store implements CoordinationHost {
       if (version === '1') {
         this.coordination.migrate();
       }
-      cleanBacklog(this.db, this.now(), this.config.offlineMs + SESSION_RETIRE_MS);
+      cleanBacklog(this.db, this.now(), this.config.offlineMs + SESSION_RETIRE_MS, (id) => this.depart(id));
       run(this.db, "UPDATE metadata SET value = ? WHERE key = 'schema_version'", SCHEMA_VERSION);
     });
   }

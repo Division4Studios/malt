@@ -71,12 +71,17 @@ await test('the backlog is cleaned once without losing audit history', (t) => {
   const cleaned = selectAll(
     migrated.db,
     z.object({ data: z.string() }),
-    "SELECT data FROM events WHERE type = 'BACKLOG_CLEANED'",
+    "SELECT data FROM events WHERE type = 'BACKLOG_CLEANED' ORDER BY seq",
   );
-  assert.deepEqual(
-    cleaned.map((row) => row.data),
-    [JSON.stringify({ acknowledged: 5, retired: 2 })],
-  );
+  // A new project records an empty cleanup when it is created; the schema 3 upgrade records the real one.
+  assert.equal(cleaned.at(-1)?.data, JSON.stringify({ acknowledged: 5, retired: 2 }));
+
+  const left = selectAll(
+    migrated.db,
+    z.object({ actor: z.string() }),
+    "SELECT actor FROM events WHERE type = 'AGENT_LEFT'",
+  ).map((row) => row.actor);
+  assert.ok(left.length >= 2, 'retired sessions leave through the normal departure path');
 
   const reopened = new Store(config, { now: () => clock.now, messageDedupMs: 0 });
   defer(() => {
@@ -84,7 +89,28 @@ await test('the backlog is cleaned once without losing audit history', (t) => {
   });
   assert.equal(
     selectCount(reopened.db, "SELECT COUNT(*) AS count FROM events WHERE type = 'BACKLOG_CLEANED'"),
-    1,
+    cleaned.length,
     'it runs once per database',
+  );
+});
+
+await test('a migration with nothing to clean still records its audit event', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const store = new Store(config);
+  store.db.exec("UPDATE metadata SET value = '3' WHERE key = 'schema_version'");
+  store.close();
+  const migrated = new Store(config);
+  defer(() => {
+    migrated.close();
+  });
+  const cleaned = selectAll(
+    migrated.db,
+    z.object({ data: z.string() }),
+    "SELECT data FROM events WHERE type = 'BACKLOG_CLEANED' ORDER BY seq DESC LIMIT 1",
+  );
+  assert.deepEqual(
+    cleaned.map((row) => row.data),
+    [JSON.stringify({ acknowledged: 0, retired: 0 })],
   );
 });
