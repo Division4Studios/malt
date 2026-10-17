@@ -64,6 +64,7 @@ const SHELL = [
   '/sessions.css',
   '/board.css',
   '/workflow-model.js',
+  '/workflow-checks.js',
   '/terminal.css',
   '/style.css',
   '/manifest.webmanifest',
