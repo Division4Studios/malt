@@ -11,6 +11,8 @@
  */
 import { MeshError } from '../protocol.ts';
 
+import { hasContinuation, isAwaitingDecision } from './checkpoint-decisions.ts';
+
 import type { ExecutedJob } from './context.ts';
 import type { FailureClass } from './liveness-schema.ts';
 import type { FactoryJob } from './schema.ts';
@@ -230,13 +232,20 @@ export function retryState(jobs: readonly FactoryJob[], scope: StepScope, reconc
  * @param timing - Current time and the reconcile interval.
  * @param timing.now - Current time.
  * @param timing.reconcileMs - Project reconcile interval.
- * @returns True while backing off or once retries are exhausted.
+ * @returns True while backing off, once retries are exhausted, or while a checkpoint decision is pending; false
+ *   when the operator granted a continuation.
  */
 export function isBackingOff(
   jobs: readonly FactoryJob[],
   scope: StepScope,
   timing: { now: number; reconcileMs: number },
 ): boolean {
+  if (isAwaitingDecision(jobs, scope)) {
+    return true;
+  }
+  if (hasContinuation(jobs, scope)) {
+    return false;
+  }
   const state = retryState(jobs, scope, timing.reconcileMs);
   return state !== null && (state.retryAt === null || state.retryAt > timing.now);
 }
