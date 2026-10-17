@@ -79,6 +79,7 @@ const FILES = [
   'dist/diff-model.js',
   'dist/diff-ui.js',
   'dist/onboarding-model.js',
+  'dist/onboarding-ui.js',
   'dist/settings-model.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',
