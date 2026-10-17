@@ -17,6 +17,7 @@ import { featureWorkflow, planningApprovals } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
+import { didHandleFailedChecks } from './repairs.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
@@ -216,6 +217,9 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
     return;
   }
+  if (await didHandleFailedChecks(context, record, pr)) {
+    return;
+  }
   if (record.phase === 'merge_ready') {
     const gateReason = mergeBlocker(pr, record, context.settings);
     if (gateReason !== record.error) {
@@ -223,9 +227,20 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     }
     return;
   }
-  if (record.phase !== 'merging') {
-    return;
+  if (record.phase === 'merging') {
+    await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Merge an approved delivery once its gates pass on the exact reviewed source.
+ *
+ * @param context - Actual GitHub and main state.
+ * @param task - Delivery whose final check approved it.
+ * @param pr - Current PR state at the recorded head and base.
+ */
+async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<void> {
+  const record = task;
   if (!hasApprovals(record) || !hasFinalApproval(record)) {
     refreshRequired(context, record, 'Final approval is stale.');
     return;

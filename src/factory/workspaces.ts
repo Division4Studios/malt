@@ -7,7 +7,7 @@
  */
 
 import { existsSync, mkdirSync } from 'node:fs';
-import { symlink, lstat, realpath, rmdir, unlink } from 'node:fs/promises';
+import { symlink, lstat, readFile, realpath, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 
 import { z } from 'zod/v3';
@@ -19,10 +19,27 @@ import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
+import { MergeConflictError } from './merge-conflict.ts';
 import { assertPublicationSize } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
+
+/**
+ * Read one worktree file as text for a conflict-marker scan.
+ *
+ * @param directory - Owned worktree.
+ * @param file - Path relative to it, as Git reported it.
+ * @returns File text, or an empty string when the path no longer exists.
+ */
+async function worktreeText(directory: string, file: string): Promise<string> {
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only paths Git reported inside the owned worktree.
+    return await readFile(path.join(directory, file), 'utf8');
+  } catch {
+    return '';
+  }
+}
 
 /**
  * Compare canonical Git paths using the host's case rules.
@@ -58,6 +75,8 @@ const BRANCH_ID_LENGTH = 8;
 const CONFLICT_HISTORY = 3;
 /** Conflicted paths described in detail per round. */
 const CONFLICT_FINDINGS = 10;
+/** A Git conflict marker at the start of a line. */
+const CONFLICT_MARKER = /^(?:<{7}|>{7})(?: |$)/mv;
 
 /** Ownership evidence for each worktree, retained after cleanup. */
 const ownershipSchema = z.array(
@@ -347,13 +366,14 @@ export class WorkspaceManager {
     await this.assertDeliveryHead(record, previous, base);
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
     if (status !== '') {
+      await this.assertResolved(directory);
       await this.git(['add', '--all'], directory);
       await this.assertPrivateStateUntracked(directory);
       await this.git(['commit', ...commitMessage(record, provenance)], directory);
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
-    await this.mergeBase(record, base, directory);
+    await this.refreshForPublication(record, base, directory);
     await this.assertPrivateStateUntracked(directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, head, base);
@@ -593,6 +613,63 @@ export class WorkspaceManager {
    */
   private async assertDeliveryHead(task: FactoryTask, head: string, base: string): Promise<void> {
     await assertDeliveryHistory(async (args) => this.git(args), { taskId: task.id, head, base, checkpoint: task.head });
+  }
+
+  /**
+   * Refresh main before publication; a conflict aborts the merge and keeps the delivery's commits.
+   *
+   * @param task - Owned delivery.
+   * @param base - Verified fetched main.
+   * @param directory - Owned developer checkout.
+   * @throws {MergeConflictError} When main conflicts with the delivery.
+   */
+  private async refreshForPublication(task: FactoryTask, base: string, directory: string): Promise<void> {
+    try {
+      await this.mergeBase(task, base, directory);
+    } catch (error) {
+      const files = await this.conflictedFiles(directory);
+      if (files.length === 0) {
+        throw error;
+      }
+      const head = await this.git(['rev-parse', 'HEAD'], directory);
+      // The delivery's committed work stays on its branch; the repair round merges again with context.
+      await this.git(['merge', '--abort'], directory);
+      throw new MergeConflictError({ files, head, base });
+    }
+  }
+
+  /**
+   * Refuse to commit a merge that still has conflict markers in its conflicted paths.
+   *
+   * @param directory - Owned worktree.
+   * @throws {MeshError} When a merge is in progress and a conflicted path still has markers.
+   */
+  private async assertResolved(directory: string): Promise<void> {
+    try {
+      await this.git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], directory);
+    } catch {
+      return;
+    }
+    const pending = await this.conflictedFiles(directory);
+    const touched = await this.git(['diff', '--name-only', '--diff-filter=AM', 'HEAD'], directory);
+    const candidates = new Set(pending);
+    const changed = touched === '' ? [] : touched.split('\n');
+    for (const file of changed) {
+      candidates.add(file);
+    }
+    const marked: string[] = [];
+    for (const file of candidates) {
+      // eslint-disable-next-line no-await-in-loop -- Read changed paths inside the owned worktree one at a time.
+      if (CONFLICT_MARKER.test(await worktreeText(directory, file))) {
+        marked.push(file);
+      }
+    }
+    if (marked.length > 0) {
+      throw new MeshError(
+        'FACTORY_GATED',
+        `Unresolved merge-conflict markers remain in ${marked.slice(0, CONFLICT_FINDINGS).join(', ')}. Resolve them before publication.`,
+      );
+    }
   }
 
   /**

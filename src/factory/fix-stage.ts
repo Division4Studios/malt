@@ -12,6 +12,7 @@ import { MeshError } from '../protocol.ts';
 
 import { queueComment } from './comments.ts';
 import { runChecks } from './execution.ts';
+import { MergeConflictError } from './merge-conflict.ts';
 import {
   boundSource,
   dispositionProblems,
@@ -22,6 +23,7 @@ import {
   taskWorkflow,
 } from './pipeline.ts';
 import { PublicationSizeError } from './publication-size.ts';
+import { recordConflict } from './repairs.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
@@ -159,6 +161,15 @@ async function publishFix(
       { step: step.id, kind: step.kind, role: job.role, jobId: job.id },
     );
   } catch (error) {
+    if (error instanceof MergeConflictError) {
+      await recordConflict(context, task, {
+        files: error.files,
+        head: error.head,
+        base: error.base,
+        directory: worktree,
+      });
+      return;
+    }
     if (!(error instanceof PublicationSizeError)) {
       throw error;
     }
