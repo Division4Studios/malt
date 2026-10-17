@@ -7,7 +7,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { NODES_MAX } from '../src/factory/transcript-builder.ts';
+import { estimateCost } from '../src/factory/price-table.ts';
+import { NODES_MAX, TranscriptBuilder } from '../src/factory/transcript-builder.ts';
 import { normalizeLines } from '../src/factory/transcripts.ts';
 
 /**
@@ -276,4 +277,27 @@ void test('node counts and text sizes are bounded and truncation is reported', (
   assert.equal(first.truncated, true);
   assert.equal(first.text.length, 4000);
   assert.equal(parsed.digest.tools.total, 1, 'Metrics keep counting beyond the node cap.');
+});
+
+await test('oversized change events and long paths are bounded and marked truncated', () => {
+  const builder = new TranscriptBuilder(true);
+  builder.fileChange(
+    Array.from({ length: 501 }, (_, index) => ({ path: `src/file-${String(index)}.ts`, kind: 'update' })),
+  );
+  builder.touch(`deep/${'a'.repeat(5000)}.ts`);
+  const parsed = builder.finish(false);
+  assert.equal(parsed.nodes.at(0)?.truncated, true, 'a change event over the file cap says so');
+  assert.equal(parsed.filesTruncated, true);
+  assert.ok(
+    parsed.files.every((file) => file.path.length <= 4000),
+    'touched paths are clipped like other text',
+  );
+});
+
+await test('usage with an unknown cache component is never priced as zero', () => {
+  const price = { model: 'm', input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 4 };
+  const known = { input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 1_000_000, reasoning: null, total: 2_000_000 };
+  assert.equal(estimateCost(known, price), 5);
+  assert.equal(estimateCost({ ...known, cacheRead: null }, price), null);
+  assert.equal(estimateCost({ ...known, cacheWrite: null }, price), null);
 });

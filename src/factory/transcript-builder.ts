@@ -329,7 +329,7 @@ export class TranscriptBuilder {
       kind: 'file_change',
       label,
       text: '',
-      truncated: false,
+      truncated: changes.length > FILES_MAX,
       level: 'info',
       tool: null,
       changes: changes
@@ -339,11 +339,16 @@ export class TranscriptBuilder {
   }
 
   /**
-   * Count one edit of a path.
+   * Count one edit of a path, bounded like every other transcript text.
    *
-   * @param file - Path named by an edit tool or change event.
+   * @param path - Path named by an edit tool or change event.
    */
-  public touch(file: string): void {
+  public touch(path: string): void {
+    const clipped = clip(path, TEXT_MAX);
+    const file = clipped.text;
+    if (clipped.truncated) {
+      this.isFilesTruncated = true;
+    }
     const current = this.files.get(file);
     if (current !== undefined) {
       this.files.set(file, current + 1);

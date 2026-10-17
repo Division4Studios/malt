@@ -631,10 +631,35 @@ function scheduleGroup4(
         head: null,
         base: null,
         step: next.step.id,
-        preferredProvider: next.step.provider,
+        preferredProvider: planningProvider(input.jobs, feature.id, next.step),
       });
     }
   }
+}
+
+/**
+ * The provider a planning step prefers. A plan review prefers the family that
+ * did not write the current plan, so it is independent even when load or
+ * availability routed the planner to the family the workflow names; when only
+ * one family is enabled, admission falls back to it.
+ *
+ * @param jobs - Every recorded attempt.
+ * @param featureId - Objective being planned.
+ * @param step - Next planning step.
+ * @returns Preferred provider, or `null` for none.
+ */
+function planningProvider(jobs: readonly FactoryJob[], featureId: string, step: WorkflowStep): Provider | null {
+  if (step.kind !== 'plan_review') {
+    return step.provider;
+  }
+  const planner = jobs
+    .filter(
+      (job) => job.featureId === featureId && job.taskId === null && job.kind === 'refine' && job.state === 'succeeded',
+    )
+    .toSorted((left, right) => (right.finishedAt ?? 0) - (left.finishedAt ?? 0))[0];
+  return planner === undefined
+    ? step.provider
+    : (PROVIDERS.find((provider) => provider !== planner.provider) ?? step.provider);
 }
 
 /**
