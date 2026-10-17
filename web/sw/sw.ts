@@ -15,6 +15,7 @@ const SHELL = [
   '/views.js',
   '/worker-ui.js',
   '/learning-ui.js',
+  '/log-tails.js',
   '/pwa.js',
   '/brand-ui.js',
   '/workflow-ui.js',

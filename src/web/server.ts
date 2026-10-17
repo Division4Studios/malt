@@ -33,6 +33,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/views.js', ['dist/views.js', 'text/javascript; charset=utf-8']],
   ['/worker-ui.js', ['dist/worker-ui.js', 'text/javascript; charset=utf-8']],
   ['/learning-ui.js', ['dist/learning-ui.js', 'text/javascript; charset=utf-8']],
+  ['/log-tails.js', ['dist/log-tails.js', 'text/javascript; charset=utf-8']],
   ['/pwa.js', ['dist/pwa.js', 'text/javascript; charset=utf-8']],
   ['/brand-ui.js', ['dist/brand-ui.js', 'text/javascript; charset=utf-8']],
   ['/workflow-ui.js', ['dist/workflow-ui.js', 'text/javascript; charset=utf-8']],
@@ -493,6 +494,11 @@ async function inspectApi(
     }
     case '/api/stream': {
       await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/local-pull': {
+      const number = z.coerce.number().int().positive().parse(url.searchParams.get('number'));
+      json(response, HTTP.ok, await gateway.localPull(project, number));
       return;
     }
     case '/api/artifact': {
