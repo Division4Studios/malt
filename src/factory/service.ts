@@ -73,7 +73,7 @@ import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
-import { chooseDefaultWorkflow, saveWorkflow } from './workflow-controls.ts';
+import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -412,8 +412,7 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
-      factory_workflow_save: () => saveWorkflow(this.repository, input),
-      factory_workflow_default: () => chooseDefaultWorkflow(this.repository, input),
+      ...workflowHandlers(this.repository, input),
       factory_approve: () => decideApproval(this.repository, input),
       factory_attempts: async () => telemetry.attempts(this.repository, this.mesh, input),
       factory_transcript: async () => telemetry.transcript(this.repository, this.mesh, input),

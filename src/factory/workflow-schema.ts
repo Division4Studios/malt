@@ -521,6 +521,8 @@ export const approveRequestSchema = z
 export const saveWorkflowRequestSchema = z
   .object({ workflow: z.unknown(), expectedRevision: revisionSchema.nullable() })
   .strict();
+/** Revision history request for one workflow. */
+export const workflowHistoryRequestSchema = z.object({ workflowId: keySchema }).strict();
 /** Default workflow selection request. */
 export const defaultWorkflowRequestSchema = z.object({ workflowId: keySchema }).strict();
 /** Bound dispositions recorded by one fix. */

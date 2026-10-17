@@ -1,21 +1,28 @@
 /**
  * Strict query parsing for the read-only telemetry routes `/api/attempts`,
- * `/api/transcript` and `/api/costs`, and for an objective's progress log at
- * `/api/objective-log`. Every parameter is a known, unrepeated
+ * `/api/transcript` and `/api/costs`, for an objective's progress log at
+ * `/api/objective-log`, and for a workflow's revision history at
+ * `/api/workflow-history`. Every parameter is a known, unrepeated
  * key; numbers must be plain decimals. Data comes from broker operations.
  *
  * @file
  */
 import { z } from 'zod/v3';
 
-import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from '../factory/seats.ts';
+import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, keySchema } from '../factory/seats.ts';
 import { ATTEMPT_PAGE_MAX, ATTEMPT_STATES, TRANSCRIPT_PAGE_MAX } from '../factory/telemetry-schema.ts';
 import { MeshError } from '../protocol.ts';
 
 import type { ProjectGateway } from './projects.ts';
 
 /** Read-only routes served by this module. */
-const TELEMETRY_ROUTES = new Set(['/api/attempts', '/api/transcript', '/api/costs', '/api/objective-log']);
+const TELEMETRY_ROUTES = new Set([
+  '/api/attempts',
+  '/api/transcript',
+  '/api/costs',
+  '/api/objective-log',
+  '/api/workflow-history',
+]);
 /** Largest progress log page. */
 const LOG_PAGE_MAX = 100;
 /** Maximum project scope identifier. */
@@ -68,6 +75,8 @@ const costsQuerySchema = z
     timeZone: z.string().min(1).max(TIME_ZONE_MAX).optional(),
   })
   .strict();
+/** Workflow revision history query. */
+const workflowHistoryQuerySchema = z.object({ project, workflowId: keySchema }).strict();
 /** Objective progress log page query. */
 const objectiveLogQuerySchema = z
   .object({
@@ -123,6 +132,10 @@ export async function telemetryRoute(url: URL, gateway: ProjectGateway): Promise
     case '/api/objective-log': {
       const { project: scope, ...page } = objectiveLogQuerySchema.parse(parameters);
       return gateway.objectiveLog(scope, page);
+    }
+    case '/api/workflow-history': {
+      const { project: scope, workflowId } = workflowHistoryQuerySchema.parse(parameters);
+      return gateway.workflowHistory(scope, { workflowId });
     }
     default: {
       throw new MeshError('NOT_FOUND', 'Unknown inspection route.');

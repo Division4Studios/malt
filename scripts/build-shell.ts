@@ -76,6 +76,8 @@ const FILES = [
   'dist/automations-model.js',
   'dist/automations-ui.js',
   'dist/step-override-model.js',
+  'dist/workflow-history-model.js',
+  'dist/workflow-history-ui.js',
   'dist/step-override-ui.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',

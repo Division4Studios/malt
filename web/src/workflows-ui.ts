@@ -11,6 +11,7 @@
 import { element } from './worker-ui.js';
 import { badge, button, isConfirmed, focusKey, rememberFocus, restoreFocus } from './workflow-dom.js';
 import { WorkflowEditor } from './workflow-editor.js';
+import { HistoryDialog } from './workflow-history-ui.js';
 import { blankDraft, defaultRequest, draftFrom, parseLibrary } from './workflow-model.js';
 import { countLabel, pipelinePreview } from './workflow-preview.js';
 
@@ -21,6 +22,8 @@ import type { DraftOrigin, DraftWorkflow, Library, LibraryItem } from './workflo
 export interface WorkflowsHooks {
   /** The console's operator control sender (`createOperatorControl`); resolves false when not applied. */
   readonly control: (operation: string, input: unknown) => Promise<boolean>;
+  /** Selected project id; revision history is offered when it is supplied. */
+  readonly project?: () => string;
 }
 
 /** A mounted workflows view. */
@@ -79,6 +82,8 @@ class WorkflowsView {
   private readonly viewerBody = element('div', 'panel-body');
   /** Draft editor. */
   private readonly editor: WorkflowEditor;
+  /** Revision history dialog, when the shell supplies the project. */
+  private readonly history: HistoryDialog | null;
   /** Id shown in the preview; empty follows the default. */
   private viewing = '';
   /** Last rendered library state, to skip identical pushes. */
@@ -111,6 +116,16 @@ class WorkflowsView {
         this.loadLatest(id);
       },
     });
+    const { project } = hooks;
+    this.history =
+      project === undefined
+        ? null
+        : new HistoryDialog({
+            project,
+            openDraft: (id, workflow) => {
+              this.openRevision(id, workflow);
+            },
+          });
     this.status.setAttribute('role', 'status');
     const intro = element('div', 'wf-intro');
     const text = element(
@@ -308,6 +323,18 @@ class WorkflowsView {
       },
     );
     actions.append(view, change);
+    const { history } = this;
+    if (history !== null) {
+      actions.append(
+        button(
+          'History',
+          () => {
+            history.open(item.id, name);
+          },
+          { variant: 'ghost', ariaLabel: `Revision history of ${name}`, focusKey: `lib:${item.id}:history` },
+        ),
+      );
+    }
     if (!item.isDefault) {
       actions.append(
         button(
@@ -367,6 +394,32 @@ class WorkflowsView {
     this.followUp.replaceChildren();
     this.editor.open(draft, origin, title);
     this.render();
+  }
+
+  /**
+   * Open a past revision as a draft: a project workflow is edited from it at
+   * its current revision; a built-in or retired one is copied under a new id.
+   *
+   * @param id - Workflow id.
+   * @param workflow - Past definition.
+   */
+  private openRevision(id: string, workflow: DraftWorkflow): void {
+    const item = this.library.items.find((candidate) => candidate.id === id);
+    const base: LibraryItem = item ?? {
+      id,
+      revision: '',
+      source: 'builtin',
+      isDefault: false,
+      updatedAt: null,
+      workflow,
+    };
+    const name = workflow.name === '' ? id : workflow.name;
+    void this.openDraft(() => {
+      return {
+        ...draftFrom({ ...base, workflow }, this.library),
+        title: base.source === 'project' ? `Edit “${name}” from a past revision` : `Copy a past revision of “${name}”`,
+      };
+    });
   }
 
   /**
