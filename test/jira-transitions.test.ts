@@ -133,6 +133,21 @@ await test('an unmapped stage, a missing transition or a required field is one e
   assert.deepEqual(fields.kind === 'blocked' ? fields.fields : [], [{ id: 'resolution', name: 'Resolution' }]);
 });
 
+await test('a transition MALT can perform is preferred over one that needs fields', () => {
+  const needsFields: JiraTransition = {
+    id: '41',
+    name: 'Finish with resolution',
+    to: { id: '5', name: 'Done', category: 'done' },
+    requiredFields: [{ id: 'resolution', name: 'Resolution' }],
+  };
+  const plain: JiraTransition = { ...needsFields, id: '42', name: 'Finish', requiredFields: [] };
+  const base = { mapping: MAPPING, stage: 'Done', issueKey: 'PROJ-1', currentStatusId: '4' } as const;
+  const plan = planTransition({ ...base, transitions: [needsFields, plain] });
+  assert.ok(plan.kind === 'transition');
+  assert.equal(plan.transition.id, '42');
+  assert.equal(planTransition({ ...base, transitions: [needsFields] }).kind, 'blocked');
+});
+
 await test('a deleted issue is reported, not guessed', async () => {
   await assert.rejects(
     readTransitions(transport(null).transport, 'PROJ-404'),
