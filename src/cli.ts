@@ -53,6 +53,8 @@ Usage: node src/cli.ts <command> [options]
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  capability-status            Show connector capability policies, support and history
+  capability-set --file FILE   Change one connector capability policy (human only)
   factory-setup --file FILE    Configure target factory validation and resource policies
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch

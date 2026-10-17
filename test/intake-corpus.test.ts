@@ -100,7 +100,8 @@ await test('native operation inspection reads original unresolved identities wit
   const mesh = createProject(defer);
   const github = new ProjectGitHub(mesh);
   const id = deliveryOperationIdentity('00000000-0000-4000-8000-000000000001', 'checks');
-  github.execute = async (operation) => {
+  github.execute = async (principal, operation) => {
+    assert.deepEqual(principal, { kind: 'supervisor', role: 'team-lead' });
     assert.equal(operation, 'github_status');
     return await delay(0, { pendingOperations: [{ input: { requestId: id }, phase: 'creating' }] });
   };
