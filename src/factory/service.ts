@@ -18,7 +18,6 @@ import {
   configureProject,
   shouldParkForMemory,
   recoverUnownedClaims,
-  recordScopeFeedback,
   recordCapacity,
   latestLearningFeedback,
   refundUnpaidAttempt,
@@ -29,7 +28,7 @@ import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
-import { applyInstructionRequest } from './instruction-requests.ts';
+import { instructControl } from './instruction-control.ts';
 import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
 import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
@@ -60,7 +59,6 @@ import {
 import { classifySettlement } from './retry-policy.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
-import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
@@ -371,7 +369,7 @@ export class FactoryService {
         );
       },
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
-      factory_instruct: () => this.controlInstruct(parsed),
+      factory_instruct: () => instructControl(this.repository, this.running, parsed),
       factory_status: async () => this.status(),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
       factory_setup: () => this.controlSetup(parsed),
@@ -723,42 +721,6 @@ export class FactoryService {
       }
     }
     this.repository.notify(`${job.role}: ${reason}`);
-  }
-
-  /**
-   * Handle the validated factory_instruct operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlInstruct(parsed: unknown): unknown {
-    const value = factorySchemas.factory_instruct.parse(parsed);
-    if (value.taskId !== undefined) {
-      this.repository.task(value.taskId);
-    }
-    const result = applyInstructionRequest(this.repository, value, () => {
-      const instructionId = this.repository.instruct(value.role, value.taskId ?? null, value.body);
-      const replacement = value.replan ? replaceScope(this.repository, { ...value, instructionId }) : null;
-      if (value.replan) {
-        recordScopeFeedback(this.repository, value.body);
-      }
-      this.repository.notify(`Operator instruction to ${value.role}: ${value.body}`);
-      return { instructionId, replacement };
-    });
-    const { decision } = result;
-    if (!result.isFresh) {
-      return decision;
-    }
-    for (const job of this.repository.jobs()) {
-      const isRelevant = value.replan
-        ? value.taskId === undefined || decision.replacement?.taskIds.includes(job.taskId ?? '') === true
-        : job.role === value.role && (value.taskId === undefined || job.taskId === value.taskId);
-      if (isRelevant && job.state === 'running') {
-        this.running.get(job.id)?.controller.abort(new Error('Operator instruction changed the active assignment.'));
-      }
-    }
-    return decision;
   }
 
   /**
