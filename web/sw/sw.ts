@@ -72,6 +72,7 @@ const SHELL = [
   '/checklist-dialog.js',
   '/goal-ui.js',
   '/spend-model.js',
+  '/spend-editor.js',
   '/sessions.css',
   '/board.css',
   '/workflow-model.js',

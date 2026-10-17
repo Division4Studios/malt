@@ -80,6 +80,7 @@ const FILES = [
   'dist/checklist-dialog.js',
   'dist/goal-ui.js',
   'dist/spend-model.js',
+  'dist/spend-editor.js',
   'sessions.css',
   'board.css',
   'dist/workflow-model.js',

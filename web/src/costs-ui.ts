@@ -1,7 +1,7 @@
 /**
  * Costs view: summary tiles, a stacked daily chart by role, breakdown tables
- * by role, model, objective and delivery, the most expensive attempts and
- * the operator price editor. Only local data is shown; unpriced attempts are
+ * by role, model, objective and delivery, the most expensive attempts, spend
+ * caps with progress toward each, and the operator price editor. Only local data is shown; unpriced attempts are
  * counted, never priced. The view owns its DOM and reads `/api/costs`.
  *
  * @file
@@ -9,6 +9,7 @@
 import { child, data, number, records, request, scoped, text } from './api.js';
 import { costChart } from './cost-chart.js';
 import { PriceEditor, priceTable } from './price-editor.js';
+import { SpendEditor } from './spend-editor.js';
 import { browserTimeZone, formatCost, formatPercent, formatTokens, formatUsd } from './telemetry-format.js';
 import { optionalNumber } from './transcript-ui.js';
 import { element } from './worker-ui.js';
@@ -253,6 +254,8 @@ class CostsView {
   private readonly summary = element('div', 'costs-summary');
   /** Price editor, preserved across refreshes. */
   private readonly editor: PriceEditor;
+  /** Spend caps editor, preserved across refreshes. */
+  private readonly caps: SpendEditor;
   /** Project currently shown. */
   private project = '';
   /** Last rendered summary data, to skip identical refreshes. */
@@ -272,6 +275,9 @@ class CostsView {
     this.editor = new PriceEditor(hooks.control, () => {
       void this.refresh();
     });
+    this.caps = new SpendEditor(hooks.control, () => {
+      void this.refresh();
+    });
     this.status.setAttribute('aria-live', 'polite');
     this.window.append(
       ...WINDOWS.map(([days, label]) => new Option(label, days, days === DEFAULT_WINDOW, days === DEFAULT_WINDOW)),
@@ -283,7 +289,13 @@ class CostsView {
     picker.append(this.window);
     const toolbar = element('div', 'sessions-filters');
     toolbar.append(picker, element('span', 'subtle', `Calendar days in ${this.timeZone}`));
-    this.root.append(toolbar, this.status, this.summary, panel('Prices', this.editor.element));
+    this.root.append(
+      toolbar,
+      this.status,
+      this.summary,
+      panel('Spend caps', this.caps.element),
+      panel('Prices', this.editor.element),
+    );
   }
 
   /** Re-read the summary for the current project and window. */
@@ -305,6 +317,7 @@ class CostsView {
       }
       this.status.textContent = '';
       this.editor.load(priceTable(summary));
+      this.caps.load(summary);
       const key = JSON.stringify({ ...summary, generatedAt: 0 });
       if (key !== this.renderKey) {
         this.renderKey = key;
