@@ -54,6 +54,15 @@ const FIELD_OPTIONS_MAX = 50;
 
 /** Connector operation inputs, keyed by operation name. */
 export const connectorSchemas = {
+  github_view_manage: z
+    .object({
+      requestId: z.string().regex(/^[\w\-]{1,64}$/v),
+      action: z.enum(['change', 'delete']),
+      viewNumber: z.number().int().positive(),
+      name: z.string().min(1).max(VIEW_NAME_MAX).optional(),
+      layout: z.enum(['table', 'board', 'roadmap']).optional(),
+    })
+    .strict(),
   github_field_manage: z
     .object({
       requestId: z.string().regex(/^[\w\-]{1,64}$/v),

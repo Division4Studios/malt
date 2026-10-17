@@ -531,6 +531,7 @@ export const GITHUB_OPERATIONS = [
   'github_views',
   'github_view_create',
   'github_field_manage',
+  'github_view_manage',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -824,6 +825,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     "Create one saved view (table, board or roadmap) on THIS workspace's connected Project. Needs view-field-create. Existing views and fields are never modified. Pass a stable requestId and reuse it after an interruption: it is reconciled by view name, so a lost create yields exactly one view.",
   github_field_manage:
     "Create, change or delete one field of THIS workspace's connected Project by its exact fieldId (create needs view-field-create, change view-field-change, delete view-field-delete). The connected Status field is refused. Pass a stable requestId and reuse it after an interruption.",
+  github_view_manage:
+    "Change (rename or relayout) or delete one saved view of THIS workspace's connected Project by its exact viewNumber (change needs view-field-change, delete view-field-delete). Refused when this account has neither the GraphQL mutation nor the REST view endpoints. Pass a stable requestId and reuse it after an interruption.",
   github_section_save:
     "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
