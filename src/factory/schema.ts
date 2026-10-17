@@ -22,6 +22,7 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
   approvalSchema,
@@ -520,6 +521,7 @@ export const factorySchemas = {
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
+  ...telemetrySchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -551,5 +553,6 @@ export const FACTORY_OPERATIONS = [
   'factory_workflow_save',
   'factory_workflow_default',
   'factory_approve',
+  ...TELEMETRY_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
