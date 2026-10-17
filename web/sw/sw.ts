@@ -83,6 +83,7 @@ const SHELL = [
   '/settings-model.js',
   '/recommendations-model.js',
   '/recommendations-ui.js',
+  '/recommendation-decision.js',
   '/settings-ui.js',
   '/project-views.js',
   '/roles-model.js',
