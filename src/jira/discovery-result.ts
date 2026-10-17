@@ -119,7 +119,8 @@ export function projectResult(
   access: JiraProjectAccess,
   now: Date,
 ): JiraDiscovery {
-  const missing = JIRA_PERMISSION_NAMES.filter((name) => access.held[name] === false).map((permission) =>
+  // A permission Jira did not confirm counts as missing, so a partial answer is never verified.
+  const missing = JIRA_PERMISSION_NAMES.filter((name) => access.held[name] !== true).map((permission) =>
     missingPermission(permission),
   );
   const problems: JiraProblem[] = [...access.problems, ...missing.map((entry) => permissionProblem(entry))];
