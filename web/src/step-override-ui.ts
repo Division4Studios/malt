@@ -22,6 +22,8 @@ import { element } from './worker-ui.js';
 import type { ControlSender } from './approval-dialog.js';
 import type { CustomStep, Customization, StepChoice, StepOverride } from './step-override-model.js';
 
+/** Whose overrides the dialog changes: one delivery, or one objective before it delivers. */
+export type OverrideTarget = { readonly taskId: string } | { readonly featureId: string };
 /** Seats and profiles the selects offer. */
 export interface OverrideOptions {
   /** Seats the organization defines. */
@@ -193,7 +195,7 @@ export class StepOverrideDialog {
   /** Save button. */
   private readonly save = element('button', 'button primary', t('Save steps'));
   /** Delivery being edited and the version the editor saw. */
-  private target: { taskId: string; version: number } | null = null;
+  private target: (OverrideTarget & { readonly version: number }) | null = null;
 
   /**
    * Build the dialog once.
@@ -243,20 +245,24 @@ export class StepOverrideDialog {
   }
 
   /**
-   * Open for one delivery.
+   * Open for one delivery or one objective.
    *
-   * @param taskId - Delivery.
+   * @param target - The delivery or objective whose overrides change.
    * @param customization - Its editor state.
    * @param options - Seats and profiles to offer.
    */
-  public open(taskId: string, customization: Customization, options: OverrideOptions): void {
+  public open(target: OverrideTarget, customization: Customization, options: OverrideOptions): void {
     if (!this.element.isConnected) {
       document.body.append(this.element);
     }
-    this.target = { taskId, version: customization.version };
+    this.target = { ...target, version: customization.version };
     this.fields.render(customization.steps, customization.overrides, options);
     const summary = overrideSummary(customization.steps, customization.overrides);
-    this.summary.textContent = summary === '' ? t('The delivery runs its workflow unchanged.') : summary;
+    const isDelivery = 'taskId' in target;
+    const unchanged = t(
+      isDelivery ? 'The delivery runs its workflow unchanged.' : 'The objective runs its workflow unchanged.',
+    );
+    this.summary.textContent = summary === '' ? unchanged : summary;
     this.error.textContent = '';
     this.save.disabled = false;
     this.element.showModal();
@@ -272,7 +278,7 @@ export class StepOverrideDialog {
     this.error.textContent = '';
     try {
       const isApplied = await this.control('factory_step_overrides', {
-        taskId: target.taskId,
+        ...('taskId' in target ? { taskId: target.taskId } : { featureId: target.featureId }),
         expectedVersion: target.version,
         overrides: this.fields.overrides(),
       });

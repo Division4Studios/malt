@@ -287,4 +287,8 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   'Awaits definition': '等待完成定义',
   'Definitions of done': '完成定义',
   'OPEN CHECKLISTS': '未完成的清单',
+  'The objective runs its workflow unchanged.': '该目标按原工作流运行，不做更改。',
+  'Its deliveries copy these overrides when they are created; afterwards, change each delivery instead.':
+    '其交付在创建时会复制这些覆盖设置；之后请改为逐个修改交付。',
+  Steps: '步骤',
 };

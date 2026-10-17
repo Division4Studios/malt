@@ -11,6 +11,7 @@
 import { request, scoped } from './api.js';
 import { ChecklistDialog } from './checklist-dialog.js';
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
+import { asData } from './console-model.js';
 import {
   LOG_LABELS,
   OPEN_OBJECTIVE_EVENT,
@@ -21,8 +22,11 @@ import {
   readLogPage,
 } from './goal-model.js';
 import { t } from './i18n.js';
+import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
+import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
 
+import type { Data } from './api.js';
 import type { ControlSender } from './approval-dialog.js';
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { DoneItem, Goal, LogEntry } from './goal-model.js';
@@ -140,6 +144,10 @@ class GoalView {
   private readonly now: () => number;
   /** Checklist editor. */
   private readonly dialog: ChecklistDialog;
+  /** Step override editor, for objectives that have not started delivering. */
+  private readonly overrides: StepOverrideDialog;
+  /** Latest factory projection, for the seats and profiles the override editor offers. */
+  private factory: Data = {};
   /** Objective list or detail. */
   private readonly body = element('div', 'goal-body');
   /** Log entries. */
@@ -181,6 +189,9 @@ class GoalView {
     this.dialog = new ChecklistDialog(hooks.control, () => {
       restoreFocus(this.root, 'goal-edit', this.root.querySelector<HTMLElement>('h2'));
     });
+    this.overrides = new StepOverrideDialog(hooks.control, () => {
+      restoreFocus(this.root, 'goal-customize', this.root.querySelector<HTMLElement>('h2'));
+    });
     this.older = button(t('Load older entries'), {
       cssClass: 'button secondary',
       key: 'goal-log-older',
@@ -217,6 +228,7 @@ class GoalView {
    * @param snapshot - Console snapshot.
    */
   public update(snapshot: unknown): void {
+    this.factory = asData(asData(snapshot)?.['factory']) ?? {};
     this.goals = readGoals(snapshot);
     this.dialog.sync(this.goals);
     this.render();
@@ -364,7 +376,45 @@ class GoalView {
       edit,
     );
     checklist.append(head, body);
-    return [back, header, checklist];
+    return [back, header, checklist, ...this.customization(goal)];
+  }
+
+  /**
+   * The step override editor of an objective that has not started delivering.
+   *
+   * @param goal - Objective shown.
+   * @returns Customization section, or none once the objective is delivering.
+   */
+  private customization(goal: Goal): HTMLElement[] {
+    const custom = goal.customization;
+    if (custom === null) {
+      return [];
+    }
+    const section = element('section', 'panel');
+    const head = element('div', 'panel-head');
+    head.append(element('h2', '', t('Steps')));
+    const summary = overrideSummary(custom.steps, custom.overrides);
+    const body = element('div', 'panel-body');
+    body.append(
+      element('p', 'subtle', summary === '' ? t('The objective runs its workflow unchanged.') : summary),
+      element(
+        'p',
+        'subtle',
+        t('Its deliveries copy these overrides when they are created; afterwards, change each delivery instead.'),
+      ),
+      button(t('Customize steps'), {
+        cssClass: 'button secondary',
+        key: 'goal-customize',
+        action: () => {
+          this.overrides.open({ featureId: goal.featureId }, custom, {
+            seats: seatNames(this.factory),
+            profiles: profileNames(this.factory),
+          });
+        },
+      }),
+    );
+    section.append(head, body);
+    return [section];
   }
 
   /**
