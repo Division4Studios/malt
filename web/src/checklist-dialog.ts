@@ -9,6 +9,7 @@
  */
 import { button } from './console-dom.js';
 import { DONE_ITEMS_MAX, SAVED_STATES, STATE_TEXT, checklistInput } from './goal-model.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -44,10 +45,10 @@ function input(label: string, name: string, value: string): HTMLInputElement {
 function statePicker(state: DoneItem['state']): HTMLSelectElement {
   const node = element('select');
   node.name = 'state';
-  node.setAttribute('aria-label', 'State');
+  node.setAttribute('aria-label', t('State'));
   const isProposal = state === 'proposed';
   for (const value of SAVED_STATES) {
-    const label = value === 'open' && isProposal ? 'Accept as open' : STATE_TEXT[value];
+    const label = value === 'open' && isProposal ? t('Accept as open') : STATE_TEXT[value];
     node.append(new Option(label, value, false, value === (isProposal ? 'open' : state)));
   }
   return node;
@@ -63,20 +64,20 @@ function itemRow(item: DoneItem): HTMLLIElement {
   const isProposal = item.state === 'proposed';
   const row = element('li', isProposal ? 'checklist-row is-proposed' : 'checklist-row');
   row.dataset['id'] = item.id;
-  const text = input('Item', 'text', item.text);
+  const text = input(t('Item'), 'text', item.text);
   text.maxLength = ITEM_TEXT_MAX;
   text.required = true;
-  const evidence = input('Evidence or link', 'evidence', item.evidence ?? '');
+  const evidence = input(t('Evidence or link'), 'evidence', item.evidence ?? '');
   evidence.maxLength = EVIDENCE_MAX;
-  evidence.placeholder = 'Evidence or link (optional)';
-  const remove = element('button', 'small-button', isProposal ? 'Dismiss' : 'Remove');
+  evidence.placeholder = t('Evidence or link (optional)');
+  const remove = element('button', 'small-button', t(isProposal ? 'Dismiss' : 'Remove'));
   remove.type = 'button';
   remove.addEventListener('click', () => {
     row.remove();
   });
   row.append(text, statePicker(item.state), evidence, remove);
   if (isProposal) {
-    row.append(element('p', 'subtle checklist-origin', `Proposed by ${item.by ?? 'an agent'}`));
+    row.append(element('p', 'subtle checklist-origin', t('Proposed by {value}', { value: item.by ?? 'an agent' })));
   }
   return row;
 }
@@ -107,7 +108,7 @@ export class ChecklistDialog {
   /** Polite progress line. */
   private readonly status = element('p', 'subtle');
   /** Save button. */
-  private readonly save = element('button', 'button primary', 'Save definition of done');
+  private readonly save = element('button', 'button primary', t('Save definition of done'));
   /** Objective being edited. */
   private goal: Goal | null = null;
   /** Whether a save is in flight. */
@@ -127,14 +128,14 @@ export class ChecklistDialog {
     this.error.setAttribute('role', 'alert');
     this.status.setAttribute('aria-live', 'polite');
     this.save.type = 'submit';
-    const add = button('Add item', {
+    const add = button(t('Add item'), {
       cssClass: 'button secondary',
       key: 'checklist-add',
       action: () => {
         this.addRow(null);
       },
     });
-    const cancel = element('button', 'button ghost', 'Cancel');
+    const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
       this.element.close();
@@ -147,7 +148,9 @@ export class ChecklistDialog {
       element(
         'p',
         'subtle',
-        'The objective completes only when every item is checked or waived. Agents may propose items or check them with evidence; you decide here.',
+        t(
+          'The objective completes only when every item is checked or waived. Agents may propose items or check them with evidence; you decide here.',
+        ),
       ),
       this.rows,
       this.error,
@@ -175,7 +178,9 @@ export class ChecklistDialog {
       document.body.append(this.element);
     }
     this.goal = goal;
-    this.heading.textContent = `Definition of done · ${goal.title === '' ? 'Untitled objective' : goal.title}`;
+    this.heading.textContent = t('Definition of done · {value}', {
+      value: goal.title === '' ? 'Untitled objective' : goal.title,
+    });
     this.rows.replaceChildren();
     for (const item of goal.items) {
       this.addRow(item);
@@ -202,8 +207,9 @@ export class ChecklistDialog {
     }
     const current = goals.find((candidate) => candidate.featureId === goal.featureId);
     if (current !== undefined && current.updatedAt !== goal.updatedAt) {
-      this.status.textContent =
-        'This checklist changed elsewhere. Saving will be refused; reopen it to see the latest.';
+      this.status.textContent = t(
+        'This checklist changed elsewhere. Saving will be refused; reopen it to see the latest.',
+      );
     }
   }
 
@@ -214,7 +220,9 @@ export class ChecklistDialog {
    */
   private addRow(item: DoneItem | null): void {
     if (this.rows.children.length >= DONE_ITEMS_MAX) {
-      this.error.textContent = `Keep the definition of done to ${String(DONE_ITEMS_MAX)} items or fewer.`;
+      this.error.textContent = t('Keep the definition of done to {doneItemsMax} items or fewer.', {
+        doneItemsMax: DONE_ITEMS_MAX,
+      });
       return;
     }
     const row = item === null ? blankRow() : itemRow(item);
@@ -249,10 +257,10 @@ export class ChecklistDialog {
       return;
     }
     this.error.textContent = '';
-    this.status.textContent = 'Saving…';
+    this.status.textContent = t('Saving…');
     this.isSending = true;
     this.save.disabled = true;
-    let message = 'The definition of done was not saved. If it changed elsewhere, reopen the editor and try again.';
+    let message = t('The definition of done was not saved. If it changed elsewhere, reopen the editor and try again.');
     try {
       if (await this.control('factory_objective_done', built.input)) {
         this.isSending = false;

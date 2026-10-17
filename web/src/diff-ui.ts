@@ -22,6 +22,7 @@ import {
   totalsText,
   truncationText,
 } from './diff-model.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { DiffFileView, DiffPatchView, DiffSummaryView } from './diff-model.js';
@@ -32,12 +33,12 @@ const AUTO_OPEN_FILES = 8;
 /** Visible marker per row kind. */
 const MARKERS: Readonly<Record<DiffRow['kind'], string>> = { add: '+', del: '−', ctx: '', hunk: '' };
 /** Accessible name per row kind, for screen readers that skip the marker column. */
-const ROW_LABELS: Readonly<Record<DiffRow['kind'], string>> = {
-  add: 'Added line',
-  del: 'Removed line',
-  ctx: 'Unchanged line',
-  hunk: 'Hunk',
-};
+const ROW_LABELS: Readonly<Record<DiffRow['kind'], string>> = translated({
+  add: phrase('Added line'),
+  del: phrase('Removed line'),
+  ctx: phrase('Unchanged line'),
+  hunk: phrase('Hunk'),
+});
 
 /**
  * The message of a failed read.
@@ -88,7 +89,7 @@ function patchBody(path: string, patch: DiffPatchView): HTMLElement {
   if (patch.rows.length > 0) {
     const scroller = element('div', 'delivery-diff-scroll');
     const table = element('table', 'diff-table');
-    table.setAttribute('aria-label', `Changes in ${path}`);
+    table.setAttribute('aria-label', t('Changes in {path}', { path }));
     const rows = element('tbody');
     const fragment = document.createDocumentFragment();
     for (const row of patch.rows) {
@@ -99,7 +100,7 @@ function patchBody(path: string, patch: DiffPatchView): HTMLElement {
     scroller.append(table);
     body.append(scroller);
   } else if (patch.notes.length === 0 && !patch.isTruncated) {
-    body.append(element('p', 'subtle', 'No line changes.'));
+    body.append(element('p', 'subtle', t('No line changes.')));
   }
   const truncated = truncationText(patch);
   if (truncated !== null) {
@@ -140,7 +141,7 @@ export class DeliveryDiff {
    */
   public constructor(project: () => string) {
     this.project = project;
-    const heading = element('h3', 'delivery-section-title', 'Changes');
+    const heading = element('h3', 'delivery-section-title', t('Changes'));
     this.element.setAttribute('aria-live', 'polite');
     this.element.append(heading, this.body);
   }
@@ -171,7 +172,7 @@ export class DeliveryDiff {
   private render(): void {
     const { head } = this;
     if (this.summary === null) {
-      const load = button(this.isLoading ? 'Loading changes…' : 'Show changes', {
+      const load = button(t(this.isLoading ? 'Loading changes…' : 'Show changes'), {
         cssClass: 'button secondary',
         key: 'diff-load',
         action: () => {
@@ -181,8 +182,8 @@ export class DeliveryDiff {
       load.disabled = this.isLoading || head === null;
       const hint =
         head === null
-          ? 'Changes appear once the delivery publishes source.'
-          : `Compare head ${shortSha(head)} with its base.`;
+          ? t('Changes appear once the delivery publishes source.')
+          : t('Compare head {value} with its base.', { value: shortSha(head) });
       this.body.replaceChildren(element('p', 'subtle', hint), load);
       return;
     }
@@ -200,7 +201,7 @@ export class DeliveryDiff {
       list.append(this.fileNode(file, shouldOpen && !isLargeFile(file)));
     }
     if (summary.files.length === 0) {
-      list.append(element('p', 'subtle', 'No public file changes.'));
+      list.append(element('p', 'subtle', t('No public file changes.')));
     }
     this.body.replaceChildren(overview, ...notes, list);
   }
@@ -252,7 +253,7 @@ export class DeliveryDiff {
       const route = diffRoute(this.project(), taskId);
       summary = readDiffSummary(await request(route));
     } catch (error) {
-      summary = { state: 'unavailable', reason: failureText(error, 'The diff could not be read.') };
+      summary = { state: 'unavailable', reason: failureText(error, t('The diff could not be read.')) };
     } finally {
       this.isLoading = false;
     }
@@ -273,14 +274,14 @@ export class DeliveryDiff {
   private async loadPatch(path: string, details: HTMLDetailsElement): Promise<void> {
     const { key, taskId } = this;
     this.pending.add(path);
-    const placeholder = element('p', 'subtle delivery-diff-loading', 'Loading patch…');
+    const placeholder = element('p', 'subtle delivery-diff-loading', t('Loading patch…'));
     details.append(placeholder);
     let patch: DiffPatchView;
     try {
       const route = diffRoute(this.project(), taskId, path);
       patch = readDiffPatch(await request(route));
     } catch (error) {
-      patch = { state: 'unavailable', reason: failureText(error, 'The patch could not be read.') };
+      patch = { state: 'unavailable', reason: failureText(error, t('The patch could not be read.')) };
     }
     placeholder.remove();
     if (key !== this.key) {

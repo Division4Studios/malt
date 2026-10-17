@@ -9,6 +9,7 @@
  * @file
  */
 import { request, scoped } from './api.js';
+import { onLocaleChange, t } from './i18n.js';
 import { isDismissed, isOnboardingNeeded, setDismissed } from './onboarding-model.js';
 import { createOnboardingView } from './onboarding-ui.js';
 import { createSettingsView } from './settings-ui.js';
@@ -89,23 +90,29 @@ export class ProjectViews {
       versions: async () => await request(scoped(hooks.project(), '/api/version')),
       shortcuts: [
         {
-          label: 'Factory & validation',
+          label: t('Factory & validation'),
           action: () => {
             hooks.setup(false);
           },
         },
         {
-          label: 'GitHub connection',
+          label: t('GitHub connection'),
           action: () => {
             hooks.setup(true);
           },
         },
-        { label: 'Model & effort policy', action: hooks.policy },
-        { label: 'Team & organization', action: hooks.organization },
-        { label: 'Workflow library', action: open('workflows') },
-        { label: 'Get started guide', action: open('onboarding') },
+        { label: t('Model & effort policy'), action: hooks.policy },
+        { label: t('Team & organization'), action: hooks.organization },
+        { label: t('Workflow library'), action: open('workflows') },
+        { label: t('Get started guide'), action: open('onboarding') },
       ],
     });
+    onLocaleChange(
+      () => [this.onboarding.element, this.settings.element],
+      () => {
+        void this.settings.refresh();
+      },
+    );
   }
 
   /**

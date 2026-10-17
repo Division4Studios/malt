@@ -7,6 +7,7 @@
  * @file
  */
 import { child, number, records, text } from './api.js';
+import { t } from './i18n.js';
 import { formatUsd, OTHER_SERIES, ROLE_SLOTS, stackBars } from './telemetry-format.js';
 import { element } from './worker-ui.js';
 
@@ -61,7 +62,7 @@ function svg(tag: string, attributes: Readonly<Record<string, string | number>>)
  * @returns Display label.
  */
 function seriesLabel(series: string): string {
-  return series === OTHER_SERIES ? 'Other (specialist seats)' : series;
+  return series === OTHER_SERIES ? t('Other (specialist seats)') : series;
 }
 
 /**
@@ -122,7 +123,12 @@ function plot(bars: ReturnType<typeof stackBars>['bars'], max: number): SVGEleme
         class: `cost-bar ${seriesClass(segment.series)}`,
       });
       const title = svg('title', {});
-      title.textContent = `${bar.day} · ${seriesLabel(segment.series)}: ${formatUsd(segment.value)} (day total ${formatUsd(bar.total)})`;
+      title.textContent = t('{day} · {value}: {value2} (day total {value3})', {
+        day: bar.day,
+        value: seriesLabel(segment.series),
+        value2: formatUsd(segment.value),
+        value3: formatUsd(bar.total),
+      });
       rect.append(title);
       chart.append(rect);
     }
@@ -150,12 +156,12 @@ function plot(bars: ReturnType<typeof stackBars>['bars'], max: number): SVGEleme
  */
 function dataTable(bars: ReturnType<typeof stackBars>['bars'], series: readonly string[]): HTMLElement {
   const table = element('table', 'cost-table');
-  table.append(element('caption', 'sr-only', 'Daily cost by role'));
+  table.append(element('caption', 'sr-only', t('Daily cost by role')));
   const head = element('tr');
   head.append(
-    element('th', '', 'Day'),
+    element('th', '', t('Day')),
     ...series.map((name) => element('th', '', seriesLabel(name))),
-    element('th', '', 'Total'),
+    element('th', '', t('Total')),
   );
   table.append(head);
   for (const bar of bars) {
@@ -169,7 +175,7 @@ function dataTable(bars: ReturnType<typeof stackBars>['bars'], series: readonly 
     table.append(row);
   }
   const details = element('details', 'cost-chart-data');
-  details.append(element('summary', '', 'Show chart data as a table'), table);
+  details.append(element('summary', '', t('Show chart data as a table')), table);
   return details;
 }
 
@@ -183,17 +189,28 @@ export function costChart(summary: Data): HTMLElement {
   const figure = element('figure', 'cost-figure');
   const { bars, series, max } = stackBars(dailyRows(summary), HEIGHT - TOP - BOTTOM, GAP);
   if (max === 0) {
-    figure.append(element('p', 'subtle', 'No priced cost in this window. Unpriced attempts are counted in the tiles.'));
+    figure.append(
+      element('p', 'subtle', t('No priced cost in this window. Unpriced attempts are counted in the tiles.')),
+    );
     return figure;
   }
   const chart = plot(bars, max);
   const peak = bars.toSorted((left, right) => right.total - left.total)[0] ?? { day: '', total: 0 };
   chart.setAttribute(
     'aria-label',
-    `Daily known cost by role from ${text(summary, 'from')} to ${text(summary, 'to')}. Highest day ${peak.day} at ${formatUsd(peak.total)}. ${String(series.length)} role series; a data table follows.`,
+    t(
+      'Daily known cost by role from {value} to {value2}. Highest day {day} at {value3}. {length} role series; a data table follows.',
+      {
+        value: text(summary, 'from'),
+        value2: text(summary, 'to'),
+        day: peak.day,
+        value3: formatUsd(peak.total),
+        length: String(series.length),
+      },
+    ),
   );
   const legend = element('ul', 'cost-legend');
-  legend.setAttribute('aria-label', 'Legend');
+  legend.setAttribute('aria-label', t('Legend'));
   for (const name of series) {
     const item = element('li');
     item.append(element('span', `cost-swatch ${seriesClass(name)}`), element('span', '', seriesLabel(name)));

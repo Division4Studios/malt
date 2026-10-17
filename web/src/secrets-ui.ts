@@ -9,6 +9,7 @@
  * @file
  */
 import { ageStamp, button, emptyState, focusedKey, refreshAges, restoreFocus, tag } from './console-dom.js';
+import { t } from './i18n.js';
 import {
   VALUE_MAX,
   auditText,
@@ -80,7 +81,7 @@ class SecretEditor {
   /** Problems. */
   private readonly error = element('p', 'error');
   /** Save button. */
-  private readonly save = element('button', 'button primary', 'Save');
+  private readonly save = element('button', 'button primary', t('Save'));
   /** Current mode. */
   private mode: Mode = 'create';
   /** Secret being changed, or `null` when creating. */
@@ -116,20 +117,20 @@ class SecretEditor {
       this.value.type = this.reveal.checked ? 'text' : 'password';
     });
     const toggle = element('label', 'role-check');
-    toggle.append(this.reveal, element('span', '', 'Show value while typing'));
+    toggle.append(this.reveal, element('span', '', t('Show value while typing')));
     this.nameRow = labelled(
-      'Name',
+      t('Name'),
       this.name,
-      'Injected under this environment variable name, such as STRIPE_TEST_KEY.',
+      t('Injected under this environment variable name, such as STRIPE_TEST_KEY.'),
     );
-    this.valueRow = labelled('Value', this.value, 'Write-only: it is never shown again after you save.');
+    this.valueRow = labelled(t('Value'), this.value, t('Write-only: it is never shown again after you save.'));
     this.valueRow.append(toggle);
-    this.grants.append(element('legend', '', 'Granted to role types'));
+    this.grants.append(element('legend', '', t('Granted to role types')));
     this.grantsRow.append(
       this.grants,
-      element('p', 'role-hint', 'Only attempts of these types receive the secret, as an environment variable.'),
+      element('p', 'role-hint', t('Only attempts of these types receive the secret, as an environment variable.')),
     );
-    const cancel = element('button', 'button ghost', 'Cancel');
+    const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
       this.element.close();
@@ -166,9 +167,9 @@ class SecretEditor {
     this.editing = secret;
     this.model = model;
     const titles = {
-      create: 'New secret',
-      rotate: `Rotate ${secret?.name ?? ''}`,
-      grants: `Grants of ${secret?.name ?? ''}`,
+      create: t('New secret'),
+      rotate: t('Rotate {value}', { value: secret?.name ?? '' }),
+      grants: t('Grants of {value}', { value: secret?.name ?? '' }),
     };
     this.heading.textContent = titles[mode];
     this.name.value = secret?.name ?? '';
@@ -242,7 +243,7 @@ class SecretEditor {
       if (await this.control(operation, input)) {
         this.element.close();
       } else {
-        this.error.textContent = 'Not saved. The notice at the top of the console says why.';
+        this.error.textContent = t('Not saved. The notice at the top of the console says why.');
       }
     } finally {
       this.isSending = false;
@@ -278,7 +279,7 @@ class SecretsView implements ConsoleViewHandle {
     this.editor = new SecretEditor(hooks.control);
     const toolbar = element('div', 'role-toolbar');
     toolbar.append(
-      button('New secret', {
+      button(t('New secret'), {
         cssClass: 'button primary',
         key: 'secret-new',
         action: () => {
@@ -289,10 +290,12 @@ class SecretsView implements ConsoleViewHandle {
     const intro = element(
       'p',
       'subtle',
-      'Secrets are sealed with AES-256-GCM under a key in this project’s private .malt folder. Granted role types receive them as environment variables; they are redacted from logs, transcripts and check output, and never shown again.',
+      t(
+        'Secrets are sealed with AES-256-GCM under a key in this project’s private .malt folder. Granted role types receive them as environment variables; they are redacted from logs, transcripts and check output, and never shown again.',
+      ),
     );
     const history = element('section', 'role-section');
-    history.append(element('h2', '', 'Audit trail'), this.audit);
+    history.append(element('h2', '', t('Audit trail')), this.audit);
     this.element.append(intro, toolbar, this.list, history, this.editor.element);
   }
 
@@ -313,7 +316,7 @@ class SecretsView implements ConsoleViewHandle {
     const focus = focusedKey(this.element);
     this.list.replaceChildren(
       ...(this.model.secrets.length === 0
-        ? [emptyState('No secrets yet', 'Add one to give a role type an API key or token it needs.')]
+        ? [emptyState(t('No secrets yet'), t('Add one to give a role type an API key or token it needs.'))]
         : this.model.secrets.map((secret) => this.card(secret, now))),
     );
     this.audit.replaceChildren(
@@ -324,7 +327,7 @@ class SecretsView implements ConsoleViewHandle {
       }),
     );
     if (this.model.audit.length === 0) {
-      this.audit.append(element('li', 'subtle', 'Nothing recorded yet.'));
+      this.audit.append(element('li', 'subtle', t('Nothing recorded yet.')));
     }
     restoreFocus(this.element, focus);
   }
@@ -340,27 +343,27 @@ class SecretsView implements ConsoleViewHandle {
     const card = element('article', 'role-card');
     const header = element('header', 'role-card-header');
     header.append(element('h3', 'role-name', secret.name), tag(`v${String(secret.version)}`));
-    const fingerprint = element('p', 'subtle', 'Fingerprint ');
+    const fingerprint = element('p', 'subtle', t('Fingerprint '));
     fingerprint.append(element('code', '', secret.fingerprint));
-    const updated = element('p', 'subtle', 'Changed ');
+    const updated = element('p', 'subtle', t('Changed '));
     updated.append(ageStamp(secret.updatedAt, now));
     const actions = element('div', 'role-actions');
     actions.append(
-      button('Rotate', {
+      button(t('Rotate'), {
         cssClass: 'button secondary',
         key: `secret-rotate-${secret.name}`,
         action: () => {
           this.editor.open('rotate', secret, this.model);
         },
       }),
-      button('Grants', {
+      button(t('Grants'), {
         cssClass: 'button ghost',
         key: `secret-grants-${secret.name}`,
         action: () => {
           this.editor.open('grants', secret, this.model);
         },
       }),
-      button('Delete', {
+      button(t('Delete'), {
         cssClass: 'button ghost danger',
         key: `secret-delete-${secret.name}`,
         action: () => {
@@ -379,10 +382,10 @@ class SecretsView implements ConsoleViewHandle {
    */
   private async remove(secret: SecretView): Promise<void> {
     const isSure = await isConfirmed(this.element, {
-      title: `Delete ${secret.name}?`,
-      message: 'New attempts stop receiving it. Attempts already running keep the value they started with.',
-      confirm: 'Delete secret',
-      cancel: 'Keep it',
+      title: t('Delete {name}?', { name: secret.name }),
+      message: t('New attempts stop receiving it. Attempts already running keep the value they started with.'),
+      confirm: t('Delete secret'),
+      cancel: t('Keep it'),
     });
     if (!isSure) {
       return;

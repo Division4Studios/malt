@@ -1,5 +1,6 @@
 /** @file Read-only admission explanations from the same evidence used by dispatch. */
 import { child, firstText, records, resourceSummary, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -8,15 +9,19 @@ const STALE_MS = 30_000;
 /** Milliseconds per displayed second. */
 const SECOND_MS = 1000;
 /** Backend gate codes, never executable operator instructions. */
-const GATES: Readonly<Record<string, string>> = {
-  job_cap: 'Job cap reached: resources.maxActiveJobs.',
-  provider_cap: 'Provider cap reached: providers.<name>.concurrency.',
-  provider_cooldown: 'Provider cooldown or observed subscription limit reached; wait for actual reset evidence.',
-  provider_unavailable: 'No provider is currently eligible; inspect enabled providers and diagnostic policy.',
-  cpu: 'CPU pressure: resources.maxCpuPercent.',
-  memory: 'Memory pressure: resources.minFreeMemoryMb or resources.minFreeMemoryPercent.',
-  none: 'No capacity gate reported. Dispatch still requires eligible work and workflow gates; spare capacity does not guarantee launch.',
-};
+const GATES: Readonly<Record<string, string>> = translated({
+  job_cap: phrase('Job cap reached: resources.maxActiveJobs.'),
+  provider_cap: phrase('Provider cap reached: providers.<name>.concurrency.'),
+  provider_cooldown: phrase(
+    'Provider cooldown or observed subscription limit reached; wait for actual reset evidence.',
+  ),
+  provider_unavailable: phrase('No provider is currently eligible; inspect enabled providers and diagnostic policy.'),
+  cpu: phrase('CPU pressure: resources.maxCpuPercent.'),
+  memory: phrase('Memory pressure: resources.minFreeMemoryMb or resources.minFreeMemoryPercent.'),
+  none: phrase(
+    'No capacity gate reported. Dispatch still requires eligible work and workflow gates; spare capacity does not guarantee launch.',
+  ),
+});
 
 /**
  * Explain the first capacity gate dispatch stops at.
@@ -50,8 +55,15 @@ export function admissionSample(factory: Data, now = Date.now()): string {
   const at = sample['observedAt'];
   const age = typeof at === 'number' && Number.isFinite(at) && at > 0 && at <= now ? now - at : null;
   const status = age !== null && age > STALE_MS ? 'stale' : 'current';
-  const freshness = age === null ? 'sample age unknown' : `${String(Math.floor(age / SECOND_MS))}s old · ${status}`;
-  return `${resourceSummary({ resources: sample })} · total memory ${measured(sample['totalMemoryMb'])} MiB · ${freshness}`;
+  const freshness =
+    age === null
+      ? t('sample age unknown')
+      : t('{value}s old · {status}', { value: Math.floor(age / SECOND_MS), status });
+  return t('{value} · total memory {value2} MiB · {freshness}', {
+    value: resourceSummary({ resources: sample }),
+    value2: measured(sample['totalMemoryMb']),
+    freshness,
+  });
 }
 
 /**
@@ -70,30 +82,51 @@ export function admissionLines(factory: Data): string[] {
       ? String(total - running.length)
       : 'unknown';
   const lines = [
-    `Broker reservations ${measured(total)} / resources.maxActiveJobs ${measured(limits['maxActiveJobs'])}. Other broker pipelines/reservations: ${other} (identities private).`,
-    `resources.maxCpuPercent ${measured(limits['maxCpuPercent'])}% · resources.minFreeMemoryMb ${measured(limits['minFreeMemoryMb'])} · resources.minFreeMemoryPercent ${measured(limits['minFreeMemoryPercent'])}%.`,
+    t(
+      'Broker reservations {value} / resources.maxActiveJobs {value2}. Other broker pipelines/reservations: {other} (identities private).',
+      { value: measured(total), value2: measured(limits['maxActiveJobs']), other },
+    ),
+    t(
+      'resources.maxCpuPercent {value}% · resources.minFreeMemoryMb {value2} · resources.minFreeMemoryPercent {value3}%.',
+      {
+        value: measured(limits['maxCpuPercent']),
+        value2: measured(limits['minFreeMemoryMb']),
+        value3: measured(limits['minFreeMemoryPercent']),
+      },
+    ),
     GATES[text(admission, 'blocker')] ??
-      'Admission evidence unavailable; refresh the console or configure the paused factory.',
+      t('Admission evidence unavailable; refresh the console or configure the paused factory.'),
   ];
   const providers = child(admission, 'providers');
   for (const name of ['codex', 'claude']) {
     const provider = child(child(limits, 'providers'), name);
     const count = running.filter((job) => text(job, 'provider') === name).length;
+    const gate = firstText(text(providers, name), t('none reported or unknown'));
     lines.push(
-      `${name}: ${String(count)} selected-project pipelines · providers.${name}.concurrency ${measured(provider['concurrency'])} · gate ${firstText(text(providers, name), 'none reported or unknown')}.`,
+      t('{name}: {count} selected-project pipelines · providers.{name}.concurrency {limit} · gate {gate}.', {
+        name,
+        count,
+        limit: measured(provider['concurrency']),
+        gate,
+      }),
     );
   }
   for (const job of running) {
     const task = records(factory['tasks']).find((item) => item['id'] === job['taskId']);
     const feature = records(factory['features']).find((item) => item['id'] === job['featureId']);
+    const objective = firstText(text(feature ?? {}, 'objective'), text(job, 'featureId'), t('unavailable'));
+    const ticket = firstText(text(task ?? {}, 'title'), text(job, 'taskId'), t('none'));
     lines.push(
-      `${text(job, 'role')} · ${text(job, 'kind')} · ${text(job, 'state')} · objective: ${firstText(text(feature ?? {}, 'objective'), text(job, 'featureId'), 'unavailable')} · ticket: ${firstText(text(task ?? {}, 'title'), text(job, 'taskId'), 'none')} · process activity, not delivery success.`,
+      t(
+        '{role} · {kind} · {state} · objective: {objective} · ticket: {ticket} · process activity, not delivery success.',
+        { role: text(job, 'role'), kind: text(job, 'kind'), state: text(job, 'state'), objective, ticket },
+      ),
     );
   }
   if (running.length === 0) {
-    lines.push('No selected-project pipeline is currently owned. Idle roles use no model process.');
+    lines.push(t('No selected-project pipeline is currently owned. Idle roles use no model process.'));
   }
-  lines.push('Change admission policy in Project setup while the factory is paused and settled.');
+  lines.push(t('Change admission policy in Project setup while the factory is paused and settled.'));
   return lines;
 }
 
@@ -111,6 +144,6 @@ export function appendAdmission(target: HTMLElement, factory: Data): void {
     list.append(element('li', 'subtle', line));
   }
   const details = element('details');
-  details.append(element('summary', '', 'Why work is running or parked'), list);
+  details.append(element('summary', '', t('Why work is running or parked')), list);
   target.append(sample, details);
 }

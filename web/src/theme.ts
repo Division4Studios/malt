@@ -5,6 +5,7 @@
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 
 /** Theme choices in the order the toggle cycles through them. */
 export const THEMES = ['system', 'light', 'dark'] as const;
@@ -15,7 +16,11 @@ export const THEME_EVENT = 'malt-theme-change';
 /** Browser-local preference key; never shared with the backend. */
 const STORAGE_KEY = 'malt-theme-v1';
 /** Readable labels for theme controls. */
-export const THEME_LABELS: Readonly<Record<Theme, string>> = { system: 'System', light: 'Light', dark: 'Dark' };
+export const THEME_LABELS: Readonly<Record<Theme, string>> = translated({
+  system: phrase('System'),
+  light: phrase('Light'),
+  dark: phrase('Dark'),
+});
 
 /**
  * Whether a stored value names a theme.
@@ -99,13 +104,16 @@ export function announcedTheme(event: Event): Theme | null {
 export function bindThemeToggle(id: string): void {
   const button = document.querySelector<HTMLButtonElement>(`#${CSS.escape(id)}`);
   if (button === null) {
-    throw new Error(`The console shell has no ${id} button.`);
+    throw new Error(t('The console shell has no {id} button.', { id }));
   }
   const label = (theme: Theme): void => {
-    button.textContent = `Theme: ${THEME_LABELS[theme]}`;
+    button.textContent = t('Theme: {value}', { value: THEME_LABELS[theme] });
     button.setAttribute(
       'aria-label',
-      `Colour theme: ${THEME_LABELS[theme]}. Activate for ${THEME_LABELS[nextTheme(theme)]}.`,
+      t('Colour theme: {value}. Activate for {value2}.', {
+        value: THEME_LABELS[theme],
+        value2: THEME_LABELS[nextTheme(theme)],
+      }),
     );
   };
   let current = storedTheme();
