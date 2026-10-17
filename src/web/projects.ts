@@ -72,6 +72,8 @@ const factoryViewSchema = dashboardSchema.extend({
   workflow: z.record(z.unknown()).default({}),
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
+  /** Admission evidence the Local machine panel explains; the browser reads it field by field. */
+  admission: z.record(z.unknown()).nullable().default(null),
   triage: z.array(triageRecordSchema).default([]),
   workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
   /** Broker-computed board, pipelines and Inbox; rendered as data, never re-derived. */

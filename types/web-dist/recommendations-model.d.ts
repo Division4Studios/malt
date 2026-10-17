@@ -21,7 +21,7 @@ declare module '*/web/dist/recommendations-model.js' {
     readonly lane: RecommendationLane;
     /** Not yet opened. */
     readonly isUnread: boolean;
-    /** Visible proposal kind. */
+    /** Kind as the broker names it. */
     readonly kind: string;
     /** Referenced issue numbers. */
     readonly tickets: readonly number[];
@@ -37,14 +37,10 @@ declare module '*/web/dist/recommendations-model.js' {
 
   /** Project totals. */
   interface RecommendationCounts {
-    /** Every recommendation. */
-    readonly total: number;
     /** Not yet opened. */
     readonly unread: number;
     /** Not yet settled. */
     readonly pending: number;
-    /** Waiting for a human decision. */
-    readonly awaitingHuman: number;
   }
 
   /** One validated list page. */
@@ -55,10 +51,9 @@ declare module '*/web/dist/recommendations-model.js' {
     readonly counts: RecommendationCounts;
     /** Digest of identities, revisions and states. */
     readonly contentRevision: string;
+    /** Next page cursor. */
+    readonly nextCursor: string | null;
   }
-
-  /** Lanes in display order. */
-  export const RECOMMENDATION_LANES: readonly RecommendationLane[];
 
   /**
    * Validate one list page.
@@ -85,6 +80,14 @@ declare module '*/web/dist/recommendations-model.js' {
   export function laneGroups(
     items: readonly RecommendationSummary[],
   ): { lane: RecommendationLane; items: RecommendationSummary[] }[];
+
+  /**
+   * A proposal kind in the current language.
+   *
+   * @param kind - Kind as the broker names it.
+   * @returns Visible label.
+   */
+  export function kindLabel(kind: string): string;
 
   /**
    * The accessible name of the counts.

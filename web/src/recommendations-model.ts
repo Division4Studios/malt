@@ -67,7 +67,7 @@ export interface RecommendationSummary {
   readonly lane: RecommendationLane;
   /** Not yet opened by the operator. */
   readonly isUnread: boolean;
-  /** Visible proposal kind. */
+  /** Proposal kind as the broker names it; `kindLabel` translates it when shown. */
   readonly kind: string;
   /** Referenced issue numbers. */
   readonly tickets: readonly number[];
@@ -83,14 +83,10 @@ export interface RecommendationSummary {
 
 /** Project totals. */
 export interface RecommendationCounts {
-  /** Every recommendation. */
-  readonly total: number;
   /** Not yet opened. */
   readonly unread: number;
   /** Not yet settled. */
   readonly pending: number;
-  /** Waiting for a human decision. */
-  readonly awaitingHuman: number;
 }
 
 /** One validated list page. */
@@ -101,35 +97,36 @@ export interface RecommendationPage {
   readonly counts: RecommendationCounts;
   /** Digest of the page's identities, revisions and states. */
   readonly contentRevision: string;
+  /** Cursor of the next page; the broker pages at most 20 rows. */
+  readonly nextCursor: string | null;
 }
 
 /**
- * Strings of an untrusted array.
+ * The members of an untrusted array that pass a type check.
  *
  * @param value - Untrusted collection.
- * @returns Its string members.
+ * @param isMember - Type check for one member.
+ * @returns Matching members, or none when `value` is not an array.
  */
-function strings(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const members: unknown[] = value;
-  return members.filter((item) => typeof item === 'string');
+function members<Member>(value: unknown, isMember: (item: unknown) => item is Member): Member[] {
+  return Array.isArray(value) ? (value as unknown[]).filter(isMember) : [];
 }
 
 /**
- * Positive integers of an untrusted array.
+ * Whether a value is text.
  *
- * @param value - Untrusted collection.
- * @returns Its positive integer members.
+ * @param item - Untrusted member.
+ * @returns True for strings.
  */
-function numbers(value: unknown): number[] {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  const members: unknown[] = value;
-  return members.filter((item): item is number => typeof item === 'number' && Number.isSafeInteger(item) && item > 0);
-}
+const isText = (item: unknown): item is string => typeof item === 'string';
+
+/**
+ * Whether a value is an issue number.
+ *
+ * @param item - Untrusted member.
+ * @returns True for positive safe integers.
+ */
+const isIssue = (item: unknown): item is number => typeof item === 'number' && Number.isSafeInteger(item) && item > 0;
 
 /**
  * A string field, or empty.
@@ -163,10 +160,10 @@ function readSummary(value: unknown): RecommendationSummary | null {
     state: field(record, 'state'),
     lane,
     isUnread: record['unread'] === true,
-    kind: KIND_LABELS[field(body, 'kind')] ?? field(body, 'kind'),
-    tickets: numbers(body['tickets']),
+    kind: field(body, 'kind'),
+    tickets: members(body['tickets'], isIssue),
     action: field(body, 'action'),
-    evidence: strings(body['evidence']),
+    evidence: members(body['evidence'], isText),
     before: field(preview, 'before'),
     after: field(preview, 'after'),
   };
@@ -196,15 +193,15 @@ export function readPage(value: unknown): RecommendationPage | null {
     return null;
   }
   const counts = asData(page['counts']) ?? {};
+  const cursor = page['nextCursor'];
   return {
     items: page['items'].map((item: unknown) => readSummary(item)).filter((item) => item !== null),
     counts: {
-      total: count(counts, 'total'),
       unread: count(counts, 'unread'),
       pending: count(counts, 'pending'),
-      awaitingHuman: count(counts, 'awaitingHuman'),
     },
     contentRevision: page['contentRevision'],
+    nextCursor: typeof cursor === 'string' && cursor !== '' ? cursor : null,
   };
 }
 
@@ -230,6 +227,16 @@ export function laneGroups(
   return RECOMMENDATION_LANES.map((lane) => ({ lane, items: items.filter((item) => item.lane === lane) })).filter(
     (group) => group.items.length > 0,
   );
+}
+
+/**
+ * A proposal kind in the current language, read at render time.
+ *
+ * @param kind - Kind as the broker names it.
+ * @returns Visible label; an unknown kind is shown as sent.
+ */
+export function kindLabel(kind: string): string {
+  return KIND_LABELS[kind] ?? kind;
 }
 
 /**

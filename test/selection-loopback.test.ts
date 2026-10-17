@@ -1,10 +1,12 @@
 /**
- * From project settings to native launch arguments to displayed evidence,
- * through the real broker and paired console: a policy saved through the
- * settings control, product-owner and lead choices persisted on the delivery,
- * a claimed assignment, its launch arguments, and the evidence the console
- * shows; then a blocked selection and a project switch. No paid inference.
- * Imports compiled modules, so `npm run build:web` runs first.
+ * The console side of model selection, through the real broker and paired
+ * console: a policy saved through the settings control, a delivery's reviewed
+ * choice resolved by the same admission and attempt-record functions the
+ * supervisor's dispatch calls, the native launch arguments, and the evidence
+ * the console displays; then a blocked selection and a project switch. The
+ * end-to-end planner → supervisor dispatch → launch path is driven with a
+ * fixture agent in `factory-lifecycle.test.ts`. No paid inference. Imports
+ * compiled modules, so `npm run build:web` runs first.
  *
  * @file
  */
