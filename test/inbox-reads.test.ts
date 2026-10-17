@@ -107,6 +107,31 @@ await test('a successful attempt acknowledges exactly what it was shown', (t) =>
   );
 });
 
+await test('a read that skipped older messages acknowledges only what it returned', (t) => {
+  const { store, repository, developer, lead } = fixture(t);
+  const older = store.execute('send_message', { to: 'factory-developer-1', body: 'Older, never shown' }, lead);
+  store.execute('send_message', { to: 'factory-developer-1', body: 'Newer' }, lead);
+  const page = store.execute('get_messages', { ...inbox, after: older.seq }, developer);
+  assert.deepEqual(
+    page.messages.map((message) => message.body),
+    ['Newer'],
+  );
+  assert.ok(repository.finishJob(running(repository), 0, 'succeeded'));
+  assert.deepEqual(
+    store.execute('get_messages', inbox, developer).messages.map((message) => message.body),
+    ['Older, never shown'],
+  );
+});
+
+await test('reads by other identities are not tracked', (t) => {
+  const { store, lead } = fixture(t);
+  const other = store.register(registration('codex-2')).id;
+  store.execute('send_message', { to: 'codex-2', body: 'Explicit acknowledgement' }, lead);
+  store.execute('get_messages', inbox, other);
+  assert.equal(settleReads(store.db, other, true, 1), 0);
+  assert.equal(store.execute('get_messages', inbox, other).messages.length, 1);
+});
+
 await test('a failed attempt leaves what it read unread for the next attempt', (t) => {
   const { store, repository, developer, lead } = fixture(t);
   store.execute('send_message', { to: 'factory-developer-1', body: 'Please fix the test' }, lead);
