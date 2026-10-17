@@ -127,33 +127,37 @@ async function publishFix(
     throw new MeshError('FACTORY_GATED', 'The delivery worktree is missing.');
   }
   try {
-    await context.workspaces.publish(task, async (source) => {
-      signal.throwIfAborted();
-      const snapshot = await context.workspaces.snapshot(worktree);
-      await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
-      await context.workspaces.assertUnchanged(snapshot);
-      const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
-      if (claim?.state !== 'running' || claim.token !== job.token) {
-        throw new MeshError('FACTORY_GATED', `The ${step.title} claim expired before publication.`);
-      }
-      const now = context.repository.store.now();
-      const published = context.repository.editTask(task.id, (current) => {
-        if (current.phase !== 'review' || current.version !== task.version) {
-          throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
+    await context.workspaces.publish(
+      task,
+      async (source) => {
+        signal.throwIfAborted();
+        const snapshot = await context.workspaces.snapshot(worktree);
+        await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
+        await context.workspaces.assertUnchanged(snapshot);
+        const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
+        if (claim?.state !== 'running' || claim.token !== job.token) {
+          throw new MeshError('FACTORY_GATED', `The ${step.title} claim expired before publication.`);
         }
-        return {
-          ...current,
-          phase: 'publishing',
-          head: source.head,
-          base: source.base,
-          stepResults: [...current.stepResults, stepResult(job, step, { ...source, at: now }, result)].slice(
-            -MAX_STEP_RESULTS,
-          ),
-          error: null,
-        };
-      });
-      queueComment(context, published, `${step.title} (${job.role}) published ${source.head}.\n\n${result.summary}`);
-    });
+        const now = context.repository.store.now();
+        const published = context.repository.editTask(task.id, (current) => {
+          if (current.phase !== 'review' || current.version !== task.version) {
+            throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
+          }
+          return {
+            ...current,
+            phase: 'publishing',
+            head: source.head,
+            base: source.base,
+            stepResults: [...current.stepResults, stepResult(job, step, { ...source, at: now }, result)].slice(
+              -MAX_STEP_RESULTS,
+            ),
+            error: null,
+          };
+        });
+        queueComment(context, published, `${step.title} (${job.role}) published ${source.head}.\n\n${result.summary}`);
+      },
+      { step: step.id, kind: step.kind, role: job.role, jobId: job.id },
+    );
   } catch (error) {
     if (!(error instanceof PublicationSizeError)) {
       throw error;

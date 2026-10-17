@@ -131,7 +131,7 @@ Slices are ordered by dependency. Each keeps `npm run check` green.
 | S1    | Schedules and triggers                                                                                    | Planned |
 | G1    | Objective definition of done and progress log                                                             | Planned |
 | R2    | Stall detection and failure-class retry policy                                                            | Planned |
-| R3    | Commit trailers and remote salvage                                                                        | Planned |
+| R3    | Commit trailers and remote salvage                                                                        | Done    |
 | R4    | CI-failure and conflict repair attempts                                                                   | Planned |
 | P1    | Settings: theme, provider health, build                                                                   | Planned |
 | P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Planned |
