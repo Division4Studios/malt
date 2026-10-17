@@ -39,6 +39,13 @@ The tracker capabilities are derived from that permissions answer, never assumed
 
 Every request is a `GET` to the configured `https://<name>.atlassian.net` origin, redirects are refused so the token never follows a response elsewhere, bodies are bounded, and the token (raw or in its Basic form) is redacted from every message. Tests use fixture responses only. The client is not yet wired into the console, CLI or factory; connecting Jira as a tracker is tracked by #265 and its children.
 
+### Authentication and deployment decisions for 1.0
+
+These decisions answer #329; revisit them only through their follow-up issues.
+
+- **API token, not OAuth 2.0 (3LO), for 1.0.** Jira Cloud is connected with an account email and an API token held as an opaque credential handle (#77). A three-legged OAuth app needs an operator-registered app in the Atlassian developer console (callback URL and client secret), a loopback callback listener on the paired console, the site `cloudid` lookup, and safe storage and rotation of refresh tokens. MALT stays local-first, so it will never route authorization through a hosted relay. Where an organisation's policy allows tokens only on dedicated accounts, create the token on a dedicated MALT account; where it disallows them entirely, Jira stays unavailable until the 3LO path ships in [#340](https://github.com/Division4Studios/malt/issues/340).
+- **Data Center and Server are unsupported in 1.0.** They serve REST v2 with bearer personal access tokens and differ from Cloud in discovery, permissions, transitions and rate limiting. The discovery client reports such sites as `unsupported` and never contacts them. Support is tracked in [#341](https://github.com/Division4Studios/malt/issues/341).
+
 ## Independent work-tracker and source-control connections
 
 Project setup should distinguish the work tracker (GitHub Projects or Jira)
