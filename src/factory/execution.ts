@@ -12,6 +12,7 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { featureWorkflow, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
 import { recommendationNotices } from './recommendation-notices.ts';
@@ -25,7 +26,8 @@ import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
-import type { FactoryJob, FactoryTask } from './schema.ts';
+import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
+import type { WorkflowStep } from './workflows.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
 
@@ -176,9 +178,10 @@ export async function executeJob(
   const recommendations = recommendationNotices(repository.store, record);
 
   const currentTask = task === null ? null : repository.task(task.id);
+  const view = promptView(repository, record, currentTask, feature);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, recommendations } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, recommendations } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
     `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
@@ -463,4 +466,30 @@ export async function retireSnapshot(context: FactoryContext, snapshot: Executed
   } catch {
     /* Cleanup must prove ownership and cleanliness; uncertain source is retained. */
   }
+}
+
+/**
+ * What one assignment's prompt may contain: the step it performs and only the
+ * delivery evidence that step may read. Frozen workflow copies stay out of the
+ * prompt; the step's own instructions are supplied separately.
+ *
+ * @param repository - Project ledger.
+ * @param job - Current attempt.
+ * @param task - Its delivery, if any.
+ * @param feature - Its objective, if any.
+ * @returns Prompt-safe task, objective and step.
+ */
+function promptView(
+  repository: FactoryContext['repository'],
+  job: FactoryJob,
+  task: FactoryTask | null,
+  feature: Feature | null,
+): { task: FactoryTask | null; feature: Feature | null; step: WorkflowStep | null } {
+  const workflow = task === null ? featureWorkflow(feature) : taskWorkflow(task, repository.features());
+  const step = stepOf(workflow, job);
+  return {
+    task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined },
+    feature: feature === null ? null : { ...feature, workflow: undefined },
+    step: step ?? null,
+  };
 }
