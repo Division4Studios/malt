@@ -21,6 +21,7 @@
 
 import { z } from 'zod/v3';
 
+import { connectorSchemas } from './connector-schemas.ts';
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
 import { terminalSchemas } from './factory/terminal-schema.ts';
 
@@ -335,24 +336,6 @@ export class MeshError extends Error {
 // Operation schemas
 // -----------------------------------------------------------------------------
 
-/** A Project and its existing Status field, chosen for the tracker section. */
-const savedTrackerSchema = z
-  .object({
-    owner: z.string().regex(/^[\w\-]+$/v),
-    projectId: z.string().min(1).max(ISSUE_TITLE_MAX),
-    projectNumber: z.number().int().positive(),
-    url: z.string().url(),
-    workflowField: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
-  })
-  .strict();
-/** A repository and its node ID, chosen for the source section. */
-const savedSourceSchema = z
-  .object({
-    repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
-    repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
-  })
-  .strict();
-
 /**
  * Input schema of every RPC operation, keyed by operation name.
  *
@@ -361,6 +344,7 @@ const savedSourceSchema = z
  */
 export const schemas = {
   ...terminalSchemas,
+  ...connectorSchemas,
   ...factorySchemas,
   learning_status: z.object({}).strict(),
   learning_record: z
@@ -408,24 +392,6 @@ export const schemas = {
     })
     .strict(),
   github_status: z.object({}).strict(),
-  github_verify: z.object({}).strict(),
-  github_section_save: z
-    .object({ tracker: savedTrackerSchema.optional(), source: savedSourceSchema.optional() })
-    .strict(),
-  github_discover: z
-    .object({
-      repository: z
-        .string()
-        .regex(/^[\w\-.]+\/[\w\-.]+$/v)
-        .optional(),
-      repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
-      owner: z
-        .string()
-        .regex(/^[\w\-]+$/v)
-        .optional(),
-      projectNumber: z.number().int().positive().optional(),
-    })
-    .strict(),
   github_connect: z
     .object({
       repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
