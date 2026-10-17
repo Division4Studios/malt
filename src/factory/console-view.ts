@@ -21,9 +21,11 @@ import {
   startableSteps,
   taskWorkflow,
 } from './pipeline.ts';
+import { questionsStatus } from './questions.ts';
 import { stepLayers } from './workflows.ts';
 
 import type { LivenessView, RetryView } from './liveness-view.ts';
+import type { Question } from './question-schema.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
@@ -155,12 +157,17 @@ export interface ObjectiveView {
   readonly createdAt: number;
 }
 
+/** Inbox lane: decisions that need a reply, or notices to look into. */
+export type InboxLane = 'reply' | 'notice';
+
 /** Something waiting on the human. */
 export interface InboxItem {
   /** Stable item id. */
   readonly id: string;
   /** What kind of decision it is. */
-  readonly kind: 'approval' | 'plan_approval' | 'blocked_delivery' | 'blocked_objective' | 'skill';
+  readonly kind: 'approval' | 'plan_approval' | 'question' | 'blocked_delivery' | 'blocked_objective' | 'skill';
+  /** Lane it is listed in. */
+  readonly lane: InboxLane;
   /** Headline. */
   readonly title: string;
   /** Context the operator needs. */
@@ -177,6 +184,12 @@ export interface InboxItem {
   readonly head: string | null;
   /** Skill request, for skill decisions. */
   readonly requestId: string | null;
+  /** Agent question, for questions. */
+  readonly questionId: string | null;
+  /** Offered answers, for questions. */
+  readonly choices: readonly string[];
+  /** Whether a question accepts a written answer. */
+  readonly allowText: boolean;
 }
 
 /** A decision already made. */
@@ -207,7 +220,17 @@ export interface ConsoleView {
 }
 
 /** Fields an Inbox item leaves empty unless its kind uses them. */
-const NO_TARGET = { taskId: null, featureId: null, stepId: null, head: null, requestId: null } as const;
+const NO_TARGET = {
+  lane: 'reply',
+  taskId: null,
+  featureId: null,
+  stepId: null,
+  head: null,
+  requestId: null,
+  questionId: null,
+  choices: [],
+  allowText: false,
+} as const;
 
 /**
  * A result recorded by a role, as the console shows it.
@@ -490,6 +513,7 @@ function deliveryItems(task: FactoryTask, features: readonly Feature[]): InboxIt
       ...NO_TARGET,
       id: `blocked:${task.id}`,
       kind: 'blocked_delivery',
+      lane: 'notice',
       title: `Blocked · #${String(task.issue)} ${task.title}`,
       detail: task.error ?? 'Stopped without a recorded reason.',
       since: task.updatedAt,
@@ -523,6 +547,7 @@ function objectiveItems(feature: Feature): InboxItem[] {
       ...NO_TARGET,
       id: `objective:${feature.id}`,
       kind: 'blocked_objective',
+      lane: 'notice',
       title: `Planning stopped · ${titleOf(feature.objective)}`,
       detail: feature.error ?? 'Stopped without a recorded reason.',
       since: feature.updatedAt,
@@ -560,7 +585,24 @@ function openItems(
       };
     });
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
+  const questions = questionsStatus(repository.store).open.map((question): InboxItem => {
+    return {
+      ...NO_TARGET,
+      id: `question:${question.id}`,
+      kind: 'question',
+      title: `${question.role} asks · ${subjectOf(question, tasks, features)}`,
+      detail: question.question,
+      since: question.askedAt,
+      taskId: question.taskId,
+      featureId: question.taskId === null ? question.featureId : null,
+      stepId: question.stepId,
+      questionId: question.id,
+      choices: question.choices,
+      allowText: question.allowText,
+    };
+  });
   return [
+    ...questions,
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
     ...skills,
@@ -568,13 +610,56 @@ function openItems(
 }
 
 /**
- * Recent human approvals, newest first.
+ * What a question is about, as its Inbox title names it.
  *
+ * @param question - Stored question.
+ * @param tasks - Current deliveries.
+ * @param features - Current objectives.
+ * @returns Delivery issue and title, or objective title.
+ */
+function subjectOf(question: Question, tasks: readonly FactoryTask[], features: readonly Feature[]): string {
+  const task = tasks.find((candidate) => candidate.id === question.taskId);
+  if (task !== undefined) {
+    return `#${String(task.issue)} ${task.title}`;
+  }
+  const feature = features.find((candidate) => candidate.id === question.featureId);
+  return feature === undefined ? 'earlier work' : titleOf(feature.objective);
+}
+
+/**
+ * The operator's answer as one line.
+ *
+ * @param answer - Recorded answer.
+ * @param answer.choice - Chosen option, if any.
+ * @param answer.text - Written answer, possibly empty.
+ * @returns Choice and text joined.
+ */
+function answerText(answer: { choice: string | null; text: string }): string {
+  return [answer.choice, answer.text].filter((part) => part !== null && part !== '').join(' — ');
+}
+
+/**
+ * Recent human approvals and answers, newest first.
+ *
+ * @param repository - Project ledger, for answered questions.
  * @param tasks - Current deliveries.
  * @param features - Current objectives.
  * @returns Answered Inbox items.
  */
-function answeredItems(tasks: readonly FactoryTask[], features: readonly Feature[]): AnsweredItem[] {
+function answeredItems(
+  repository: FactoryRepository,
+  tasks: readonly FactoryTask[],
+  features: readonly Feature[],
+): AnsweredItem[] {
+  const fromQuestions = questionsStatus(repository.store).answered.map((question) => {
+    return {
+      id: question.answer?.requestId ?? question.id,
+      title: `Answered ${question.role} · ${subjectOf(question, tasks, features)}`,
+      note: `${question.question}
+→ ${answerText(question.answer ?? { choice: null, text: '' })}`,
+      at: question.answer?.at ?? question.askedAt,
+    };
+  });
   const fromTasks = tasks.flatMap((task) => {
     return task.approvals.map((approval) => {
       return {
@@ -595,7 +680,9 @@ function answeredItems(tasks: readonly FactoryTask[], features: readonly Feature
       };
     });
   });
-  return [...fromTasks, ...fromFeatures].toSorted((left, right) => right.at - left.at).slice(0, ANSWERED_LIMIT);
+  return [...fromQuestions, ...fromTasks, ...fromFeatures]
+    .toSorted((left, right) => right.at - left.at)
+    .slice(0, ANSWERED_LIMIT);
 }
 
 /**
@@ -627,6 +714,6 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
         .toReversed()
         .map((task) => ({ taskId: task.id, issue: task.issue, title: task.title })),
     },
-    inbox: { open: openItems(repository, tasks, features), answered: answeredItems(tasks, features) },
+    inbox: { open: openItems(repository, tasks, features), answered: answeredItems(repository, tasks, features) },
   };
 }

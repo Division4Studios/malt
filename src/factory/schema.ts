@@ -16,6 +16,7 @@ import {
   deliveryControlSchemas,
   holdSchema,
 } from './delivery-control-schema.ts';
+import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
 import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
 import {
   modelChoiceSchema,
@@ -26,6 +27,7 @@ import {
 } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
+import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
@@ -161,6 +163,8 @@ export const factoryConfigSchema = z
     version: z.literal(1).default(1),
     modelPolicy: modelPolicySchema.optional(),
     organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
+    /** Gates new objectives freeze unless they override them. */
+    defaultGates: gatesSchema.default({}),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
@@ -270,6 +274,8 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** Gates frozen when the objective was filed; absent on older objectives, which have none. */
+  gates: gatesSchema.optional(),
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
@@ -355,6 +361,8 @@ export const taskSchema = z.object({
   stepResults: z.array(stepResultSchema).default([]),
   /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
   workflow: frozenWorkflowSchema.optional(),
+  /** Merge gate frozen when the delivery was provisioned, or changed for it by the operator. */
+  gates: deliveryGatesSchema.optional(),
   /** Operator hold: no new attempt starts while set. */
   hold: holdSchema.nullable().default(null),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
@@ -472,8 +480,14 @@ export const factorySchemas = {
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
   factory_request: z
-    .object({ objective: textSchema, requestId: z.string().uuid().optional(), workflowId: keySchema.optional() })
+    .object({
+      objective: textSchema,
+      requestId: z.string().uuid().optional(),
+      workflowId: keySchema.optional(),
+      gates: gateOverrideSchema.optional(),
+    })
     .strict(),
+  factory_gates: gatesControlSchema,
   factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
@@ -542,6 +556,7 @@ export const factorySchemas = {
   ...telemetrySchemas,
   ...deliveryControlSchemas,
   ...automationSchemas,
+  ...questionSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -576,5 +591,7 @@ export const FACTORY_OPERATIONS = [
   ...TELEMETRY_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
+  ...QUESTION_OPERATIONS,
+  'factory_gates',
   'factory_reconcile_github',
 ] as const;

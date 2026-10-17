@@ -35,6 +35,7 @@ import type { FactoryTask, Feature } from './schema.ts';
  * @returns Initial dependency-ready task state.
  */
 export function deliveryTask(context: FactoryContext, issue: ReadyIssue, featureId: string | null): FactoryTask {
+  const feature = context.repository.features().find((candidate) => candidate.id === featureId);
   return {
     id: randomUUID(),
     featureId,
@@ -68,7 +69,8 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     stepResults: [],
     hold: null,
     archive: null,
-    workflow: context.repository.features().find((feature) => feature.id === featureId)?.workflow,
+    workflow: feature?.workflow,
+    ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
     updatedAt: context.repository.store.now(),
   };
 }

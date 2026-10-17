@@ -557,6 +557,12 @@ function go(selected: string): void {
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
   bindNavigation(go);
+  // An Inbox notification opens a new console window at `/?view=inbox`.
+  const parameters = new URLSearchParams(location.search);
+  const requested = parameters.get('view');
+  if (requested !== null && isView(requested)) {
+    state.view = requested;
+  }
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {

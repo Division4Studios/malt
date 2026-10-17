@@ -13,6 +13,7 @@ import { createBoardView } from './board-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
+import { InboxNotifier } from './inbox-notifier.js';
 import { createInboxView } from './inbox-ui.js';
 import { createSessionsView } from './sessions-ui.js';
 import { createWorkflowsView } from './workflows-ui.js';
@@ -83,6 +84,8 @@ export class ConsoleViews {
   private readonly reads = new Map<RefreshedView, number>();
   /** Last pushed snapshot, for labels. */
   private snapshot: unknown = null;
+  /** Browser notifications for new Inbox items. */
+  private readonly notifier: InboxNotifier;
 
   /**
    * Create every owned view once.
@@ -106,6 +109,9 @@ export class ConsoleViews {
       },
     });
     this.workflows = createWorkflowsView({ control: hooks.control });
+    this.notifier = new InboxNotifier(() => {
+      hooks.select('inbox');
+    });
     this.refreshed = new Map<RefreshedView, RefreshingView>([
       ['sessions', this.sessions],
       ['costs', createCostsView({ project: hooks.project, control: hooks.control })],
@@ -119,6 +125,7 @@ export class ConsoleViews {
           openDelivery,
           openRecovery: hooks.recover,
           openSkill: hooks.skill,
+          toolbar: this.notifier.element,
         }),
       ],
       ['board', createBoardView({ openDelivery, control: hooks.control })],
@@ -165,6 +172,7 @@ export class ConsoleViews {
     for (const view of this.pushed.values()) {
       view.update(snapshot);
     }
+    this.notifier.update(readConsole(snapshot).open);
     const badge = document.querySelector<HTMLElement>('#inbox-count');
     if (badge === null) {
       return;
