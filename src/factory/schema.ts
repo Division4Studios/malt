@@ -512,6 +512,11 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  /** The library validates the definition; any revision other than the stored one is stale. */
+  factory_workflow_save: z
+    .object({ workflow: z.unknown(), expectedRevision: z.string().max(TITLE_MAX).nullable() })
+    .strict(),
+  factory_workflow_default: z.object({ workflowId: keySchema }).strict(),
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -540,6 +545,8 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_workflow_save',
+  'factory_workflow_default',
   'factory_reconcile_github',
 ] as const;
 /** Strict JSON Schema passed to both providers for their final result. */
