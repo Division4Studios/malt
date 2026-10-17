@@ -95,6 +95,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'onboarding-model',
     'onboarding-ui',
     'settings-model',
+    'settings-ui',
     'delivery-ui',
     'goal-model',
     'checklist-dialog',

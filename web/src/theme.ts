@@ -10,10 +10,12 @@
 export const THEMES = ['system', 'light', 'dark'] as const;
 /** One theme choice. */
 export type Theme = (typeof THEMES)[number];
+/** Document event announcing a new choice, so every theme control stays in step. */
+export const THEME_EVENT = 'malt-theme-change';
 /** Browser-local preference key; never shared with the backend. */
 const STORAGE_KEY = 'malt-theme-v1';
-/** Readable labels for the toggle. */
-const LABELS: Readonly<Record<Theme, string>> = { system: 'System', light: 'Light', dark: 'Dark' };
+/** Readable labels for theme controls. */
+export const THEME_LABELS: Readonly<Record<Theme, string>> = { system: 'System', light: 'Light', dark: 'Dark' };
 
 /**
  * Whether a stored value names a theme.
@@ -64,6 +66,7 @@ export function chooseTheme(theme: Theme): void {
     // The choice still applies for this page; it simply is not remembered.
   }
   applyTheme(theme);
+  document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme }));
 }
 
 /**
@@ -74,6 +77,17 @@ export function chooseTheme(theme: Theme): void {
  */
 export function nextTheme(theme: Theme): Theme {
   return THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length] ?? 'system';
+}
+
+/**
+ * The choice a theme event announces.
+ *
+ * @param event - Document event.
+ * @returns Announced theme, or `null` for any other event.
+ */
+export function announcedTheme(event: Event): Theme | null {
+  const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+  return typeof detail === 'string' && isTheme(detail) ? detail : null;
 }
 
 /**
@@ -88,15 +102,20 @@ export function bindThemeToggle(id: string): void {
     throw new Error(`The console shell has no ${id} button.`);
   }
   const label = (theme: Theme): void => {
-    button.textContent = `Theme: ${LABELS[theme]}`;
-    button.setAttribute('aria-label', `Colour theme: ${LABELS[theme]}. Activate for ${LABELS[nextTheme(theme)]}.`);
+    button.textContent = `Theme: ${THEME_LABELS[theme]}`;
+    button.setAttribute(
+      'aria-label',
+      `Colour theme: ${THEME_LABELS[theme]}. Activate for ${THEME_LABELS[nextTheme(theme)]}.`,
+    );
   };
   let current = storedTheme();
   applyTheme(current);
   label(current);
   button.addEventListener('click', () => {
-    current = nextTheme(current);
-    chooseTheme(current);
+    chooseTheme(nextTheme(current));
+  });
+  document.addEventListener(THEME_EVENT, (event) => {
+    current = announcedTheme(event) ?? current;
     label(current);
   });
 }

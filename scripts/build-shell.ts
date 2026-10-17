@@ -81,6 +81,7 @@ const FILES = [
   'dist/onboarding-model.js',
   'dist/onboarding-ui.js',
   'dist/settings-model.js',
+  'dist/settings-ui.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',
   'dist/checklist-dialog.js',
