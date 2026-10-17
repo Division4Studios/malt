@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Subscription capacity reading order regression</title>
+  <link rel="stylesheet" href="../../web/style.css" />
+  <style>
+    #result {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  </style>
+  <main id="content"></main>
+  <pre id="result">PENDING</pre>
+  <script type="module">
+    import { capacityView } from '../../web/dist/capacity-view.js';
+    const check = (value, message) => {
+      if (!value) throw new Error(message);
+    };
+    const target = document.querySelector('#content');
+    const snapshot = (capacities, providers) => ({
+      project: {},
+      factory: { capacities, settings: { providers } },
+      github: {},
+      learning: {},
+      events: [],
+      observedAt: 1000,
+    });
+    const render = (state) => target.replaceChildren(capacityView(state));
+    try {
+      render(
+        snapshot(
+          [
+            {
+              provider: 'codex',
+              subscriptionUsedPercent: 100,
+              usedTokens: 77,
+              subscriptionWindows: [
+                {
+                  id: 'short',
+                  minutes: 300,
+                  usedPercent: 0,
+                  observedAt: 1000,
+                  resetAt: 9000,
+                  freshness: 'current',
+                  source: 'codex-status',
+                },
+                {
+                  id: 'long',
+                  minutes: 10080,
+                  usedPercent: 100,
+                  observedAt: 1000,
+                  resetAt: null,
+                  freshness: 'stale',
+                  source: 'codex-status',
+                },
+                { id: '<img src=x onerror=alert(1)>', minutes: null, usedPercent: null },
+              ],
+            },
+            { provider: 'claude', subscriptionUsedPercent: 0 },
+          ],
+          { codex: { enabled: true }, claude: { enabled: false } },
+        ),
+      );
+      check(
+        [...target.querySelectorAll('h3')].map((x) => x.textContent).join('|') ===
+          'Subscription limits|Diagnostic usage|Local machine',
+        'semantic reading order',
+      );
+      check(
+        target.textContent.indexOf('Weekly window') < target.textContent.indexOf('77 reported tokens'),
+        'windows precede diagnostics',
+      );
+      check(target.textContent.includes('5-hour window: 0% used'), 'zero is verified');
+      check(
+        target.textContent.includes('100% used · limit reached') && target.textContent.includes('stale'),
+        'saturation and stale readable without color',
+      );
+      check(
+        target.textContent.includes('usage unknown') && target.textContent.includes('Absolute allowance unavailable'),
+        'missing quantities remain unknown',
+      );
+      check(
+        target.textContent.includes('Disabled · not eligible for dispatch') &&
+          target.querySelectorAll('meter').length === 1,
+        'disabled provider not runnable',
+      );
+      check(
+        target.querySelector('img') === null && target.textContent.includes('<img'),
+        'hostile native label stays text',
+      );
+      check(
+        target.textContent.includes('Observed') && target.textContent.includes('source unknown'),
+        'observation provenance and honest gaps',
+      );
+      render(snapshot([{ provider: 'claude', subscriptionUsedPercent: 0 }], { claude: { enabled: true } }));
+      check(
+        target.textContent.includes('Legacy summary only: 0% used · window duration unavailable'),
+        'legacy summary invents no duration',
+      );
+      check(
+        !target.textContent.includes('CODEX') && !target.textContent.includes('Weekly window'),
+        'project switch retains no prior observations',
+      );
+      render(snapshot([{ provider: 'claude' }], { claude: { enabled: true } }));
+      check(
+        target.querySelector('meter') === null && target.textContent.includes('usage unknown'),
+        'missing utilization is not zero',
+      );
+      document.querySelector('#result').textContent =
+        'PASS: order, windows, zero, saturation, freshness, disabled, hostile text, legacy and project replacement';
+    } catch (error) {
+      document.querySelector('#result').textContent = `FAIL: ${String(error)}`;
+      throw error;
+    }
+  </script>
+</html>

@@ -13,6 +13,7 @@ import { z } from 'zod/v3';
 
 import { recoverUnownedClaims } from '../src/factory/controls.ts';
 import { HANDOFF_SUMMARY_MAX, handoffSchema } from '../src/factory/handoffs.ts';
+import { GitHubDelivery } from '../src/factory/remote.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, featureSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
@@ -325,6 +326,17 @@ for (const mode of ['timeout', 'operator'] as const) {
       await delay(0);
     });
     t.mock.method(context.remote, 'readyIssues', async () => await delay(0, []));
+    assert.ok(context.remote instanceof GitHubDelivery);
+    t.mock.method(context.remote, 'issueRepositoryId', () => 'R_handoff_fixture');
+    t.mock.method(context.remote, 'issueCorpus', async () => {
+      return await delay(0, {
+        repositoryId: 'R_handoff_fixture',
+        items: [],
+        nextCursor: null,
+        complete: true,
+      });
+    });
+    t.mock.method(context.remote, 'unresolvedOperations', async () => await delay(0, []));
     const finish = factory.repository.finishJob.bind(factory.repository);
     t.mock.method(factory.repository, 'finishJob', (...args: Parameters<typeof finish>) => {
       const isFinished = finish(...args);
