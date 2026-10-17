@@ -16,7 +16,16 @@ export const STEP_STATES = ['done', 'running', 'ready', 'needs_you', 'waiting'] 
 /** Board columns, left to right. */
 export const COLUMNS = ['planning', 'ready', 'in_progress', 'needs_you', 'done'] as const;
 /** Inbox decision kinds the console can act on. */
-export const INBOX_KINDS = ['approval', 'plan_approval', 'blocked_delivery', 'blocked_objective', 'skill'] as const;
+export const INBOX_KINDS = [
+  'approval',
+  'plan_approval',
+  'question',
+  'blocked_delivery',
+  'blocked_objective',
+  'skill',
+] as const;
+/** Inbox lanes: decisions that need a reply, and notices to look into. */
+export const INBOX_LANES = ['reply', 'notice'] as const;
 
 /** Where a step stands. */
 export type StepState = (typeof STEP_STATES)[number];
@@ -24,6 +33,8 @@ export type StepState = (typeof STEP_STATES)[number];
 export type Column = (typeof COLUMNS)[number];
 /** Inbox decision kind. */
 export type InboxKind = (typeof INBOX_KINDS)[number];
+/** Where an Inbox item is listed: needs a reply, or a notice to look into. */
+export type InboxLane = (typeof INBOX_LANES)[number];
 
 /** A fixer's or plan reviser's ruling on one finding. */
 export interface Disposition {
@@ -196,6 +207,8 @@ export interface InboxItem {
   readonly id: string;
   /** Decision kind. */
   readonly kind: InboxKind;
+  /** Lane the item is listed in. */
+  readonly lane: InboxLane;
   /** Headline. */
   readonly title: string;
   /** Context for the operator. */
@@ -212,6 +225,12 @@ export interface InboxItem {
   readonly head: string | null;
   /** Skill request. */
   readonly requestId: string | null;
+  /** Agent question, for questions. */
+  readonly questionId: string | null;
+  /** Offered answers, for questions. */
+  readonly choices: readonly string[];
+  /** Whether a question accepts a written answer. */
+  readonly allowText: boolean;
 }
 
 /** A decision already made. */
@@ -549,6 +568,16 @@ function parseObjective(record: Data): Objective | null {
 }
 
 /**
+ * The lane an item belongs in when an older broker sends none.
+ *
+ * @param kind - Decision kind.
+ * @returns Notices for blockers, replies for everything else.
+ */
+function defaultLane(kind: InboxKind): InboxLane {
+  return kind === 'blocked_delivery' || kind === 'blocked_objective' ? 'notice' : 'reply';
+}
+
+/**
  * Validate one open Inbox item.
  *
  * @param record - Untrusted item.
@@ -560,9 +589,11 @@ function parseInboxItem(record: Data): InboxItem | null {
   if (id === '' || !isOneOf(INBOX_KINDS, kind)) {
     return null;
   }
+  const { lane, choices } = record;
   return {
     id,
     kind,
+    lane: isOneOf(INBOX_LANES, lane) ? lane : defaultLane(kind),
     title: text(record, 'title'),
     detail: text(record, 'detail'),
     since: number(record, 'since'),
@@ -571,6 +602,11 @@ function parseInboxItem(record: Data): InboxItem | null {
     stepId: nullableText(record, 'stepId'),
     head: nullableText(record, 'head'),
     requestId: nullableText(record, 'requestId'),
+    questionId: nullableText(record, 'questionId'),
+    choices: Array.isArray(choices)
+      ? choices.filter((choice): choice is string => typeof choice === 'string' && choice !== '')
+      : [],
+    allowText: record['allowText'] === true,
   };
 }
 

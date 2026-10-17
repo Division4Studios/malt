@@ -201,6 +201,30 @@ export function tabTarget(current: number, key: string, count: number): number |
   return Object.hasOwn(moves, key) ? (moves[key] ?? null) : null;
 }
 
+/** Step id the merge gate adds; matches the broker's `MERGE_GATE_STEP`. */
+export const MERGE_GATE_STEP = 'operator-merge-gate';
+/** Delivery phases in which its merge gate may still change. */
+const BEFORE_MERGE: ReadonlySet<string> = new Set(['ready', 'development', 'publishing', 'review', 'blocked']);
+
+/**
+ * The merge-gate toggle a delivery offers before it is merge ready.
+ *
+ * @param delivery - Delivery shown.
+ * @returns Label and `factory_gates` input, or `null` once the gate can no longer change.
+ */
+export function mergeGateControl(
+  delivery: Pick<Delivery, 'taskId' | 'phase' | 'steps'>,
+): { readonly label: string; readonly input: { readonly taskId: string; readonly merge: boolean } } | null {
+  if (!BEFORE_MERGE.has(delivery.phase)) {
+    return null;
+  }
+  const isGated = delivery.steps.some((step) => step.id === MERGE_GATE_STEP);
+  return {
+    label: isGated ? 'Remove merge approval' : 'Require merge approval',
+    input: { taskId: delivery.taskId, merge: !isGated },
+  };
+}
+
 /** One operator lifecycle control and the request it sends. */
 export interface LifecycleControl {
   /** Button label. */

@@ -38,6 +38,7 @@ export interface InboxHooks {
 const KIND_LABELS: Readonly<Record<InboxKind, string>> = {
   approval: 'Step approval',
   plan_approval: 'Plan approval',
+  question: 'Agent question',
   blocked_delivery: 'Blocked delivery',
   blocked_objective: 'Planning stopped',
   skill: 'Skill decision',
