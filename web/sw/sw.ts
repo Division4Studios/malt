@@ -123,6 +123,10 @@ interface LifecycleEvent extends Event {
 interface RequestEvent extends Event {
   /** Actual fetch request. */
   readonly request: Request;
+  /** Window that made the request; empty for navigations. */
+  readonly clientId?: string;
+  /** Window a navigation will create. */
+  readonly resultingClientId?: string;
   /** Supply a network or public-shell response. */
   readonly respondWith: (response: Promise<Response>) => void;
 }
@@ -153,23 +157,48 @@ function isRequestEvent(event: Event): event is RequestEvent {
 }
 
 /**
- * Prefer the latest public shell, with offline cache fallback.
+ * Windows that loaded their shell from this worker's cache. They keep loading
+ * every module from the same revision, even once the network is back, so a page
+ * never mixes an offline shell with newer modules.
+ */
+const offlineWindows = new Set<string>();
+
+/**
+ * One shell asset from this worker's own revision cache, never another revision's.
  *
  * @param request - Exact public shell request.
- * @returns Network response, or its known cached shell.
+ * @returns Cached response, or an explicit unavailable answer.
  */
-async function publicAsset(request: Request): Promise<Response> {
+async function cachedAsset(request: Request): Promise<Response> {
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(request);
+  return cached ?? new Response('Local console unavailable. Reconnect to the daemon.', { status: 503 });
+}
+
+/**
+ * Prefer the latest public shell, falling back to this revision's cache offline.
+ *
+ * @param request - Exact public shell request.
+ * @param window - Window the response is for, if known.
+ * @returns Network response, or this revision's cached shell.
+ */
+async function publicAsset(request: Request, window: string): Promise<Response> {
+  if (window !== '' && offlineWindows.has(window)) {
+    return cachedAsset(request);
+  }
   try {
     return await fetch(request);
   } catch {
-    const cached = await caches.match(request);
-    return cached ?? new Response('Local console unavailable. Reconnect to the daemon.', { status: 503 });
+    if (window !== '') {
+      offlineWindows.add(window);
+    }
+    return cachedAsset(request);
   }
 }
-/** Install one complete public shell before replacing the prior cache. */
+/** Install one complete public shell, fetched past the HTTP cache, before replacing the prior cache. */
 async function installShell(): Promise<void> {
   const cache = await caches.open(CACHE);
-  await cache.addAll(SHELL);
+  await cache.addAll(SHELL.map((asset) => new Request(asset, { cache: 'reload' })));
 }
 
 addEventListener('install', (event: Event) => {
@@ -195,7 +224,8 @@ addEventListener('fetch', (event: Event) => {
   ) {
     return;
   }
-  event.respondWith(publicAsset(event.request));
+  const window = event.request.mode === 'navigate' ? (event.resultingClientId ?? '') : (event.clientId ?? '');
+  event.respondWith(publicAsset(event.request, window));
 });
 /** Retire older public shell revisions only; never touch unrelated caches. */
 async function retireCaches(): Promise<void> {
