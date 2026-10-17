@@ -22,6 +22,7 @@ import {
   stepOf,
   taskWorkflow,
 } from './pipeline.ts';
+import { publishDelivery } from './post-agent.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { recordConflict } from './repairs.ts';
 import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
@@ -131,8 +132,9 @@ async function publishFix(
     throw new MeshError('FACTORY_GATED', 'The delivery worktree is missing.');
   }
   try {
-    await context.workspaces.publish(
-      task,
+    await publishDelivery(
+      { workspaces: context.workspaces, mesh: context.mesh, now: () => context.repository.store.now() },
+      { job, task, signal, provenance: { step: step.id, kind: step.kind, role: job.role, jobId: job.id } },
       async (source) => {
         signal.throwIfAborted();
         const snapshot = await context.workspaces.snapshot(worktree);
@@ -160,7 +162,6 @@ async function publishFix(
         });
         queueComment(context, published, `${step.title} (${job.role}) published ${source.head}.\n\n${result.summary}`);
       },
-      { step: step.id, kind: step.kind, role: job.role, jobId: job.id },
     );
   } catch (error) {
     if (error instanceof MergeConflictError) {

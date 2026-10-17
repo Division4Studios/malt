@@ -18,6 +18,7 @@ import { MergeConflictError } from './merge-conflict.ts';
 import { automaticWorkflow } from './objectives.ts';
 import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
 import { completePlanning } from './planning-stage.ts';
+import { publishDelivery } from './post-agent.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { attemptBudget } from './repair-schema.ts';
 import { recordConflict } from './repairs.ts';
@@ -270,8 +271,14 @@ async function completeDevelopment(
   }
   const { worktree } = record;
   try {
-    await context.workspaces.publish(
-      record,
+    await publishDelivery(
+      { workspaces: context.workspaces, mesh: context.mesh, now: () => context.repository.store.now() },
+      {
+        job,
+        task: record,
+        signal,
+        provenance: { step: job.step ?? 'implement', kind: 'implement', role: job.role, jobId: job.id },
+      },
       async (source) => {
         signal.throwIfAborted();
         const snapshot = await context.workspaces.snapshot(worktree);
@@ -305,7 +312,6 @@ async function completeDevelopment(
           queueDevelopmentComment(context, record.id, job.role, evidence.summary);
         });
       },
-      { step: job.step ?? 'implement', kind: 'implement', role: job.role, jobId: job.id },
     );
   } catch (error) {
     if (error instanceof MergeConflictError) {
