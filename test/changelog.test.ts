@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
-import { GROUPS, parseSubject, recordedInputs, renderChangelog } from '../scripts/changelog.ts';
+import { GROUPS, changelogProblem, parseSubject, recordedInputs, renderChangelog } from '../scripts/changelog.ts';
 
 /** A fixed history, newest first. */
 const COMMITS = [
@@ -64,4 +64,21 @@ await test('skipped pull requests are left out and recorded, and regeneration is
   const none = renderChangelog(COMMITS, { commit: HEAD, skipped: new Set() });
   assert.match(none, /skipped pull requests: none -->/v);
   assert.deepEqual(recordedInputs(none)?.skipped, new Set());
+});
+
+await test('a check rejects a missing header, an edited file and a stale generation point', () => {
+  const regenerate = (inputs: { readonly commit: string; readonly skipped: ReadonlySet<number> }): string =>
+    renderChangelog(COMMITS, inputs);
+  const text = renderChangelog(COMMITS, { commit: HEAD, skipped: new Set() });
+  assert.equal(changelogProblem(text, regenerate, null), null);
+  assert.equal(changelogProblem(text, regenerate, HEAD), null);
+  assert.match(changelogProblem(text, regenerate, 'b'.repeat(40)) ?? '', /generated from a+, not b+/v);
+  assert.match(changelogProblem(`${text}- edited by hand\n`, regenerate, null) ?? '', /differs/v);
+  assert.match(changelogProblem('# Changelog\n', regenerate, null) ?? '', /no generation header/v);
+});
+
+await test('the committed changelog records its generation inputs', () => {
+  const committed = readFileSync(path.resolve(import.meta.dirname, '..', 'CHANGELOG.md'), 'utf8');
+  assert.ok(recordedInputs(committed) !== null);
+  assert.match(committed, /^## Unreleased$/mv);
 });
