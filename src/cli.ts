@@ -29,7 +29,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
-import { loadConfig, saveBrokerDiscovery } from './config.ts';
+import { STATE_DIRECTORY_NAME, loadConfig, readJsonFile, saveBrokerDiscovery } from './config.ts';
 import { FACTORY_COMMANDS, isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
 import { MeshError } from './protocol.ts';
 
@@ -43,6 +43,7 @@ const MAX_PORT = 65_535;
 const HELP = `MALT 0.1 — durable local agent communication
 
 Usage: node src/cli.ts <command> [options]
+  doctor [--json]              Preflight: Node, Git, provider logins, GitHub CLI, ports, .malt
   init                         Initialize .malt and project agent discovery files
   start                        Start the broker (foreground; Ctrl+C to stop)
   ui --port 4318              Serve the installable local PWA; prints a pairing code
@@ -93,6 +94,7 @@ Docker: docker compose up -d --build
 
 /** Every command the CLI accepts. */
 const COMMANDS = [
+  'doctor',
   'ui',
   ...FACTORY_COMMANDS,
   'init',
@@ -112,7 +114,7 @@ const COMMANDS = [
 type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
-type TeamCommand = Exclude<Command, 'init' | 'mcp' | 'start' | 'teams' | 'ui'>;
+type TeamCommand = Exclude<Command, 'doctor' | 'init' | 'mcp' | 'start' | 'teams' | 'ui'>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
@@ -153,6 +155,8 @@ interface CliOptions {
   readonly all?: boolean | undefined;
   /** `--apply`: apply proposed GitHub reconciliation decisions instead of a dry run. */
   readonly apply?: boolean | undefined;
+  /** `--json`: print one machine-readable document (doctor). */
+  readonly json?: boolean | undefined;
 }
 
 /**
@@ -328,6 +332,12 @@ async function runMessaging(
  */
 async function run(command: Command, options: CliOptions): Promise<void> {
   const record = options;
+  if (command === 'doctor') {
+    if (!(await isDoctorPassing(record))) {
+      process.exitCode = 1;
+    }
+    return;
+  }
   // Only `init` and `start` may create a project; see loadConfig.
   const home = loadConfig(record.project, {
     create: command === 'init' || command === 'start' || (command === 'ui' && record['with-broker'] === true),
@@ -355,26 +365,82 @@ async function run(command: Command, options: CliOptions): Promise<void> {
         return;
       }
       case 'ui': {
-        const { startNativeConsole } = await import('./web/native.ts');
-        const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
-        if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
-          throw new Error('Use a valid local UI port.');
-        }
-        const console = await startNativeConsole(home, port, record['with-broker'] === true);
-        print({
-          url: console.url,
-          pairingCode: console.pairingCode,
-          note: 'Pair locally; browser installation does not install the native daemon.',
-        });
-        process.once('SIGINT', () => {
-          void console.close();
-        });
-        process.once('SIGTERM', () => {
-          void console.close();
-        });
+        await runConsole(home, record);
       }
     }
   }
+}
+
+/**
+ * Serve the local PWA, printing its pairing code once.
+ *
+ * @param home - Home project.
+ * @param record - Port and broker ownership options.
+ * @throws {Error} When `--port` is not a valid port.
+ */
+async function runConsole(home: MeshConfig, record: CliOptions): Promise<void> {
+  const { startNativeConsole } = await import('./web/native.ts');
+  const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
+  if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
+    throw new Error('Use a valid local UI port.');
+  }
+  const console = await startNativeConsole(home, port, record['with-broker'] === true);
+  print({
+    url: console.url,
+    pairingCode: console.pairingCode,
+    note: 'Pair locally; browser installation does not install the native daemon.',
+  });
+  process.once('SIGINT', () => {
+    void console.close();
+  });
+  process.once('SIGTERM', () => {
+    void console.close();
+  });
+}
+
+/**
+ * Run the first-run preflight without creating or changing project state.
+ *
+ * @param options - Project, console port and output format.
+ * @returns Whether no check failed.
+ * @throws {Error} When `--port` is not a valid port.
+ */
+async function isDoctorPassing(options: CliOptions): Promise<boolean> {
+  const { DEFAULT_BROKER_PORT, formatDoctor, runDoctor } = await import('./doctor.ts');
+  const project = path.resolve(options.project ?? process.cwd());
+  const consolePort = options.port === undefined ? CONSOLE_PORT : Number(options.port);
+  if (!Number.isSafeInteger(consolePort) || consolePort < 1 || consolePort > MAX_PORT) {
+    throw new Error('Use a console port between 1 and 65535.');
+  }
+  const report = await runDoctor({ project, brokerPort: savedBrokerPort(project) ?? DEFAULT_BROKER_PORT, consolePort });
+  if (options.json === true) {
+    print(report);
+  } else {
+    process.stdout.write(formatDoctor(report));
+  }
+  return report.ok;
+}
+
+/**
+ * Read the broker port an existing project saved, without migrating or creating anything.
+ *
+ * @param project - Project folder.
+ * @returns Saved port, or null for a new or unreadable project.
+ */
+function savedBrokerPort(project: string): number | null {
+  let saved: unknown;
+  try {
+    saved = readJsonFile(path.join(project, STATE_DIRECTORY_NAME, 'config.json'));
+  } catch {
+    return null;
+  }
+  const url = typeof saved === 'object' && saved !== null && 'url' in saved ? saved.url : undefined;
+  if (typeof url !== 'string' || !URL.canParse(url)) {
+    return null;
+  }
+  const { port: text } = new URL(url);
+  const port = Number(text);
+  return Number.isSafeInteger(port) && port > 0 ? port : null;
 }
 
 /**
@@ -451,6 +517,7 @@ async function main(): Promise<void> {
       limit: { type: 'string' },
       all: { type: 'boolean' },
       apply: { type: 'boolean' },
+      json: { type: 'boolean' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -489,5 +556,5 @@ try {
  * @returns Whether it addresses one workspace team.
  */
 function isTeamCommand(value: Command): value is TeamCommand {
-  return !['init', 'start', 'mcp', 'teams', 'ui'].includes(value);
+  return !['doctor', 'init', 'start', 'mcp', 'teams', 'ui'].includes(value);
 }
