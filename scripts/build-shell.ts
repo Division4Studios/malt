@@ -58,6 +58,7 @@ const FILES = [
   'dist/cost-chart.js',
   'dist/price-editor.js',
   'dist/costs-ui.js',
+  'dist/theme.js',
   'sessions.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
