@@ -1,13 +1,15 @@
 /**
  * Strict query parsing for the read-only telemetry routes `/api/attempts`,
- * `/api/transcript` and `/api/costs`, and for an objective's progress log at
- * `/api/objective-log`. Every parameter is a known, unrepeated
+ * `/api/transcript` and `/api/costs`, for an objective's progress log at
+ * `/api/objective-log` and for a delivery's diff at `/api/delivery-diff`.
+ * Every parameter is a known, unrepeated
  * key; numbers must be plain decimals. Data comes from broker operations.
  *
  * @file
  */
 import { z } from 'zod/v3';
 
+import { DIFF_PATH_MAX } from '../factory/diff-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from '../factory/seats.ts';
 import { ATTEMPT_PAGE_MAX, ATTEMPT_STATES, TRANSCRIPT_PAGE_MAX } from '../factory/telemetry-schema.ts';
 import { MeshError } from '../protocol.ts';
@@ -15,7 +17,13 @@ import { MeshError } from '../protocol.ts';
 import type { ProjectGateway } from './projects.ts';
 
 /** Read-only routes served by this module. */
-const TELEMETRY_ROUTES = new Set(['/api/attempts', '/api/transcript', '/api/costs', '/api/objective-log']);
+const TELEMETRY_ROUTES = new Set([
+  '/api/attempts',
+  '/api/transcript',
+  '/api/costs',
+  '/api/objective-log',
+  '/api/delivery-diff',
+]);
 /** Largest progress log page. */
 const LOG_PAGE_MAX = 100;
 /** Maximum project scope identifier. */
@@ -77,6 +85,14 @@ const objectiveLogQuerySchema = z
     limit: decimal.pipe(z.number().min(1).max(LOG_PAGE_MAX)).optional(),
   })
   .strict();
+/** Delivery diff query: the summary, or one listed path's patch. */
+const deliveryDiffQuerySchema = z
+  .object({
+    project,
+    taskId: z.string().uuid(),
+    path: z.string().min(1).max(DIFF_PATH_MAX).optional(),
+  })
+  .strict();
 
 /**
  * Decode query parameters, rejecting any repeated key.
@@ -123,6 +139,10 @@ export async function telemetryRoute(url: URL, gateway: ProjectGateway): Promise
     case '/api/objective-log': {
       const { project: scope, ...page } = objectiveLogQuerySchema.parse(parameters);
       return gateway.objectiveLog(scope, page);
+    }
+    case '/api/delivery-diff': {
+      const { project: scope, ...query } = deliveryDiffQuerySchema.parse(parameters);
+      return gateway.deliveryDiff(scope, query);
     }
     default: {
       throw new MeshError('NOT_FOUND', 'Unknown inspection route.');
