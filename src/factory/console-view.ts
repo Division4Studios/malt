@@ -8,6 +8,7 @@
  * @file
  */
 
+import { checkpointItems } from './checkpoint-view.ts';
 import { isArchived } from './delivery-controls.ts';
 import { livenessView, retryView } from './liveness-view.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
@@ -229,6 +230,7 @@ export interface InboxItem {
     | 'approval'
     | 'plan_approval'
     | 'question'
+    | 'checkpoint'
     | 'blocked_delivery'
     | 'blocked_objective'
     | 'skill'
@@ -250,7 +252,7 @@ export interface InboxItem {
   readonly stepId: string | null;
   /** Head an approval binds, for delivery approvals. */
   readonly head: string | null;
-  /** Skill request, for skill decisions. */
+  /** Skill request, for skill decisions; the stopped attempt, for checkpoint decisions. */
   readonly requestId: string | null;
   /** Agent question, for questions. */
   readonly questionId: string | null;
@@ -774,6 +776,7 @@ function openItems(
   });
   return [
     ...questions,
+    ...checkpointItems(repository.jobs(), tasks),
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
     // Inbox items read only the checklist, so no attempted-step lookup is needed.

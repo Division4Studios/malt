@@ -13,6 +13,7 @@ export const OPERATOR_ONLY_OPERATIONS: ReadonlySet<string> = new Set([
   'factory_recover',
   'factory_approve',
   'factory_answer',
+  'factory_checkpoint_decide',
   'factory_gates',
   'factory_step_overrides',
   'factory_schedule_save',
@@ -29,7 +30,7 @@ export const OPERATOR_ONLY_OPERATIONS: ReadonlySet<string> = new Set([
 
 /** Refusal shown when an agent calls an operator-only operation. */
 export const OPERATOR_ONLY_MESSAGE =
-  'Only the human operator may acknowledge recommendation reads, approve skill changes, decide workflow approvals, answer agent questions, change gates or step overrides, recover objectives, reconcile GitHub, export cross-project maintenance, or change automations, spend caps, definitions of done, roles or secrets.';
+  'Only the human operator may acknowledge recommendation reads, approve skill changes, decide workflow approvals, answer agent questions or checkpoint decisions, change gates or step overrides, recover objectives, reconcile GitHub, export cross-project maintenance, or change automations, spend caps, definitions of done, roles or secrets.';
 
 /** Operations any authenticated agent may call; every other one needs the designated lead. */
 export const AGENT_OPERATIONS: ReadonlySet<string> = new Set([

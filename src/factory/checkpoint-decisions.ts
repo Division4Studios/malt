@@ -6,11 +6,16 @@
  * the evidence, and the step is not offered again while the decision waits.
  * `continue` runs the step once more from the preserved worktree, bounded by
  * the granted minutes and without the extension gate; `wait` returns it to the
- * normal retry rules. The operator control that records a decision follows.
+ * normal retry rules. Decisions are idempotent per request and fenced by the
+ * attempt, its source and its stage, so a stale decision can never extend a
+ * replacement.
  *
  * @file
  */
-import { CONTINUE_MIN_MINUTES } from './liveness-schema.ts';
+import { MeshError } from '../protocol.ts';
+
+import { CONTINUE_MIN_MINUTES, checkpointDecideSchema } from './liveness-schema.ts';
+import { JOB_PHASE } from './seats.ts';
 
 import type { Checkpoint, JobLiveness, LivenessPolicy } from './liveness-schema.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -19,6 +24,14 @@ import type { FactoryJob } from './schema.ts';
 
 /** Milliseconds in one minute. */
 const MINUTE_MS = 60_000;
+
+/** Result of one decision request. */
+export interface CheckpointResult {
+  /** `decided` the first time, `repeated` for the same request again. */
+  readonly result: 'decided' | 'repeated';
+  /** The recorded decision. */
+  readonly checkpoint: Checkpoint;
+}
 
 /**
  * Whether a stop at a checkpoint should ask the operator: a held attempt, or
@@ -144,4 +157,82 @@ export function useContinuation(
     const maxMs = (checkpoint.minutes ?? CONTINUE_MIN_MINUTES) * MINUTE_MS;
     return { ...policy, maxMs, intervalMs: Math.min(policy.intervalMs, maxMs) };
   });
+}
+
+/**
+ * Why a pending decision no longer applies, if it does not.
+ *
+ * @param repository - Project ledger.
+ * @param job - Attempt that asked.
+ * @param expectedHead - Head the operator saw, when given.
+ * @returns Stale reason, or null while the decision still applies.
+ */
+function staleReason(
+  repository: FactoryRepository,
+  job: FactoryJob,
+  expectedHead: string | null | undefined,
+): string | null {
+  if (latestFinished(repository.jobs(), job)?.id !== job.id) {
+    return 'A newer attempt of this step exists.';
+  }
+  if (job.taskId === null) {
+    return null;
+  }
+  const task = repository.task(job.taskId);
+  if (task.head !== job.head || (expectedHead !== undefined && expectedHead !== task.head)) {
+    return 'The delivery source changed since this checkpoint.';
+  }
+  const phase = JOB_PHASE[job.kind];
+  return phase !== '' && task.phase !== phase ? 'The delivery moved to another stage.' : null;
+}
+
+/**
+ * Decide one pending checkpoint.
+ *
+ * @param repository - Project ledger.
+ * @param input - Untrusted decision.
+ * @returns The recorded decision, or the first result for a repeated request.
+ * @throws {MeshError} NOT_FOUND, INVALID_INPUT or FACTORY_GATED for unknown, invalid, decided or stale decisions.
+ */
+export function decideCheckpoint(repository: FactoryRepository, input: unknown): CheckpointResult {
+  const value = checkpointDecideSchema.parse(input);
+  if (value.action === 'continue' && value.minutes === undefined) {
+    throw new MeshError('INVALID_INPUT', 'A continue decision names how many minutes to continue.');
+  }
+  const outcome = repository.store.transaction((): CheckpointResult | { readonly stale: string } => {
+    const job = repository.jobs().find((candidate) => candidate.id === value.jobId);
+    const checkpoint = job?.checkpoint;
+    if (job === undefined || checkpoint === undefined) {
+      throw new MeshError('NOT_FOUND', 'No checkpoint decision for that attempt.');
+    }
+    if (checkpoint.requestId === value.requestId) {
+      return { result: 'repeated', checkpoint };
+    }
+    if (checkpoint.state !== 'pending') {
+      throw new MeshError('FACTORY_GATED', `This checkpoint was already decided (${checkpoint.state}).`);
+    }
+    if (job.state === 'running') {
+      throw new MeshError('FACTORY_GATED', 'This attempt is still stopping; decide once it has settled.');
+    }
+    const stale = staleReason(repository, job, value.expectedHead);
+    const now = repository.store.now();
+    if (stale !== null) {
+      // Recorded before refusing, so a stale decision stays out of the Inbox and never waits again.
+      repository.saveJob({ ...job, checkpoint: { ...checkpoint, state: 'stale', decidedAt: now } });
+      return { stale };
+    }
+    const decided: Checkpoint = {
+      ...checkpoint,
+      state: value.action,
+      minutes: value.action === 'continue' ? (value.minutes ?? null) : null,
+      requestId: value.requestId,
+      decidedAt: now,
+    };
+    repository.saveJob({ ...job, checkpoint: decided });
+    return { result: 'decided', checkpoint: decided };
+  });
+  if ('stale' in outcome) {
+    throw new MeshError('FACTORY_GATED', outcome.stale);
+  }
+  return outcome;
 }
