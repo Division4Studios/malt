@@ -3,8 +3,8 @@
  * once per console, so filters, open transcripts, expanded results, drafts and
  * dialogs survive every snapshot push; the shell only asks for an element.
  * Telemetry views (sessions, costs) read their own routes on a slower cadence;
- * console views (Inbox, Board, objectives, automations, delivery, workflows)
- * read each pushed snapshot.
+ * console views (Inbox, Board, objectives, automations, delivery, workflows,
+ * roles, secrets) read each pushed snapshot.
  *
  * @file
  */
@@ -16,6 +16,8 @@ import { createDeliveryView } from './delivery-ui.js';
 import { createGoalView } from './goal-ui.js';
 import { InboxNotifier } from './inbox-notifier.js';
 import { createInboxView } from './inbox-ui.js';
+import { createRolesView } from './roles-ui.js';
+import { createSecretsView } from './secrets-ui.js';
 import { createSessionsView } from './sessions-ui.js';
 import { createWorkflowsView } from './workflows-ui.js';
 
@@ -36,7 +38,16 @@ type PushedView = (typeof PUSHED_VIEW_NAMES)[number];
 /** Views this module owns. */
 export type OwnedView = RefreshedView | PushedView;
 /** Snapshot-pushed view names. */
-const PUSHED_VIEW_NAMES = ['inbox', 'board', 'objective', 'automations', 'delivery', 'workflows'] as const;
+const PUSHED_VIEW_NAMES = [
+  'inbox',
+  'board',
+  'objective',
+  'automations',
+  'delivery',
+  'workflows',
+  'roles',
+  'secrets',
+] as const;
 /** Snapshot-pushed view names, for membership checks. */
 const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
 
@@ -44,7 +55,7 @@ const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
  * Whether an owned view reads pushed snapshots.
  *
  * @param view - Owned route.
- * @returns True for Inbox, Board, objectives, automations, delivery and workflows.
+ * @returns True for Inbox, Board, objectives, automations, delivery, workflows, roles and secrets.
  */
 const isPushed = (view: OwnedView): view is PushedView => PUSHED_VIEWS.has(view);
 
@@ -146,6 +157,8 @@ export class ConsoleViews {
       ],
       ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
       ['automations', createAutomationsView({ control: hooks.control })],
+      ['roles', createRolesView({ control: hooks.control })],
+      ['secrets', createSecretsView({ control: hooks.control })],
       ['delivery', this.delivery],
       ['objective', this.goals],
       ['workflows', this.workflows],
@@ -167,6 +180,8 @@ export class ConsoleViews {
       automations: this.builder('automations'),
       delivery: this.builder('delivery'),
       workflows: this.builder('workflows'),
+      roles: this.builder('roles'),
+      secrets: this.builder('secrets'),
     };
   }
 
