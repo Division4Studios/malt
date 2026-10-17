@@ -29,6 +29,7 @@ export const CAPABILITIES = [
   'relationships',
   'membership',
   'transition',
+  'comment',
   'label-use',
   'label-manage',
   'milestone-use',
