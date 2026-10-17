@@ -347,6 +347,7 @@ export class WorkspaceManager {
    * @param task - Original developer assignment with an owned worktree.
    * @param beforePush - Verify the refreshed source and commit its durable publication checkpoint.
    * @param provenance - Workflow step, seat and attempt recorded as commit trailers.
+   * @param onStep - Told when committing, refreshing main and measuring publication begin, for failure records.
    * @returns Current head/base and diff summary.
    * @throws {MeshError} For empty or oversized deliveries.
    */
@@ -354,6 +355,7 @@ export class WorkspaceManager {
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
     provenance: CommitProvenance | null = null,
+    onStep?: (step: 'commit' | 'refresh' | 'publish') => void,
   ): Promise<{ head: string; base: string; diff: string }> {
     this.assertDeliveryTask(task);
     const record = task;
@@ -364,6 +366,7 @@ export class WorkspaceManager {
     const base = await this.base();
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, previous, base);
+    onStep?.('commit');
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
     // Measured from the base this delivery last built on, so work main absorbed since still counts as its own.
     const ownCommitsBefore = await this.ownCommits(record.base ?? base, previous, directory);
@@ -375,8 +378,10 @@ export class WorkspaceManager {
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
+    onStep?.('refresh');
     await this.refreshForPublication(record, base, directory);
     await this.assertPrivateStateUntracked(directory);
+    onStep?.('publish');
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, head, base);
     const diff = await this.git(['diff', '--numstat', `${base}...${head}`], directory);
