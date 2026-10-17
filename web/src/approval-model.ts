@@ -5,6 +5,8 @@
  *
  * @file
  */
+import { t } from './i18n.js';
+
 import type { Delivery, InboxItem, Step } from './console-model.js';
 
 /** Longest note the server accepts. */
@@ -134,10 +136,10 @@ export function approvalInput(
 ): { input: ApprovalInput } | { error: string } {
   const note = decision.note.trim();
   if (note === '' && !decision.approve) {
-    return { error: 'Explain what must change before rejecting.' };
+    return { error: t('Explain what must change before rejecting.') };
   }
   if (note.length > NOTE_MAX) {
-    return { error: `Keep the note under ${String(NOTE_MAX)} characters.` };
+    return { error: t('Keep the note under {noteMax} characters.', { noteMax: NOTE_MAX }) };
   }
   const owner = target.scope === 'delivery' ? { taskId: target.id } : { featureId: target.id };
   return {

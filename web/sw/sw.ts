@@ -54,6 +54,7 @@ const SHELL = [
   '/catalog-zh.js',
   '/catalog-zh-shell.js',
   '/catalog-zh-factory.js',
+  '/catalog-zh-board.js',
   '/theme.js',
   '/objective-ui.js',
   '/console-views.js',
