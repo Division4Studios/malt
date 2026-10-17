@@ -334,6 +334,10 @@ Paired browsers use `POST /api/control` with `operation: "terminal_input"` and `
 
 Input is accepted only while the owned PTY is running: at most 16 KiB UTF-8 per write, a 64 KiB burst and 16 KiB/second refill. Resizes have an independent 20-event/second allowance and the same 1–500 column / 1–200 row bounds as startup. Rejections leave the session running. Closing/exited sessions reject further input. Accepted input resets idle time; output and resize do not. Keystrokes are never logged, persisted or automatically retried. After an ambiguous network failure, inspect the terminal before deciding whether to send again.
 
+## Assignment liveness
+
+`factory_setup` accepts an optional `liveness: { stallMs?, maxMs?, sampleMs? }` (positive integers; `sampleMs` at least 1,000). `jobTimeoutMs` is the checkpoint interval. Attempts in `factory_status` may carry `liveness` — `{state, extensions, lastProgressAt, lastSignal, awaiting, nextCheckpointAt, ceilingAt, stopReason}`, where `state` is `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling` — and, once finished without success, `failureClass` (`rate_limit`, `transient`, `stalled`, `invalid_output`, `gate`, `cancelled`). `factory_attempts` rows carry `liveness: {state, lastSignal, extensions, stopReason} | null` and `failureClass | null`. Console deliveries carry `running.liveness` and `retry: {failureClass, failures, retryAt | null} | null`; a null `retryAt` means the step is out of automatic retries. These fields are absent or null on records saved before liveness. See [assignment liveness and retries](software-factory.md#assignment-liveness-and-retries).
+
 ## Managed developer ticket checkpoints
 
 The delivery adapter's read-only `issueState(issue)` contract reads the connected repository's native issue endpoint and returns `state` (`open` or `closed`) and a nullable bounded `stateReason`. Invalid numbers, pull-request numbers, malformed states and foreign repository identities are rejected. Reads do not change tickets, project membership or delivery evidence. Scheduling integration consumes this contract before claiming new development work.

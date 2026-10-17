@@ -11,7 +11,16 @@ import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromStep } from './approval-model.js';
 import { lifecycleControl } from './board-model.js';
 import { button, emptyState, externalLink, focusedKey, restoreFocus, stateBadge, tag } from './console-dom.js';
-import { EMPTY_CONSOLE, findingSeverity, layerGroups, readConsole, runningText, shortSha } from './console-model.js';
+import {
+  EMPTY_CONSOLE,
+  findingSeverity,
+  layerGroups,
+  livenessText,
+  readConsole,
+  retryText,
+  runningText,
+  shortSha,
+} from './console-model.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -72,6 +81,13 @@ function header(delivery: Delivery): HTMLElement {
   fact(facts, 'Base', shortSha(delivery.base));
   fact(facts, 'Pull request', delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, 'Open pull request'));
   fact(facts, 'Running now', runningText(delivery) ?? 'Nothing');
+  const liveness = delivery.running?.liveness ?? null;
+  if (liveness !== null) {
+    fact(facts, 'Liveness', livenessText(liveness, Date.now()));
+  }
+  if (delivery.retry !== null) {
+    fact(facts, 'Retry', retryText(delivery.retry, Date.now()));
+  }
   if (delivery.held !== null) {
     fact(
       facts,

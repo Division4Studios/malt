@@ -127,14 +127,14 @@ export async function runChecks(
  *
  * @param context - Target project dependencies.
  * @param job - Current fenced assignment.
- * @param controls - Cancellation and managed PID recording.
+ * @param controls - Cancellation, managed PID recording and the owned worktree once it is prepared.
  * @returns Evidence and structured model output.
  * @throws {MeshError} For stale gates or invalid source state.
  */
 export async function executeJob(
   context: FactoryContext,
   job: FactoryJob,
-  controls: { signal: AbortSignal; onSpawn: (pid: number) => void },
+  controls: { signal: AbortSignal; onSpawn: (pid: number) => void; onSource?: (cwd: string) => void },
 ): Promise<ExecutedJob> {
   const record = job;
   const { repository } = context;
@@ -163,6 +163,9 @@ export async function executeJob(
     });
   }
   const { cwd, snapshot, checks } = await prepareSource(context, record, controls.signal);
+  if (CODE_JOB_KINDS.has(record.kind)) {
+    controls.onSource?.(cwd);
+  }
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
   const evidence = await roleEvidence(context, record);
   const recommendations = recommendationNotices(repository.store, record);

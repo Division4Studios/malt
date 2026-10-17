@@ -32,6 +32,7 @@ import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
+import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -56,6 +57,7 @@ import {
   resourceProbe,
   hasCriticalMemoryPressure,
 } from './resources.ts';
+import { classifySettlement } from './retry-policy.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { replaceScope } from './scope-changes.ts';
@@ -118,6 +120,8 @@ interface AttemptState {
   state: 'succeeded' | 'failed' | 'interrupted';
   /** Supervisor-observed failure or cancellation reason for the manager report. */
   reason: string | null;
+  /** Error that failed the attempt, used to classify its retry. */
+  error: unknown;
 }
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
@@ -570,13 +574,19 @@ export class FactoryService {
    */
   private async perform(job: FactoryJob, controller: AbortController): Promise<void> {
     const context = this.configured();
-    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null };
-    const timer = setTimeout(() => {
-      controller.abort(new Error(`Assignment exceeded its ${String(context.settings.jobTimeoutMs)} ms timeout.`));
-    }, context.settings.jobTimeoutMs);
+    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null, error: null };
+    const owned: { cwd: string | null } = { cwd: null };
+    const monitor = superviseLiveness({
+      repository: this.repository,
+      job,
+      settings: context.settings,
+      controller,
+      worktree: () => owned.cwd,
+    });
     try {
-      await this.executeAttempt(job, controller, attempt);
+      await this.executeAttempt(job, controller, attempt, owned);
     } catch (error) {
+      attempt.error = error;
       if (controller.signal.aborted || this.stopped) {
         attempt.state = 'interrupted';
         attempt.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
@@ -585,8 +595,8 @@ export class FactoryService {
         await this.failure(job, attempt.reason);
       }
     } finally {
-      clearTimeout(timer);
-      await this.settleAttempt(job, attempt);
+      monitor.dispose();
+      await this.settleAttempt(job, attempt, checkpointStop(monitor.liveness));
       this.nextReconcile = 0;
     }
   }
@@ -597,12 +607,22 @@ export class FactoryService {
    * @param job - Durable claim.
    * @param controller - Pipeline cancellation.
    * @param attempt - Accumulated execution evidence.
+   * @param owned - Receives the owned worktree once prepared.
+   * @param owned.cwd - Owned worktree path.
    */
-  private async executeAttempt(job: FactoryJob, controller: AbortController, attempt: AttemptState): Promise<void> {
+  private async executeAttempt(
+    job: FactoryJob,
+    controller: AbortController,
+    attempt: AttemptState,
+    owned: { cwd: string | null },
+  ): Promise<void> {
     const outcome = attempt;
     const context = this.configured();
     outcome.execution = await executeJob(context, job, {
       signal: controller.signal,
+      onSource: (cwd) => {
+        Object.assign(owned, { cwd });
+      },
       onSpawn: (pid) => {
         outcome.isInferred = true;
         const spawned = this.repository.jobs().find((candidate) => candidate.id === job.id);
@@ -649,14 +669,17 @@ export class FactoryService {
    *
    * @param job - Original token.
    * @param attempt - Executed evidence.
+   * @param stopReason - Liveness checkpoint stop, if one stopped the attempt.
    */
-  private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
+  private async settleAttempt(job: FactoryJob, attempt: AttemptState, stopReason: string | null): Promise<void> {
     triage.settleTriage(this.repository, job, attempt.state);
+    const now = this.repository.store.now();
+    const failureClass = classifySettlement(attempt, { now, stopReason, isStopping: this.stopped });
     const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
-      settlementEvidence(attempt, this.stopped, this.repository.store.now()),
+      { ...settlementEvidence(attempt, this.stopped, now), failureClass },
     );
     refundUnpaidAttempt(this.repository, job, {
       hasSettled,

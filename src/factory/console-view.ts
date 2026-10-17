@@ -9,6 +9,7 @@
  */
 
 import { isArchived } from './delivery-controls.ts';
+import { livenessView, retryView } from './liveness-view.ts';
 import {
   approvalSource,
   awaitingApproval,
@@ -22,10 +23,13 @@ import {
 } from './pipeline.ts';
 import { stepLayers } from './workflows.ts';
 
+import type { LivenessView, RetryView } from './liveness-view.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
 
+/** Reconcile interval assumed before a project is configured. */
+const RECONCILE_FALLBACK_MS = 30_000;
 /** Completed deliveries kept on the board; older ones remain in history. */
 const DONE_ON_BOARD = 50;
 /** Answered decisions listed in the Inbox. */
@@ -98,8 +102,15 @@ export interface DeliveryView {
   readonly workflow: { readonly id: string; readonly name: string };
   /** Steps in workflow order. */
   readonly steps: readonly StepView[];
-  /** Live attempt, if one is running. */
-  readonly running: { readonly jobId: string; readonly role: string; readonly step: string | null } | null;
+  /** Live attempt, if one is running, with its checkpoint liveness. */
+  readonly running: {
+    readonly jobId: string;
+    readonly role: string;
+    readonly step: string | null;
+    readonly liveness: LivenessView | null;
+  } | null;
+  /** Retry backoff of its latest failed step, while it delays that step. */
+  readonly retry: RetryView | null;
   /** Current head. */
   readonly head: string | null;
   /** Current base. */
@@ -323,11 +334,19 @@ function stepShape(step: WorkflowStep, layers: ReadonlyMap<string, number>): Omi
  * @param context.tasks - Every delivery, for dependency issue numbers.
  * @param context.features - Objectives, for deliveries without a frozen workflow.
  * @param context.live - Running attempts.
+ * @param context.jobs - Every attempt, for retry backoff.
+ * @param context.timing - Current time and reconcile interval.
  * @returns Card and pipeline.
  */
 function deliveryView(
   task: FactoryTask,
-  context: { tasks: readonly FactoryTask[]; features: readonly Feature[]; live: readonly FactoryJob[] },
+  context: {
+    tasks: readonly FactoryTask[];
+    features: readonly Feature[];
+    live: readonly FactoryJob[];
+    jobs: readonly FactoryJob[];
+    timing: { now: number; reconcileMs: number };
+  },
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
   const layers = stepLayers(workflow.delivery);
@@ -353,7 +372,11 @@ function deliveryView(
     column: deliveryColumn(task, waiting.size, running),
     workflow: { id: workflow.id, name: workflow.name },
     steps,
-    running: running === undefined ? null : { jobId: running.id, role: running.role, step: running.step },
+    running:
+      running === undefined
+        ? null
+        : { jobId: running.id, role: running.role, step: running.step, liveness: livenessView(running) },
+    retry: running === undefined ? retryView(task, context.jobs, context.timing) : null,
     head: task.head,
     base: task.base,
     prUrl: task.prUrl,
@@ -584,8 +607,10 @@ function answeredItems(tasks: readonly FactoryTask[], features: readonly Feature
 export function consoleView(repository: FactoryRepository): ConsoleView {
   const tasks = repository.tasks().filter((task) => task.scopeReplacement === undefined);
   const features = repository.features();
-  const live = repository.jobs().filter((job) => job.state === 'running');
+  const jobs = repository.jobs();
+  const live = jobs.filter((job) => job.state === 'running');
   const now = repository.store.now();
+  const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
   const archived = tasks.filter((task) => isArchived(task, now));
   const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
@@ -593,7 +618,7 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
     (feature) => feature.scopeReplacement === undefined && PLANNING_PHASES.has(feature.phase),
   );
   return {
-    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live })),
+    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing })),
     objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
     archived: {
       total: archived.length,
