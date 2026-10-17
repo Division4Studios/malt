@@ -74,6 +74,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'costs-ui',
     'i18n',
     'catalog-zh',
+    'catalog-zh-shell',
     'theme',
     'objective-ui',
     'console-views',
