@@ -1,8 +1,8 @@
 /**
- * What each identity was last shown of its inbox, so a managed attempt can
+ * What each managed identity was shown of its inbox, so a managed attempt can
  * acknowledge exactly what it consumed. Reading never acknowledges on its own:
- * the store records the newest message sequence a read returned, and the
- * supervisor acknowledges up to it only when the attempt settles successfully.
+ * the store records every message a managed read returned, and the supervisor
+ * acknowledges exactly those only when the attempt settles successfully.
  * Unread counts per identity come from one bounded query over the inbox index.
  *
  * @file
@@ -28,24 +28,25 @@ export interface UnreadCount {
   readonly unread: number;
 }
 
-/** A stored read mark. */
-const markSchema = z.object({ seq: z.number() });
 /** One unread row. */
 const unreadSchema = z.object({ name: z.string(), role: z.string(), runtime: z.string(), unread: z.number() });
+/** Runtime label of factory-managed role identities, the only ones whose reads are tracked. */
+const MANAGED_RUNTIME = 'factory-managed';
 
 /**
- * Create the additive read-mark table.
+ * Create the additive table of messages each managed identity was shown.
  *
  * @param db - The store's open connection.
  */
 export function ensureInboxReads(db: DatabaseSync): void {
   db.exec(
-    'CREATE TABLE IF NOT EXISTS inbox_reads (agent_id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at INTEGER NOT NULL)',
+    'CREATE TABLE IF NOT EXISTS inbox_shown (agent_id TEXT NOT NULL, seq INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (agent_id, seq))',
   );
 }
 
 /**
- * Remember the newest message a read returned, keeping the highest mark.
+ * Remember exactly which messages a managed identity's read returned; other
+ * identities acknowledge explicitly, so nothing is recorded for them.
  *
  * @param db - The store's open connection, inside its transaction.
  * @param agent - Reading identity.
@@ -60,23 +61,29 @@ export function recordRead<Page extends { readonly messages: readonly { readonly
   page: Page,
   now: number,
 ): Page {
-  const newest = page.messages.at(-1)?.seq;
-  if (newest !== undefined) {
-    run(
-      db,
-      `INSERT INTO inbox_reads(agent_id, seq, at) VALUES (?, ?, ?)
-       ON CONFLICT(agent_id) DO UPDATE SET seq = MAX(seq, excluded.seq), at = excluded.at`,
-      agent,
-      newest,
-      now,
-    );
+  if (page.messages.length === 0) {
+    return page;
+  }
+  const managed = selectOne(
+    db,
+    z.object({ id: z.string() }),
+    'SELECT id FROM agents WHERE id = ? AND runtime = ?',
+    agent,
+    MANAGED_RUNTIME,
+  );
+  if (managed === undefined) {
+    return page;
+  }
+  for (const message of page.messages) {
+    run(db, 'INSERT OR IGNORE INTO inbox_shown(agent_id, seq, at) VALUES (?, ?, ?)', agent, message.seq, now);
   }
   return page;
 }
 
 /**
- * Settle what an identity was shown: acknowledge it after a successful attempt,
- * or leave it unread for the next attempt. Either way the mark is cleared.
+ * Settle what an identity was shown: acknowledge exactly those messages after
+ * a successful attempt, or leave them unread for the next attempt. Either way
+ * the record is cleared.
  *
  * @param db - The store's open connection, inside its transaction.
  * @param agent - The attempt's identity.
@@ -85,17 +92,18 @@ export function recordRead<Page extends { readonly messages: readonly { readonly
  * @returns How many messages were acknowledged.
  */
 export function settleReads(db: DatabaseSync, agent: string, shouldAcknowledge: boolean, now: number): number {
-  const mark = selectOne(db, markSchema, 'SELECT seq FROM inbox_reads WHERE agent_id = ?', agent);
-  run(db, 'DELETE FROM inbox_reads WHERE agent_id = ?', agent);
-  return mark === undefined || !shouldAcknowledge
-    ? 0
-    : run(
+  const acknowledged = shouldAcknowledge
+    ? run(
         db,
-        'UPDATE messages SET acknowledged_at = ? WHERE recipient = ? AND acknowledged_at IS NULL AND seq <= ?',
+        `UPDATE messages SET acknowledged_at = ? WHERE recipient = ? AND acknowledged_at IS NULL
+           AND seq IN (SELECT seq FROM inbox_shown WHERE agent_id = ?)`,
         now,
         agent,
-        mark.seq,
-      ).changes;
+        agent,
+      ).changes
+    : 0;
+  run(db, 'DELETE FROM inbox_shown WHERE agent_id = ?', agent);
+  return acknowledged;
 }
 
 /**
