@@ -288,6 +288,25 @@ New scope can also wait on **Project intake**. Its pending objective explains ho
 
 Local machine includes a keyboard-accessible **Why work is running or parked** disclosure. It reads the supervisor admission snapshot: effective resource/provider ceilings, selected-project roles and assignment stages with objective/ticket identity, and anonymous other broker reservations. Process activity is not delivery success. Job cap, provider concurrency/cooldown, CPU and memory gates name the existing configuration fields; change policy in Project setup while paused and settled. Spare capacity alone never guarantees an eligible launch. Missing or stale samples stay explicit, including unknown CPU before a second measurement. Sample-only refresh preserves the disclosure, pending editor and keyboard focus. No model process starts when inspecting this evidence.
 
+## Get started and Settings
+
+**Project → Get started** is a checklist from an empty project to the first role at work. It opens by itself the first time a project is shown without factory setup, a GitHub connection or any objective, unless you choose **Hide guide**, which hides it for that project in this browser; it can always be reopened from the Project group. Each step opens the same dialog used later, so there is no second place to configure anything:
+
+1. **Check this machine** runs the broker-side preflight (Node.js, Git, provider CLIs and subscription logins, GitHub CLI, writable `.malt`) and lists each result as pass, fail or fix-it with its fix line.
+2. **Connect the GitHub repository and Project** opens the connection dialog.
+3. **Choose providers, checks and model policy** opens factory setup and the model and effort policy.
+4. **Pick how objectives are delivered** opens the workflow library and names the default workflow.
+5. **Submit a first objective** opens the objective editor.
+6. **Start the factory** starts dispatch.
+7. **See the first role start** follows the newest objective. It names the role, stage and provider once an attempt starts, or the exact reason none can: factory not set up, factory paused, the objective blocked (with its error), a model-policy blocker, the admission capacity gate (job cap, provider cap, cooldown, CPU or memory), or no eligible provider. When no gate is reported and no role has started for two minutes, it points at **Why work is running or parked**.
+
+**Project → Settings** holds what is not owned by another dialog:
+
+- **Appearance**: System, Light or Dark, remembered in this browser and kept in step with the header toggle.
+- **Provider health**: per provider, whether it is enabled, its executable, the preflight's presence, version and login result with any fix line, observed subscription windows, a cooldown in force, the dispatch gate admission reports, and the latest failed attempt. **Check providers now** runs the preflight again; it spends no inference.
+- **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
+- **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.
+
 ## Schedules and triggers
 
 **Board → Schedules & triggers** lists every automation with what it files, its workflow and its recent fires. A schedule shows its cron expression in plain words, such as "At 09:00, on Monday to Friday", and its next three fires in the schedule's own time zone. A trigger shows the broker URL a script POSTs to. Each card has **Edit**, **Enable**/**Disable**, **Run now** and **Delete**; triggers also have **Example command** and **Rotate secret**. Deleting and rotating ask for confirmation in the console; nothing uses browser pop-ups.
