@@ -28,7 +28,7 @@ node src/cli.ts ui --with-broker --project "C:\work\malt" --port 4318
 
 The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
-Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
+Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. The code is persisted owner-only in the console project's `.malt/console-pairing.json`, so restarting the console or its container keeps it. Startup prints it once in the terminal and writes one `console`/`pairing_code` log record; no other log line, API response, error or URL contains it. If you lose it, run `node src/cli.ts pairing-code --project <path>`; `pairing-code --rotate` re-issues it, and a running console accepts only the new code from its next pairing attempt while already paired browsers keep their sessions. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
 `--with-broker` owns the broker and UI in one process lifetime and supplies memory-only scratch-terminal and human recommendation-decision capabilities. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI still supports ordinary durable controls and inspection; a project token alone cannot grant those two owner capabilities. Docker already colocates both services.
 
@@ -61,7 +61,7 @@ The product/lead skill requires a duplicate/related-ticket check during intake a
 
 ## Private state and Git
 
-Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. Pairing codes and browser sessions are generated in backend memory and are not persisted in project state. The CLI displays the code for local pairing; avoid publishing terminal captures containing it.
+Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. The console pairing code is local authentication material kept owner-only in `.malt/console-pairing.json`; it does not expire and is not single-use, so rotate it with `pairing-code --rotate` if it may have leaked. Browser sessions remain bounded, expiring and in backend memory only. Avoid publishing terminal captures or logs containing the code.
 
 Git ignores do not remove already tracked files and cannot prevent an explicit `git add --force`. Check `git ls-files -- .malt` before publishing an existing repository. If private files were previously committed, remove them from tracking deliberately and rotate exposed credentials; deleting them in a new commit does not remove Git history. Back up `.malt` only to a private location while the broker is cleanly stopped; publish a separately reviewed, redacted export when sharing lessons or skills.
 
@@ -131,6 +131,7 @@ $env:AGENTMESH_WORKSPACE_ROOT = 'E:\YourProjects'
 $env:AGENTMESH_UI_PORT = '4328' # choose 4318 if no native console uses it
 docker compose up -d --build --wait
 docker compose logs broker # owning console prints the pairing code
+docker compose exec broker node src/cli.ts pairing-code --project /data # show it again; add --rotate to re-issue
 docker compose exec broker codex login --device-auth
 docker compose exec broker claude auth login
 docker compose exec broker gh auth login
