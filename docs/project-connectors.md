@@ -16,7 +16,28 @@ configured by this connection form.
 
 Merged slices include [tracker/source records](connection-records.md) (#73 / PR #122), the [capability policy store](capability-policy.md) (#74 / PR #123), additive provider-typed work keys (#75 / PR #124), and connection-bound issue recovery (#82 / PR #122). Existing numeric readers remain in use. A stored capability mode is not yet an enforced permission boundary.
 
-Opaque connector credential handles are implemented ([connection records](connection-records.md#credential-handles), #77). Read-only discovery (`mesh_github_discover`, #76) and per-section verification states (`mesh_github_verify`, [connection records](connection-records.md#verification-states), #83) are implemented too. Repository labels follow the capability policy: existing-only by default, with `label-manage` changes run as reconciled intents (#85); milestones work the same way under `milestone-use` and `milestone-manage`, with each change confirmed on GitHub (#86). Universal ProjectGitHub capability checks, per-step verification and the matrix UI remain queued. So do label/milestone/view management and real Jira discovery. See [#72](https://github.com/Division4Studios/malt/issues/72), the [complete audit](issue-audit-2026-10-15.md) and [current capabilities](current-status.md). The requirements below describe remaining integration, not completed behavior.
+Opaque connector credential handles are implemented ([connection records](connection-records.md#credential-handles), #77). Read-only discovery (`mesh_github_discover`, #76) and per-section verification states (`mesh_github_verify`, [connection records](connection-records.md#verification-states), #83) are implemented too. Repository labels follow the capability policy: existing-only by default, with `label-manage` changes run as reconciled intents (#85); milestones work the same way under `milestone-use` and `milestone-manage`, with each change confirmed on GitHub (#86). Universal ProjectGitHub capability checks, per-step verification and the matrix UI remain queued. So do view management and every Jira mutation; read-only Jira Cloud discovery exists as a backend client (below). See [#72](https://github.com/Division4Studios/malt/issues/72), the [complete audit](issue-audit-2026-10-15.md) and [current capabilities](current-status.md). The requirements below describe remaining integration, not completed behavior.
+
+## Jira Cloud discovery (read-only)
+
+`src/jira/discovery.ts` verifies a Jira Cloud site without changing anything in Jira (#91). Given a site URL, a project key and a credential handle (the account email plus the name of the environment variable holding an API token), `discoverJira` reads, in order:
+
+1. `GET /rest/api/3/serverInfo`: the site answers as Jira and its `deploymentType` is `Cloud`.
+2. `GET /rest/api/3/myself`: the credential is accepted; only the account ID and display name are kept.
+3. `GET /rest/api/3/project/{key}`: the project exists and is visible.
+4. `GET /rest/api/3/project/{key}/statuses`: issue types (including sub-task types) and their workflow statuses.
+5. `GET /rest/api/3/mypermissions?projectKey=…`: Browse Projects, Create Issues, Edit Issues, Transition Issues, Add Comments and Link Issues.
+
+The tracker capabilities are derived from that permissions answer, never assumed: creating issues and sub-issues needs Create Issues (and a sub-task type), dependencies need Link Issues, labels need Edit Issues. Jira versions stay unverified, and GitHub-only concepts (Project views, pull requests) are reported unsupported.
+
+| Result                    | When                                                                                                                                                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified`                | Every read succeeded and every permission is held.                                                                                                                               |
+| `degraded`                | The project is readable, but permissions are missing; each is listed with the Jira admin action that grants it.                                                                  |
+| `external_setup_required` | The site, credential or project key is missing, the credential is rejected (401/403), the site does not answer as Jira, the project is not found, or Browse Projects is missing. |
+| `unsupported`             | The site is Jira Data Center or Server, which MALT 1.0 does not support. Such sites are never contacted.                                                                         |
+
+Every request is a `GET` to the configured `https://<name>.atlassian.net` origin, redirects are refused so the token never follows a response elsewhere, bodies are bounded, and the token (raw or in its Basic form) is redacted from every message. Tests use fixture responses only. The client is not yet wired into the console, CLI or factory; connecting Jira as a tracker is tracked by #265 and its children.
 
 ## Independent work-tracker and source-control connections
 
