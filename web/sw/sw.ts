@@ -60,6 +60,7 @@ const SHELL = [
   '/approval-dialog.js',
   '/inbox-ui.js',
   '/board-ui.js',
+  '/delivery-ui.js',
   '/sessions.css',
   '/board.css',
   '/terminal.css',

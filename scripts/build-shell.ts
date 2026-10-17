@@ -68,6 +68,7 @@ const FILES = [
   'dist/approval-dialog.js',
   'dist/inbox-ui.js',
   'dist/board-ui.js',
+  'dist/delivery-ui.js',
   'sessions.css',
   'board.css',
 ] as const;
