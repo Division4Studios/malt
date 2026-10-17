@@ -197,6 +197,15 @@ await test('a pending decision holds the step, and a replaced token never record
   assert.equal(held.checkpoint.reason, HELD.stopReason);
   assert.equal(isAwaitingDecision(f.repository.jobs(), f.scope), true);
   assert.equal(isAwaitingDecision(f.reopen().jobs(), f.scope), true, 'a restart keeps the pending decision');
+  for (let index = 0; index < 250; index += 1) {
+    const other = attempt(f, { role: 'qa-2', taskId: null, head: null, step: null, kind: 'learn' });
+    f.repository.saveJob({ ...other, state: 'succeeded', finishedAt: 20 * MINUTE + index });
+  }
+  assert.equal(
+    isAwaitingDecision(f.repository.jobs(), f.scope),
+    true,
+    'the pending attempt stays visible however many other attempts follow',
+  );
   // The step is not offered again however long it waits: no paid retry bypasses the operator.
   assert.equal(isBackingOff(f.repository.jobs(), f.scope, { now: 10 * 24 * 60 * MINUTE, reconcileMs: MINUTE }), true);
 });
