@@ -37,8 +37,27 @@ const savedSourceSchema = z
   })
   .strict();
 
+/** Longest milestone title GitHub accepts in practice. */
+const MILESTONE_TITLE_MAX = 255;
+/** Longest milestone description accepted. */
+const MILESTONE_DESCRIPTION_MAX = 1000;
+/** An exact milestone title. */
+const milestoneTitleSchema = z.string().min(1).max(MILESTONE_TITLE_MAX);
+
 /** Connector operation inputs, keyed by operation name. */
 export const connectorSchemas = {
+  github_milestones: z.object({}).strict(),
+  github_milestone_assign: z.object({ issue: z.number().int().positive(), title: milestoneTitleSchema }).strict(),
+  github_milestone_manage: z
+    .object({
+      requestId: z.string().regex(/^[\w\-]{1,64}$/v),
+      action: z.enum(['create', 'edit', 'close', 'delete']),
+      title: milestoneTitleSchema,
+      retitle: milestoneTitleSchema.optional(),
+      description: z.string().max(MILESTONE_DESCRIPTION_MAX).optional(),
+      dueOn: z.string().datetime().optional(),
+    })
+    .strict(),
   github_verify: z.object({}).strict(),
   github_labels: z.object({}).strict(),
   github_label_apply: z

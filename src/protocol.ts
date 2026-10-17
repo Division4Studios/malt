@@ -525,6 +525,9 @@ export const GITHUB_OPERATIONS = [
   'github_labels',
   'github_label_apply',
   'github_label_manage',
+  'github_milestones',
+  'github_milestone_assign',
+  'github_milestone_manage',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -806,6 +809,12 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Apply existing repository labels to an issue. Needs label-use. An unknown label is refused and never created; a case-only typo is INVALID_INPUT. Milestones and Project fields are not labels.',
   github_label_manage:
     'Create, edit or delete one repository label. Needs label-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by label name, so a lost create yields exactly one label.',
+  github_milestones:
+    "List THIS workspace's open and closed repository milestones (number, title, state, description, due date). Milestones are not labels, Projects or Jira versions.",
+  github_milestone_assign:
+    'Assign an existing milestone, by exact title, to an issue. Needs milestone-use. An unknown title is refused and never created.',
+  github_milestone_manage:
+    'Create, edit, close or delete one milestone by exact title. Needs milestone-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by title and confirmed against GitHub, so a lost create yields exactly one milestone.',
   github_section_save:
     "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
