@@ -103,7 +103,10 @@ export function bindThemeToggle(id: string): void {
   }
   const label = (theme: Theme): void => {
     button.textContent = `Theme: ${THEME_LABELS[theme]}`;
-    button.setAttribute('aria-label', `Colour theme: ${THEME_LABELS[theme]}. Activate for ${THEME_LABELS[nextTheme(theme)]}.`);
+    button.setAttribute(
+      'aria-label',
+      `Colour theme: ${THEME_LABELS[theme]}. Activate for ${THEME_LABELS[nextTheme(theme)]}.`,
+    );
   };
   let current = storedTheme();
   applyTheme(current);
