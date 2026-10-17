@@ -363,6 +363,17 @@ export class ProjectGateway {
   }
 
   /**
+   * Read one workflow's revision history through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Workflow id parsed from the route.
+   * @returns Untrusted history, validated by the console view.
+   */
+  public async workflowHistory(id: string, query: unknown): Promise<unknown> {
+    return await rpc(this.config(id), 'factory_workflow_history', query);
+  }
+
+  /**
    * Read or acknowledge current-project recommendations through the existing broker.
    *
    * @param id - Explicit authenticated operator selection.
