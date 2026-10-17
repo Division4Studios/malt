@@ -51,6 +51,7 @@ export async function enqueueDelivery(context: FactoryContext, input: unknown): 
       error: null,
       createdAt: now,
       updatedAt: now,
+      approvals: [],
     };
     repository.saveFeature(feature);
   }

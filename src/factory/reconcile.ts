@@ -62,6 +62,8 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     attempts: 0,
     version: 0,
     error: null,
+    approvals: [],
+    workflow: context.repository.features().find((feature) => feature.id === featureId)?.workflow,
     updatedAt: context.repository.store.now(),
   };
 }
@@ -115,6 +117,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         error: null,
         createdAt: now,
         updatedAt: now,
+        approvals: [],
       };
       context.repository.saveFeature(feature);
     }

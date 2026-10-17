@@ -517,6 +517,7 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     error: null,
     createdAt: context.repository.store.now(),
     updatedAt: context.repository.store.now(),
+    approvals: [],
   });
 }
 
