@@ -30,6 +30,7 @@ export const FACTORY_COMMANDS = [
   'factory-instruct',
   'factory-cancel-job',
   'factory-capacity',
+  'factory-local',
   'factory-reconcile-github',
 ] as const;
 /** A factory console command. */
@@ -52,6 +53,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-instruct': 'factory_instruct',
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
+  'factory-local': 'factory_local',
   'factory-reconcile-github': 'factory_reconcile_github',
 };
 /** Commands requiring structured input. */
@@ -68,6 +70,7 @@ const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-instruct',
   'factory-cancel-job',
   'factory-capacity',
+  'factory-local',
 ]);
 
 /**

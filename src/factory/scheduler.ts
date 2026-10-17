@@ -180,6 +180,7 @@ export function providerBlockers(input: ProviderInput): Record<Provider, Provide
   return {
     codex: providerState('codex', input).blocker,
     claude: providerState('claude', input).blocker,
+    copilot: providerState('copilot', input).blocker,
   };
 }
 

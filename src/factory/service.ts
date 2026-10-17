@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -29,7 +30,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
-import { deliveryFor, prepareDelivery } from './local-controls.ts';
+import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -39,7 +40,6 @@ import { policySetupBlocker } from './policy-blockers.ts';
 import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
-import { runAgent } from './providers.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
@@ -208,7 +208,7 @@ export class FactoryService {
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
-      agent: this.options.agent ?? (async (request) => runAgent(request, processes)),
+      agent: this.options.agent ?? defaultAgent(processes),
     };
     return this.context;
   }
@@ -355,6 +355,7 @@ export class FactoryService {
       factory_instruct: () => this.controlInstruct(parsed),
       factory_status: async () => this.status(),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
+      factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
       factory_setup: async () => this.controlSetup(parsed),
       factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
