@@ -528,6 +528,8 @@ export const GITHUB_OPERATIONS = [
   'github_milestones',
   'github_milestone_assign',
   'github_milestone_manage',
+  'github_views',
+  'github_view_create',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -815,6 +817,10 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Assign an existing milestone, by exact title, to an issue. Needs milestone-use. An unknown title is refused and never created.',
   github_milestone_manage:
     'Create, edit, close or delete one milestone by exact title. Needs milestone-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by title and confirmed against GitHub, so a lost create yields exactly one milestone.',
+  github_views:
+    "List the saved views of THIS workspace's connected Project after a live check of how this account can reach them (GraphQL, REST, or unsupported). Needs view-field-read.",
+  github_view_create:
+    "Create one saved view (table, board or roadmap) on THIS workspace's connected Project. Needs view-field-create. Existing views and fields are never modified. Pass a stable requestId and reuse it after an interruption: it is reconciled by view name, so a lost create yields exactly one view.",
   github_section_save:
     "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:

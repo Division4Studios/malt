@@ -44,8 +44,19 @@ const MILESTONE_DESCRIPTION_MAX = 1000;
 /** An exact milestone title. */
 const milestoneTitleSchema = z.string().min(1).max(MILESTONE_TITLE_MAX);
 
+/** Longest saved view name accepted. */
+const VIEW_NAME_MAX = 100;
+
 /** Connector operation inputs, keyed by operation name. */
 export const connectorSchemas = {
+  github_views: z.object({}).strict(),
+  github_view_create: z
+    .object({
+      requestId: z.string().regex(/^[\w\-]{1,64}$/v),
+      name: z.string().min(1).max(VIEW_NAME_MAX),
+      layout: z.enum(['table', 'board', 'roadmap']),
+    })
+    .strict(),
   github_milestones: z.object({}).strict(),
   github_milestone_assign: z.object({ issue: z.number().int().positive(), title: milestoneTitleSchema }).strict(),
   github_milestone_manage: z

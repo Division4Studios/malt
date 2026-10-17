@@ -212,7 +212,15 @@ export class ProjectGitHub {
    * @returns Runner, connected repository and this project's integration directory.
    */
   private resourceContext(): ResourceContext {
-    return { runner: this.runner, repository: this.connection().repository, directory: this.directory };
+    const { repository, owner, project } = this.connection();
+    return {
+      runner: this.runner,
+      repository,
+      directory: this.directory,
+      owner,
+      projectId: project.id,
+      projectNumber: project.number,
+    };
   }
 
   /**

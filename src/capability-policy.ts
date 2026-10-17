@@ -151,6 +151,8 @@ const FIXED_CAPABILITIES: Readonly<Record<FixedOperation, readonly Capability[]>
   github_milestone_assign: ['milestone-use'],
   github_milestone_manage: ['milestone-manage'],
   github_section_save: ['project-connect'],
+  github_views: ['view-field-read'],
+  github_view_create: ['view-field-create'],
 };
 
 /**

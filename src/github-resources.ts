@@ -6,6 +6,7 @@
  */
 import { labelOperation } from './github-labels.ts';
 import { milestoneOperation } from './github-milestones.ts';
+import { viewOperation } from './github-views.ts';
 
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation } from './protocol.ts';
@@ -18,6 +19,8 @@ const RESOURCE_OPERATIONS = [
   'github_milestones',
   'github_milestone_assign',
   'github_milestone_manage',
+  'github_views',
+  'github_view_create',
 ] as const;
 /** A repository resource operation. */
 type ResourceOperation = (typeof RESOURCE_OPERATIONS)[number];
@@ -30,6 +33,12 @@ export interface ResourceContext {
   readonly repository: string;
   /** This project's private GitHub integration directory. */
   readonly directory: string;
+  /** Connected Project owner login. */
+  readonly owner: string;
+  /** Connected Project node ID. */
+  readonly projectId: string;
+  /** Connected Project number. */
+  readonly projectNumber: number;
 }
 
 /**
@@ -65,6 +74,10 @@ export async function resourceOperation(
     case 'github_milestone_assign':
     case 'github_milestone_manage': {
       return milestoneOperation(context, operation, input);
+    }
+    case 'github_views':
+    case 'github_view_create': {
+      return viewOperation(context, operation, input);
     }
   }
 }
