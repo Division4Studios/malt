@@ -58,6 +58,8 @@ export async function factoryStatus(
     workflow: workflowState(repository),
     workflows: workflowLibrary(repository.store).status(),
     automations: automationsStatus(repository.store),
+    // Where local scripts POST webhook triggers; the team header addresses a workspace project.
+    triggerEndpoint: { url: mesh.url, team: mesh.team ?? null },
     capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
 }
