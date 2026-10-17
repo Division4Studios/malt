@@ -329,6 +329,7 @@ Local machine includes a keyboard-accessible **Why work is running or parked** d
 **Project → Settings** holds what is not owned by another dialog:
 
 - **Appearance**: System, Light or Dark, remembered in this browser and kept in step with the header toggle.
+- **Language**: System, English or 简体中文 (Simplified Chinese), remembered in this browser. System follows the browser's preferred languages: any Chinese preference selects Simplified Chinese, anything else English. Switching translates every open view in place, without a reload, and dates and numbers follow the chosen language. Text written by agents or the broker, such as summaries, findings, blocker reasons and objective text, is shown as written; broker error messages stay in English.
 - **Provider health**: per provider, whether it is enabled, its executable, the preflight's presence, version and login result with any fix line, observed subscription windows, a cooldown in force, the dispatch gate admission reports, and the latest failed attempt. **Check providers now** runs the preflight again; it spends no inference.
 - **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
 - **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.

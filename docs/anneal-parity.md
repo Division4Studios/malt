@@ -107,34 +107,34 @@ not copied, with the reason).
 | Automations and Triggers pages                                      | Schedules & triggers under Board: cron in words, next fires in its zone, fire history, run now, secret shown once              | Done S1                                                                                                                      |
 | Projects, Connections, Secrets, Settings pages                      | Project: setup & capacity, connections, secrets, learning; Settings: appearance, providers, build                              | Done P1 (Settings: theme, provider health, build; secrets P3)                                                                |
 | Theme system/light/dark                                             | Add light theme and system preference                                                                                          | Done P1                                                                                                                      |
-| English + Chinese                                                   | Message catalog with English and Simplified Chinese                                                                            | Planned P4                                                                                                                   |
+| English + Chinese                                                   | Message catalog with English and Simplified Chinese                                                                            | Done P4 (every console view; agent text as written)                                                                          |
 | No diff view                                                        | Diff summary and per-file patch for each delivery head                                                                         | Done B3: changed files with renames, modes and line counts; bounded per-file patches loaded on demand                        |
 
 ## Delivery slices
 
 Slices are ordered by dependency. Each keeps `npm run check` green.
 
-| Slice | Scope                                                                                                     | Status  |
-| ----- | --------------------------------------------------------------------------------------------------------- | ------- |
-| W1    | Workflow and role definitions: schemas, built-ins, digest, project-local storage, validation, MCP/control | Done    |
-| W2    | Workflow interpreter drives delivery scheduling; default workflow reproduces the existing pipeline        | Done    |
-| W3    | Workflow editor and role bindings in the console                                                          | Done    |
-| W4    | Typed step outputs, input whitelists, blind isolation, adjudication and regression steps                  | Done    |
-| W5    | Objective workflows: plan review, revision, routing rubric                                                | Done    |
-| I1    | Inbox: agent questions, approval gates, notices, console lanes                                            | Done    |
-| I2    | PWA notifications for inbox items                                                                         | Done    |
-| B1    | Board view                                                                                                | Done    |
-| B2    | Hold/resume, bulk actions, archive and auto-archive                                                       | Done    |
-| B3    | Delivery detail with attempts, diagnostics, outputs, comments and diff                                    | Done    |
-| T1    | Attempt transcripts and sessions view                                                                     | Done    |
-| C1    | Usage, cost estimation, spend caps and costs view                                                         | Done    |
-| S1    | Schedules and triggers                                                                                    | Done    |
-| G1    | Objective definition of done and progress log                                                             | Done    |
-| R2    | Stall detection and failure-class retry policy                                                            | Done    |
-| R3    | Commit trailers and remote salvage                                                                        | Done    |
-| R4    | CI-failure and conflict repair attempts                                                                   | Done    |
-| P1    | Settings: theme, provider health, build                                                                   | Done    |
-| P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Done    |
-| P3    | Local encrypted secrets granted to roles                                                                  | Done    |
-| P4    | English and Simplified Chinese catalog                                                                    | Planned |
-| O1    | First-run onboarding with preflight                                                                       | Done    |
+| Slice | Scope                                                                                                     | Status |
+| ----- | --------------------------------------------------------------------------------------------------------- | ------ |
+| W1    | Workflow and role definitions: schemas, built-ins, digest, project-local storage, validation, MCP/control | Done   |
+| W2    | Workflow interpreter drives delivery scheduling; default workflow reproduces the existing pipeline        | Done   |
+| W3    | Workflow editor and role bindings in the console                                                          | Done   |
+| W4    | Typed step outputs, input whitelists, blind isolation, adjudication and regression steps                  | Done   |
+| W5    | Objective workflows: plan review, revision, routing rubric                                                | Done   |
+| I1    | Inbox: agent questions, approval gates, notices, console lanes                                            | Done   |
+| I2    | PWA notifications for inbox items                                                                         | Done   |
+| B1    | Board view                                                                                                | Done   |
+| B2    | Hold/resume, bulk actions, archive and auto-archive                                                       | Done   |
+| B3    | Delivery detail with attempts, diagnostics, outputs, comments and diff                                    | Done   |
+| T1    | Attempt transcripts and sessions view                                                                     | Done   |
+| C1    | Usage, cost estimation, spend caps and costs view                                                         | Done   |
+| S1    | Schedules and triggers                                                                                    | Done   |
+| G1    | Objective definition of done and progress log                                                             | Done   |
+| R2    | Stall detection and failure-class retry policy                                                            | Done   |
+| R3    | Commit trailers and remote salvage                                                                        | Done   |
+| R4    | CI-failure and conflict repair attempts                                                                   | Done   |
+| P1    | Settings: theme, provider health, build                                                                   | Done   |
+| P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Done   |
+| P3    | Local encrypted secrets granted to roles                                                                  | Done   |
+| P4    | English and Simplified Chinese catalog                                                                    | Done   |
+| O1    | First-run onboarding with preflight                                                                       | Done   |
