@@ -60,6 +60,8 @@ export interface ClientResults
   readonly github_status: unknown;
   /** Read-only setup discovery of the account, repositories, Projects and capabilities. */
   readonly github_discover: unknown;
+  /** Per-section verification of the saved connection. */
+  readonly github_verify: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

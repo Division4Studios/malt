@@ -390,6 +390,7 @@ export const schemas = {
     })
     .strict(),
   github_status: z.object({}).strict(),
+  github_verify: z.object({}).strict(),
   github_discover: z
     .object({
       repository: z
@@ -531,6 +532,7 @@ export function isFactoryOperation(operation: Operation): operation is FactoryOp
 /** GitHub operations run asynchronously, outside SQLite transactions. */
 export const GITHUB_OPERATIONS = [
   'github_status',
+  'github_verify',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -806,6 +808,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read the active version of one project-specific skill from .malt/skills. Both Codex and Claude use the same library through these tools and the project AGENTS.md / CLAUDE.md references.',
   github_status:
     "Inspect THIS workspace's saved GitHub Project connection and pending operations. No network calls or credentials are returned.",
+  github_verify:
+    "Verify THIS workspace's saved tracker and source sections against read-only discovery and record each one's state: verified, degraded, failed or external (Jira setup). Repositories compare by node ID; the saved Status field is never created or changed. Only two verified sections report connected.",
   github_discover:
     "Read-only setup discovery for THIS workspace: the authenticated GitHub login, accessible repositories, the owner's Projects v2, a Project's single-select fields and read-only capability probes. Nothing is created, changed or saved; each failure names its step.",
   github_connect:

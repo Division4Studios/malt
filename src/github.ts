@@ -15,6 +15,7 @@ import { z } from 'zod/v3';
 
 import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
+import { isConnected, sectionStates, verifyConnection } from './connection-verify.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedProbe, connectionCredentials, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
@@ -192,6 +193,10 @@ export class ProjectGitHub {
         parseInput(operation, input);
         return await this.status();
       }
+      case 'github_verify': {
+        parseInput(operation, input);
+        return await this.verify();
+      }
       case 'github_discover': {
         return discoverGitHub(this.runner, parseInput(operation, input));
       }
@@ -230,12 +235,29 @@ export class ProjectGitHub {
     }
     return {
       workspace: this.config.workspace ?? this.config.root,
-      connected: connection !== null,
+      connected: connectionV2 !== null && isConnected(connectionV2),
+      verification: connectionV2 === null ? null : sectionStates(connectionV2),
       connection,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
     };
+  }
+
+  /**
+   * Verify both saved sections with read-only discovery and record their states.
+   *
+   * @returns Status after verification.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED before anything is saved.
+   */
+  private async verify(): Promise<unknown> {
+    const verified = await verifyConnection(this.runner, this.savedConnection().v2, DELIVERY_STATUSES);
+    writeAtomic(
+      path.join(this.directory, 'connection.json'),
+      `${JSON.stringify(verified, null, 2)}
+`,
+    );
+    return await this.status();
   }
 
   /**
