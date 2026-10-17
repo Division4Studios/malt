@@ -631,6 +631,31 @@ select {
   overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
+.delivery-repairs {
+  margin-top: 18px;
+}
+.repair-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.repair-round {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--amber);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.repair-round[data-kind='conflict'] {
+  border-left-color: var(--violet);
+}
+.repair-finding {
+  font-family: var(--font-terminal);
+  font-size: 11px;
+  max-height: 320px;
+  overflow: auto;
+}
 .table-scroll {
   overflow-x: auto;
 }

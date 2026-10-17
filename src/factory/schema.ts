@@ -31,6 +31,7 @@ import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
+import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
@@ -186,6 +187,8 @@ export const factoryConfigSchema = z
       })
       .default({ codex: { executable: 'codex' }, claude: { executable: 'claude' } }),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
+    /** Repair rounds per delivery for failed CI and merge conflicts. */
+    repair: repairPolicySchema.default({}),
     maxFiles: z.number().int().positive().default(MAX_FILES),
     maxDiffLines: z.number().int().positive().default(MAX_LINES),
     /** Checkpoint interval: progress extends an assignment, a stall or the ceiling stops it. */
@@ -365,6 +368,8 @@ export const taskSchema = z.object({
   gates: deliveryGatesSchema.optional(),
   /** Operator hold: no new attempt starts while set. */
   hold: holdSchema.nullable().default(null),
+  /** CI-failure and merge-conflict repair rounds, oldest first. */
+  repairs: z.array(repairRoundSchema).default([]),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),

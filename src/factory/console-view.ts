@@ -42,6 +42,10 @@ const TITLE_MAX = 120;
 const BUILDING_PHASES: ReadonlySet<string> = new Set(['development', 'publishing']);
 /** Objective phases shown as planning cards. */
 const PLANNING_PHASES: ReadonlySet<string> = new Set(['queued', 'refining', 'provisioning', 'blocked']);
+/** Repair rounds shown per delivery, newest. */
+const REPAIRS_SHOWN = 4;
+/** Longest repair finding sent to the console; the developer receives the full one. */
+const REPAIR_PREVIEW = 1500;
 
 /** Where a step stands for its delivery or objective. */
 export type StepState = 'done' | 'running' | 'ready' | 'needs_you' | 'waiting';
@@ -129,10 +133,26 @@ export interface DeliveryView {
   readonly error: string | null;
   /** Operator hold: no new attempt starts while set. */
   readonly held: { readonly at: number; readonly reason: string } | null;
+  /** Recent CI-failure and merge-conflict repair rounds, oldest first. */
+  readonly repairs: readonly RepairView[];
   /** Whether the operator chose to keep it on the board after it finished. */
   readonly isKept: boolean;
   /** Last change time. */
   readonly updatedAt: number;
+}
+
+/** One CI-failure or merge-conflict repair round. */
+export interface RepairView {
+  /** What failed. */
+  readonly kind: 'ci' | 'conflict';
+  /** When the round started. */
+  readonly at: number;
+  /** Source that failed. */
+  readonly head: string;
+  /** One-line description. */
+  readonly summary: string;
+  /** Redacted evidence previews. */
+  readonly findings: readonly string[];
 }
 
 /** An objective card while it is being planned. */
@@ -408,6 +428,15 @@ function deliveryView(
     attempts: task.attempts,
     error: task.error,
     held: task.hold,
+    repairs: task.repairs.slice(-REPAIRS_SHOWN).map((round) => {
+      return {
+        kind: round.kind,
+        at: round.at,
+        head: round.head,
+        summary: round.summary,
+        findings: round.findings.map((finding) => finding.slice(0, REPAIR_PREVIEW)),
+      };
+    }),
     isKept: task.archive?.state === 'kept',
     updatedAt: task.updatedAt,
   };
