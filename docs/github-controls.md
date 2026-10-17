@@ -42,7 +42,7 @@ Require actual `check (ubuntu-latest)`, `check (windows-latest)`, `check (macos-
 | Runners                         | GitHub-hosted isolated runners. Do not attach a public fork workflow to the operator's workstation or a trusted self-hosted agent host.                                                                                            |
 | Releases                        | Release immutability enabled. Prepare all assets on a draft before publishing; published tags/assets cannot be edited. Do not create a release merely to improve a badge.                                                          |
 | Publishing                      | npm remains `private: true`. No package/container publishing credentials or deployment secrets are required by verification workflows.                                                                                             |
-| SBOM/provenance                 | Generate a runtime SBOM and artifact checksums for an actual release. No SLSA or signing claim without verified provenance.                                                                                                        |
+| SBOM/provenance                 | The tag-only release workflow generates a runtime SBOM, checksums and a build attestation for an actual release. No SLSA or signing claim beyond what the attestation verifies.                                                    |
 
 Code scanning alerts require triage and reproduction, not immediate model-authored suppression. Mechanical failures should produce tests or runtime gates. A fix still needs an independently reviewed PR. Never paste a secret into an issue to demonstrate a finding; revoke real exposed credentials immediately.
 
@@ -52,7 +52,7 @@ The 2026-10-16 audit confirms read-only workflow tokens, no workflow-authored PR
 
 An active **Immutable release tags** ruleset rejects updates/deletion of `refs/tags/v*` with no bypass actors. There were no tags or releases to backfill; do not invent a release from package version metadata. Keep release creation tied to the verified [release checklist](maintainer-operations.md#release-checklist).
 
-OIDC uses GitHub's default immutable repository subject, but current verification jobs do not request `id-token: write` or deploy to a cloud. Add OIDC only for a real release/deployment destination with exact repository/ref/environment trust, short-lived credentials and a reviewed job; no standing cloud secret is needed now. No Pages site is configured, and the local control PWA must never become a public Pages endpoint. Codespaces billing/access remains account-owned; no paid resources are provisioned by this audit. See the [community operations guide](community-operations.md) for these decisions and source references.
+OIDC uses GitHub's default immutable repository subject. Verification jobs do not request `id-token: write`; only the release workflow's evidence job does, on `v*` tags, to sign its build attestation, and it deploys nowhere. Add OIDC only for a real release/deployment destination with exact repository/ref/environment trust, short-lived credentials and a reviewed job; no standing cloud secret is needed now. No Pages site is configured, and the local control PWA must never become a public Pages endpoint. Codespaces billing/access remains account-owned; no paid resources are provisioned by this audit. See the [community operations guide](community-operations.md) for these decisions and source references.
 
 ## Agent-specific trust
 

@@ -65,3 +65,9 @@ await test('skipped pull requests are left out and recorded, and regeneration is
   assert.match(none, /skipped pull requests: none -->/v);
   assert.deepEqual(recordedInputs(none)?.skipped, new Set());
 });
+
+await test('the committed changelog records its generation inputs', () => {
+  const committed = readFileSync(path.resolve(import.meta.dirname, '..', 'CHANGELOG.md'), 'utf8');
+  assert.ok(recordedInputs(committed) !== null);
+  assert.match(committed, /^## Unreleased$/mv);
+});

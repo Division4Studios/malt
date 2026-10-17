@@ -1,0 +1,77 @@
+# Release evidence for a protected `v*` tag.
+#
+# Runs only when a maintainer pushes a version tag. It re-runs the full gate
+# on the exact tagged tree, then prepares a CycloneDX runtime SBOM, a source
+# archive, SHA-256 checksums and a GitHub build attestation, and opens a
+# **draft** release for human review. Nothing is published to npm or GHCR, and
+# the draft is never published automatically.
+name: Prepare release
+on:
+  push:
+    tags: ['v*']
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm audit --audit-level=low
+      - run: npm run test:docker
+  evidence:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Runtime SBOM, source archive and checksums
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          mkdir -p release
+          npm sbom --omit dev --sbom-format cyclonedx --sbom-type application > "release/malt-${TAG}.cdx.json"
+          git archive --format=tar.gz --prefix="malt-${TAG}/" -o "release/malt-${TAG}-source.tar.gz" "$GITHUB_SHA"
+          (cd release && sha256sum -- * > SHA256SUMS)
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            release/malt-*-source.tar.gz
+            release/malt-*.cdx.json
+      - name: Draft release for maintainer review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$TAG^" 2>/dev/null || true)
+          start=()
+          if [ -n "$previous" ]; then start=(--notes-start-tag "$previous"); fi
+          gh release create "$TAG" release/* --draft --verify-tag --generate-notes --title "MALT $TAG" "${start[@]}"

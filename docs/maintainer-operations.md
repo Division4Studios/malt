@@ -28,6 +28,8 @@ Dependabot covers npm, Actions and Docker. Node/Node-type and TypeScript major c
 6. Publish a versioned release with human-readable notes, compatibility/migration information, dependency/provider versions and security advisory references when applicable. Keep credentials out of build contexts.
 7. Test the documented fresh installation and upgrade path. Verify the downloadable artifacts, not just a local working tree.
 
+Pushing a protected `v*` tag runs `.github/workflows/release.yml`: it repeats steps 4 and 5 on the tagged tree (install, check, audit, Docker smoke, CycloneDX runtime SBOM, source archive, SHA-256 checksums and a GitHub build attestation) and opens a **draft** release with generated notes. It never publishes to npm or GHCR and never publishes the draft; a maintainer reviews and publishes it (step 6). Regenerate `CHANGELOG.md` before tagging with `node scripts/changelog.ts --ref <release commit> --labels`, and confirm it with `node scripts/changelog.ts --check`. The distribution options are recorded, as a proposal, in [release-distribution-decision.md](release-distribution-decision.md).
+
 `package.json` remains private to prevent accidental npm publication. Open-source licensing does not imply an npm package, hosted model service or production support SLA. No initial release is fabricated by these community files.
 
 ## Community and funding
