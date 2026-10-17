@@ -27,6 +27,7 @@ import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
+import { changeGates } from './gate-controls.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
@@ -42,6 +43,7 @@ import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
 import { runAgent } from './providers.ts';
+import { answerQuestion, askQuestion, isAwaitingAnswer, didAskOperator } from './questions.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
@@ -118,6 +120,8 @@ interface AttemptState {
   state: 'succeeded' | 'failed' | 'interrupted';
   /** Supervisor-observed failure or cancellation reason for the manager report. */
   reason: string | null;
+  /** The attempt asked the operator a question; its result waits for the answer. */
+  isAwaitingAnswer?: boolean;
 }
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
@@ -357,6 +361,9 @@ export class FactoryService {
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_ask: () => askQuestion(this.configured(), parsed, actorId),
+      factory_answer: () => answerQuestion(this.repository, input),
+      factory_gates: () => changeGates(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
@@ -494,7 +501,10 @@ export class FactoryService {
       return;
     }
     for (const intent of intents) {
-      if (admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null) {
+      if (
+        isAwaitingAnswer(this.repository.store, intent) ||
+        admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null
+      ) {
         continue;
       }
       // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
@@ -580,6 +590,8 @@ export class FactoryService {
       if (controller.signal.aborted || this.stopped) {
         attempt.state = 'interrupted';
         attempt.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
+      } else if (didAskOperator(this.repository, job, attempt)) {
+        attempt.reason = null;
       } else {
         attempt.reason = Error.isError(error) ? error.message : 'Managed stage failed.';
         await this.failure(job, attempt.reason);
@@ -640,6 +652,9 @@ export class FactoryService {
         return;
       }
     }
+    if (didAskOperator(this.repository, job, outcome)) {
+      return;
+    }
     await completeJob(context, job, outcome.execution, controller.signal);
     outcome.state = outcome.execution.waiting === null ? 'succeeded' : 'failed';
   }
@@ -660,7 +675,9 @@ export class FactoryService {
     );
     refundUnpaidAttempt(this.repository, job, {
       hasSettled,
-      isUnpaidGate: attempt.execution?.completion === null && attempt.execution.waiting !== null,
+      isUnpaidGate:
+        attempt.isAwaitingAnswer === true ||
+        (attempt.execution?.completion === null && attempt.execution.waiting !== null),
       state: attempt.state,
     });
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);

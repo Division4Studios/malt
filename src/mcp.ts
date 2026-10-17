@@ -575,6 +575,7 @@ function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
     'learning_read_skill',
     'learning_read_source',
     'factory_read_source',
+    'factory_ask',
     'github_status',
     'github_sync',
   ]);

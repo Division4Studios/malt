@@ -211,8 +211,12 @@ declare module '*/web/dist/console-model.js' {
     readonly id: string;
     /** Decision kind. */
     readonly kind: string;
+    /** Lane: needs a reply, or a notice. */
+    readonly lane: 'reply' | 'notice';
     /** Headline. */
     readonly title: string;
+    /** Context for the operator. */
+    readonly detail: string;
     /** Delivery concerned. */
     readonly taskId: string | null;
     /** Objective concerned. */
@@ -221,6 +225,12 @@ declare module '*/web/dist/console-model.js' {
     readonly stepId: string | null;
     /** Bound head. */
     readonly head: string | null;
+    /** Agent question, for questions. */
+    readonly questionId: string | null;
+    /** Offered answers. */
+    readonly choices: readonly string[];
+    /** Whether a written answer is accepted. */
+    readonly allowText: boolean;
   }
   /** Validated console projection. */
   export interface ConsoleModel {
@@ -399,6 +409,18 @@ declare module '*/web/dist/board-model.js' {
   }): { label: string; operation: string; input: Record<string, unknown> };
 
   /**
+   * The merge-gate toggle a delivery offers before it is merge ready.
+   *
+   * @param delivery - Delivery shown.
+   * @returns Label and request input, or null once the gate can no longer change.
+   */
+  export function mergeGateControl(delivery: {
+    readonly taskId: string;
+    readonly phase: string;
+    readonly steps: readonly { readonly id: string }[];
+  }): { readonly label: string; readonly input: { readonly taskId: string; readonly merge: boolean } } | null;
+
+  /**
    * Deliveries a bulk action applies to among the cards shown.
    *
    * @param groups - Cards currently shown.
@@ -408,6 +430,71 @@ declare module '*/web/dist/board-model.js' {
     hold: string[];
     resume: string[];
   };
+}
+
+declare module '*/web/dist/inbox-model.js' {
+  /** Inbox item fields the Inbox rules read. */
+  interface InboxItem {
+    /** Item id. */
+    readonly id: string;
+    /** Decision kind. */
+    readonly kind: string;
+    /** Lane. */
+    readonly lane: 'reply' | 'notice';
+    /** Headline. */
+    readonly title: string;
+    /** Context. */
+    readonly detail: string;
+    /** Agent question. */
+    readonly questionId: string | null;
+    /** Offered answers. */
+    readonly choices: readonly string[];
+    /** Whether a written answer is accepted. */
+    readonly allowText: boolean;
+  }
+  /** Longest written answer. */
+  export const ANSWER_MAX: number;
+
+  /**
+   * Validate an answer before sending it.
+   *
+   * @param item - Open question.
+   * @param requestId - Idempotency key.
+   * @param choice - Selected option.
+   * @param text - Written answer.
+   * @returns Control input, or a message.
+   */
+  export function answerInput(
+    item: InboxItem,
+    requestId: string,
+    choice: string | null,
+    text: string,
+  ):
+    | {
+        readonly ok: true;
+        readonly input: { questionId: string; requestId: string; choice: string | null; text: string };
+      }
+    | { readonly ok: false; readonly error: string };
+
+  /**
+   * New reply items since the previous snapshot.
+   *
+   * @param previous - Ids open at the previous snapshot.
+   * @param open - Items open now.
+   * @returns New items and the ids to remember.
+   */
+  export function freshItems(
+    previous: ReadonlySet<string> | null,
+    open: readonly InboxItem[],
+  ): { readonly fresh: readonly InboxItem[]; readonly seen: ReadonlySet<string> };
+
+  /**
+   * Notification text for one item.
+   *
+   * @param item - New open item.
+   * @returns Title, body and tag.
+   */
+  export function notificationContent(item: InboxItem): { title: string; body: string; tag: string };
 }
 
 declare module '*/web/dist/approval-model.js' {

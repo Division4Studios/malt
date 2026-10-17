@@ -190,6 +190,16 @@ Spokes represent logical membership, directed arcs represent recent actual broke
 
 Navigation groups related views under **Mission**, **Workflow**, **Workers** and **Project**. The workflow map responds gently to fine-pointer movement and emphasizes a selected role's connected message routes. Keyboard focus provides the same role inspection, and reduced-motion settings disable depth and flight effects.
 
+## Inbox, agent questions and approval gates
+
+The **Inbox** lists everything waiting on you in three lanes. **Needs reply** holds agent questions, step and plan approvals, and skill decisions. **Notices** holds blocked deliveries and stopped planning, each with a link to investigate or recover. **Answered** lists your recent approvals and answers.
+
+A managed agent that cannot continue without a human decision calls `mesh_factory_ask` with one question, up to six choices and whether a written answer is allowed. It then ends its assignment. The supervisor sets that attempt's result aside without counting it against the delivery, and holds that step while the question is open; other steps and deliveries keep running. **Answer…** opens a dialog with the offered choices and, when allowed, a text field. The answer is recorded once (a retried request reports the first result), and the step runs again with every answer for it in its context. Each delivery or objective may hold at most three open questions, and each step at most twenty questions in total.
+
+Approval gates are data. The project setting `defaultGates` (`{ "plan": false, "merge": false }` unless you change it in the advanced policy editor) is frozen onto each objective when it is filed; the new-objective dialog can override both gates for that objective. The plan gate asks you to approve the plan before deliveries are created. The merge gate adds a **Merge approval** step, bound to the exact head, before the final check. Each delivery freezes its merge gate when it is provisioned, and **Require merge approval** / **Remove merge approval** in the delivery view changes it until the delivery is merge ready (`factory_gates`). Changing the project default never changes work already filed.
+
+**Notify me** in the Inbox turns on browser notifications for this console. While the console is open in the background, each new item that needs a reply raises one notification, and clicking it brings the console to the Inbox. Notifications come from the console's own live snapshot stream through its service worker; nothing is sent to a push service, so no notification arrives while every console window is closed.
+
 ## Sampling regression fixture
 
 After `npm run build:web`, serve the repository root with a local static server and open `test/fixtures/capacity-sample.html`. It checks actual node identity, keyboard focus, editor/scroll retention, refreshed process figures, hostile text and changed admission limits using the production sampling helpers. It uses no provider session or private project data. This focused fixture complements the DOM-free regressions; it does not claim a complete browser accessibility audit.
