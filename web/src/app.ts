@@ -19,6 +19,7 @@ import {
 } from './api.js';
 import { QueueState } from './brand-ui.js';
 import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
+import { connectionLabel, shouldResumeStream } from './connection-status.js';
 import { startConsoleClock } from './console-clock.js';
 import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
@@ -31,7 +32,7 @@ import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
 import { ProjectViews } from './project-views.js';
-import { installShellUpdates, startupFailure } from './pwa.js';
+import { bindInstallPrompt, installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
 import { TerminalWorkspace } from './terminal-workspace.ts';
@@ -50,7 +51,6 @@ import {
 } from './views.js';
 import {
   isWorkerArtifact,
-  isInstallEvent,
   restoreRoleLayout,
   persistRoles,
   shellNode as node,
@@ -63,7 +63,7 @@ import type { Snapshot } from './api.js';
 import type { View } from './navigation.js';
 import type { OperatorEdit as Edit } from './recovery-ui.js';
 import type { Actions } from './views.js';
-import type { EditorDescription, InstallEvent } from './worker-ui.js';
+import type { EditorDescription } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
@@ -90,8 +90,6 @@ const state: {
   edit: Edit | null;
   /** Project captured when the operator opened the current draft. */
   editProject: string | null;
-  /** Browser install capability. */
-  installEvent: InstallEvent | null;
   /** Selected logical worker roles. */
   panes: string[];
   /** Preserve native controls and resized panes while semantic state is unchanged. */
@@ -107,7 +105,6 @@ const state: {
   stream: null,
   edit: null,
   editProject: null,
-  installEvent: null,
   panes: ['developer-1', 'qa-1'],
   renderKey: '',
   isConnected: false,
@@ -373,7 +370,13 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  const connectionText = t(isConnected ? 'LOCAL CONSOLE CONNECTED' : 'DISCONNECTED · STATE IS STALE');
+  const connectionText = connectionLabel({
+    isOnline: navigator.onLine,
+    isConnected,
+    reconnects: state.reconnects,
+    hasStopped: state.reconnects >= MAX_RECONNECTS,
+    hasState: state.current !== null,
+  });
   node('connection-text', HTMLSpanElement).textContent = connectionText;
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
@@ -432,6 +435,13 @@ function applyObserved(observed: Snapshot, projectId: string): void {
     state.view = 'onboarding';
   }
 }
+/** Read current state, and reopen the live stream once a read succeeds after its retries stopped. */
+async function resume(): Promise<void> {
+  await refresh();
+  if (state.isConnected && shouldResumeStream(state.stream)) {
+    subscribe();
+  }
+}
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
   state.stream?.close();
@@ -463,16 +473,16 @@ function subscribe(): void {
     connection(false);
   });
   stream.addEventListener('error', () => {
-    connection(false);
     state.reconnects += 1;
-    if (state.reconnects < MAX_RECONNECTS) {
-      return;
+    if (state.reconnects >= MAX_RECONNECTS) {
+      state.stream?.close();
+      notice(
+        t(
+          'The local console is unavailable. Live retries have stopped; it keeps checking and resumes when it is back.',
+        ),
+      );
     }
-
-    state.stream?.close();
-    notice(
-      'The local console is unavailable. Automatic retries have stopped; refresh the page after restarting the daemon.',
-    );
+    connection(false);
   });
 }
 /** Populate the project switcher with secret-free server-discovered scopes. */
@@ -628,24 +638,13 @@ async function start(): Promise<void> {
     void refresh();
     subscribe();
   });
-  addEventListener('beforeinstallprompt', (event) => {
-    if (!isInstallEvent(event)) {
-      return;
-    }
-
-    event.preventDefault();
-    state.installEvent = event;
-    node('install', HTMLButtonElement).hidden = false;
-  });
-  node('install', HTMLButtonElement).addEventListener('click', () => {
-    void state.installEvent?.prompt();
-  });
+  bindInstallPrompt(node('install', HTMLButtonElement));
   window.addEventListener('pagehide', () => {
     state.stream?.close();
     terminalWorkspace.suspend();
   });
   document.addEventListener('visibilitychange', syncTerminals);
-  startConsoleClock(freshness, refresh, () => {
+  startConsoleClock(freshness, resume, () => {
     connection(false);
   });
   setInterval(() => {

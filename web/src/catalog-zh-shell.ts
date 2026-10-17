@@ -39,11 +39,18 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Pause factory': '暂停工厂',
   'Start factory': '启动工厂',
   'LOCAL CONSOLE CONNECTED': '本地控制台已连接',
-  'DISCONNECTED · STATE IS STALE': '已断开 · 状态已过时',
+  'BROWSER OFFLINE · SHOWING LAST STATE': '浏览器离线 · 显示上次的状态',
+  'BROWSER OFFLINE · NO STATE LOADED': '浏览器离线 · 未加载状态',
+  'DISCONNECTED · RETRIES STOPPED · STATE IS STALE': '已断开 · 已停止重试 · 状态已过时',
+  'DISCONNECTED · RETRIES STOPPED · NO STATE LOADED': '已断开 · 已停止重试 · 未加载状态',
+  'RECONNECTING · STATE IS STALE': '正在重新连接 · 状态已过时',
+  'RECONNECTING · NO STATE LOADED': '正在重新连接 · 未加载状态',
+  'CONNECTING · STATE IS STALE': '正在连接 · 状态已过时',
+  'CONNECTING · NO STATE LOADED': '正在连接 · 未加载状态',
+  'The local console is unavailable. Live retries have stopped; it keeps checking and resumes when it is back.':
+    '本地控制台不可用。实时重试已停止；控制台会继续检查，恢复后自动继续。',
   'The broker is unavailable.': 'Broker 不可用。',
   'Invalid live state received. Refresh the local console.': '收到无效的实时状态。请刷新本地控制台。',
-  'The local console is unavailable. Automatic retries have stopped; refresh the page after restarting the daemon.':
-    '本地控制台不可用。自动重试已停止；请在重启守护进程后刷新页面。',
   'This draft belongs to another project. Return to that project or cancel.':
     '此草稿属于另一个项目。请返回该项目或取消。',
   'Invalid control input.': '控制输入无效。',
