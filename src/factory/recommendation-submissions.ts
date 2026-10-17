@@ -55,7 +55,7 @@ export function recommendationHandlers(
     factory_recommendation_propose: () => submitRecommendation(configured(), input, actorId),
     factory_recommendations: () => repository.recommendations.inspect(input),
     factory_recommendation_read: () => repository.recommendations.readReceipt(input),
-    factory_recommendation_retry: () => retryRecommendation(configured(), input),
+    factory_recommendation_retry: async () => retryRecommendation(configured(), input),
   };
 }
 

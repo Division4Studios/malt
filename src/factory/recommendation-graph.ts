@@ -9,13 +9,18 @@
  * running attempt finishes normally. The plan is computed before any mutation
  * and refuses, leaving everything unchanged, when the deliveries the
  * recommendation recorded no longer match the current ones, when dependents
- * have no local survivor to inherit, or when re-pointing would form a cycle.
+ * have no local survivor to inherit, when a retired delivery is already
+ * merging or merged, or when re-pointing would form a cycle (including a
+ * survivor that depends on a retired delivery).
  * Applying the same plan twice changes nothing.
  *
  * @file
  */
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryTask, Recommendation } from './schema.ts';
+
+/** Phases in which a delivery's work is landing or landed; such a delivery cannot be retired. */
+const LANDING: ReadonlySet<string> = new Set(['merge_ready', 'merging', 'verifying', 'closing', 'done']);
 
 /** A computed transfer, or why it must not run. */
 export type TransferPlan =
@@ -66,6 +71,15 @@ export function planTransfer(repository: FactoryRepository, record: Recommendati
   const survivor = body.survivor === null ? undefined : byIssue.get(body.survivor);
   const retired = new Set(mapped.filter((task) => task.issue !== body.survivor).map((task) => task.id));
   const remaining = tasks.filter((task) => !retired.has(task.id));
+  if (mapped.some((task) => retired.has(task.id) && (LANDING.has(task.phase) || task.merge !== null))) {
+    return { kind: 'stale', reason: 'A retired delivery is already merging or merged.' };
+  }
+  if (survivor?.dependencies.some((id) => retired.has(id)) === true) {
+    return {
+      kind: 'stale',
+      reason: 'The survivor depends on a retired delivery, so moving it would create a dependency cycle.',
+    };
+  }
   const dependents = remaining.filter((task) => task.dependencies.some((id) => retired.has(id)));
   if (survivor === undefined && dependents.length > 0) {
     return { kind: 'stale', reason: 'Deliveries depend on a retired ticket, but the survivor has no local delivery.' };
@@ -84,7 +98,7 @@ export function planTransfer(repository: FactoryRepository, record: Recommendati
   if (hasCycle(graph)) {
     return { kind: 'stale', reason: 'Moving dependents onto the survivor would create a dependency cycle.' };
   }
-  const park = mapped.filter((task) => retired.has(task.id) && task.phase !== 'done' && task.hold === null);
+  const park = mapped.filter((task) => retired.has(task.id) && task.hold === null);
   return { kind: 'ready', edges, park: park.map((task) => task.id) };
 }
 

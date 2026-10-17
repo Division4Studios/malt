@@ -154,7 +154,7 @@ await test('dependents move to the survivor and the retired delivery is parked w
   );
 });
 
-await test('changed affected deliveries, an orphaned dependent or a cycle make the record stale before any change', async (t) => {
+await test('changed deliveries, an orphaned dependent, a landing retired delivery or a cycle leave everything unchanged', async (t) => {
   const changed = fixture(t, (ids) => ids.slice(0, 1));
   await advanceRecommendations(changed.context);
   assert.equal(changed.repository.recommendations.get(changed.id)?.state, 'stale');
@@ -186,6 +186,23 @@ await test('changed affected deliveries, an orphaned dependent or a cycle make t
   await advanceRecommendations(orphan.context);
   assert.match(orphan.repository.recommendations.get(duplicate.id)?.audit.at(-1)?.reason ?? '', /no local delivery/v);
   assert.equal(orphan.repository.task(orphan.retired.id).hold, null);
+
+  const landing = fixture(t);
+  landing.repository.editTask(landing.retired.id, (task) => ({ ...task, phase: 'merge_ready' }));
+  await advanceRecommendations(landing.context);
+  assert.match(landing.repository.recommendations.get(landing.id)?.audit.at(-1)?.reason ?? '', /already merging/v);
+  assert.equal(landing.repository.task(landing.retired.id).hold, null);
+
+  const selfDependent = fixture(t);
+  selfDependent.repository.editTask(selfDependent.survivor.id, (task) => {
+    return {
+      ...task,
+      dependencies: [selfDependent.retired.id],
+    };
+  });
+  await advanceRecommendations(selfDependent.context);
+  assert.match(selfDependent.repository.recommendations.get(selfDependent.id)?.audit.at(-1)?.reason ?? '', /cycle/v);
+  assert.deepEqual(selfDependent.repository.task(selfDependent.survivor.id).dependencies, [selfDependent.retired.id]);
 
   const cyclic = fixture(t);
   cyclic.repository.editTask(cyclic.survivor.id, (task) => ({ ...task, dependencies: [cyclic.dependent.id] }));
