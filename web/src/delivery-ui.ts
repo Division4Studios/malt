@@ -509,7 +509,7 @@ class DeliveryView {
     const summary = element(
       'summary',
       '',
-      t('Latest result: {value}', { value: result.outcome === '' ? 'recorded' : result.outcome }),
+      t('Latest result: {outcome}', { outcome: result.outcome === '' ? t('recorded') : result.outcome }),
     );
     summary.dataset['focusKey'] = `result:${id}`;
     details.append(summary, resultBody(result));

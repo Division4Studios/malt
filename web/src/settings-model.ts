@@ -95,14 +95,14 @@ function quotaLines(capacity: Data | undefined): string[] {
   const windows = records(capacity?.['subscriptionWindows']);
   if (windows.length === 0) {
     const used = capacity?.['subscriptionUsedPercent'];
-    return [t('Subscription: {value}', { value: quotaUsage(used) })];
+    return [t('Subscription: {usage}', { usage: quotaUsage(used) })];
   }
   return windows.map((window) => {
     const reset = window['resetAt'];
     const resets = typeof reset === 'number' ? localTime(reset) : 'unknown';
-    return t('{value}: {value2} · resets {resets}', {
-      value: firstText(text(window, 'id'), 'Window'),
-      value2: quotaUsage(window['usedPercent']),
+    return t('{window}: {usage} · resets {resets}', {
+      window: firstText(text(window, 'id'), t('Window')),
+      usage: quotaUsage(window['usedPercent']),
       resets,
     });
   });

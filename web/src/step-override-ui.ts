@@ -138,7 +138,7 @@ export class StepOverrideFields {
     const seat = selectField(
       t('Seat'),
       [
-        ['', t('Workflow: {value}', { value: step.roles.join(', ') })],
+        ['', t('Workflow: {setting}', { setting: step.roles.join(', ') })],
         ...options.seats.map((name) => [name, name] as const),
       ],
       choice.role,
@@ -146,7 +146,7 @@ export class StepOverrideFields {
     const profile = selectField(
       t('Profile'),
       [
-        ['', t('Workflow: {value}', { value: step.profile ?? 'seat type' })],
+        ['', t('Workflow: {setting}', { setting: step.profile ?? t('seat type') })],
         [SEAT_PROFILE, t('Seat type')],
         ...options.profiles.map((name) => [name, name] as const),
       ],
@@ -155,7 +155,7 @@ export class StepOverrideFields {
     const provider = selectField(
       t('Provider'),
       [
-        ['', t('Workflow: {value}', { value: step.provider ?? 'any' })],
+        ['', t('Workflow: {setting}', { setting: step.provider ?? t('any') })],
         [ANY_PROVIDER, t('Any')],
         ...PROVIDER_CHOICES.map((name) => [name, name] as const),
       ],
