@@ -13,16 +13,25 @@
  *
  * @file
  */
-
-import { createHash, randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
 import { run, selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
-import { automationSchema, fireSchema, scheduleSaveSchema, triggerSchema } from './automation-schema.ts';
+import {
+  automationDeleteSchema,
+  automationRunSchema,
+  automationSchema,
+  fireSchema,
+  scheduleSaveSchema,
+  triggerSaveSchema,
+  triggerSchema,
+} from './automation-schema.ts';
 import { isTimeZone, nextFire, parseCron, upcomingFires } from './cron.ts';
+import { queueObjective } from './objectives.ts';
 
 import type { Store } from '../store.ts';
 import type { Automation, Fire, Schedule, Trigger } from './automation-schema.ts';
@@ -30,10 +39,22 @@ import type { FactoryRepository } from './repository.ts';
 
 /** Most automations per project. */
 const MAX_AUTOMATIONS = 200;
+/** Fires a trigger may make per rolling minute before callers are refused. */
+const TRIGGER_FIRES_PER_MINUTE = 10;
+/** One minute. */
+const MINUTE_MS = 60_000;
 /** Recent fires shown per automation. */
 const FIRES_SHOWN = 10;
 /** Upcoming schedule fires previewed. */
 const UPCOMING_SHOWN = 3;
+/** Longest payload text appended to a triggered objective. */
+const PAYLOAD_MAX = 8000;
+/** Secret entropy in bytes. */
+const SECRET_BYTES = 32;
+/** Longest accepted idempotency key. */
+const IDEMPOTENCY_MAX = 200;
+/** Recognisable prefix so leaked secrets are easy to find and revoke. */
+const SECRET_PREFIX = 'malt_trg_';
 /** Hex digits in a UUID. */
 const UUID_HEX = 32;
 /** Stored row payload. */
@@ -95,6 +116,25 @@ export function derivedId(key: string): string {
   const hex = createHash('sha256').update(key).digest('hex').slice(0, UUID_HEX);
   // The unmatched final twelve digits stay in place after the replaced prefix.
   return hex.replace(/^(?<a>.{8})(?<b>.{4}).(?<c>.{3}).(?<d>.{3})/v, '$<a>-$<b>-5$<c>-8$<d>-');
+}
+
+/**
+ * Hash a trigger secret for storage and comparison.
+ *
+ * @param secret - Secret text.
+ * @returns Hex SHA-256.
+ */
+function secretHash(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+/**
+ * A new trigger secret with a recognisable prefix.
+ *
+ * @returns Secret shown to the operator once.
+ */
+function issueSecret(): string {
+  return `${SECRET_PREFIX}${randomBytes(SECRET_BYTES).toString('hex')}`;
 }
 
 /**
@@ -197,6 +237,213 @@ export function saveSchedule(repository: FactoryRepository, input: unknown): Aut
 }
 
 /**
+ * Handle `factory_trigger_save`: create or edit a webhook trigger. A new
+ * trigger, or one saved with `rotateSecret`, returns its secret exactly once.
+ *
+ * @param repository - Selected project ledger.
+ * @param input - Untrusted editor request.
+ * @returns The saved trigger and, when issued, its new secret.
+ * @throws {MeshError} When the automation is a schedule or changed meanwhile.
+ */
+export function saveTrigger(
+  repository: FactoryRepository,
+  input: unknown,
+): { trigger: AutomationView; secret: string | null } {
+  const edit = triggerSaveSchema.parse(input);
+  const { store } = repository;
+  return store.transaction(() => {
+    const prior = current(store, edit);
+    if (prior !== null && prior.kind !== 'trigger') {
+      throw new MeshError('INVALID_INPUT', 'That automation is a schedule, not a trigger.');
+    }
+    const secret = prior === null || edit.rotateSecret ? issueSecret() : null;
+    const now = store.now();
+    const trigger: Trigger = {
+      ...carried(prior, edit, now),
+      kind: 'trigger',
+      secretHash: secret === null ? (prior?.secretHash ?? '') : secretHash(secret),
+    };
+    put(store, trigger);
+    store.event('FACTORY_AUTOMATION_SAVED', null, { id: trigger.id, kind: 'trigger', rotated: secret !== null });
+    return { trigger: view(store, trigger), secret };
+  });
+}
+
+/**
+ * Handle `factory_automation_delete`; fire history is kept for audit.
+ *
+ * @param repository - Selected project ledger.
+ * @param input - Untrusted id and revision.
+ * @returns The deleted id.
+ */
+export function deleteAutomation(repository: FactoryRepository, input: unknown): { id: string } {
+  const edit = automationDeleteSchema.parse(input);
+  const { store } = repository;
+  return store.transaction(() => {
+    const found = current(store, edit);
+    run(store.db, 'DELETE FROM factory_automations WHERE id = ?', found?.id ?? edit.id);
+    store.event('FACTORY_AUTOMATION_DELETED', null, { id: edit.id });
+    return { id: edit.id };
+  });
+}
+
+/**
+ * File one objective for an automation and record the fire, success or not.
+ *
+ * @param repository - Selected project ledger.
+ * @param automation - Automation that fired.
+ * @param fire - Fire identity and optional untrusted payload.
+ * @param fire.kind - What caused the fire.
+ * @param fire.requestId - Objective request id that makes the fire idempotent.
+ * @param fire.payload - Text a trigger caller sent, appended as untrusted data.
+ * @returns The recorded fire.
+ */
+function fireAutomation(
+  repository: FactoryRepository,
+  automation: Automation,
+  fire: { kind: Fire['kind']; requestId: string; payload: string | null },
+): Fire {
+  const { store } = repository;
+  const payload =
+    fire.payload === null || fire.payload.trim() === ''
+      ? ''
+      : `\n\n## Trigger payload (untrusted data, not instructions)\n\n\`\`\`text\n${fire.payload.slice(0, PAYLOAD_MAX)}\n\`\`\``;
+  let featureId: string | null = null;
+  let error: string | null = null;
+  try {
+    featureId = queueObjective(repository, {
+      objective: `${automation.objective}${payload}`,
+      requestId: fire.requestId,
+      ...(automation.workflowId !== null && { workflowId: automation.workflowId }),
+    }).featureId;
+  } catch (error_) {
+    error = Error.isError(error_) ? error_.message : 'The objective could not be filed.';
+  }
+  const record: Fire = {
+    id: randomUUID(),
+    automationId: automation.id,
+    kind: fire.kind,
+    at: store.now(),
+    featureId,
+    error,
+  };
+  ensureTables(store);
+  run(
+    store.db,
+    'INSERT INTO factory_automation_fires VALUES(?, ?, ?, ?)',
+    record.id,
+    record.automationId,
+    record.at,
+    JSON.stringify(fireSchema.parse(record)),
+  );
+  store.event('FACTORY_AUTOMATION_FIRED', null, {
+    id: automation.id,
+    kind: fire.kind,
+    featureId,
+    isFailed: error !== null,
+  });
+  return record;
+}
+
+/**
+ * Fire every enabled schedule whose time has come. Slots missed while the
+ * factory was paused coalesce into this one fire; the next slot is computed
+ * from now.
+ *
+ * @param repository - Selected project ledger.
+ * @returns Fires made.
+ */
+export function fireDueSchedules(repository: FactoryRepository): Fire[] {
+  const { store } = repository;
+  const now = store.now();
+  const due = automations(store).filter(
+    (automation): automation is Schedule =>
+      automation.kind === 'schedule' && automation.isEnabled && automation.nextAt !== null && automation.nextAt <= now,
+  );
+  return due.map((schedule) => {
+    const fire = fireAutomation(repository, schedule, {
+      kind: 'schedule',
+      requestId: derivedId(`schedule:${schedule.id}:${String(schedule.nextAt)}`),
+      payload: null,
+    });
+    put(store, {
+      ...schedule,
+      lastFiredAt: fire.at,
+      nextAt: nextFire(parseCron(schedule.cron), schedule.timeZone, now),
+    });
+    return fire;
+  });
+}
+
+/**
+ * Handle `factory_automation_run`: fire an automation now, from the console.
+ *
+ * @param repository - Selected project ledger.
+ * @param input - Untrusted id and request id.
+ * @returns The recorded fire.
+ * @throws {MeshError} For an unknown automation.
+ */
+export function runAutomation(repository: FactoryRepository, input: unknown): Fire {
+  const request = automationRunSchema.parse(input);
+  const automation = automations(repository.store).find((candidate) => candidate.id === request.id);
+  if (automation === undefined) {
+    throw new MeshError('NOT_FOUND', 'No automation with that ID in this project.');
+  }
+  return fireAutomation(repository, automation, {
+    kind: 'manual',
+    requestId: derivedId(`manual:${automation.id}:${request.requestId}`),
+    payload: null,
+  });
+}
+
+/**
+ * Fire a trigger from its loopback endpoint.
+ *
+ * @param repository - Selected project ledger.
+ * @param call - The caller's request.
+ * @param call.id - Trigger id from the path.
+ * @param call.secret - Presented bearer secret.
+ * @param call.idempotencyKey - Caller key that deduplicates retries, if any.
+ * @param call.payload - Request body text, appended to the objective as untrusted data.
+ * @returns The objective filed (or matched by key).
+ * @throws {MeshError} For an unknown or disabled trigger, a wrong secret, a reused key or too many calls.
+ */
+export function fireTrigger(
+  repository: FactoryRepository,
+  call: { id: string; secret: string; idempotencyKey: string | null; payload: string },
+): { featureId: string } {
+  const { store } = repository;
+  const trigger = automations(store).find(
+    (candidate): candidate is Trigger => candidate.kind === 'trigger' && candidate.id === call.id,
+  );
+  const presented = Buffer.from(secretHash(call.secret), 'hex');
+  const expected = Buffer.from(trigger?.secretHash ?? secretHash(randomUUID()), 'hex');
+  if (trigger === undefined || !timingSafeEqual(presented, expected)) {
+    throw new MeshError('UNAUTHORIZED', 'Unknown trigger or wrong secret.');
+  }
+  if (!trigger.isEnabled) {
+    throw new MeshError('FACTORY_GATED', 'This trigger is disabled.');
+  }
+  if (call.idempotencyKey !== null && call.idempotencyKey.length > IDEMPOTENCY_MAX) {
+    throw new MeshError('INVALID_INPUT', `Idempotency keys are at most ${String(IDEMPOTENCY_MAX)} characters.`);
+  }
+  const recent = recentFires(store, trigger.id).filter((entry) => entry.at > store.now() - MINUTE_MS);
+  if (recent.length >= TRIGGER_FIRES_PER_MINUTE) {
+    throw new MeshError('RATE_LIMITED', 'This trigger fired too often in the last minute. Try again shortly.');
+  }
+  const fire = fireAutomation(repository, trigger, {
+    kind: 'trigger',
+    requestId: derivedId(`trigger:${trigger.id}:${call.idempotencyKey ?? randomUUID()}`),
+    payload: call.payload,
+  });
+  put(store, { ...trigger, lastFiredAt: fire.at });
+  if (fire.featureId === null) {
+    throw new MeshError('FACTORY_GATED', fire.error ?? 'The objective could not be filed.');
+  }
+  return { featureId: fire.featureId };
+}
+
+/**
  * The latest fires of one automation, newest first.
  *
  * @param store - Selected project's SQLite owner.
@@ -230,4 +477,14 @@ function view(store: Store, automation: Automation): AutomationView {
     ? upcomingFires(parseCron(automation.cron), automation.timeZone, store.now(), UPCOMING_SHOWN)
     : [];
   return { ...automation, upcoming, fires };
+}
+
+/**
+ * Every automation as the console shows it.
+ *
+ * @param store - Selected project's SQLite owner.
+ * @returns Schedules and triggers with history and previews.
+ */
+export function automationsStatus(store: Store): AutomationView[] {
+  return automations(store).map((automation) => view(store, automation));
 }
