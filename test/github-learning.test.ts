@@ -978,3 +978,15 @@ await test('connecting stores gh session handles only, and status reports a logg
     source: 'missing',
   });
 });
+
+await test('issue creation reports Project membership and Status separately', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const outcome = z.object({ outcome: z.record(z.string(), z.string()) });
+  const created = outcome.parse(await github.execute(OPERATOR, 'github_create_issue', feature));
+  assert.deepEqual(created.outcome, { issue: 'created', membership: 'attached', status: 'Backlog' });
+  const replayed = outcome.parse(await github.execute(OPERATOR, 'github_create_issue', feature));
+  assert.deepEqual(replayed.outcome, { issue: 'existing', membership: 'attached', status: 'unchanged' });
+});
