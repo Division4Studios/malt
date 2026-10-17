@@ -9,6 +9,7 @@
 
 import { z } from 'zod/v3';
 
+import { verificationSchema } from './connection-state.ts';
 import { credentialHandleSchema, scopedHandle } from './credentials.ts';
 import { MeshError } from './protocol.ts';
 
@@ -64,6 +65,8 @@ export const trackerSchema = z.object({
   capabilities: capabilitiesSchema,
   /** Where this section's credential lives; absent on records saved before handles. */
   credential: credentialHandleSchema.optional(),
+  /** Latest verification; absent on records saved by a verified connect or before states existed. */
+  verification: verificationSchema.optional(),
   savedAt: z.string().datetime(),
   verifiedAt: z.string().datetime().nullable().default(null),
 });
@@ -80,6 +83,8 @@ export const sourceSchema = z.object({
   capabilities: capabilitiesSchema,
   /** Where this section's credential lives; absent on records saved before handles. */
   credential: credentialHandleSchema.optional(),
+  /** Latest verification; absent on records saved by a verified connect or before states existed. */
+  verification: verificationSchema.optional(),
   savedAt: z.string().datetime(),
   verifiedAt: z.string().datetime().nullable().default(null),
 });

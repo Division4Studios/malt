@@ -145,6 +145,7 @@ function describe(principal: z.output<typeof principalSchema>): string {
 export function githubCapabilities(operation: GitHubOperation, input: unknown): Capability[] {
   switch (operation) {
     case 'github_status':
+    case 'github_verify':
     case 'github_discover':
     case 'github_sync': {
       return [];

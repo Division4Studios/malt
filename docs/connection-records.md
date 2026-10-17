@@ -6,6 +6,10 @@ New issue journals bind their fingerprints to the stable repository node ID when
 
 These contracts prepare provider-specific connectors; a Jira provider value does not establish implemented Jira discovery, authentication or remote operations. Provider credentials remain outside project state.
 
+## Verification states
+
+`mesh_github_verify` (CLI `github-verify`, console control `github_verify`) checks the saved tracker and source sections against [read-only discovery](api.md) and records each section's `verification: {state, checkedAt, errors}`. States are `saved` (never checked), `verified`, `degraded` (reachable but not usable as saved: the Status field lacks a delivery option, or the Project is closed or not updatable), `failed` (authentication, a missing or different repository or Project, or a removed Status field) and `external` (a Jira tracker, which needs its site, project and credential verified outside GitHub). Repositories compare by node ID: a rename verifies, updates the name and keeps the old name in `repositoryAliases`. The saved Status field is compared by ID; verification never creates or changes fields. `github_status` reports `verification: {tracker, source}`, and `connected` is true only when both sections are verified. Records saved by a verified `github_connect`, or before states existed, carry no verification and count as verified.
+
 ## Credential handles
 
 Each section may name where its credential lives, never the credential itself: `{"kind": "github-cli"}` is the operator's authenticated `gh` session, and `{"kind": "env", "name": "JIRA_API_TOKEN"}` names an environment variable of the supervisor process. Only the kind and the reference name are stored; a handle with any other field is rejected as damaged. Handles are scoped to their section's provider: GitHub sections accept only the gh session and Jira trackers only an environment handle. A successful GitHub connection saves `github-cli` handles for both sections; records saved before handles are treated as using the gh session.

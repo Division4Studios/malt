@@ -129,6 +129,7 @@ export const controlSchema = z
       'factory_secret_delete',
       'capability_policy_set',
       'github_connect',
+      'github_verify',
       'terminal_start',
       'terminal_close',
       'terminal_input',
