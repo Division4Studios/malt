@@ -578,12 +578,31 @@ function managedTools(name: string | undefined): ReadonlySet<ToolOperation> {
     'github_status',
     'github_sync',
   ]);
-  if (name === 'factory-learning-steward') {
-    tools.add('learning_record');
-    tools.add('learning_search');
-    tools.add('learning_propose_skill');
-  } else if (name === 'factory-developer-1' || name === 'factory-developer-2') {
-    tools.add('factory_progress');
+  switch (name) {
+    case 'factory-product-owner':
+    case 'factory-team-lead': {
+      tools.add('factory_recommendations');
+      tools.add('factory_recommendation_propose');
+
+      break;
+    }
+    case 'factory-learning-steward': {
+      tools.add('learning_record');
+      tools.add('learning_search');
+      tools.add('learning_propose_skill');
+
+      break;
+    }
+    case 'factory-developer-1':
+    case 'factory-developer-2': {
+      tools.add('factory_progress');
+
+      break;
+    }
+    case undefined:
+    default: {
+      break;
+    }
   }
   return tools;
 }

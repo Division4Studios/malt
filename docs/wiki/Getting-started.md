@@ -7,14 +7,10 @@ git clone https://github.com/Division4Studios/malt.git
 cd malt
 npm ci --ignore-scripts
 npm run check
-node src/cli.ts start --project /absolute/path/to/target --port 4317
+node src/cli.ts ui --with-broker --project /absolute/path/to/target --port 4318
 ```
 
-Start the UI from the MALT source directory in another terminal:
-
-```sh
-node src/cli.ts ui --project /absolute/path/to/target --port 4318
-```
+This combined owner starts the native broker and paired UI together. Ordinary separately attached UIs can inspect/control their authorized project, but project-token access does not grant scratch-terminal or prepared recommendation-decision authority. Those human controls require the owning process's memory-only capability. The combined Docker deployment also provides that owner boundary.
 
 Open `http://127.0.0.1:4318/` and enter the pairing code printed by that UI process. It is a credential, not something to paste into a public report. On Windows, quote target paths such as `"C:\work\target"`.
 

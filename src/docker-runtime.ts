@@ -36,7 +36,12 @@ try {
 /** The console rejects nonloopback browser Host/Origin even with this explicit internal bind. */
 let ui: WebConsole;
 try {
-  ui = await startWebConsole(config, CONSOLE_PORT, { host: '0.0.0.0', publicPort }, broker.operatorTerminalControl);
+  ui = await startWebConsole(
+    config,
+    CONSOLE_PORT,
+    { host: '0.0.0.0', publicPort },
+    { terminal: broker.operatorTerminalControl, recommendation: broker.operatorRecommendationControl },
+  );
 } catch (error) {
   await broker.close();
   throw error;

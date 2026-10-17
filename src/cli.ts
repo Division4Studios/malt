@@ -64,6 +64,7 @@ Usage: node src/cli.ts <command> [options]
   factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
+  factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
@@ -152,6 +153,8 @@ interface CliOptions {
   readonly limit?: string | undefined;
   /** `--all`: include acknowledged messages. */
   readonly all?: boolean | undefined;
+  /** `--apply`: apply proposed GitHub reconciliation decisions instead of a dry run. */
+  readonly apply?: boolean | undefined;
 }
 
 /**
@@ -449,6 +452,7 @@ async function main(): Promise<void> {
       after: { type: 'string' },
       limit: { type: 'string' },
       all: { type: 'boolean' },
+      apply: { type: 'boolean' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },

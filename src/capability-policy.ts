@@ -66,6 +66,12 @@ const principalSchema = z.discriminatedUnion('kind', [
 ]);
 /** An authenticated caller of a connector operation. */
 export type CapabilityPrincipal = z.input<typeof principalSchema>;
+
+/**
+ * The supervisor provisions lead-reviewed plans, re-verifies the lead's saved
+ * connection and moves Project status, so it acts for the team-lead role.
+ */
+export const SUPERVISOR_PRINCIPAL: CapabilityPrincipal = { kind: 'supervisor', role: 'team-lead' };
 /** Explicit role grants cannot be empty or accompany a non-agent mode. */
 const policySchema = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('disabled'), roles: emptyRolesSchema }).strict(),

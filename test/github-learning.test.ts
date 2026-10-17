@@ -18,7 +18,9 @@ import { z } from 'zod/v3';
 import { startBroker } from '../src/broker.ts';
 import { CapabilityPolicyStore } from '../src/capability-policy.ts';
 import { AgentClient, openTeamConfig, rpc } from '../src/client.ts';
+import { provisionedIssues, retainProvisionedIssues } from '../src/factory/provisioning-identity.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
 import { featureSchema, taskSchema, factoryConfigSchema } from '../src/factory/schema.ts';
 import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
@@ -430,7 +432,8 @@ await test('the actual merge adapter rechecks native protected reviews and advan
 });
 
 await test('the actual factory delivery adapter provisions a valid native feature and reconciles atomic children', async (t) => {
-  const config = createProject(createCleanup(t));
+  const defer = createCleanup(t);
+  const config = createProject(defer);
   const remote = new FakeGitHub();
   const github = mechanicsGitHub(config, remote.run);
   await github.execute(OPERATOR, 'github_connect', connection);
@@ -468,7 +471,26 @@ await test('the actual factory delivery adapter provisions a valid native featur
     updatedAt: 1,
   });
   remote.shouldLoseDependencyResponse = true;
-  await assert.rejects(adapter.provision(plannedFeature), /lost native dependency response/v);
+  let store = new Store(config);
+  defer(() => {
+    store.close();
+  });
+  let repository = new FactoryRepository(store);
+  adapter.issueRepositoryId = () => 'R_provisioning_fixture';
+  const checkpoint = (
+    created: readonly { key: string; issue: number; parentIssue: number }[],
+    source: string,
+  ): void => {
+    retainProvisionedIssues(repository, plannedFeature.id, source, created);
+  };
+  await assert.rejects(adapter.provision(plannedFeature, checkpoint), /lost native dependency response/v);
+  assert.deepEqual(provisionedIssues(repository, plannedFeature.id, 'R_provisioning_fixture'), [1, 2, 3]);
+  assert.equal(repository.tasks().length, 0, 'Creation receipts must not admit work before dependencies reconcile.');
+  store.close();
+  store = new Store(config);
+  repository = new FactoryRepository(store);
+  assert.deepEqual(provisionedIssues(repository, plannedFeature.id, 'R_provisioning_fixture'), [1, 2, 3]);
+  assert.deepEqual(provisionedIssues(repository, plannedFeature.id, 'R_other_repository'), []);
   const mappings = await adapter.provision(plannedFeature);
   assert.equal(mappings.length, 2);
   assert.equal(remote.creations, 3);

@@ -6,29 +6,22 @@
  * @file
  */
 
-import { createHash } from 'node:crypto';
-
 import { z } from 'zod/v3';
 
+import { SUPERVISOR_PRINCIPAL } from '../capability-policy.ts';
 import { githubRunner } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
 import { reconcileDependencies } from './dependencies.ts';
+import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
-import type { CapabilityPrincipal } from '../capability-policy.ts';
 import type { MeshConfig } from '../config.ts';
+import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
 import type { GitHubRunner, ProjectGitHub } from '../github.ts';
+import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
-/** Named request hash length bound. */
-const REQUEST_HASH_LENGTH = 32;
-
-/**
- * The supervisor provisions lead-reviewed plans, re-verifies the lead's saved
- * connection and moves Project status, so it acts for the team-lead role.
- */
-const SUPERVISOR: CapabilityPrincipal = { kind: 'supervisor', role: 'team-lead' };
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
 /** Bound GitHub's machine-readable close reason separately from issue prose. */
@@ -105,10 +98,21 @@ export interface IssueState {
 }
 /** Injectable external delivery boundary, including fixture GitHub merges. */
 export interface DeliveryRemote {
+  /** Current verified saved source identity, read without a native subprocess. */
+  readonly issueRepositoryId?: () => string;
+  /** Existing unresolved native creation identities, read without a remote mutation. */
+  readonly unresolvedOperations?: () => Promise<OperationSnapshot[]>;
+  /** Bounded selected-repository observations; absent fixture capability is never complete coverage. */
+  readonly issueCorpus?: (input: unknown) => Promise<IssueCorpusPage>;
+  /** Current issue identity/content revision for exact reviewed decisions. */
+  readonly observedIssue?: (number: number) => Promise<ObservedIssue>;
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
-  readonly provision: (feature: Feature) => Promise<DeliveryPlanIssue[]>;
+  readonly provision: (
+    feature: Feature,
+    checkpoint?: (mappings: readonly DeliveryPlanIssue[], repositoryId: string) => void,
+  ) => Promise<DeliveryPlanIssue[]>;
   /** Create or reuse the developer branch's open PR. */
   readonly pullRequest: (task: FactoryTask, config: FactoryConfig) => Promise<{ number: number; url: string }>;
   /** Inspect exact-head CI and branch state. */
@@ -148,6 +152,44 @@ export class GitHubDelivery implements DeliveryRemote {
   }
 
   /**
+   * Inspect selected-repository issues without creating or classifying work.
+   *
+   * @param input - Bounded corpus page and continuation.
+   * @returns Observations with explicit incomplete coverage.
+   */
+  public async issueCorpus(input: unknown): Promise<IssueCorpusPage> {
+    return await this.github.issues().page(input);
+  }
+
+  /**
+   * Read the current verified repository node without using a cached corpus as source authority.
+   *
+   * @returns Selected repository identity; unverified setup fails closed.
+   */
+  public issueRepositoryId(): string {
+    return this.github.issues().repositoryId;
+  }
+
+  /**
+   * Read the existing durable native operation journal without spawning a model.
+   *
+   * @returns Original unresolved native creation identities.
+   */
+  public async unresolvedOperations(): Promise<OperationSnapshot[]> {
+    return await readProvisioningOperations(this.github);
+  }
+
+  /**
+   * Refresh one native issue revision before a later human-approved action.
+   *
+   * @param number - Repository-local issue number.
+   * @returns Current bounded observation.
+   */
+  public async observedIssue(number: number): Promise<ObservedIssue> {
+    return await this.github.issues().get(number);
+  }
+
+  /**
    * Reverify actual Project permissions and the repository's Git remote.
    *
    * @param origin - Native repository remote URL.
@@ -163,7 +205,7 @@ export class GitHubDelivery implements DeliveryRemote {
     if (normalized !== `https://github.com/${connection.repository}`.toLowerCase()) {
       await verifyRepositoryIdentity(this.runner, normalized, connection.repository);
     }
-    await this.github.execute(SUPERVISOR, 'github_connect', {
+    await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_connect', {
       repository: connection.repository,
       owner: connection.owner,
       projectNumber: connection.project.number,
@@ -175,16 +217,21 @@ export class GitHubDelivery implements DeliveryRemote {
    * Create a feature parent and retry-safe native atomic sub-issues.
    *
    * @param feature - Lead-reviewed plan.
+   * @param checkpoint - Durable receipt sink before native dependency reconciliation.
    * @returns Issue mappings for the plan, including parent identity.
    * @throws {MeshError} When the objective has no reviewed plan.
    */
-  public async provision(feature: Feature): Promise<DeliveryPlanIssue[]> {
+  public async provision(
+    feature: Feature,
+    checkpoint?: (mappings: readonly DeliveryPlanIssue[], repositoryId: string) => void,
+  ): Promise<DeliveryPlanIssue[]> {
     const record = feature;
     if (record.plan === null || record.plan.deliveries.length === 0) {
       throw new MeshError('INVALID_INPUT', 'A record needs a nonempty reviewed atomic plan.');
     }
+    const source = checkpoint === undefined ? null : this.issueRepositoryId();
     const parentResult = z.object({ issue: z.object({ number: z.number() }) }).parse(
-      await this.github.execute(SUPERVISOR, 'github_create_issue', {
+      await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_create_issue', {
         requestId: `record-${record.id}`,
         kind: 'feature',
         title: record.objective.slice(0, ISSUE_TITLE_LIMIT),
@@ -197,12 +244,11 @@ export class GitHubDelivery implements DeliveryRemote {
     );
     const mappings: DeliveryPlanIssue[] = [];
     for (const delivery of record.plan.deliveries) {
-      const identity = `${record.id}:${delivery.key}`;
-      const requestId = `delivery-${createHash('sha256').update(identity).digest('hex').slice(0, REQUEST_HASH_LENGTH)}`;
+      const requestId = deliveryOperationIdentity(record.id, delivery.key);
 
       const created = z.object({ issue: z.object({ number: z.number() }) }).parse(
         // eslint-disable-next-line no-await-in-loop -- Persist each deterministic native child before advancing its dependent provisioning sequence.
-        await this.github.execute(SUPERVISOR, 'github_create_issue', {
+        await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_create_issue', {
           requestId,
           kind: 'delivery',
           parent: parentResult.issue.number,
@@ -212,6 +258,12 @@ export class GitHubDelivery implements DeliveryRemote {
         }),
       );
       mappings.push({ key: delivery.key, issue: created.issue.number, parentIssue: parentResult.issue.number });
+    }
+    if (source !== null) {
+      if (this.issueRepositoryId() !== source) {
+        throw new MeshError('FACTORY_GATED', 'The verified repository changed during native provisioning.');
+      }
+      checkpoint?.(mappings, source);
     }
     if (record.plan.deliveries.some((delivery) => delivery.dependencies.length > 0)) {
       const connection = await this.connection();
@@ -359,7 +411,10 @@ export class GitHubDelivery implements DeliveryRemote {
     const record = effect;
     const connection = await this.connection();
     if (record.kind === 'status') {
-      await this.github.execute(SUPERVISOR, 'github_set_status', { issue: record.issue, status: record.value });
+      await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_set_status', {
+        issue: record.issue,
+        status: record.value,
+      });
       return;
     }
     if (record.kind === 'close_pr') {
@@ -409,7 +464,7 @@ export class GitHubDelivery implements DeliveryRemote {
   public async readyIssues(): Promise<ReadyIssue[]> {
     const snapshot = z
       .object({ items: z.array(z.unknown()), complete: z.boolean() })
-      .parse(await this.github.execute(SUPERVISOR, 'github_sync', { limit: 1000, cached: true }));
+      .parse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_sync', { limit: 1000, cached: true }));
     const connection = await this.connection();
     const itemSchema = z
       .object({
@@ -519,7 +574,7 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns Canonical repository and Project identity.
    */
   private async connection(): Promise<z.output<typeof connectionSchema>['connection']> {
-    return connectionSchema.parse(await this.github.execute(SUPERVISOR, 'github_status', {})).connection;
+    return connectionSchema.parse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {})).connection;
   }
 }
 

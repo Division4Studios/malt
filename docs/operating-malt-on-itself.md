@@ -38,6 +38,30 @@ In **Project**, verify repository/remote identity, the intended Project URL and 
 
 Token counts are diagnostic by default. Observed subscription limits/cooldowns and local CPU/memory/process/concurrency policy govern admission. Previously saved numeric token caps remain optional explicit policy until changed. Inspect actual settings rather than assuming a cap of one or two.
 
+## Reconcile with GitHub before unpausing
+
+Work merged outside the factory leaves local tasks behind their closed issues. Retrying or verifying them schedules a paid final-tester job on unpause. Reconcile them while paused instead; no model job runs and closed issues are not edited.
+
+```powershell
+node src/cli.ts factory-pause --project '<absolute-target-path>'
+node src/cli.ts factory-reconcile-github --project '<absolute-target-path>'
+```
+
+Review each proposal's issue, close reason and merge commit against GitHub. Every `input` is an exact decision file; apply one with `factory-triage --file` (`adopt_delivered`) or `factory-recover --file` (`retire`), for example:
+
+```json
+{
+  "requestId": "<uuid>",
+  "taskId": "<task id from factory-status>",
+  "expectedVersion": 7,
+  "action": "adopt_delivered",
+  "note": "Delivered by PR #128; issue closed as completed.",
+  "mergeCommit": "<full 40-character merge SHA>"
+}
+```
+
+To apply the reviewed proposals in bounded batches, run `factory-reconcile-github --apply` until `remaining` is 0, then inspect `outcomes` and `unresolved`. A stale version, open issue, running assignment or merge missing from main rejects that item only. Rerun the dry run to confirm nothing is left before `factory-start`.
+
 ## Instructions, scope and review
 
 **Send instruction** supplies durable role/task guidance. Idle roles receive relevant guidance on a later assignment; delivered, acknowledged and applied remain distinct. **Change scope** routes changed acceptance through PO/lead replanning and fences affected work. Worker panes show actual logs/messages and evidence, not an interactive terminal.

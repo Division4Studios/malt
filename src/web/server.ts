@@ -15,10 +15,12 @@ import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
 import { ProjectGateway } from './projects.ts';
+import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
 import { TerminalStreams } from './terminal-streams.ts';
 
 import type { MeshConfig } from '../config.ts';
+import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
 import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
@@ -42,6 +44,10 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/freshness.js', ['dist/freshness.js', 'text/javascript; charset=utf-8']],
   ['/console-clock.js', ['dist/console-clock.js', 'text/javascript; charset=utf-8']],
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
+  ['/capacity-view.js', ['dist/capacity-view.js', 'text/javascript; charset=utf-8']],
+  ['/admission-ui.js', ['dist/admission-ui.js', 'text/javascript; charset=utf-8']],
+  ['/model-policy-ui.js', ['dist/model-policy-ui.js', 'text/javascript; charset=utf-8']],
+  ['/selection-ui.js', ['dist/selection-ui.js', 'text/javascript; charset=utf-8']],
   ['/api.js', ['dist/api.js', 'text/javascript; charset=utf-8']],
   ...[
     'terminal-parser',
@@ -309,14 +315,14 @@ export interface WebConsole {
  * @param config - Broker home scope.
  * @param port - Requested local port, zero for isolated tests.
  * @param binding - Explicit container binding; public Host/Origin remain loopback-only.
- * @param terminalOperator - Memory-only capability from the colocated owning broker.
+ * @param operators - Memory-only capabilities from the colocated owning broker; a legacy terminal function is supported.
  * @returns Running operator console.
  */
 export async function startWebConsole(
   config: MeshConfig,
   port = 4318,
   binding?: { host: '0.0.0.0'; publicPort: number },
-  terminalOperator?: TerminalOperator,
+  operators?: TerminalOperator | { terminal?: TerminalOperator; recommendation?: RecommendationOperator },
 ): Promise<WebConsole> {
   if (binding !== undefined) {
     z.object({ host: z.literal('0.0.0.0'), publicPort: z.number().int().min(1).max(MAX_PORT) })
@@ -324,7 +330,8 @@ export async function startWebConsole(
       .parse(binding);
   }
   const sessions = new OperatorSessions();
-  const gateway = new ProjectGateway(config, terminalOperator);
+  const capabilities = typeof operators === 'function' ? { terminal: operators } : operators;
+  const gateway = new ProjectGateway(config, capabilities?.terminal, capabilities?.recommendation);
   const streams = new Streams();
   const server = http.createServer((request, response) => {
     response.setHeader('Content-Security-Policy', CSP);
@@ -445,14 +452,14 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
- * Serve read-only operator inspection routes.
+ * Dispatch authenticated inspection routes without mixing their cases with mutations.
  *
- * @param url - Parsed local URL.
- * @param request - Authenticated GET request.
- * @param response - HTTP result.
- * @param context - Scoped services.
+ * @param url - Validated local request URL.
+ * @param request - Authenticated incoming request.
+ * @param response - Owned local response.
+ * @param context - Same scoped gateway, sessions and stream authority as controls.
  */
-async function inspect(
+async function inspectApi(
   url: URL,
   request: IncomingMessage,
   response: ServerResponse,
@@ -471,6 +478,12 @@ async function inspect(
     }
     case '/api/capabilities': {
       json(response, HTTP.ok, await gateway.capabilities(project));
+      return;
+    }
+    case '/api/recommendations':
+    case '/api/recommendation': {
+      const query = recommendationQuery(url, url.pathname === '/api/recommendations' ? 'list' : 'get');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, query.input));
       return;
     }
     case '/api/skill': {
@@ -517,7 +530,7 @@ async function api(
     return;
   }
   if (request.method === 'GET') {
-    await inspect(url, request, response, context);
+    await inspectApi(url, request, response, context);
     return;
   }
   if (request.method !== 'POST') {
@@ -525,6 +538,16 @@ async function api(
     return;
   }
   switch (url.pathname) {
+    case '/api/recommendation/decide': {
+      const query = recommendationQuery(url, 'read');
+      json(response, HTTP.ok, await gateway.decideRecommendation(query.project, await body(request)));
+      return;
+    }
+    case '/api/recommendation/read': {
+      const query = recommendationQuery(url, 'read');
+      json(response, HTTP.ok, await gateway.recommendations(query.project, await body(request), true));
+      return;
+    }
     case '/api/projects': {
       const input = z
         .object({ workspace: z.string().min(1).max(PATH_MAX) })

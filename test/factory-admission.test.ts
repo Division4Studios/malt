@@ -247,3 +247,26 @@ await test('uncapped provider ordering follows subscription utilization despite 
     assert.equal(chooseProvider({ config, capacities, jobs: [], now: 100 }), lower);
   }
 });
+
+await test('observing a never-used provider reports a stable window and stores nothing', (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  let now = 2100;
+  const store = new Store(config, { now: () => now });
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const settings = factoryConfigSchema.parse({
+    ...strict,
+    providers: { ...strict.providers, claude: { ...strict.providers.claude, windowMs: 1000 } },
+  });
+  const first = repository.capacity('claude', settings, false);
+  now = 2900;
+  const second = repository.capacity('claude', settings, false);
+  assert.deepEqual(second, first, 'Console snapshots must not change while nothing happened.');
+  assert.equal(first.resetAt, 3000);
+  now = 3100;
+  assert.equal(repository.capacity('claude', settings, false).resetAt, 4000);
+  assert.equal(repository.capacity('claude', settings).resetAt, 4100, 'A created window still starts at first use.');
+});
