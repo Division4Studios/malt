@@ -943,3 +943,38 @@ await test('delivery adapter reads failed Actions job logs by job id and skips o
   ]);
   assert.deepEqual(calls, [['api', 'repos/example/app/actions/jobs/9/logs']]);
 });
+
+await test('connecting stores gh session handles only, and status reports a logged-out session as missing', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const presence = { isLoggedIn: true };
+  const allowAll = {
+    authorize: () => {
+      /* This test checks credential handles, not capability policy. */
+    },
+    grantConnectionDefaults: () => {
+      /* No policy to grant into. */
+    },
+  };
+  const github = new ProjectGitHub(config, remote.run, allowAll, {
+    ghAuthenticated: async () => await delay(0, presence.isLoggedIn),
+    environment: {},
+  });
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const file = readFileSync(path.join(config.directory, 'github', 'connection.json'), 'utf8');
+  const saved = z
+    .object({ tracker: z.object({ credential: z.unknown() }), source: z.object({ credential: z.unknown() }) })
+    .parse(JSON.parse(file));
+  assert.deepEqual(saved.tracker.credential, { kind: 'github-cli' });
+  assert.deepEqual(saved.source.credential, { kind: 'github-cli' });
+  const status = z.object({ connected: z.boolean(), credentials: z.record(z.string(), z.string()) });
+  assert.deepEqual(status.parse(await github.execute(OPERATOR, 'github_status', {})).credentials, {
+    tracker: 'present',
+    source: 'present',
+  });
+  presence.isLoggedIn = false;
+  assert.deepEqual(status.parse(await github.execute(OPERATOR, 'github_status', {})).credentials, {
+    tracker: 'missing',
+    source: 'missing',
+  });
+});

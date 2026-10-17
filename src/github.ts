@@ -16,6 +16,7 @@ import { z } from 'zod/v3';
 import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
+import { cachedProbe, credentialPresence, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
 import { createIssueReader } from './github-issues.ts';
 import { githubRunner } from './github-runner.ts';
@@ -25,6 +26,7 @@ import { timestamp, writeAtomic } from './summary.ts';
 import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
+import type { CredentialPresence, PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
@@ -147,6 +149,8 @@ export class ProjectGitHub {
   private pending: Promise<undefined> = Promise.resolve(undefined);
   /** The project's capability policy; mutations fail closed without one. */
   private readonly policy: CapabilityGate;
+  /** Checks whether each section's credential is available, without reading it. */
+  private readonly presence: PresenceProbe;
 
   /**
    * Prepare project-specific integration without making network calls.
@@ -154,15 +158,21 @@ export class ProjectGitHub {
    * @param config - The target workspace, not the broker's home project.
    * @param runner - Optional test adapter.
    * @param policy - This same project's capability policy; the broker supplies it.
+   * @param presence - Credential presence probe; a fixture runner implies an unverified gh session.
    */
   public constructor(
     config: MeshConfig,
-    runner: GitHubRunner = githubRunner(config.root),
+    runner?: GitHubRunner,
     policy: CapabilityGate = UNBOUND_GATE,
+    presence?: PresenceProbe,
   ) {
     this.config = config;
-    this.runner = runner;
+    this.runner = runner ?? githubRunner(config.root);
     this.policy = policy;
+    this.presence = presence ?? {
+      ghAuthenticated: runner === undefined ? cachedProbe(ghAuthProbe(config.root)) : null,
+      environment: process.env,
+    };
     this.directory = path.join(config.directory, 'github');
   }
 
@@ -213,7 +223,7 @@ export class ProjectGitHub {
     switch (operation) {
       case 'github_status': {
         parseInput(operation, input);
-        return this.status();
+        return await this.status();
       }
       case 'github_connect': {
         return this.connect(parseInput(operation, input));
@@ -231,12 +241,14 @@ export class ProjectGitHub {
   }
 
   /**
-   * Inspect a connection without returning secrets or calling GitHub.
+   * Inspect a connection without returning secrets or calling GitHub. Each
+   * section's credential presence is reported separately, so a logged-out gh
+   * session or an unset variable reads as missing rather than connected.
    *
-   * @returns Saved connection and unresolved creation journals.
+   * @returns Saved connection, credential presence and unresolved creation journals.
    * @throws {Error} For damaged saved state.
    */
-  private status(): unknown {
+  private async status(): Promise<unknown> {
     let connection: LegacyConnection | null = null;
     let connectionV2: ConnectionV2 | null = null;
     try {
@@ -251,7 +263,22 @@ export class ProjectGitHub {
       connected: connection !== null,
       connection,
       connectionV2,
+      credentials: connectionV2 === null ? null : await this.credentials(connectionV2),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
+    };
+  }
+
+  /**
+   * Check each section's credential handle; records saved before handles use the gh session.
+   *
+   * @param record - Saved connection.
+   * @returns Presence per section.
+   */
+  private async credentials(record: ConnectionV2): Promise<Record<'tracker' | 'source', CredentialPresence>> {
+    const fallback = { kind: 'github-cli' } as const;
+    return {
+      tracker: await credentialPresence(record.tracker.credential ?? fallback, this.presence),
+      source: await credentialPresence(record.source.credential ?? fallback, this.presence),
     };
   }
 
@@ -404,6 +431,7 @@ export class ProjectGitHub {
         url: project.url,
         workflowField: statusField,
         capabilities: unverifiedCapabilities(),
+        credential: { kind: 'github-cli' },
         savedAt: now,
         verifiedAt: now,
       },
@@ -413,6 +441,7 @@ export class ProjectGitHub {
         repositoryId,
         repositoryAliases,
         capabilities: unverifiedCapabilities(),
+        credential: { kind: 'github-cli' },
         savedAt: now,
         verifiedAt: repositoryId === null ? null : now,
       },
