@@ -25,6 +25,15 @@ declare module '*/web/dist/selection-ui.js' {
    * @returns Plain native definition-list rows.
    */
   export function selectionRows(job: Record<string, unknown>): [string, string][];
+
+  /**
+   * Build the request-evidence disclosure for one recorded assignment.
+   *
+   * @param job - Recorded assignment, or an empty record when none was claimed.
+   * @param diagnostic - Current supervisor diagnostic, shown separately.
+   * @returns The disclosure element (a test-DOM element under Node).
+   */
+  export function selectionDetails(job: Record<string, unknown>, diagnostic: string): unknown;
 }
 
 declare module '*/web/dist/admission-ui.js' {
