@@ -128,6 +128,8 @@ export const controlSchema = z
       'factory_secret_save',
       'factory_secret_delete',
       'capability_policy_set',
+      'mcp_binding_propose',
+      'mcp_binding_approve',
       'github_connect',
       'github_verify',
       'github_section_save',

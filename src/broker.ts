@@ -37,6 +37,8 @@ import { z } from 'zod/v3';
 
 import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
+import { handleBindingOperation } from './connector-bindings.ts';
+import { isBindingOperation } from './connector-schemas.ts';
 import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
@@ -63,6 +65,7 @@ import { Waiters } from './waiters.ts';
 
 import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
+import type { BindingOperation } from './connector-schemas.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
@@ -573,7 +576,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - Capability policy, GitHub or learning operation.
+ * @param operation - MCP binding, capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -581,10 +584,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  */
 async function handleProjectOperation(
   team: Team,
-  operation: CapabilityOperation | GitHubOperation | LearningOperation,
+  operation: BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isBindingOperation(operation)) {
+    return handleBindingOperation(team, operation, input, credentials);
+  }
   if (isCapabilityOperation(operation)) {
     return handleCapabilityOperation(team, operation, input, credentials);
   }

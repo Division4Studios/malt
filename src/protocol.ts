@@ -21,10 +21,11 @@
 
 import { z } from 'zod/v3';
 
-import { connectorSchemas } from './connector-schemas.ts';
+import { connectorSchemas, isBindingOperation } from './connector-schemas.ts';
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
 import { terminalSchemas } from './factory/terminal-schema.ts';
 
+import type { BindingOperation } from './connector-schemas.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 
 export { FACTORY_OPERATIONS } from './factory/schema.ts';
@@ -895,10 +896,15 @@ export const participationPrompts: Readonly<Record<'lead' | 'worker' | 'learning
  * Identify project services that run outside SQLite transactions.
  *
  * @param operation - Validated wire operation.
- * @returns Whether it is a capability policy, GitHub or learning operation.
+ * @returns Whether it is an MCP binding, capability policy, GitHub or learning operation.
  */
 export function isProjectOperation(
   operation: Operation,
-): operation is CapabilityOperation | GitHubOperation | LearningOperation {
-  return isCapabilityOperation(operation) || isLearningOperation(operation) || isGitHubOperation(operation);
+): operation is BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation {
+  return (
+    isBindingOperation(operation) ||
+    isCapabilityOperation(operation) ||
+    isLearningOperation(operation) ||
+    isGitHubOperation(operation)
+  );
 }
