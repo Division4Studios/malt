@@ -192,6 +192,22 @@ The regression suite exercises real MCP transports, SQLite, loopback HTTP, local
 
 **Installed-shell lifecycle (#307).** The service worker installs every shell asset with `cache: 'reload'`, past the HTTP cache, into one content-revisioned cache, and retires older `malt-public-shell-*` revisions on activation. Offline answers come only from its own revision. A window whose page loaded from that cache keeps loading every module from it after the network returns, so a page never mixes revisions; a reload, or **Update console** once a new worker is waiting, moves it to the new shell. The worker never intercepts `/api/*`, `/sw.js`, query strings, non-GET or cross-origin requests. The console serves shell assets `no-cache` and every API, pairing and SSE response `no-store`. The status line distinguishes browser offline, connecting, reconnecting and retries stopped, and says whether any state is loaded. After live retries stop, the console keeps polling, and the first successful read reopens the live stream. `test/service-worker.test.ts` runs the compiled worker with fake caches and network and checks the real loopback headers; `test/connection-status.test.ts` covers the wording. Still unverified: install and launch in Chrome and Edge on desktop and in a mobile browser, a real update and offline cycle in an installed window, and the WCAG pass.
 
+**Accessibility pass (#261, static).** On 2026-10-17 a WCAG 2.2 AA static pass covered every stylesheet, the shell and every script-built dialog; `test/accessibility.test.ts` keeps it from regressing. It found and fixed:
+
+- Light-theme accent, warning and decorative text (`--cyan`, `--amber`, `--violet`) fell to 3.9–4.4:1 on some surfaces. They are darkened to at least 4.6:1 on every surface, and accent buttons use white text (5.5:1).
+- Selects, inputs, step editors, error panels, cost tiles and badges in the Board, workflow and Costs views used fixed dark colours. In the light theme that put dark text on near-black fields. They now use theme tokens.
+- The workflow revision-history and step-override dialogs had no accessible name; both are now labelled by their headings. A role-type selector's label was not translated.
+
+It also confirmed:
+
+- Theme text meets 4.5:1 on every surface in the dark, system-light and chosen-light themes.
+- One global `prefers-reduced-motion: reduce` rule turns off every animation and transition.
+- Both places that remove an outline (workflow map nodes and board cards) replace it with a visible focus style.
+- Every shell control and button has an accessible name.
+- Every stylesheet has narrow-screen rules.
+
+Still unverified, and needing a real browser and a person: a keyboard-only walk-through of each view, a screen-reader spot check, and visual narrow-layout checks of the capacity, handoff, activity, board and Inbox views.
+
 Managed identity retirement is fenced by the current job token. A stopped assignment can reconnect immediately through the other provider without losing its inbox; replaying an old completion cannot detach that replacement. Both provider launch policies explicitly permit the scoped messaging tools while retaining QA's readonly implementation boundary.
 
 ## Public-shell updates
