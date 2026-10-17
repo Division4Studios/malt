@@ -694,6 +694,10 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead or operator: save a new revision of a project workflow (planning and delivery steps, roles, gates, blind reviews). Pass the revision you started from, or null for a new workflow. Built-ins are read-only; save a copy under a new id. Running objectives keep the revision they started with.',
   factory_workflow_default:
     'Designated lead or operator: choose the workflow new objectives use. Existing objectives keep their frozen workflow.',
+  factory_ask:
+    'Live managed assignment on a delivery or objective only: ask the operator one question you cannot resolve from the brief, code or evidence, with up to six choices and optionally a written answer. Use a stable key; retries deduplicate. Then end the assignment with outcome blocked and the question as summary: the result is set aside without counting as a failed attempt, and this step runs again with the answer in its context. Never ask for secrets.',
+  factory_answer:
+    'Human operator only: answer one open agent question once, with one of its choices and/or text. Repeating the request id reports the first result. The step that asked runs again with the answer.',
   factory_gates:
     'Human operator only: change the plan or merge approval gate of one objective, or the merge gate of one delivery, before the work reaches that gate. Other deliveries keep the gates they froze.',
   factory_approve:

@@ -80,6 +80,7 @@ export const controlSchema = z
       'factory_workflow_save',
       'factory_workflow_default',
       'factory_approve',
+      'factory_answer',
       'factory_gates',
       'factory_cancel_job',
       'factory_capacity',

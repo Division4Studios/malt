@@ -27,6 +27,7 @@ import {
 } from './model-policy.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
+import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
@@ -555,6 +556,7 @@ export const factorySchemas = {
   ...telemetrySchemas,
   ...deliveryControlSchemas,
   ...automationSchemas,
+  ...questionSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -589,6 +591,7 @@ export const FACTORY_OPERATIONS = [
   ...TELEMETRY_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
+  ...QUESTION_OPERATIONS,
   'factory_gates',
   'factory_reconcile_github',
 ] as const;
