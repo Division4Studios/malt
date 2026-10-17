@@ -178,9 +178,8 @@ function pluralBranch(body: string, value: string | number, language: Locale): s
   const rules = new Intl.PluralRules(language);
   const category = rules.select(count);
   const branch = branches.get(`=${String(count)}`) ?? branches.get(category) ?? branches.get('other') ?? '';
-  const numbers = new Intl.NumberFormat(language);
-  const formatted = numbers.format(count);
-  return branch.replaceAll('#', () => formatted);
+  // `#` shows the value exactly like a plain `{name}` placeholder does.
+  return branch.replaceAll('#', () => String(value));
 }
 
 /**

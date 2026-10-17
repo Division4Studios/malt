@@ -20,17 +20,6 @@ const SECTION_TITLES: Readonly<Record<SectionName, string>> = translated({
 });
 
 /**
- * Plural-aware count.
- *
- * @param count - Quantity.
- * @param noun - Singular noun.
- * @returns Phrase such as "1 step" or "3 steps".
- */
-export function countLabel(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`;
-}
-
-/**
  * Badges that describe a step's special behaviour.
  *
  * @param step - Step to describe.
@@ -120,7 +109,10 @@ function sectionPreview(section: SectionName, steps: readonly DraftStep[], flagg
   const summary =
     steps.length === 0
       ? t('No planning: the objective is the single delivery.')
-      : `${countLabel(steps.length, 'step')} in ${countLabel(groups.length, 'layer')}`;
+      : t('{steps, plural, one {# step} other {# steps}} in {layers, plural, one {# layer} other {# layers}}', {
+          steps: steps.length,
+          layers: groups.length,
+        });
   node.append(heading, element('p', 'wf-hint', summary));
   if (steps.length === 0) {
     return node;

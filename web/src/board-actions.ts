@@ -16,16 +16,6 @@ import type { ControlSender } from './approval-dialog.js';
 import type { BoardGroups } from './board-model.js';
 import type { ConsoleModel } from './console-model.js';
 
-/**
- * A count with its noun.
- *
- * @param count - How many deliveries.
- * @returns For example "1 delivery" or "3 deliveries".
- */
-function deliveries(count: number): string {
-  return `${String(count)} deliver${count === 1 ? 'y' : 'ies'}`;
-}
-
 /** The bulk action bar and archived list under the board filters. */
 export class BoardActions {
   /** Stable root. */
@@ -82,9 +72,13 @@ export class BoardActions {
    */
   public update(groups: BoardGroups, model: ConsoleModel): void {
     this.targets = bulkTargets(groups);
-    this.hold.textContent = t('Hold {value} shown', { value: deliveries(this.targets.hold.length) });
+    this.hold.textContent = t('Hold {count, plural, one {# delivery} other {# deliveries}} shown', {
+      count: this.targets.hold.length,
+    });
     this.hold.disabled = this.targets.hold.length === 0;
-    this.resume.textContent = t('Resume {value} shown', { value: deliveries(this.targets.resume.length) });
+    this.resume.textContent = t('Resume {count, plural, one {# delivery} other {# deliveries}} shown', {
+      count: this.targets.resume.length,
+    });
     this.resume.disabled = this.targets.resume.length === 0;
     this.archive.disabled = model.deliveries.every((delivery) => delivery.phase !== 'done');
     this.archived.hidden = model.archived.total === 0;
@@ -120,7 +114,12 @@ export class BoardActions {
   private async bulkHold(isHold: boolean): Promise<void> {
     const taskIds = isHold ? this.targets.hold : this.targets.resume;
     const isSure = await isConfirmed(this.element, {
-      title: t(isHold ? 'Hold {value}?' : 'Resume {value}?', { value: deliveries(taskIds.length) }),
+      title: t(
+        isHold
+          ? 'Hold {count, plural, one {# delivery} other {# deliveries}}?'
+          : 'Resume {count, plural, one {# delivery} other {# deliveries}}?',
+        { count: taskIds.length },
+      ),
       message: t(
         isHold
           ? 'No new attempt starts on them until you resume. Attempts already running finish normally.'

@@ -106,7 +106,7 @@ function references(task: Data, state: Snapshot): HTMLElement {
   const row = element('div', 'triage-refs');
   const repository = text(child(state.github, 'connection'), 'repository');
   if (/^[\w\-.]+\/[\w\-.]+$/v.test(repository)) {
-    const issue = element('a', '', `ISSUE ${String(number(task, 'issue'))}`);
+    const issue = element('a', '', t('ISSUE {issue}', { issue: number(task, 'issue') }));
     issue.href = `https://github.com/${repository}/issues/${String(number(task, 'issue'))}`;
     issue.target = '_blank';
     issue.rel = 'noopener noreferrer';
@@ -114,14 +114,15 @@ function references(task: Data, state: Snapshot): HTMLElement {
   }
   const raw = text(task, 'prUrl');
   if (raw.startsWith('https://github.com/')) {
-    const link = element('a', '', `PR ${String(number(task, 'pr'))}`);
+    const link = element('a', '', t('PR {pr}', { pr: number(task, 'pr') }));
     link.href = raw;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
     row.append(link);
   }
   const owner = text(task, 'developer');
-  row.append(element('span', 'subtle', `OWNER ${owner === '' ? 'unassigned' : owner}`));
+  const ownerName = owner === '' ? t('unassigned') : owner;
+  row.append(element('span', 'subtle', t('OWNER {owner}', { owner: ownerName })));
   return row;
 }
 

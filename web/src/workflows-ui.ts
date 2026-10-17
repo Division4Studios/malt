@@ -14,7 +14,7 @@ import { badge, button, isConfirmed, focusKey, rememberFocus, restoreFocus } fro
 import { WorkflowEditor } from './workflow-editor.js';
 import { HistoryDialog } from './workflow-history-ui.js';
 import { blankDraft, defaultRequest, draftFrom, parseLibrary } from './workflow-model.js';
-import { countLabel, pipelinePreview } from './workflow-preview.js';
+import { pipelinePreview } from './workflow-preview.js';
 
 import type { ControlResult } from './workflow-editor.js';
 import type { DraftOrigin, DraftWorkflow, Library, LibraryItem } from './workflow-model.js';
@@ -57,8 +57,11 @@ function stepCounts(workflow: DraftWorkflow): string {
   const planning =
     workflow.planning.length === 0
       ? t('No planning')
-      : t('Planning: {value}', { value: countLabel(workflow.planning.length, 'step') });
-  return t('{planning} · Delivery: {value}', { planning, value: countLabel(workflow.delivery.length, 'step') });
+      : t('Planning: {count, plural, one {# step} other {# steps}}', { count: workflow.planning.length });
+  return t('{planning} · Delivery: {count, plural, one {# step} other {# steps}}', {
+    planning,
+    count: workflow.delivery.length,
+  });
 }
 
 /** Stateful workflows controller. */
@@ -226,7 +229,9 @@ class WorkflowsView {
       const mark = rememberFocus(this.list);
       this.list.replaceChildren(...this.library.items.map((item) => this.card(item, item.id === viewed?.id)));
       restoreFocus(this.list, mark);
-      this.count.textContent = countLabel(this.library.items.length, 'workflow');
+      this.count.textContent = t('{count, plural, one {# workflow} other {# workflows}}', {
+        count: this.library.items.length,
+      });
     }
     if (this.library.items.length === 0) {
       this.list.replaceChildren(

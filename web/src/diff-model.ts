@@ -285,10 +285,8 @@ export function fileNotes(file: DiffFileView): string[] {
  */
 export function totalsText(summary: Extract<DiffSummaryView, { state: 'ready' }>): string {
   const { files, additions, deletions } = summary.totals;
-  const noun = files === 1 ? 'file' : 'files';
-  return t('{files} {noun} changed · +{additions} −{deletions}', {
+  return t('{files, plural, one {# file} other {# files}} changed · +{additions} −{deletions}', {
     files,
-    noun,
     additions,
     deletions,
   });
@@ -311,12 +309,11 @@ export function summaryNotes(summary: Extract<DiffSummaryView, { state: 'ready' 
     );
   }
   if (summary.privateChanges > 0) {
-    const noun = summary.privateChanges === 1 ? 'path' : 'paths';
     notes.push(
-      t('{privateChanges} private runtime or credential {noun} changed and are not shown.', {
-        privateChanges: summary.privateChanges,
-        noun,
-      }),
+      t(
+        '{privateChanges, plural, one {# private runtime or credential path} other {# private runtime or credential paths}} changed and are not shown.',
+        { privateChanges: summary.privateChanges },
+      ),
     );
   }
   return notes;

@@ -296,7 +296,7 @@ function preflightStep(preflight: PreflightView | null): OnboardingStep {
       detail: t("{failures} failed. Fix them on the broker's machine and run the checks again.", { failures }),
     };
   }
-  const suggestions = t('{fixes} suggested fix{value}', { fixes, value: fixes === 1 ? '' : 'es' });
+  const suggestions = t('{fixes, plural, one {# suggested fix} other {# suggested fixes}}', { fixes });
   return {
     id: 'preflight',
     title,

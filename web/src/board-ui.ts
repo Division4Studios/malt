@@ -428,10 +428,7 @@ class BoardView {
     }
     restoreFocus(this.root, focused);
     if (isFilterChange) {
-      this.status.textContent = t('{shown} card{value} shown.', {
-        shown,
-        value: shown === 1 ? '' : 's',
-      });
+      this.status.textContent = t('{shown, plural, one {# card shown.} other {# cards shown.}}', { shown });
     }
   }
 

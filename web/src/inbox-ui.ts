@@ -172,8 +172,10 @@ class InboxView {
     restoreFocus(this.root, focused, this.heading());
     const count = model.open.length;
     if (this.lastCount !== -1 && this.lastCount !== count) {
-      const plural = t(count === 1 ? 'decision needs' : 'decisions need');
-      this.status.textContent = count === 0 ? t('Nothing needs you.') : `${String(count)} ${plural} you.`;
+      this.status.textContent =
+        count === 0
+          ? t('Nothing needs you.')
+          : t('{count, plural, one {# decision needs you.} other {# decisions need you.}}', { count });
     }
     this.lastCount = model.open.length;
   }

@@ -235,9 +235,12 @@ class AutomationEditor {
     this.kind = kind;
     this.editing = editing;
     const draft = draftOf(editing);
-    const noun = kind === 'schedule' ? 'schedule' : 'trigger';
-    this.heading.textContent =
-      editing === null ? t('New {noun}', { noun }) : t('Edit {noun}: {name}', { noun, name: editing.name });
+    const isSchedule = kind === 'schedule';
+    const blankTitle = t(isSchedule ? 'New schedule' : 'New trigger');
+    const editingTitle = t(isSchedule ? 'Edit schedule: {name}' : 'Edit trigger: {name}', {
+      name: editing?.name ?? '',
+    });
+    this.heading.textContent = editing === null ? blankTitle : editingTitle;
     this.name.value = draft.name;
     this.objective.value = draft.objective;
     this.workflow.replaceChildren(new Option(t('Project default'), ''));
@@ -365,7 +368,7 @@ class SecretDialog {
       this.secretRow,
       labelled(t('curl (macOS, Linux, Git Bash)'), this.curl),
       this.copyButton(t('Copy curl command'), () => this.curl.value, this.curl),
-      labelled('PowerShell', this.powershell),
+      labelled(t('PowerShell'), this.powershell),
       this.copyButton(t('Copy PowerShell command'), () => this.powershell.value, this.powershell),
       this.status,
       actions,
@@ -519,29 +522,15 @@ class AutomationsView implements ConsoleViewHandle {
       }),
     );
     const scheduleSection = element('section', 'automation-section');
-    scheduleSection.append(
-      element('h2', '', t('Schedules')),
-      element(
-        'p',
-        'subtle',
-        t(
-          'Each fire files the objective while the factory runs. Runs missed while it was paused file one objective when it resumes.',
-        ),
-      ),
-      this.schedules,
+    const scheduleNote = t(
+      'Each fire files the objective while the factory runs. Runs missed while it was paused file one objective when it resumes.',
     );
+    scheduleSection.append(element('h2', '', t('Schedules')), element('p', 'subtle', scheduleNote), this.schedules);
     const triggerSection = element('section', 'automation-section');
-    triggerSection.append(
-      element('h2', '', t('Triggers')),
-      element(
-        'p',
-        'subtle',
-        t(
-          'A local script files the objective by POSTing to the broker with the trigger secret. Calls are limited to ten a minute.',
-        ),
-      ),
-      this.triggers,
+    const triggerNote = t(
+      'A local script files the objective by POSTing to the broker with the trigger secret. Calls are limited to ten a minute.',
     );
+    triggerSection.append(element('h2', '', t('Triggers')), element('p', 'subtle', triggerNote), this.triggers);
     this.element.append(toolbar, scheduleSection, triggerSection, this.editor.element, this.secrets.element);
   }
 

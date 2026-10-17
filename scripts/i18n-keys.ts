@@ -120,7 +120,7 @@ function firstArgumentLiterals(source: string, start: number): string[] {
   let previous = '(';
   while (index < source.length && source[index] !== ',' && source[index] !== ')') {
     const character = source[index] ?? '';
-    if (character === "'") {
+    if (character === "'" || character === '"') {
       const quoted = readQuoted(source, index);
       if (MESSAGE_POSITIONS.has(previous)) {
         literals.push(quoted.value);
@@ -160,7 +160,8 @@ export function moduleMessages(source: string): string[] {
  * @returns English shell messages.
  */
 export function shellMessages(html: string): string[] {
-  const body = html.slice(html.indexOf('<body')).replaceAll(/<code>[^<]*<\/code>/gv, ' ');
+  // Code samples stay as written; their element still splits the text around them.
+  const body = html.slice(html.indexOf('<body')).replaceAll(/<code>[^<]*<\/code>/gv, '<code>');
   const texts = body
     .split('<')
     .map((part) => part.slice(part.indexOf('>') + 1))

@@ -39,7 +39,7 @@ import {
   updateStep,
   withKind,
 } from './workflow-model.js';
-import { pipelinePreview, countLabel } from './workflow-preview.js';
+import { pipelinePreview } from './workflow-preview.js';
 import { stepEditor } from './workflow-step-editor.js';
 
 import type { Problem } from './workflow-checks.js';
@@ -586,9 +586,10 @@ export class WorkflowEditor {
     const summary =
       problems.length === 0
         ? t('Browser checks found no problems. The server checks every rule again when you save.')
-        : t('Browser checks found {value}, shown next to each step. You can still save; the server decides.', {
-            value: countLabel(problems.length, 'problem'),
-          });
+        : t(
+            'Browser checks found {count, plural, one {# problem} other {# problems}}, shown next to each step. You can still save; the server decides.',
+            { count: problems.length },
+          );
     if (this.summary.textContent !== summary) {
       this.summary.textContent = summary;
     }
