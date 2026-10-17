@@ -328,3 +328,11 @@ await test('objective overrides change only planning steps that have not started
     });
   }, /exactly one delivery or one objective/v);
 });
+
+await test('a delivery freezes its objective merge gate when it is provisioned', (t) => {
+  for (const isGated of [true, false]) {
+    const context = fixture(t);
+    const { featureId } = queueObjective(context.repository, { objective: 'Merge gate', gates: { merge: isGated } });
+    assert.equal(provision(context, featureId).gates?.merge, isGated);
+  }
+});
