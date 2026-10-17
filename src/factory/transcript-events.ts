@@ -9,6 +9,24 @@ import { z } from 'zod/v3';
 
 import type { TranscriptBuilder } from './transcript-builder.ts';
 
+/** What a decoder writes to: the transcript builder, or the liveness progress decoder. */
+export type TranscriptSink = Pick<
+  TranscriptBuilder,
+  | 'text'
+  | 'openTool'
+  | 'closeTool'
+  | 'fileChange'
+  | 'touch'
+  | 'addUsage'
+  | 'report'
+  | 'addTurn'
+  | 'setModel'
+  | 'countMalformed'
+  | 'countUnknown'
+  | 'markProviderError'
+  | 'awaitInput'
+>;
+
 /** Claude tools whose input names a file being written, and the naming field. */
 const CLAUDE_EDIT_TOOLS = new Map([
   ['Edit', 'file_path'],
@@ -16,6 +34,13 @@ const CLAUDE_EDIT_TOOLS = new Map([
   ['MultiEdit', 'file_path'],
   ['NotebookEdit', 'notebook_path'],
 ]);
+/** Claude tools that stop to ask the operator a question. */
+const CLAUDE_INPUT_TOOLS = new Set(['AskUserQuestion']);
+/** Tool results that mean the provider is waiting for a permission it was not given. */
+const PERMISSION_PATTERN =
+  /haven't granted|permission (?:denied|required|to use)|requested permissions?|requires? (?:your )?approval|waiting for (?:user )?(?:approval|input)/iv;
+/** Session notices and Codex event or item types that wait for operator input or approval. */
+const INPUT_WAIT_PATTERN = /approval|elicitation|permission|request_input|user_input/iv;
 /** Phrases that identify provider rate or usage limits in error text. */
 const LIMIT_PATTERN = /rate.?limit|usage.?limit|quota/iv;
 /** Codex item statuses that mean the call did not succeed. */
@@ -141,7 +166,7 @@ const codexFailureSchema = z.object({ error: messageSchema.optional() });
  * @param line - One raw stream line.
  * @returns Validated envelope, or null for blank or malformed lines.
  */
-function envelope(builder: TranscriptBuilder, line: string): Envelope | null {
+function envelope(builder: TranscriptSink, line: string): Envelope | null {
   if (line.trim() === '') {
     return null;
   }
@@ -180,8 +205,11 @@ function resultText(content: unknown): string {
  * @param builder - Transcript accumulator.
  * @param tool - Validated tool use block.
  */
-function claudeToolUse(builder: TranscriptBuilder, tool: z.output<typeof toolUseBlockSchema>): void {
+function claudeToolUse(builder: TranscriptSink, tool: z.output<typeof toolUseBlockSchema>): void {
   builder.openTool(tool.id, tool.name, tool.input);
+  if (CLAUDE_INPUT_TOOLS.has(tool.name)) {
+    builder.awaitInput(`Question through ${tool.name}`, tool.id);
+  }
   const key = CLAUDE_EDIT_TOOLS.get(tool.name);
   const fields = fieldsSchema.safeParse(tool.input);
   const target = key === undefined || !fields.success ? undefined : fields.data[key];
@@ -196,7 +224,7 @@ function claudeToolUse(builder: TranscriptBuilder, tool: z.output<typeof toolUse
  * @param builder - Transcript accumulator.
  * @param block - Untrusted content block.
  */
-function claudeAssistantBlock(builder: TranscriptBuilder, block: unknown): void {
+function claudeAssistantBlock(builder: TranscriptSink, block: unknown): void {
   const text = textBlockSchema.safeParse(block);
   if (text.success) {
     builder.text('assistant', 'Assistant', text.data.text);
@@ -219,15 +247,17 @@ function claudeAssistantBlock(builder: TranscriptBuilder, block: unknown): void 
  * @param builder - Transcript accumulator.
  * @param block - Untrusted content block from a user message.
  */
-function claudeToolResult(builder: TranscriptBuilder, block: unknown): void {
+function claudeToolResult(builder: TranscriptSink, block: unknown): void {
   const result = toolResultBlockSchema.safeParse(block);
   if (!result.success) {
     return;
   }
-  builder.closeTool(result.data.tool_use_id, resultText(result.data.content), {
-    isError: result.data.is_error === true,
-    exitCode: null,
-  });
+  const output = resultText(result.data.content);
+  const isError = result.data.is_error === true;
+  if (isError && PERMISSION_PATTERN.test(output)) {
+    builder.awaitInput('Permission not granted for a tool call', result.data.tool_use_id);
+  }
+  builder.closeTool(result.data.tool_use_id, output, { isError, exitCode: null });
 }
 
 /**
@@ -236,7 +266,7 @@ function claudeToolResult(builder: TranscriptBuilder, block: unknown): void {
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function claudeMessage(builder: TranscriptBuilder, event: Envelope): void {
+function claudeMessage(builder: TranscriptSink, event: Envelope): void {
   const message = claudeMessageSchema.safeParse(event);
   if (!message.success || typeof message.data.message.content === 'string') {
     return;
@@ -275,7 +305,7 @@ function resultBody(result: z.output<typeof claudeResultSchema>): string {
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function claudeResult(builder: TranscriptBuilder, event: Envelope): void {
+function claudeResult(builder: TranscriptSink, event: Envelope): void {
   const parsed = claudeResultSchema.safeParse(event);
   if (!parsed.success) {
     builder.countUnknown();
@@ -311,7 +341,7 @@ function claudeResult(builder: TranscriptBuilder, event: Envelope): void {
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function claudeRate(builder: TranscriptBuilder, event: Envelope): void {
+function claudeRate(builder: TranscriptSink, event: Envelope): void {
   const rate = claudeRateSchema.safeParse(event);
   if (!rate.success || rate.data.rate_limit_info.status === 'allowed') {
     return;
@@ -327,7 +357,7 @@ function claudeRate(builder: TranscriptBuilder, event: Envelope): void {
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function claudeSystem(builder: TranscriptBuilder, event: Envelope): void {
+function claudeSystem(builder: TranscriptSink, event: Envelope): void {
   const system = claudeSystemSchema.safeParse(event);
   if (!system.success) {
     builder.countUnknown();
@@ -337,11 +367,14 @@ function claudeSystem(builder: TranscriptBuilder, event: Envelope): void {
     builder.setModel(system.data.model);
   }
   const subtype = system.data.subtype ?? 'system';
+  if (INPUT_WAIT_PATTERN.test(subtype)) {
+    builder.awaitInput(`Session notice: ${subtype}`, null);
+  }
   builder.text('status', subtype === 'init' ? 'Session started' : `System: ${subtype}`, system.data.model ?? '');
 }
 
 /** Claude event handlers keyed by event type. */
-const CLAUDE_HANDLERS = new Map<string, (builder: TranscriptBuilder, event: Envelope) => void>([
+const CLAUDE_HANDLERS = new Map<string, (builder: TranscriptSink, event: Envelope) => void>([
   ['system', claudeSystem],
   ['rate_limit_event', claudeRate],
   ['assistant', claudeMessage],
@@ -355,7 +388,7 @@ const CLAUDE_HANDLERS = new Map<string, (builder: TranscriptBuilder, event: Enve
  * @param builder - Transcript accumulator.
  * @param line - One raw stream line.
  */
-export function claudeLine(builder: TranscriptBuilder, line: string): void {
+export function claudeLine(builder: TranscriptSink, line: string): void {
   const event = envelope(builder, line);
   if (event === null) {
     return;
@@ -375,7 +408,7 @@ export function claudeLine(builder: TranscriptBuilder, line: string): void {
  * @param item - Untrusted item.
  * @param phase - Lifecycle phase.
  */
-function codexCommand(builder: TranscriptBuilder, item: Item, phase: Phase): void {
+function codexCommand(builder: TranscriptSink, item: Item, phase: Phase): void {
   const command = codexCommandSchema.safeParse(item);
   if (!command.success) {
     builder.countUnknown();
@@ -397,7 +430,7 @@ function codexCommand(builder: TranscriptBuilder, item: Item, phase: Phase): voi
  * @param item - Untrusted item.
  * @param phase - Lifecycle phase.
  */
-function codexMcp(builder: TranscriptBuilder, item: Item, phase: Phase): void {
+function codexMcp(builder: TranscriptSink, item: Item, phase: Phase): void {
   const call = codexMcpSchema.safeParse(item);
   if (!call.success) {
     builder.countUnknown();
@@ -423,7 +456,7 @@ function codexMcp(builder: TranscriptBuilder, item: Item, phase: Phase): void {
  * @param item - Untrusted item.
  * @param phase - Lifecycle phase.
  */
-function codexSearch(builder: TranscriptBuilder, item: Item, phase: Phase): void {
+function codexSearch(builder: TranscriptSink, item: Item, phase: Phase): void {
   const search = codexSearchSchema.safeParse(item);
   builder.openTool(item.id, 'web_search', { query: search.success ? search.data.query : '' });
   if (phase === 'completed') {
@@ -437,7 +470,7 @@ function codexSearch(builder: TranscriptBuilder, item: Item, phase: Phase): void
  * @param builder - Transcript accumulator.
  * @param item - Untrusted item.
  */
-function codexCompleted(builder: TranscriptBuilder, item: Item): void {
+function codexCompleted(builder: TranscriptSink, item: Item): void {
   const text = codexTextSchema.safeParse(item);
   const changes = codexFileChangeSchema.safeParse(item);
   const todo = codexTodoSchema.safeParse(item);
@@ -459,7 +492,7 @@ function codexCompleted(builder: TranscriptBuilder, item: Item): void {
 }
 
 /** Codex tool-like item handlers keyed by item type. */
-const CODEX_TOOLS = new Map<string, (builder: TranscriptBuilder, item: Item, phase: Phase) => void>([
+const CODEX_TOOLS = new Map<string, (builder: TranscriptSink, item: Item, phase: Phase) => void>([
   ['command_execution', codexCommand],
   ['mcp_tool_call', codexMcp],
   ['web_search', codexSearch],
@@ -472,7 +505,7 @@ const CODEX_TOOLS = new Map<string, (builder: TranscriptBuilder, item: Item, pha
  * @param event - Validated envelope.
  * @param phase - Lifecycle phase from the event type.
  */
-function codexItem(builder: TranscriptBuilder, event: Envelope, phase: Phase): void {
+function codexItem(builder: TranscriptSink, event: Envelope, phase: Phase): void {
   const parsed = codexItemEventSchema.safeParse(event);
   if (!parsed.success) {
     builder.countUnknown();
@@ -480,7 +513,9 @@ function codexItem(builder: TranscriptBuilder, event: Envelope, phase: Phase): v
   }
   const { item } = parsed.data;
   const tool = CODEX_TOOLS.get(item.type);
-  if (tool !== undefined) {
+  if (INPUT_WAIT_PATTERN.test(item.type)) {
+    builder.awaitInput(`Waiting on ${item.type}`, item.id);
+  } else if (tool !== undefined) {
     tool(builder, item, phase);
   } else if (phase === 'completed') {
     codexCompleted(builder, item);
@@ -493,7 +528,7 @@ function codexItem(builder: TranscriptBuilder, event: Envelope, phase: Phase): v
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function codexTurn(builder: TranscriptBuilder, event: Envelope): void {
+function codexTurn(builder: TranscriptSink, event: Envelope): void {
   builder.addTurn();
   const usage = codexUsageSchema.safeParse(event['usage']);
   if (!usage.success) {
@@ -515,7 +550,7 @@ function codexTurn(builder: TranscriptBuilder, event: Envelope): void {
  * @param builder - Transcript accumulator.
  * @param event - Validated envelope.
  */
-function codexError(builder: TranscriptBuilder, event: Envelope): void {
+function codexError(builder: TranscriptSink, event: Envelope): void {
   const isTurn = event.type === 'turn.failed';
   const turnMessage = codexFailureSchema.safeParse(event).data?.error?.message;
   const streamMessage = messageSchema.safeParse(event).data?.message;
@@ -532,7 +567,7 @@ function codexError(builder: TranscriptBuilder, event: Envelope): void {
  *
  * @param builder - Transcript accumulator.
  */
-function codexSession(builder: TranscriptBuilder): void {
+function codexSession(builder: TranscriptSink): void {
   builder.text('status', 'Session started', '');
 }
 
@@ -542,7 +577,7 @@ function ignoreEvent(): void {
 }
 
 /** Codex lifecycle handlers keyed by event type. */
-const CODEX_LIFECYCLE = new Map<string, (builder: TranscriptBuilder, event: Envelope) => void>([
+const CODEX_LIFECYCLE = new Map<string, (builder: TranscriptSink, event: Envelope) => void>([
   ['turn.completed', codexTurn],
   ['turn.failed', codexError],
   ['error', codexError],
@@ -562,7 +597,7 @@ const CODEX_PHASES = new Map<string, Phase>([
  * @param builder - Transcript accumulator.
  * @param line - One raw stream line.
  */
-export function codexLine(builder: TranscriptBuilder, line: string): void {
+export function codexLine(builder: TranscriptSink, line: string): void {
   const event = envelope(builder, line);
   if (event === null) {
     return;
@@ -571,6 +606,8 @@ export function codexLine(builder: TranscriptBuilder, line: string): void {
   const lifecycle = CODEX_LIFECYCLE.get(event.type);
   if (phase !== undefined) {
     codexItem(builder, event, phase);
+  } else if (INPUT_WAIT_PATTERN.test(event.type)) {
+    builder.awaitInput(`Waiting on ${event.type}`, null);
   } else if (lifecycle === undefined) {
     builder.countUnknown();
   } else {

@@ -11,10 +11,11 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
-import { checkpointDecision, firstCheckpoint } from '../src/factory/liveness.ts';
+import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 
-import type { LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { ProgressObservation } from '../src/factory/liveness.ts';
 import type { FactoryJob } from '../src/factory/schema.ts';
 
 /** One minute. */
@@ -84,6 +85,104 @@ await test('saved configurations parse unchanged and idle work still stops at th
   const legacy = jobSchema.parse(jobFields({}));
   assert.equal(legacy.liveness, undefined);
   assert.equal(legacy.failureClass, undefined);
+});
+
+/** A monitor driven by a fake clock and manual timers. */
+interface Harness {
+  /** Monitor under test. */
+  readonly monitor: LivenessMonitor;
+  /** Recorded liveness records. */
+  readonly records: JobLiveness[];
+  /** Stop reasons. */
+  readonly stops: string[];
+  /** Advance the clock and run one check. */
+  readonly advance: (now: number, observation: ProgressObservation) => Promise<void>;
+  /** Pending timer delays. */
+  readonly delays: number[];
+}
+
+/**
+ * Build a monitor on the test policy whose clock and samples the test controls.
+ *
+ * @returns Monitor, its records, stops and timer requests.
+ */
+function harness(): Harness {
+  let clock = 0;
+  let next: ProgressObservation = { progress: null, awaiting: null };
+  const records: JobLiveness[] = [];
+  const stops: string[] = [];
+  const delays: number[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => clock,
+    sample: async () => {
+      await Promise.resolve();
+      return next;
+    },
+    record: (liveness) => {
+      records.push(liveness);
+    },
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (_callback, ms) => {
+      delays.push(ms);
+      return () => {
+        delays.push(-1);
+      };
+    },
+  });
+  monitor.start();
+  return {
+    monitor,
+    records,
+    stops,
+    delays,
+    advance: async (now, observation) => {
+      clock = now;
+      next = observation;
+      await monitor.check();
+    },
+  };
+}
+
+await test('the monitor extends productive work, records awaiting input and stops a stall', async () => {
+  const run1 = harness();
+  assert.equal(run1.records[0]?.state, 'idle');
+  assert.equal(run1.delays[0], MINUTE);
+  await run1.advance(8 * MINUTE, { progress: 'tool Bash', awaiting: null });
+  assert.equal(run1.monitor.liveness.state, 'progressing');
+  assert.equal(run1.monitor.liveness.lastSignal, 'tool Bash');
+  await run1.advance(10 * MINUTE, { progress: null, awaiting: null });
+  assert.equal(run1.monitor.liveness.extensions, 1);
+  assert.equal(run1.monitor.liveness.nextCheckpointAt, 20 * MINUTE);
+  assert.deepEqual(run1.stops, []);
+  await run1.advance(12 * MINUTE, { progress: null, awaiting: 'Permission not granted for a tool call' });
+  assert.equal(run1.monitor.liveness.state, 'awaiting_input');
+  await run1.advance(20 * MINUTE, { progress: null, awaiting: null });
+  assert.deepEqual(run1.stops, ['stalled 12 min (awaiting input)']);
+  assert.equal(run1.monitor.liveness.state, 'stalled');
+  assert.equal(run1.records.at(-1)?.stopReason, 'stalled 12 min (awaiting input)');
+  const recorded = run1.records.length;
+  await run1.advance(30 * MINUTE, { progress: 'tool Bash', awaiting: null });
+  assert.equal(run1.records.length, recorded, 'a stopped monitor records nothing more');
+
+  const run2 = harness();
+  for (const minute of [9, 19]) {
+    await run2.advance(minute * MINUTE, { progress: `tool ${String(minute)}`, awaiting: null });
+
+    await run2.advance((minute + 1) * MINUTE, { progress: null, awaiting: null });
+  }
+  await run2.advance(25 * MINUTE, { progress: 'tool late', awaiting: null });
+  assert.deepEqual(run2.stops, ['hard ceiling']);
+  assert.equal(run2.monitor.liveness.extensions, 2);
+
+  const run3 = harness();
+  run3.monitor.dispose();
+  assert.equal(run3.delays.at(-1), -1, 'dispose cancels the pending wake-up');
+  await run3.advance(30 * MINUTE, { progress: null, awaiting: null });
+  assert.deepEqual(run3.stops, []);
 });
 
 /**
