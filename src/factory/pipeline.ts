@@ -781,5 +781,7 @@ export function stepEvidence(task: FactoryTask, workflow: Workflow, step: Workfl
     reviews: task.reviews.filter((review) => visible.some((candidate) => isReviewOf(review, candidate))),
     stepResults: task.stepResults.filter((result) => readable.has(result.stepId)),
     approvals: task.approvals.filter((approval) => readable.has(approval.stepId)),
+    // Feedback names no step, so a step with an explicit input list does not receive it.
+    ...(step.inputs !== null && { feedback: [] }),
   };
 }

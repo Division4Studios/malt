@@ -250,6 +250,9 @@ await test('blind reviews see no peer findings; others see only steps they may r
     stepEvidence(task, workflow, final).reviews.map((entry) => entry.stepId),
     ['review', 'blind'],
   );
+  assert.deepEqual(stepEvidence(task, workflow, final).feedback, ['Earlier defect'], 'ancestors keep feedback');
+  const listed = { ...final, inputs: ['review'] };
+  assert.deepEqual(stepEvidence(task, workflow, listed).feedback, [], 'an explicit input list withholds feedback');
 });
 
 await test('seats are chosen deterministically and a running step is never duplicated', () => {
