@@ -58,6 +58,8 @@ export interface ClientResults
   extends StoreResults, Record<LearningOperation | FactoryOperation | CapabilityOperation, unknown> {
   /** This project's non-secret GitHub connection and pending operations. */
   readonly github_status: unknown;
+  /** Read-only setup discovery of the account, repositories, Projects and capabilities. */
+  readonly github_discover: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

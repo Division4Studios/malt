@@ -16,7 +16,7 @@ configured by this connection form.
 
 Merged slices include [tracker/source records](connection-records.md) (#73 / PR #122), the [capability policy store](capability-policy.md) (#74 / PR #123), additive provider-typed work keys (#75 / PR #124), and connection-bound issue recovery (#82 / PR #122). Existing numeric readers remain in use. A stored capability mode is not yet an enforced permission boundary.
 
-Opaque connector credential handles are implemented ([connection records](connection-records.md#credential-handles), #77). Read-only discovery, universal ProjectGitHub capability checks, per-step verification and the matrix UI remain queued. So do label/milestone/view management and real Jira discovery. See [#72](https://github.com/Division4Studios/malt/issues/72), the [complete audit](issue-audit-2026-10-15.md) and [current capabilities](current-status.md). The requirements below describe remaining integration, not completed behavior.
+Opaque connector credential handles are implemented ([connection records](connection-records.md#credential-handles), #77). Read-only discovery (`mesh_github_discover`, #76) is implemented too. Universal ProjectGitHub capability checks, per-step verification and the matrix UI remain queued. So do label/milestone/view management and real Jira discovery. See [#72](https://github.com/Division4Studios/malt/issues/72), the [complete audit](issue-audit-2026-10-15.md) and [current capabilities](current-status.md). The requirements below describe remaining integration, not completed behavior.
 
 ## Independent work-tracker and source-control connections
 
