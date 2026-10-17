@@ -306,7 +306,7 @@ Recovery decisions are operator-only. Recovery guidance is bound to the selected
 
 The capacity panel presents **Subscription limits**, **Diagnostic usage**, then **Local machine** in DOM and visual order. Disabled providers remain visible but are not eligible for dispatch. Each window names its observed percentage, reset, observation time, freshness and source; unknown utilization is never rendered as zero. Reached limits have readable text. Legacy scalar summaries do not infer window durations or absolute allowances. Token counts are diagnostics, not API credits or subscription remaining. Locally launched subscription CLIs still use provider-hosted models.
 
-After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks real browser reading order, multiple windows, zero, saturation, stale and missing data, disabled providers, hostile labels, legacy summaries and project replacement. This fixture uses public synthetic state, not account telemetry.
+After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks real browser reading order, multiple windows, zero, saturation, stale and missing data, disabled providers, hostile labels, legacy summaries and project replacement. This fixture uses public synthetic state, not account telemetry. `test/capacity-panel.test.ts` renders the same panel into a text-only DOM on every `npm test` run: section and reading order, each observation state, disabled providers, hostile labels as text, in-place sample refreshes and project replacement; the narrow-screen rules (wrapping observations, a scrolling process table) are asserted against `web/style.css`. A real screen-reader pass belongs to the installed-PWA audit (#261).
 
 ### Why local work is parked
 

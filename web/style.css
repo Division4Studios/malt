@@ -600,9 +600,16 @@ h3 {
 }
 .capacity-details {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   font: 10px monospace;
   color: var(--muted);
+  overflow-wrap: anywhere;
+}
+/* The owned-process table scrolls inside the panel on narrow screens. */
+.process-usage {
+  max-width: 100%;
+  overflow-x: auto;
 }
 .empty {
   text-align: center;

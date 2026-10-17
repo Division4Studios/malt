@@ -70,4 +70,11 @@ declare module '*/web/dist/capacity-details.js' {
    * @returns Process rows and roles without a measured process.
    */
   export function processUsageRows(factory: Record<string, unknown>): { rows: string[][]; unavailable: string[] };
+
+  /**
+   * Refresh measured values in the mounted capacity panel without rebuilding it.
+   *
+   * @param factory - Latest project-scoped factory snapshot.
+   */
+  export function refreshCapacitySamples(factory: unknown): void;
 }
