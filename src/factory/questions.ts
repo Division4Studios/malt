@@ -21,6 +21,7 @@ import { run, selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
+import { attemptSecrets } from './attempt-secrets.ts';
 import { credentialValues } from './authentication.ts';
 import { canAsk } from './organization.ts';
 import { answerSchema, askSchema, questionSchema } from './question-schema.ts';
@@ -185,8 +186,15 @@ export function askQuestion(
     throw new MeshError('INVALID_INPUT', 'Choices must be distinct.');
   }
   const job = managedSourceJob(context, actorId);
-  const redactor = new SecretRedactor([context.mesh.token, ...credentialValues(process.env)]);
+  // The attempt's granted secrets live only in its provider environment; redact them here too.
+  const redactor = new SecretRedactor([
+    context.mesh.token,
+    ...credentialValues(process.env),
+    ...attemptSecrets(context, job),
+  ]);
   const question = redactor.redact(value.question);
+  // Redacted once, so an identical retry compares against exactly what was stored.
+  const choices = value.choices.map((choice) => redactor.redact(choice));
   const next =
     'End this assignment now with outcome "blocked" and the question as your summary. This step runs again with the answer.';
   const { store } = context.repository;
@@ -195,7 +203,7 @@ export function askQuestion(
     const own = select(store, 'job_id=?', job.id);
     const previous = own.find((candidate) => candidate.key === value.key);
     if (previous !== undefined) {
-      if (previous.question !== question || JSON.stringify(previous.choices) !== JSON.stringify(value.choices)) {
+      if (previous.question !== question || JSON.stringify(previous.choices) !== JSON.stringify(choices)) {
         throw new MeshError('INVALID_INPUT', 'That question key already identifies a different question.');
       }
       return previous;
@@ -222,7 +230,7 @@ export function askQuestion(
       featureId: job.featureId,
       stepId: job.step ?? null,
       question,
-      choices: value.choices.map((choice) => redactor.redact(choice)),
+      choices,
       allowText: value.allowText,
       askedAt: store.now(),
       answer: null,
