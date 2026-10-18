@@ -5,6 +5,7 @@
  * @file
  */
 import { parseDiff } from './diff-parse.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { DiffRow } from './diff-parse.js';
@@ -70,7 +71,7 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
   const container = element('div', 'diff');
   const files = parseDiff(diff);
   if (files.length === 0) {
-    container.append(element('p', 'subtle', 'No changes to display.'));
+    container.append(element('p', 'subtle', t('No changes to display.')));
     return container;
   }
   for (const file of files) {
@@ -83,7 +84,7 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
       element('span', 'diff-removed', `−${String(file.removed)}`),
     );
     const table = element('table', 'diff-table');
-    table.setAttribute('aria-label', `Changes in ${file.path}`);
+    table.setAttribute('aria-label', t('Changes in {path}', { path: file.path }));
     const body = element('tbody');
     appendRows(body, file.rows.slice(0, FILE_LINE_LIMIT));
     table.append(body);
@@ -97,17 +98,20 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
     }
     if (file.rows.length > FILE_LINE_LIMIT) {
       const rest = file.rows.slice(FILE_LINE_LIMIT);
-      const more = button(`Show ${String(rest.length)} more lines`, () => {
-        appendRows(body, rest);
-        more.remove();
-      });
+      const more = button(
+        t('Show {count, plural, one {# more line} other {# more lines}}', { count: rest.length }),
+        () => {
+          appendRows(body, rest);
+          more.remove();
+        },
+      );
       details.append(more);
     }
     container.append(details);
   }
   if (isTruncated) {
     container.append(
-      element('p', 'error', 'This diff was truncated for display. Inspect the branch in Git for the rest.'),
+      element('p', 'error', t('This diff was truncated for display. Inspect the branch in Git for the rest.')),
     );
   }
   return container;

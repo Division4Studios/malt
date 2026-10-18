@@ -294,4 +294,8 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   Steps: '步骤',
   'an agent': '一个智能体',
   recorded: '已记录',
+  'No changes to display.': '没有可显示的更改。',
+  'Show {count, plural, one {# more line} other {# more lines}}': '再显示 {count} 行',
+  'This diff was truncated for display. Inspect the branch in Git for the rest.':
+    '此差异显示时已截断。其余内容请在 Git 中查看该分支。',
 };
