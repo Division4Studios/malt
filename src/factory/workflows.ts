@@ -15,7 +15,6 @@
  * @file
  */
 
-import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -24,142 +23,17 @@ import { z } from 'zod/v3';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
-import { factorySchemas, keySchema } from './schema.ts';
-import {
-  PLANNING_STEP_KINDS,
-  DELIVERY_STEP_KINDS,
-  DEFAULT_WORKFLOW_ID,
-  workflowShape,
-  ancestorIds,
-  sectionProblems,
-  stepsOf,
-  hasSharedRole,
-  planningProblems,
-  deliveryShapeProblems,
-  reviewProblems,
-} from './workflow-schema.ts';
+import { DEFAULT_WORKFLOW_ID, workflowDigest, workflowSchema } from './workflow-schema.ts';
 
 import type { Store } from '../store.ts';
-import type { WorkflowStep } from './workflow-schema.ts';
+import type { FrozenWorkflow, Workflow, WorkflowSummary, workflowLibrarySchema } from './workflow-schema.ts';
 
 export * from './workflow-schema.ts';
+
 /** Revisions listed per workflow in the console. */
 const HISTORY_LIMIT = 50;
-/** A revision is the SHA-256 of the validated definition. */
-const revisionSchema = z.string().regex(/^[\da-f]{64}$/v);
 /** Built-in workflow definitions shipped with the source. */
 const BUILTIN_DIRECTORY = path.resolve(import.meta.dirname, '..', '..', 'resources', 'workflows');
-
-/** A complete, validated workflow. */
-export const workflowSchema = workflowShape.superRefine((workflow, context) => {
-  for (const problem of workflowProblems(workflow)) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: problem });
-  }
-});
-/** A validated workflow. */
-export type Workflow = z.output<typeof workflowSchema>;
-
-/**
- * Explain every rule a workflow breaks, in plain language for the editor.
- *
- * @param workflow - Shape-valid workflow.
- * @returns Problems; empty when the workflow can run.
- */
-export function workflowProblems(workflow: z.output<typeof workflowShape>): string[] {
-  const problems: string[] = [];
-  const ids = new Set<string>();
-  for (const section of [workflow.planning, workflow.delivery]) {
-    for (const step of section) {
-      if (ids.has(step.id)) {
-        problems.push(`Step id "${step.id}" is used more than once.`);
-      }
-      ids.add(step.id);
-    }
-  }
-  problems.push(
-    ...sectionProblems(workflow.planning, PLANNING_STEP_KINDS, 'planning'),
-    ...sectionProblems(workflow.delivery, DELIVERY_STEP_KINDS, 'delivery'),
-    ...planningProblems(workflow.planning),
-    ...deliveryProblems(workflow.delivery),
-  );
-  return problems;
-}
-
-/**
- * Delivery steps must implement, independently review, merge once and verify main.
- *
- * @param steps - Delivery section.
- * @returns Problems found.
- */
-function deliveryProblems(steps: readonly WorkflowStep[]): string[] {
-  const [implement] = stepsOf(steps, 'implement');
-  const [final] = stepsOf(steps, 'final');
-  const authors = new Set([implement, ...stepsOf(steps, 'adjudicate')].flatMap((step) => step?.roles ?? []));
-  return [
-    ...deliveryShapeProblems(steps, implement, final),
-    ...reviewProblems(steps, implement, final, authors),
-    ...adjudicationProblems(steps, authors),
-  ];
-}
-
-/**
- * Whoever writes code never judges it: fixers are not reviewers, regressions are independent.
- *
- * @param steps - Delivery section.
- * @param authors - Roles that write code.
- * @returns Problems found.
- */
-function adjudicationProblems(steps: readonly WorkflowStep[], authors: ReadonlySet<string>): string[] {
-  const problems: string[] = [];
-  const reviews = stepsOf(steps, 'review');
-  const fixes = stepsOf(steps, 'adjudicate');
-  const [fix] = fixes;
-  if (fixes.length > 1) {
-    problems.push('Delivery allows at most one adjudicate step.');
-  }
-  if (fix !== undefined) {
-    const before = ancestorIds(steps, fix.id);
-    if (reviews.some((review) => !before.has(review.id))) {
-      problems.push('The adjudicate step must come after every review.');
-    }
-    if (reviews.some((review) => hasSharedRole(review, fix))) {
-      problems.push('A reviewer cannot also adjudicate and fix its own findings.');
-    }
-  }
-  for (const regress of stepsOf(steps, 'regress')) {
-    if (fix === undefined || !ancestorIds(steps, regress.id).has(fix.id)) {
-      problems.push(`"${regress.title}" verifies adjudicated fixes, so it must come after the adjudicate step.`);
-    }
-    if (regress.roles.some((role) => authors.has(role))) {
-      problems.push(`"${regress.title}" must be independent of everyone who wrote code.`);
-    }
-  }
-  return problems;
-}
-
-/**
- * Execution layers: steps sharing a layer may run in parallel; the next layer joins them.
- *
- * @param steps - One section in execution order.
- * @returns One-based layer for each step id.
- */
-export function stepLayers(steps: readonly WorkflowStep[]): Map<string, number> {
-  const layers = new Map<string, number>();
-  for (const step of steps) {
-    layers.set(step.id, 1 + Math.max(0, ...step.after.map((id) => layers.get(id) ?? 0)));
-  }
-  return layers;
-}
-
-/**
- * Content identity of a workflow, computed from its validated, ordered definition.
- *
- * @param workflow - Validated workflow.
- * @returns Lowercase SHA-256 hex.
- */
-export function workflowDigest(workflow: Workflow): string {
-  return createHash('sha256').update(JSON.stringify(workflow)).digest('hex');
-}
 
 /** Built-ins are validated once; the source directory does not change while the process runs. */
 const builtinCache: { workflows: readonly Workflow[] | null } = { workflows: null };
@@ -185,35 +59,6 @@ export function builtinWorkflows(): readonly Workflow[] {
   }
   return builtinCache.workflows;
 }
-
-/** Library entry shown in the console and status. */
-export const workflowSummarySchema = z
-  .object({
-    /** Stable identifier referenced by objectives and the default setting. */
-    id: keySchema,
-    /** The definition at the current revision. */
-    workflow: workflowSchema,
-    /** SHA-256 digest that identifies the current definition exactly. */
-    revision: revisionSchema,
-    /** Shipped with MALT (read-only, clone to change) or saved by this project. */
-    source: z.enum(['builtin', 'project']),
-    /** Whether new objectives use this workflow when none is chosen. */
-    isDefault: z.boolean(),
-    /** Last save time for project workflows; `null` for built-ins. */
-    updatedAt: z.number().nullable(),
-  })
-  .strict();
-/** One library entry. */
-export type WorkflowSummary = z.output<typeof workflowSummarySchema>;
-/** The library as projected into status: the default plus every usable workflow. */
-export const workflowLibrarySchema = z.object({ defaultId: keySchema, items: z.array(workflowSummarySchema) }).strict();
-
-/** A workflow frozen into an objective when it starts. */
-export const frozenWorkflowSchema = z
-  .object({ id: keySchema, revision: revisionSchema, workflow: workflowSchema })
-  .strict();
-/** A frozen workflow revision. */
-export type FrozenWorkflow = z.output<typeof frozenWorkflowSchema>;
 
 /** Stored revision row. */
 const revisionRow = z.object({ revision: z.string(), data: z.string(), created_at: z.number() });
@@ -309,12 +154,12 @@ export class WorkflowLibrary {
   /**
    * Save a new revision. Built-in ids are reserved; clone them under a new id.
    *
-   * @param input - Untrusted definition and the revision the editor started from.
+   * @param input - Parsed operation input: an unvalidated definition and the revision the editor loaded.
    * @returns The saved revision summary.
    * @throws {MeshError} For invalid definitions, reserved ids or concurrent edits.
    */
-  public save(input: unknown): WorkflowSummary {
-    const { workflow: raw, expectedRevision } = factorySchemas.factory_workflow_save.parse(input);
+  public save(input: { readonly workflow?: unknown; readonly expectedRevision: string | null }): WorkflowSummary {
+    const { workflow: raw, expectedRevision } = input;
     const parsed = workflowSchema.safeParse(raw);
     if (!parsed.success) {
       throw new MeshError('INVALID_INPUT', parsed.error.issues.map((issue) => issue.message).join(' '));
@@ -364,11 +209,11 @@ export class WorkflowLibrary {
   /**
    * Choose the workflow new objectives use.
    *
-   * @param input - Untrusted workflow id.
+   * @param input - Parsed operation input naming the workflow.
    * @throws {MeshError} For an unknown workflow.
    */
-  public setDefault(input: unknown): void {
-    const { workflowId } = factorySchemas.factory_workflow_default.parse(input);
+  public setDefault(input: { readonly workflowId: string }): void {
+    const { workflowId } = input;
     this.store.transaction(() => {
       if (this.find(workflowId) === null) {
         throw new MeshError('NOT_FOUND', `No workflow named "${workflowId}".`);
