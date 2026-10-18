@@ -10,6 +10,9 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style.css" />
     <link rel="stylesheet" href="/terminal.css" />
+    <link rel="stylesheet" href="/sessions.css" />
+    <link rel="stylesheet" href="/board.css" />
+    <link rel="stylesheet" href="/workflows.css" />
     <script type="module" src="/app.js"></script>
   </head>
   <body>
@@ -22,8 +25,13 @@
         <div class="rail-section">WORKSPACE</div>
         <nav id="navigation" aria-label="Console sections">
           <button data-group="mission" data-view="overview" class="nav active"><span>◈</span> Mission</button>
+          <button data-group="inbox" data-view="inbox" class="nav">
+            <span>◉</span> Inbox <span id="inbox-count" class="nav-count" hidden></span>
+          </button>
+          <button data-group="board" data-view="board" class="nav"><span>▤</span> Board</button>
           <button data-group="workflow" data-view="workflow" class="nav"><span>◎</span> Workflow</button>
-          <button data-group="workers" data-view="workers" class="nav"><span>▣</span> Workers</button>
+          <button data-group="workers" data-view="sessions" class="nav"><span>▣</span> Sessions</button>
+          <button data-group="costs" data-view="costs" class="nav"><span>◔</span> Costs</button>
           <button data-group="project" data-view="setup" class="nav"><span>⚙</span> Project</button>
         </nav>
         <div class="rail-note">
@@ -32,6 +40,7 @@
         </div>
         <button id="install" class="button ghost" hidden>Install MALT console ↗</button>
         <button id="update-shell" class="button secondary" hidden>Update MALT console</button>
+        <button id="theme" class="button ghost" type="button">Theme: System</button>
         <button id="signout" class="button ghost">Disconnect browser</button>
         <div class="version">MALT / FACTORY CONTROL · 01</div>
       </aside>
@@ -68,12 +77,26 @@
           <div data-navigation="workflow" hidden>
             <button data-view="workflow" class="nav">Live map</button
             ><button data-view="team" class="nav">Team & organization</button
-            ><button data-view="deliveries" class="nav">Deliveries</button
+            ><button data-view="workflows" class="nav">Workflow library</button
+            ><button data-view="roles" class="nav">Roles</button
             ><button data-view="pulls" class="nav">Pull requests</button>
+          </div>
+          <div data-navigation="board" hidden>
+            <button data-view="board" class="nav">Board</button
+            ><button data-view="objective" class="nav">Objectives</button
+            ><button data-view="automations" class="nav">Schedules & triggers</button
+            ><button data-view="deliveries" class="nav">Pipeline list</button>
+          </div>
+          <div data-navigation="workers" hidden>
+            <button data-view="sessions" class="nav">Attempts & transcripts</button
+            ><button data-view="workers" class="nav">Workers & terminals</button>
           </div>
           <div data-navigation="project" hidden>
             <button data-view="setup" class="nav">Setup & capacity</button
-            ><button data-view="learning" class="nav">Learning & skills</button>
+            ><button data-view="settings" class="nav">Settings</button
+            ><button data-view="learning" class="nav">Learning & skills</button
+            ><button data-view="secrets" class="nav">Secrets</button
+            ><button data-view="onboarding" class="nav">Get started</button>
           </div>
         </nav>
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -109,6 +132,28 @@
         <p id="editor-description"></p>
         <pre id="editor-evidence" class="skill-comparison" hidden></pre>
         <p id="editor-error" class="error" role="alert"></p>
+        <div id="editor-workflow-field" class="field" hidden>
+          <label for="editor-workflow">Workflow</label
+          ><select id="editor-workflow"></select>
+          <p id="editor-workflow-description" class="muted" aria-live="polite"></p>
+          <fieldset class="editor-gates">
+            <legend>Approval gates</legend>
+            <label
+              ><input id="editor-plan-gate" type="checkbox" /> Approve the plan before deliveries are created</label
+            >
+            <label
+              ><input id="editor-merge-gate" type="checkbox" /> Approve each delivery's exact head before it
+              merges</label
+            >
+          </fieldset>
+          <details id="editor-step-overrides" class="editor-step-overrides">
+            <summary>Customize steps</summary>
+            <p class="muted">
+              Skip optional steps or change who performs a step for this objective and its deliveries.
+            </p>
+            <div id="editor-step-overrides-body"></div>
+          </details>
+        </div>
         <label id="editor-label" for="editor-body">Instruction</label
         ><textarea id="editor-body" required rows="8" maxlength="32000"></textarea>
         <div class="dialog-actions">

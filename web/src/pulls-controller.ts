@@ -5,6 +5,7 @@
  * @file
  */
 import { data, number, records, request, scoped, text } from './api.js';
+import { phrase, t } from './i18n.js';
 import { detailView } from './pulls-ui.js';
 
 import type { Data } from './api.js';
@@ -47,8 +48,9 @@ interface TicketText {
 const EVIDENCE_REFRESH_MS = 15_000;
 
 /** Editor guidance shared by feature and delivery dialogs. */
-const TICKET_FORMAT =
-  'First line: title. Following lines: the observable outcome and boundaries. Each line starting with "- " is one acceptance criterion.';
+const TICKET_FORMAT = phrase(
+  'First line: title. Following lines: the observable outcome and boundaries. Each line starting with "- " is one acceptance criterion.',
+);
 
 /**
  * Parse a plain-text ticket.
@@ -61,7 +63,7 @@ export function parseTicket(body: string): TicketText {
   const lines = body.split('\n').map((line) => line.trim());
   const title = lines.find((line) => line !== '') ?? '';
   if (title === '') {
-    throw new Error('Enter a title on the first line.');
+    throw new Error(t('Enter a title on the first line.'));
   }
   const rest = lines.slice(lines.indexOf(title) + 1);
   const acceptanceCriteria = rest.filter((line) => line.startsWith('- ')).map((line) => line.slice(2).trim());
@@ -117,14 +119,18 @@ export class PullController {
       },
       comment: (target) => {
         editor(
-          { title: `Comment on #${String(target)}`, explanation: 'Saved to the local delivery record.', initial: '' },
+          {
+            title: t('Comment on #{target}', { target }),
+            explanation: t('Saved to the local delivery record.'),
+            initial: '',
+          },
           { operation: 'factory_local', input: (body) => ({ action: 'comment', number: target, body }) },
         );
       },
       createFeature: () => {
         const requestId = `feature-${crypto.randomUUID()}`;
         editor(
-          { title: 'New local feature', explanation: TICKET_FORMAT, initial: '' },
+          { title: t('New local feature'), explanation: t(TICKET_FORMAT), initial: '' },
           {
             operation: 'factory_local',
             input: (body) => ({ action: 'create_issue', requestId, kind: 'feature', ...parseTicket(body) }),
@@ -135,8 +141,8 @@ export class PullController {
         const requestId = `delivery-${crypto.randomUUID()}`;
         editor(
           {
-            title: `New Ready delivery under #${String(parent)}`,
-            explanation: `${TICKET_FORMAT} The factory imports it as soon as it is Ready.`,
+            title: t('New Ready delivery under #{parent}', { parent }),
+            explanation: `${t(TICKET_FORMAT)} ${t('The factory imports it as soon as it is Ready.')}`,
             initial: '',
           },
           {
@@ -222,7 +228,7 @@ export class PullController {
       }
     } catch (error) {
       if (isCurrent()) {
-        const message = error instanceof Error ? error.message : 'Could not load this pull request.';
+        const message = error instanceof Error ? error.message : t('Could not load this pull request.');
         this.selection = { number: pull, detail: null, error: message };
       }
     } finally {

@@ -6,6 +6,7 @@
  * @file
  */
 import { data, firstText, number, records, text } from './api.js';
+import { formatTime, phrase, t } from './i18n.js';
 import { ago } from './manager-controller.js';
 import { element } from './worker-ui.js';
 
@@ -14,17 +15,24 @@ import type { ManagerController } from './manager-controller.js';
 
 /** Human labels and tones for session states. */
 const STATES: Readonly<Record<string, { label: string; tone: string }>> = {
-  starting: { label: 'Starting', tone: 'running' },
-  waiting: { label: 'Ready', tone: 'success' },
-  working: { label: 'Working', tone: 'running' },
-  stopping: { label: 'Stopping', tone: 'queued' },
-  stopped: { label: 'Stopped', tone: '' },
-  failed: { label: 'Failed', tone: 'failed' },
+  starting: { label: phrase('Starting'), tone: 'running' },
+  waiting: { label: phrase('Ready'), tone: 'success' },
+  working: { label: phrase('Working'), tone: 'running' },
+  stopping: { label: phrase('Stopping'), tone: 'queued' },
+  stopped: { label: phrase('Stopped'), tone: '' },
+  failed: { label: phrase('Failed'), tone: 'failed' },
 };
 /** Short commit identity length. */
 const SHORT = 8;
 /** Mission table column titles. */
-const COLUMNS = ['Delivery', 'Stage', 'Owner and model', 'Branch', 'Progress', 'Next'];
+const COLUMNS = [
+  phrase('Delivery'),
+  phrase('Stage'),
+  phrase('Owner and model'),
+  phrase('Branch'),
+  phrase('Progress'),
+  phrase('Next'),
+];
 
 /**
  * Create a native button.
@@ -48,8 +56,7 @@ function button(title: string, action: () => void, cssClass = 'small-button'): H
  * @returns Local time text.
  */
 function clock(at: number): string {
-  const time = new Date(at);
-  return time.toLocaleTimeString();
+  return formatTime(at);
 }
 
 /**
@@ -69,12 +76,12 @@ function sessionFacts(status: Data, session: Data, now: number): string[] {
   const tool = text(status, 'lastTool');
   return [
     firstText(text(session, 'model'), text(session, 'provider')),
-    generation > 0 ? `session ${String(generation)}` : '',
-    pid > 0 ? `PID ${String(pid)}` : '',
-    activity > 0 ? `active ${ago(activity, now)}` : '',
-    tool === '' ? '' : `last tool ${tool}`,
-    queued > 0 ? `${String(queued)} queued` : '',
-    paused > now ? `rate-limited until ${clock(paused)}` : '',
+    generation > 0 ? t('session {generation}', { generation }) : '',
+    pid > 0 ? t('PID {pid}', { pid: String(pid) }) : '',
+    activity > 0 ? t('active {ago}', { ago: ago(activity, now) }) : '',
+    tool === '' ? '' : t('last tool {tool}', { tool }),
+    queued > 0 ? t('{queued} queued', { queued }) : '',
+    paused > now ? t('rate-limited until {time}', { time: clock(paused) }) : '',
   ].filter((fact) => fact !== '');
 }
 
@@ -87,12 +94,12 @@ function sessionFacts(status: Data, session: Data, now: number): string[] {
  */
 function lifecycleButton(isLive: boolean, controller: ManagerController): HTMLButtonElement {
   if (isLive) {
-    return button('Stop', () => {
+    return button(t('Stop'), () => {
       controller.act('stop');
     });
   }
   return button(
-    'Start manager',
+    t('Start manager'),
     () => {
       controller.act('start');
     },
@@ -114,16 +121,17 @@ function header(status: Data, controller: ManagerController, now: number): HTMLE
   const state = firstText(text(session, 'state'), 'stopped');
   const shown = STATES[state] ?? { label: state, tone: '' };
   const bar = element('div', 'manager-bar');
+  const label = t(shown.label);
   const identity = element('div', 'manager-identity');
   identity.append(
-    element('span', `pill ${shown.tone}`, isLive ? shown.label : `Offline · ${shown.label}`),
-    element('strong', '', 'Delivery manager'),
+    element('span', `pill ${shown.tone}`, isLive ? label : t('Offline · {state}', { state: label })),
+    element('strong', '', t('Delivery manager')),
     element('span', 'subtle', sessionFacts(status, session, now).join(' · ')),
   );
   const tools = element('div', 'ticket-actions');
   tools.append(
     lifecycleButton(isLive, controller),
-    button('Export transcript', () => {
+    button(t('Export transcript'), () => {
       void controller.exportTranscript();
     }),
   );
@@ -147,7 +155,7 @@ function decisionCard(item: Data, controller: ManagerController): HTMLElement {
   card.append(element('h3', '', text(item, 'title')), element('p', 'subtle', text(item, 'detail')));
   const route = text(item, 'resolveWith');
   if (text(item, 'kind') !== 'manager') {
-    card.append(element('p', 'decision-route', `Resolve in ${route}`));
+    card.append(element('p', 'decision-route', t('Resolve in {route}', { route })));
     return card;
   }
   const id = text(item, 'id');
@@ -178,11 +186,11 @@ function decisions(brief: Data, controller: ManagerController): HTMLElement {
   const panel = element('section', 'panel manager-decisions');
   const items = records(brief['decisions']);
   const head = element('div', 'panel-head');
-  head.append(element('h2', '', 'Needs your decision'), element('span', 'count', String(items.length)));
+  head.append(element('h2', '', t('Needs your decision')), element('span', 'count', String(items.length)));
   const list = element('div', 'panel-body');
   list.append(...items.map((item) => decisionCard(item, controller)));
   if (items.length === 0) {
-    list.append(element('p', 'subtle', 'Nothing is waiting on you.'));
+    list.append(element('p', 'subtle', t('Nothing is waiting on you.')));
   }
   panel.append(head, list);
   return panel;
@@ -199,11 +207,11 @@ function progress(job: Data, now: number): string {
   const checkpoint = number(job, 'progressAt');
   const activity = number(job, 'activityAt');
   const parts = [
-    checkpoint > 0 ? `checkpoint ${ago(checkpoint, now)}` : '',
-    activity > 0 ? `output ${ago(activity, now)}` : '',
-    job['isPossiblyStalled'] === true ? 'possibly stalled' : '',
+    checkpoint > 0 ? t('checkpoint {ago}', { ago: ago(checkpoint, now) }) : '',
+    activity > 0 ? t('output {ago}', { ago: ago(activity, now) }) : '',
+    job['isPossiblyStalled'] === true ? t('possibly stalled') : '',
   ].filter((part) => part !== '');
-  return parts.length === 0 ? 'no evidence yet' : parts.join(' · ');
+  return parts.length === 0 ? t('no evidence yet') : parts.join(' · ');
 }
 
 /**
@@ -255,7 +263,7 @@ function deliveryRow(delivery: Data, now: number): HTMLTableRowElement {
 function deliveryTable(deliveries: readonly Data[], now: number): HTMLTableElement {
   const table = element('table', 'mission-table');
   const headRow = element('tr');
-  headRow.append(...COLUMNS.map((title) => element('th', '', title)));
+  headRow.append(...COLUMNS.map((title) => element('th', '', t(title))));
   const thead = element('thead');
   thead.append(headRow);
   const tbody = element('tbody');
@@ -275,8 +283,8 @@ function mission(brief: Data, now: number): HTMLElement {
   const panel = element('section', 'panel manager-mission');
   const deliveries = records(brief['deliveries']);
   const head = element('div', 'panel-head');
-  const done = `${String(number(brief, 'done'))} done`;
-  head.append(element('h2', '', 'Mission'), element('span', 'count', done));
+  const done = t('{done} done', { done: number(brief, 'done') });
+  head.append(element('h2', '', t('Mission')), element('span', 'count', done));
   const body = element('div', 'panel-body');
   const objectives = records(brief['objectives']);
   for (const objective of objectives) {
@@ -285,7 +293,7 @@ function mission(brief: Data, now: number): HTMLElement {
   }
   body.append(
     deliveries.length === 0
-      ? element('p', 'subtle', 'No open deliveries. Tell the manager what you want built.')
+      ? element('p', 'subtle', t('No open deliveries. Tell the manager what you want built.'))
       : deliveryTable(deliveries, now),
   );
   panel.append(head, body);
@@ -304,11 +312,11 @@ export function managerView(summary: Data | null, controller: ManagerController)
     const empty = element('div', 'empty');
     empty.append(
       element('span', 'empty-mark', '◈'),
-      element('h2', '', 'Configure the factory first'),
+      element('h2', '', t('Configure the factory first')),
       element(
         'p',
         '',
-        'The delivery manager steers the configured factory. Set it up under Project, then start the manager here.',
+        t('The delivery manager steers the configured factory. Set it up under Project, then start the manager here.'),
       ),
     );
     return empty;

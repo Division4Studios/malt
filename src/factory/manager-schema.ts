@@ -63,7 +63,7 @@ const OPTIONS_MAX = 8;
 const PAGE_MAX = 500;
 
 /** Factory operations owned by the manager. */
-export const MANAGER_FACTORY_OPERATIONS = ['factory_manager', 'factory_brief', 'factory_ask'] as const;
+export const MANAGER_FACTORY_OPERATIONS = ['factory_manager', 'factory_brief', 'factory_manager_ask'] as const;
 
 /** Input contracts of the manager operations; flat objects so MCP can expose their fields. */
 export const managerOperationSchemas = {
@@ -77,7 +77,7 @@ export const managerOperationSchemas = {
     })
     .strict(),
   factory_brief: z.object({}).strict(),
-  factory_ask: z
+  factory_manager_ask: z
     .object({
       question: z.string().trim().min(1).max(QUESTION_MAX),
       options: z.array(z.string().trim().min(1).max(QUESTION_MAX)).max(OPTIONS_MAX).default([]),

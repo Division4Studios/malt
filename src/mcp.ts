@@ -33,6 +33,7 @@ import { z } from 'zod/v3';
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { MANAGER_OPERATIONS } from './factory/manager-launch.ts';
 import { log } from './log.ts';
+import { managedTools } from './managed-tools.ts';
 import {
   MeshError,
   TOOL_OPERATIONS,
@@ -229,6 +230,8 @@ export interface BridgeOptions extends AgentClientOptions {
    * `AGENTMESH_WORKSPACE` or `CLAUDE_PROJECT_DIR` environment variable.
    */
   readonly workspace?: string | undefined;
+  /** Seat tools a managed role's policy removed; they are never registered. */
+  readonly deniedTools?: readonly string[] | undefined;
 }
 
 /** A joined agent session: its identity, team and wait coordinator. */
@@ -561,55 +564,14 @@ function registerTools(server: McpServer, runtime: BridgeRuntime, allowed?: Read
 }
 
 /**
- * Expose only the tools a bounded managed assignment needs, reducing context and authority.
+ * Remove the tools a managed role's policy denies from its seat tools.
  *
- * @param name - Factory-owned logical role identity.
- * @param isManager - Whether this is the persistent delivery manager.
- * @returns Read/communication tools, plus research writes only for the learning steward.
+ * @param tools - Seat tools.
+ * @param denied - Operations the role policy removed.
+ * @returns Remaining tools.
  */
-function managedTools(name: string | undefined, isManager: boolean): ReadonlySet<ToolOperation> {
-  if (isManager) {
-    return new Set<ToolOperation>(MANAGER_OPERATIONS);
-  }
-  const tools = new Set<ToolOperation>([
-    'whoami',
-    'get_messages',
-    'ack_message',
-    'send_message',
-    'learning_status',
-    'learning_read_skill',
-    'learning_read_source',
-    'factory_read_source',
-    'github_status',
-    'github_sync',
-  ]);
-  switch (name) {
-    case 'factory-product-owner':
-    case 'factory-team-lead': {
-      tools.add('factory_recommendations');
-      tools.add('factory_recommendation_propose');
-
-      break;
-    }
-    case 'factory-learning-steward': {
-      tools.add('learning_record');
-      tools.add('learning_search');
-      tools.add('learning_propose_skill');
-
-      break;
-    }
-    case 'factory-developer-1':
-    case 'factory-developer-2': {
-      tools.add('factory_progress');
-
-      break;
-    }
-    case undefined:
-    default: {
-      break;
-    }
-  }
-  return tools;
+function withoutDenied(tools: ReadonlySet<ToolOperation>, denied: readonly string[] = []): ReadonlySet<ToolOperation> {
+  return new Set([...tools].filter((operation) => !denied.includes(operation)));
 }
 
 /**
@@ -650,7 +612,7 @@ function registerPrompts(server: McpServer): void {
 function bridgeInstructions(options: BridgeOptions): string {
   const byRuntime: Readonly<Record<string, string>> = {
     'factory-manager':
-      'You are the persistent delivery manager. Use only the supplied tools: read mesh_factory_brief first, steer through requests, instructions, focus, retries and local issues, and ask the operator with mesh_factory_ask when a human decision is needed. The unpaid supervisor runs all work; never bypass a gate.',
+      'You are the persistent delivery manager. Use only the supplied tools: read mesh_factory_brief first, steer through requests, instructions, focus, retries and local issues, and ask the operator with mesh_factory_manager_ask when a human decision is needed. The unpaid supervisor runs all work; never bypass a gate.',
     'factory-managed':
       'This is one bounded managed factory assignment. You are already joined. Use only the supplied scoped tools, return your structured handoff and exit. The unpaid supervisor owns continuation and process scheduling. Do not wait, spawn agents, mutate delivery gates or activate skills.',
   };
@@ -682,7 +644,10 @@ export async function startMcp(config: MeshConfig, options: BridgeOptions): Prom
   if (options.name !== undefined) {
     await runtime.startNamed();
   }
-  registerTools(server, runtime, isManaged ? managedTools(options.name, isManager) : undefined);
+  const seatTools = isManager
+    ? new Set<ToolOperation>(MANAGER_OPERATIONS)
+    : withoutDenied(managedTools(options.name), options.deniedTools);
+  registerTools(server, runtime, isManaged ? seatTools : undefined);
   if (!isManaged) {
     registerPrompts(server);
   }

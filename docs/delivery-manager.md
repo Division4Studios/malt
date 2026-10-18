@@ -51,7 +51,7 @@ The manager's tools are deliberately narrow:
 | Reorder or focus objectives                                   | `factory_queue`                   |
 | Retry work after its blocker is resolved                      | `factory_retry`                   |
 | Read and create local issues, comment, move status            | `factory_local` (not `sync`)      |
-| Ask you to decide something, with options and evidence        | `factory_ask`                     |
+| Ask you to decide something, with options and evidence        | `factory_manager_ask`             |
 | Read and send team messages; read project skills and learning | messaging and learning tools      |
 
 It cannot set up the factory, start or pause dispatch, approve skills, recover objectives, cancel jobs, approve size exceptions, sync your checkout, merge, or control itself. The broker enforces this, and only while the manager's current session is live: a stale bridge from an ended session has no authority.
@@ -121,7 +121,7 @@ Covered by tests:
 A real Claude manager session was also run in Chrome against a running broker. It:
 
 1. read the brief through its MCP tools;
-2. raised a decision with `factory_ask`;
+2. raised a decision with `factory_manager_ask`;
 3. received the one-click answer;
 4. queued the chosen objective;
 5. stopped with its process tree retired.

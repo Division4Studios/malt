@@ -1,7 +1,7 @@
 /**
  * Validated routing of the manager's three factory operations. Authority is
  * enforced by the broker before these run: factory_manager is operator-only,
- * factory_ask belongs to the live manager and factory_brief is read-only.
+ * factory_manager_ask belongs to the live manager and factory_brief is read-only.
  *
  * @file
  */
@@ -73,12 +73,12 @@ async function control(manager: ManagerService, raw: unknown): Promise<unknown> 
 export function managerHandlers(
   manager: ManagerService,
   raw: unknown,
-): Record<'factory_manager' | 'factory_brief' | 'factory_ask', () => unknown> {
+): Record<'factory_manager' | 'factory_brief' | 'factory_manager_ask', () => unknown> {
   return {
     factory_manager: async () => control(manager, raw),
     factory_brief: () => manager.brief(),
-    factory_ask: () => {
-      const input = managerOperationSchemas.factory_ask.parse(raw);
+    factory_manager_ask: () => {
+      const input = managerOperationSchemas.factory_manager_ask.parse(raw);
       return manager.ask(input.question, input.options, input.evidence);
     },
   };

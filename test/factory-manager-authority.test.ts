@@ -55,7 +55,11 @@ await test('only the operator controls the manager and the live manager stays wi
   defer(async () => manager.close());
   const brief = z.object({ deliveries: z.array(z.unknown()) }).parse(await manager.call('factory_brief', {}));
   assert.deepEqual(brief.deliveries, []);
-  await manager.call('factory_ask', { question: 'Approve the plan?', options: ['Yes', 'No'], evidence: 'Plan v1.' });
+  await manager.call('factory_manager_ask', {
+    question: 'Approve the plan?',
+    options: ['Yes', 'No'],
+    evidence: 'Plan v1.',
+  });
   const asked = statusSchema.parse(await rpc(mesh, 'factory_manager', { action: 'status' }));
   assert.equal(asked.decisions[0]?.question, 'Approve the plan?');
   for (const [operation, input] of [
@@ -70,15 +74,19 @@ await test('only the operator controls the manager and the live manager stays wi
   const worker = new AgentClient(mesh, { name: 'attached-worker', runtime: 'codex', role: 'developer' });
   await worker.connect();
   defer(async () => worker.close());
-  await assert.rejects(worker.call('factory_ask', { question: 'q', evidence: 'e' }), { code: 'NOT_ORCHESTRATOR' });
+  await assert.rejects(worker.call('factory_manager_ask', { question: 'q', evidence: 'e' }), {
+    code: 'NOT_ORCHESTRATOR',
+  });
   await assert.rejects(worker.call('factory_manager', { action: 'status' }), { code: 'NOT_ORCHESTRATOR' });
   await worker.call('factory_brief', {});
 
   await rpc(mesh, 'factory_manager', { action: 'stop' });
   await assert.rejects(
-    manager.call('factory_ask', { question: 'Still there?', evidence: 'After stop.' }),
+    manager.call('factory_manager_ask', { question: 'Still there?', evidence: 'After stop.' }),
     { code: 'NOT_ORCHESTRATOR' },
     'An ended manager session cannot act.',
   );
-  await assert.rejects(rpc(mesh, 'factory_ask', { question: 'q', evidence: 'e' }), { code: 'NOT_ORCHESTRATOR' });
+  await assert.rejects(rpc(mesh, 'factory_manager_ask', { question: 'q', evidence: 'e' }), {
+    code: 'NOT_ORCHESTRATOR',
+  });
 });

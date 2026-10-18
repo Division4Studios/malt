@@ -7,6 +7,7 @@
  * @file
  */
 import { data, number, records, request, scoped, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -39,14 +40,20 @@ export interface ManagerDependencies {
 }
 
 /** Plain labels for conversation delivery states. */
-const STATE_LABELS: Readonly<Record<string, string>> = {
-  queued: 'Queued',
-  sent: 'Sent',
-  acknowledged: 'Received',
-  answered: 'Answered',
-  failed: 'Failed',
-  delivered: 'Delivered to the manager',
-};
+const STATE_LABELS: Readonly<Record<string, string>> = translated({
+  queued: phrase('Queued'),
+  sent: phrase('Sent'),
+  acknowledged: phrase('Received'),
+  answered: phrase('Answered'),
+  failed: phrase('Failed'),
+  delivered: phrase('Delivered to the manager'),
+});
+/** Plain labels for conversation authors. */
+const AUTHOR_LABELS: Readonly<Record<string, string>> = translated({
+  operator: phrase('You'),
+  manager: phrase('Manager'),
+  report: phrase('Report'),
+});
 
 /**
  * Format a time as a short relative phrase.
@@ -58,11 +65,11 @@ const STATE_LABELS: Readonly<Record<string, string>> = {
 export function ago(at: number, now: number): string {
   const seconds = Math.max(0, Math.round((now - at) / SECOND_MS));
   if (seconds < SECONDS_PER_MINUTE) {
-    return `${String(seconds)} s ago`;
+    return t('{seconds} s ago', { seconds });
   }
   const minutes = Math.round(seconds / SECONDS_PER_MINUTE);
   const hours = Math.round(minutes / SECONDS_PER_MINUTE);
-  return minutes < HOURS_AFTER_MINUTES ? `${String(minutes)} min ago` : `${String(hours)} h ago`;
+  return minutes < HOURS_AFTER_MINUTES ? t('{minutes} min ago', { minutes }) : t('{hours} h ago', { hours });
 }
 
 /**
@@ -77,13 +84,17 @@ function entryNode(entry: Data, now: number): HTMLElement {
   const state = text(entry, 'state');
   const node = element('article', `chat-entry chat-${author}`);
   if (author === 'digest') {
-    node.append(element('p', 'chat-meta', `Reports delivered to the manager · ${STATE_LABELS[state] ?? state}`));
+    node.append(
+      element(
+        'p',
+        'chat-meta',
+        t('Reports delivered to the manager · {state}', { state: STATE_LABELS[state] ?? state }),
+      ),
+    );
     return node;
   }
   if (author !== 'system') {
-    node.append(
-      element('p', 'chat-author', { operator: 'You', manager: 'Manager', report: 'Report' }[author] ?? author),
-    );
+    node.append(element('p', 'chat-author', AUTHOR_LABELS[author] ?? author));
   }
   node.append(element('p', 'chat-body', text(entry, 'body')));
   const meta = [ago(number(entry, 'created_at'), now)];
@@ -141,9 +152,9 @@ export class ManagerController {
   public constructor(dependencies: ManagerDependencies) {
     this.dependencies = dependencies;
     this.input.rows = 3;
-    this.input.placeholder = 'Message the delivery manager. Enter sends; Shift+Enter adds a line.';
-    this.input.setAttribute('aria-label', 'Message to the delivery manager');
-    const send = element('button', 'button primary', 'Send');
+    this.input.placeholder = t('Message the delivery manager. Enter sends; Shift+Enter adds a line.');
+    this.input.setAttribute('aria-label', t('Message to the delivery manager'));
+    const send = element('button', 'button primary', t('Send'));
     send.type = 'submit';
     this.composer.append(this.input, send);
     this.composer.addEventListener('submit', (event) => {
@@ -160,7 +171,7 @@ export class ManagerController {
     });
     this.transcript.setAttribute('role', 'log');
     this.transcript.setAttribute('aria-live', 'polite');
-    this.transcript.setAttribute('aria-label', 'Conversation with the delivery manager');
+    this.transcript.setAttribute('aria-label', t('Conversation with the delivery manager'));
   }
 
   /**
@@ -283,7 +294,7 @@ export class ManagerController {
         this.draw();
       }
     } catch (error) {
-      this.dependencies.notice(error instanceof Error ? error.message : 'Could not read the manager conversation.');
+      this.dependencies.notice(error instanceof Error ? error.message : t('Could not read the manager conversation.'));
     }
   }
 
@@ -298,7 +309,9 @@ export class ManagerController {
         element(
           'p',
           'subtle chat-empty',
-          'No conversation yet. Start the manager, then tell it what you want delivered; it will clarify, plan and report back.',
+          t(
+            'No conversation yet. Start the manager, then tell it what you want delivered; it will clarify, plan and report back.',
+          ),
         ),
       );
     }
