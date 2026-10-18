@@ -4,9 +4,11 @@
  * human, and which seat performs each step. The scheduler, completion and
  * console projections all ask this module instead of hard-coding roles.
  *
- * A step result counts only for the exact head and base it judged. Any new
- * source invalidates it automatically, so approvals can never outlive the code
- * they approved.
+ * One rule binds results to source. Every step judges the source produced by
+ * its nearest code-writing ancestor (implement, adjudicate or document). A
+ * code step's result stays current until a later regression check fails it.
+ * New source therefore invalidates exactly the results that judged older
+ * source, and approvals can never outlive the code they approved.
  *
  * @file
  */
@@ -14,20 +16,46 @@
 import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.ts';
 
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
-import type { StepKind, Workflow, WorkflowStep } from './workflows.ts';
+import type { Disposition, PlanningResult, StepKind, StepResult, Workflow, WorkflowStep } from './workflows.ts';
 
 /** Step kinds the supervisor can run today. */
 const RUNNABLE_KINDS: ReadonlySet<StepKind> = new Set([
   'specify',
   'plan',
+  'plan_review',
+  'plan_revise',
   'implement',
   'review',
+  'adjudicate',
+  'document',
+  'regress',
   'approve',
   'final',
   'verify',
 ]);
 /** Steps with dedicated delivery phases rather than results recorded during review. */
 const SPINE_KINDS: ReadonlySet<StepKind> = new Set(['implement', 'final', 'verify']);
+/** Steps that write code; later steps judge what they produced. */
+const CODE_KINDS: ReadonlySet<StepKind> = new Set(['implement', 'adjudicate', 'document']);
+/** Phases in which the implementation has been published. */
+const PUBLISHED_PHASES: ReadonlySet<string> = new Set([
+  'review',
+  'merge_ready',
+  'merging',
+  'verifying',
+  'closing',
+  'done',
+]);
+
+/** A source a step produced or must judge. */
+export interface Source {
+  /** Commit under judgement. */
+  readonly head: string | null;
+  /** Base it was measured against. */
+  readonly base: string | null;
+  /** When it was produced; results older than their source are stale. */
+  readonly at: number;
+}
 
 /**
  * The pipeline MALT ran before workflows existed; objectives saved earlier keep it.
@@ -93,26 +121,89 @@ export function spineStep(workflow: Workflow, kind: 'implement' | 'final' | 'ver
 }
 
 /**
- * Whether a delivery has reached a stage where its implementation exists for review.
+ * The latest code-writing ancestor of a step: what the step must judge.
  *
- * @param task - Delivery.
- * @returns True once its published head is under review or later.
+ * @param workflow - Delivery workflow.
+ * @param step - Any delivery step.
+ * @returns That ancestor, or `undefined` for the implement step itself.
  */
-function isImplemented(task: FactoryTask): boolean {
-  // Publication sets the head before the review phase, so the phase alone is authoritative.
-  return ['review', 'merge_ready', 'merging', 'verifying', 'closing', 'done'].includes(task.phase);
+function producerOf(workflow: Workflow, step: WorkflowStep): WorkflowStep | undefined {
+  const ancestors = ancestorIds(workflow.delivery, step.id);
+  return workflow.delivery.findLast((candidate) => ancestors.has(candidate.id) && CODE_KINDS.has(candidate.kind));
 }
 
 /**
- * The recorded human approval for one step at the delivery's current source.
+ * The latest successful result of a fix-stage step.
  *
  * @param task - Delivery.
- * @param step - Gated or approval step.
- * @returns Whether an approval binds the current head and base.
+ * @param step - Fix-stage step.
+ * @returns That result, if any.
  */
-function isApproved(task: FactoryTask, step: WorkflowStep): boolean {
-  return task.approvals.some(
-    (approval) => approval.stepId === step.id && approval.head === task.head && approval.base === task.base,
+function latestResult(task: FactoryTask, step: WorkflowStep): StepResult | undefined {
+  return task.stepResults.findLast((result) => result.stepId === step.id && result.outcome === 'success');
+}
+
+/**
+ * The source a code step produced, while it is still current.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Implement, adjudicate or document step.
+ * @returns Produced source, or `null` when missing or invalidated.
+ */
+function producedSource(task: FactoryTask, workflow: Workflow, step: WorkflowStep): Source | null {
+  if (step.kind === 'implement') {
+    return PUBLISHED_PHASES.has(task.phase)
+      ? (task.implementation ?? { head: task.head, base: task.base, at: 0 })
+      : null;
+  }
+  const result = latestResult(task, step);
+  const input = boundSource(task, workflow, step);
+  const isRejected = task.stepResults.some(
+    (later) => later.kind === 'regress' && later.outcome === 'changes_requested' && later.at > (result?.at ?? 0),
+  );
+  return isRejected || result === undefined || input === null || result.at < input.at
+    ? null
+    : { head: result.head, base: result.base, at: result.at };
+}
+
+/**
+ * The source a step must judge: what its nearest code-writing ancestor produced.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Any delivery step except implement.
+ * @returns Bound source, or `null` while that ancestor has no current result.
+ */
+export function boundSource(task: FactoryTask, workflow: Workflow, step: WorkflowStep): Source | null {
+  const producer = producerOf(workflow, step);
+  return producer === undefined ? null : producedSource(task, workflow, producer);
+}
+
+/**
+ * The head a human approves for a step: what it produced, or what it judged.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Approval or gated step.
+ * @returns Source the approval binds, or `null` when not yet available.
+ */
+export function approvalSource(task: FactoryTask, workflow: Workflow, step: WorkflowStep): Source | null {
+  return CODE_KINDS.has(step.kind) ? producedSource(task, workflow, step) : boundSource(task, workflow, step);
+}
+
+/**
+ * Whether a human approved this step for the source it binds.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Gated or approval step.
+ * @returns True when an approval names the bound head.
+ */
+function isApproved(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
+  const source = approvalSource(task, workflow, step);
+  return (
+    source !== null && task.approvals.some((approval) => approval.stepId === step.id && approval.head === source.head)
   );
 }
 
@@ -129,66 +220,120 @@ export function isReviewOf(review: FactoryTask['reviews'][number], step: Workflo
 }
 
 /**
- * Whether one review step approved the exact current source.
+ * Whether a later adjudicate step rules on this review's findings, so a review
+ * that requests changes still completes its step.
  *
- * @param task - Delivery.
+ * @param workflow - Delivery workflow.
  * @param step - Review step.
- * @returns True for a successful review of the current head and base.
+ * @returns True when a fixer downstream consumes its findings.
  */
-function isReviewed(task: FactoryTask, step: WorkflowStep): boolean {
-  return task.reviews.some((review) => {
-    return (
-      isReviewOf(review, step) && review.outcome === 'success' && review.head === task.head && review.base === task.base
-    );
-  });
+export function isAdjudicated(workflow: Workflow, step: WorkflowStep): boolean {
+  return workflow.delivery.some(
+    (candidate) => candidate.kind === 'adjudicate' && ancestorIds(workflow.delivery, candidate.id).has(step.id),
+  );
 }
 
 /**
- * Whether a delivery step's work is done for the current source, ignoring its gate.
+ * The review recorded for a step at the source it must judge.
  *
  * @param task - Delivery.
- * @param step - Any delivery step.
- * @returns True when its result binds the current head and base.
+ * @param workflow - Its workflow.
+ * @param step - The review step whose recorded result to find.
+ * @returns Current review, if any.
  */
-function hasResult(task: FactoryTask, step: WorkflowStep): boolean {
-  switch (step.kind) {
-    case 'implement': {
-      return isImplemented(task);
-    }
-    case 'review': {
-      return isReviewed(task, step);
-    }
-    case 'approve': {
-      return isApproved(task, step);
-    }
-    case 'final': {
-      return task.finalReview !== null && task.finalReview.head === task.head && task.finalReview.base === task.base;
-    }
-    case 'verify': {
-      return task.verifiedMain !== null;
-    }
-    case 'adjudicate':
-    case 'document':
-    case 'regress':
-    case 'specify':
-    case 'plan':
-    case 'plan_review':
-    case 'plan_revise': {
-      // Planning kinds never appear in delivery sections; fix-stage kinds are refused before they run.
-      return false;
-    }
-  }
+export function currentReview(
+  task: FactoryTask,
+  workflow: Workflow,
+  step: WorkflowStep,
+): FactoryTask['reviews'][number] | undefined {
+  const source = boundSource(task, workflow, step);
+  return source === null
+    ? undefined
+    : task.reviews.findLast(
+        (review) => isReviewOf(review, step) && review.head === source.head && review.base === source.base,
+      );
+}
+
+/**
+ * Whether a review step's current result completes it. A review requesting
+ * changes still completes when a fixer downstream rules on its findings.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Review step.
+ * @returns True when the review judged the bound source.
+ */
+function isReviewed(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
+  const outcome = currentReview(task, workflow, step)?.outcome;
+  return outcome === 'success' || (outcome === 'changes_requested' && isAdjudicated(workflow, step));
+}
+
+/**
+ * Whether a regression check passed on exactly the source it must judge.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Regress step.
+ * @returns True for a passing verdict no older than that source.
+ */
+function isVerified(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
+  const source = boundSource(task, workflow, step);
+  const result = latestResult(task, step);
+  const isRecorded = source !== null && result !== undefined;
+  return isRecorded && result.head === source.head && result.at >= source.at;
+}
+
+/**
+ * Whether the final check approved exactly the current head and base.
+ *
+ * @param task - Delivery.
+ * @returns True when the recorded final approval is current.
+ */
+function isFinalCurrent(task: FactoryTask): boolean {
+  const review = task.finalReview;
+  return review !== null && task.head === review.head && task.base === review.base;
+}
+
+/** How each step kind proves its work is done; planning kinds never appear in delivery sections. */
+const RESULT_CHECKS: Readonly<
+  Record<StepKind, (task: FactoryTask, workflow: Workflow, step: WorkflowStep) => boolean>
+> = {
+  implement: (task, workflow, step) => producedSource(task, workflow, step) !== null,
+  adjudicate: (task, workflow, step) => producedSource(task, workflow, step) !== null,
+  document: (task, workflow, step) => producedSource(task, workflow, step) !== null,
+  review: isReviewed,
+  regress: isVerified,
+  approve: isApproved,
+  final: (task) => isFinalCurrent(task),
+  verify: (task) => task.verifiedMain !== null,
+  specify: () => false,
+  plan: () => false,
+  plan_review: () => false,
+  plan_revise: () => false,
+};
+
+/**
+ * Whether a delivery step's work is done for its bound source, ignoring its gate.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Any delivery step.
+ * @returns True when its current result exists.
+ */
+function hasResult(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
+  return RESULT_CHECKS[step.kind](task, workflow, step);
 }
 
 /**
  * Whether a step is complete, including any human approval its gate requires.
  *
  * @param task - Delivery.
+ * @param workflow - Its workflow.
  * @param step - Delivery step.
  * @returns True when downstream steps may rely on it.
  */
-export function isStepSatisfied(task: FactoryTask, step: WorkflowStep): boolean {
-  return hasResult(task, step) && (!step.gate || isApproved(task, step));
+export function isStepSatisfied(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
+  return hasResult(task, workflow, step) && (!step.gate || isApproved(task, workflow, step));
 }
 
 /**
@@ -202,13 +347,13 @@ export function isStepSatisfied(task: FactoryTask, step: WorkflowStep): boolean 
 function isUnblocked(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
   return step.after.every((id) => {
     const before = workflow.delivery.find((candidate) => candidate.id === id);
-    return before !== undefined && isStepSatisfied(task, before);
+    return before !== undefined && isStepSatisfied(task, workflow, before);
   });
 }
 
 /**
- * Review-stage steps that may start now: reviews and other model steps whose
- * predecessors are complete and whose own result is missing.
+ * Review-stage steps that may start now: model steps whose predecessors are
+ * complete and whose own current result is missing.
  *
  * @param task - Delivery in review.
  * @param workflow - Its workflow.
@@ -219,7 +364,7 @@ export function startableSteps(task: FactoryTask, workflow: Workflow): WorkflowS
     return (
       !SPINE_KINDS.has(step.kind) &&
       step.kind !== 'approve' &&
-      !hasResult(task, step) &&
+      !hasResult(task, workflow, step) &&
       isUnblocked(task, workflow, step)
     );
   });
@@ -238,13 +383,13 @@ export function awaitingApproval(task: FactoryTask, workflow: Workflow): Workflo
     ? []
     : workflow.delivery.filter((step) => {
         return step.kind === 'approve'
-          ? task.phase === 'review' && !isApproved(task, step) && isUnblocked(task, workflow, step)
-          : step.gate && hasResult(task, step) && !isApproved(task, step) && step.kind !== 'verify';
+          ? task.phase === 'review' && !isApproved(task, workflow, step) && isUnblocked(task, workflow, step)
+          : step.gate && hasResult(task, workflow, step) && !isApproved(task, workflow, step);
       });
 }
 
 /**
- * Whether every step before the final check is complete for the current source.
+ * Whether every step before the final check is complete for its bound source.
  *
  * @param task - Delivery.
  * @param workflow - Its workflow.
@@ -253,7 +398,63 @@ export function awaitingApproval(task: FactoryTask, workflow: Workflow): Workflo
 export function isReviewComplete(task: FactoryTask, workflow: Workflow): boolean {
   return workflow.delivery
     .filter((step) => step.kind !== 'final' && step.kind !== 'verify')
-    .every((step) => isStepSatisfied(task, step));
+    .every((step) => isStepSatisfied(task, workflow, step));
+}
+
+/**
+ * Every finding the fixer must rule on, with stable ids `<reviewStepId>-<n>`.
+ *
+ * @param task - Delivery.
+ * @param workflow - Its workflow.
+ * @param step - Adjudicate step.
+ * @returns Findings from the current reviews that feed this step.
+ */
+export function findingsToRule(
+  task: FactoryTask,
+  workflow: Workflow,
+  step: WorkflowStep,
+): { id: string; step: string; finding: string }[] {
+  const ancestors = ancestorIds(workflow.delivery, step.id);
+  return workflow.delivery
+    .filter((candidate) => candidate.kind === 'review' && ancestors.has(candidate.id))
+    .flatMap((review) => {
+      const findings = currentReview(task, workflow, review)?.findings ?? [];
+      return findings.map((finding, index) => {
+        return {
+          id: `${review.id}-${String(index + 1)}`,
+          step: review.title,
+          finding,
+        };
+      });
+    });
+}
+
+/**
+ * Explain how a fixer's ledger fails to rule on every finding exactly once.
+ *
+ * @param ids - Finding ids that require a ruling.
+ * @param dispositions - The fixer's ledger.
+ * @returns Problems; empty when the ledger is complete.
+ */
+export function dispositionProblems(ids: readonly string[], dispositions: readonly Disposition[]): string[] {
+  const problems: string[] = [];
+  const ruled = new Map<string, number>();
+  for (const disposition of dispositions) {
+    ruled.set(disposition.id, (ruled.get(disposition.id) ?? 0) + 1);
+    if (!ids.includes(disposition.id)) {
+      problems.push(`Disposition ${disposition.id} names no current finding.`);
+    }
+    if (disposition.decision !== 'rejected' && disposition.evidence.trim().length === 0) {
+      problems.push(`Disposition ${disposition.id} (${disposition.decision}) needs evidence.`);
+    }
+  }
+  for (const id of ids) {
+    const count = ruled.get(id) ?? 0;
+    if (count !== 1) {
+      problems.push(`Finding ${id} needs exactly one disposition; found ${String(count)}.`);
+    }
+  }
+  return problems;
 }
 
 /**
@@ -299,13 +500,74 @@ export function isStepRunning(
 export function planningStep(
   feature: Feature,
   workflow: Workflow,
-): { step: WorkflowStep; kind: 'plan' | 'refine' } | null {
+): { step: WorkflowStep; kind: 'plan' | 'refine' | 'plan_review' } | null {
   const specify = workflow.planning.find((step) => step.kind === 'specify');
   if (specify !== undefined && feature.productPlan === null) {
     return { step: specify, kind: 'plan' };
   }
   const plan = workflow.planning.find((step) => step.kind === 'plan');
-  return plan === undefined || feature.plan !== null ? null : { step: plan, kind: 'refine' };
+  if (plan === undefined) {
+    return null;
+  }
+  if (feature.plan === null) {
+    return { step: plan, kind: 'refine' };
+  }
+  const review = workflow.planning.find(
+    (step) => step.kind === 'plan_review' && planReview(feature, step) === undefined,
+  );
+  if (review !== undefined) {
+    return { step: review, kind: 'plan_review' };
+  }
+  const revise = workflow.planning.find((step) => step.kind === 'plan_revise');
+  return revise === undefined || isRevised(feature, workflow, revise) ? null : { step: revise, kind: 'refine' };
+}
+
+/**
+ * The latest review a plan review step recorded for the current plan.
+ *
+ * @param feature - Objective.
+ * @param step - The plan review step whose latest result to find.
+ * @returns That review, if the current plan has one.
+ */
+function planReview(feature: Feature, step: WorkflowStep): PlanningResult | undefined {
+  const planAt = feature.planAt ?? 0;
+  return (feature.planningResults ?? []).findLast((result) => result.stepId === step.id && result.at >= planAt);
+}
+
+/**
+ * Every plan review finding the revision must rule on, with ids `<reviewStepId>-<n>`.
+ *
+ * @param feature - Objective with a reviewed plan.
+ * @param workflow - Its workflow.
+ * @returns Findings from the current plan's reviews.
+ */
+export function planFindings(feature: Feature, workflow: Workflow): { id: string; step: string; finding: string }[] {
+  return workflow.planning
+    .filter((step) => step.kind === 'plan_review')
+    .flatMap((step) => {
+      const findings = planReview(feature, step)?.findings ?? [];
+      return findings.map((finding, index) => ({ id: `${step.id}-${String(index + 1)}`, step: step.title, finding }));
+    });
+}
+
+/**
+ * Whether the revision step has addressed the current plan's reviews. A plan
+ * whose reviews raised nothing needs no revision.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @param revise - Plan revision step.
+ * @returns True when no revision is needed or one postdates every review.
+ */
+function isRevised(feature: Feature, workflow: Workflow, revise: WorkflowStep): boolean {
+  const reviews = workflow.planning
+    .filter((step) => step.kind === 'plan_review')
+    .map((step) => planReview(feature, step));
+  const isClean = reviews.every((review) => review?.outcome === 'success' && review.findings.length === 0);
+  const latest = Math.max(0, ...reviews.map((review) => review?.at ?? 0));
+  return (
+    isClean || (feature.planningResults ?? []).some((result) => result.stepId === revise.id && result.at >= latest)
+  );
 }
 
 /**
@@ -351,8 +613,8 @@ export function stepOf(workflow: Workflow, job: Pick<FactoryJob, 'step'>): Workf
 
 /**
  * What a step may see of its delivery. Blind reviews see no peer reviews,
- * approvals or earlier feedback; other steps see only results from the steps
- * they may read (their declared inputs, or else their ancestors).
+ * results, approvals or earlier feedback; other steps see only results from
+ * the steps they may read (their declared inputs, or else their ancestors).
  *
  * @param task - Full delivery record.
  * @param workflow - Its workflow.
@@ -364,13 +626,14 @@ export function stepEvidence(task: FactoryTask, workflow: Workflow, step: Workfl
     return task;
   }
   if (step.blind) {
-    return { ...task, reviews: [], approvals: [], feedback: [] };
+    return { ...task, reviews: [], stepResults: [], approvals: [], feedback: [] };
   }
   const readable = new Set(step.inputs ?? ancestorIds(workflow.delivery, step.id));
   const visible = workflow.delivery.filter((candidate) => readable.has(candidate.id));
   return {
     ...task,
     reviews: task.reviews.filter((review) => visible.some((candidate) => isReviewOf(review, candidate))),
+    stepResults: task.stepResults.filter((result) => readable.has(result.stepId)),
     approvals: task.approvals.filter((approval) => readable.has(approval.stepId)),
   };
 }
