@@ -368,14 +368,13 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  const connectionText = connectionLabel({
+  node('connection-text', HTMLSpanElement).textContent = connectionLabel({
     isOnline: navigator.onLine,
     isConnected,
     reconnects: state.reconnects,
     hasStopped: state.reconnects >= MAX_RECONNECTS,
     hasState: state.current !== null,
   });
-  node('connection-text', HTMLSpanElement).textContent = connectionText;
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
   refreshHandoffConnection(isConnected);
