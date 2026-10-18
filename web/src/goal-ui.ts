@@ -21,7 +21,7 @@ import {
   readGoals,
   readLogPage,
 } from './goal-model.js';
-import { t } from './i18n.js';
+import { keepLiteral, t } from './i18n.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -35,6 +35,11 @@ import type { DoneItem, Goal, LogEntry } from './goal-model.js';
 const NOTE_MAX = 2000;
 /** Focus key of the detail heading. */
 const TITLE_KEY = 'goal-title';
+/** A shown objective's newest log entries are re-read at most this often, since notes and check-ins do not change the objective. */
+const LOG_REFRESH_MS = 15_000;
+
+/** Which log page a read loads: the newest page afresh, the next older page, or new entries above the loaded ones. */
+type LogRead = 'first' | 'older' | 'refresh';
 
 /** Callbacks supplied by the console shell. */
 export interface GoalHooks {
@@ -128,7 +133,7 @@ function logItem(entry: LogEntry, now: number): HTMLLIElement {
   const head = element('div', 'inbox-item-head');
   head.append(tag(LOG_LABELS[entry.kind] ?? entry.kind, `log-${entry.kind}`), element('span', 'subtle', entry.actor));
   head.append(ageStamp(entry.at, now));
-  node.append(head, element('p', 'inbox-detail', entry.body));
+  node.append(head, keepLiteral(element('p', 'inbox-detail', entry.body)));
   return node;
 }
 
@@ -176,6 +181,10 @@ class GoalView {
   private renderKey = '';
   /** Single-flight guard for log reads. */
   private isLoading = false;
+  /** A newest-page read was asked for while another read was in flight. */
+  private isReloadQueued = false;
+  /** When the log was last read. */
+  private loadedAt = 0;
 
   /**
    * Build the view shell.
@@ -196,7 +205,7 @@ class GoalView {
       cssClass: 'button secondary',
       key: 'goal-log-older',
       action: () => {
-        void this.loadLog(false);
+        void this.loadLog('older');
       },
     });
     this.logStatus.setAttribute('aria-live', 'polite');
@@ -247,6 +256,9 @@ class GoalView {
       this.logKey = '';
       this.log.replaceChildren();
       this.renderKey = '';
+      // A note draft belongs to the objective it was written for.
+      this.note.value = '';
+      this.noteStatus.textContent = '';
     }
     this.render();
   }
@@ -257,6 +269,9 @@ class GoalView {
     const key = JSON.stringify([this.featureId, goal ?? this.goals]);
     if (key === this.renderKey) {
       refreshAges(this.root, this.now());
+      if (goal !== null && this.now() - this.loadedAt >= LOG_REFRESH_MS) {
+        void this.loadLog('refresh');
+      }
       return;
     }
     this.renderKey = key;
@@ -268,7 +283,7 @@ class GoalView {
       const logKey = `${goal.featureId}:${String(goal.updatedAt)}:${String(goal.deliveries.done)}`;
       if (logKey !== this.logKey) {
         this.logKey = logKey;
-        void this.loadLog(true);
+        void this.loadLog('first');
       }
     }
     restoreFocus(this.root, focused, this.root.querySelector<HTMLElement>('h2'));
@@ -418,40 +433,62 @@ class GoalView {
   }
 
   /**
-   * Read the newest log page, or the next older one.
+   * Read the newest log page, the next older one, or the entries added above
+   * the loaded ones. A newest-page read asked for while another read is in
+   * flight runs once that read settles, so it is never lost.
    *
-   * @param isFirst - Whether to restart from the newest entries.
+   * @param mode - Which page to read.
    */
-  private async loadLog(isFirst: boolean): Promise<void> {
+  private async loadLog(mode: LogRead): Promise<void> {
     const { featureId } = this;
     const project = this.hooks.project();
-    if (featureId === null || project === '' || this.isLoading || (!isFirst && this.next === null)) {
+    if (featureId === null || project === '' || (mode === 'older' && this.next === null)) {
+      return;
+    }
+    if (this.isLoading) {
+      this.isReloadQueued ||= mode === 'first';
       return;
     }
     this.isLoading = true;
-    const cursor = isFirst || this.next === null ? '' : `&before=${String(this.next)}`;
+    const cursor = mode === 'older' && this.next !== null ? `&before=${String(this.next)}` : '';
     const route = `${scoped(project, '/api/objective-log')}&featureId=${encodeURIComponent(featureId)}${cursor}`;
     try {
       const page = readLogPage(await this.read(route));
       if (featureId === this.featureId && project === this.hooks.project()) {
-        this.showPage(page, isFirst);
+        this.showPage(page, mode);
       }
     } catch (error) {
       this.logStatus.textContent = error instanceof Error ? error.message : t('The progress log could not be read.');
     } finally {
       this.isLoading = false;
+      this.loadedAt = this.now();
     }
+    if (!this.isReloadQueued) {
+      return;
+    }
+    this.isReloadQueued = false;
+    await this.loadLog('first');
   }
 
   /**
    * Show a loaded log page.
    *
    * @param page - Entries, total and the next cursor.
-   * @param isFirst - Whether it replaces the loaded entries.
+   * @param mode - Which page was read.
    */
-  private showPage(page: ReturnType<typeof readLogPage>, isFirst: boolean): void {
-    this.entries = isFirst ? [...page.entries] : [...this.entries, ...page.entries];
-    this.next = page.next;
+  private showPage(page: ReturnType<typeof readLogPage>, mode: LogRead): void {
+    const top = this.entries[0]?.seq ?? -Infinity;
+    const isContiguous = page.next === null || page.entries.some((entry) => entry.seq <= top);
+    if (mode === 'older') {
+      this.entries = [...this.entries, ...page.entries];
+      this.next = page.next;
+    } else if (mode === 'refresh' && isContiguous) {
+      // Keep the older pages the operator loaded; add only what is new above them.
+      this.entries = [...page.entries.filter((entry) => entry.seq > top), ...this.entries];
+    } else {
+      this.entries = [...page.entries];
+      this.next = page.next;
+    }
     const now = this.now();
     this.log.replaceChildren(...this.entries.map((entry) => logItem(entry, now)));
     this.older.hidden = this.next === null;
@@ -474,10 +511,14 @@ class GoalView {
     }
     this.noteStatus.textContent = t('Saving…');
     const isSaved = await this.hooks.control('factory_objective_note', { featureId, note });
+    if (featureId !== this.featureId) {
+      // The operator opened another objective; leave its draft alone.
+      return;
+    }
     if (isSaved) {
       this.note.value = '';
       this.noteStatus.textContent = t('Note added.');
-      await this.loadLog(true);
+      await this.loadLog('first');
     } else {
       this.noteStatus.textContent = t('The note was not saved; it is kept so you can try again.');
     }

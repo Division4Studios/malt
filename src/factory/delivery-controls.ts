@@ -139,7 +139,8 @@ function applyControl(
           skipped.push({ taskId: task.id, reason });
         }
       } else if (!rule.isCurrent(task)) {
-        repository.editTask(task.id, (current) => rule.edit(current, now));
+        // Marks leave the version alone, so an attempt already running finishes and publishes normally.
+        repository.markTask(task.id, (current) => rule.edit(current, now));
         changed += 1;
       }
     }
