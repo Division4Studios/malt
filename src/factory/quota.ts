@@ -102,6 +102,8 @@ export class QuotaObserver {
   private nextAt = 0;
   /** Owned diagnostic cancellation, separate from model claims. */
   private controller: AbortController | null = null;
+  /** The refresh in flight, which concurrent callers wait for instead of reading stale capacity. */
+  private inflight: Promise<void> | null = null;
 
   /** Cancel only this project's in-flight owned metadata probe. */
   public cancel(): void {
@@ -110,10 +112,15 @@ export class QuotaObserver {
 
   /**
    * Observe supported metadata before eligible work, preserving unknown values.
+   * A caller that arrives while a refresh is in flight waits for that refresh.
    *
    * @param context - Verified project state and native executable.
    */
   public async observe(context: QuotaContext): Promise<void> {
+    if (this.inflight !== null) {
+      await this.inflight;
+      return;
+    }
     const now = context.repository.store.now();
     if (!context.settings.providers.codex.enabled || now < this.nextAt) {
       return;
@@ -121,10 +128,12 @@ export class QuotaObserver {
     this.nextAt = now + QUOTA_REFRESH_MS;
     const controller = new AbortController();
     this.controller = controller;
+    this.inflight = this.collect(context, controller);
     try {
-      await this.collect(context, controller);
+      await this.inflight;
     } finally {
       this.controller = null;
+      this.inflight = null;
     }
   }
 

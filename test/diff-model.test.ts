@@ -164,3 +164,41 @@ await test('routes carry the project, delivery and an optional path', () => {
   assert.equal(isLargeFile(first), false);
   assert.equal(isLargeFile({ ...first, additions: LARGE_FILE_LINES, deletions: 1 }), true);
 });
+
+await test('a file-type change keeps both of its patch sections', () => {
+  const patch = readDiffPatch({
+    taskId: TASK,
+    state: 'ready',
+    base: BASE,
+    head: HEAD,
+    path: 'link',
+    patch: [
+      'diff --git a/link b/link',
+      'deleted file mode 120000',
+      'index 1111111..0000000',
+      '--- a/link',
+      '+++ /dev/null',
+      '@@ -1 +0,0 @@',
+      '-target',
+      'diff --git a/link b/link',
+      'new file mode 100644',
+      'index 0000000..2222222',
+      '--- /dev/null',
+      '+++ b/link',
+      '@@ -0,0 +1 @@',
+      '+contents',
+      '',
+    ].join('\n'),
+    isTruncated: false,
+    bytes: 200,
+  });
+  assert.ok(patch.state === 'ready');
+  assert.deepEqual(
+    patch.rows.filter((row) => row.kind !== 'hunk').map((row) => [row.kind, row.text]),
+    [
+      ['del', 'target'],
+      ['add', 'contents'],
+    ],
+  );
+  assert.deepEqual(patch.notes, ['deleted file mode 120000', 'new file mode 100644']);
+});

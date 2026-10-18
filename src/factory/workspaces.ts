@@ -128,6 +128,22 @@ export function commitMessage(task: FactoryTask, provenance: CommitProvenance | 
   return ['-m', subject, '-m', trailers.join('\n')];
 }
 
+/**
+ * Message arguments for the merge that refreshes a delivery onto main: trailers
+ * when the publishing step is known, otherwise Git's default message.
+ *
+ * @param task - Delivery being refreshed.
+ * @param provenance - Publishing step and attempt, if known.
+ * @returns `-m` arguments for `git merge`, possibly none.
+ */
+export function mergeMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
+  if (provenance === null) {
+    return [];
+  }
+  const trailers = commitMessage(task, provenance).at(-1) ?? '';
+  return ['-m', `Refresh #${String(task.issue)} onto main: ${task.title}`, '-m', trailers];
+}
+
 /** Project-local worktree manager using shell-free Git commands. */
 export class WorkspaceManager {
   /** Workspace-local paths. */
@@ -379,7 +395,7 @@ export class WorkspaceManager {
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
     onStep?.('refresh');
-    await this.refreshForPublication(record, base, directory);
+    await this.refreshForPublication(record, base, directory, provenance);
     await this.assertPrivateStateUntracked(directory);
     onStep?.('publish');
     const head = await this.git(['rev-parse', 'HEAD'], directory);
@@ -640,11 +656,17 @@ export class WorkspaceManager {
    * @param task - Owned delivery.
    * @param base - Verified fetched main.
    * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt publishing, recorded on the merge commit.
    * @throws {MergeConflictError} When main conflicts with the delivery.
    */
-  private async refreshForPublication(task: FactoryTask, base: string, directory: string): Promise<void> {
+  private async refreshForPublication(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null,
+  ): Promise<void> {
     try {
-      await this.mergeBase(task, base, directory);
+      await this.mergeBase(task, base, directory, provenance);
     } catch (error) {
       const files = await this.conflictedFiles(directory);
       if (files.length === 0) {
@@ -697,11 +719,17 @@ export class WorkspaceManager {
    * @param task - Owned delivery.
    * @param base - Verified fetched main.
    * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt the merge serves, recorded as trailers when known.
    * @throws {MeshError} If a concurrent source change prevents attributing the merge.
    */
-  private async mergeBase(task: FactoryTask, base: string, directory: string): Promise<void> {
+  private async mergeBase(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null = null,
+  ): Promise<void> {
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
-    await this.git(['merge', '--no-edit', base], directory);
+    await this.git(['merge', '--no-edit', ...mergeMessage(task, provenance), base], directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     if (head === previous || head === base) {
       return;
