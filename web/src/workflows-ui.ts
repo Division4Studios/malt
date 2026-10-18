@@ -8,7 +8,7 @@
  *
  * @file
  */
-import { formatDateTime, t } from './i18n.js';
+import { formatDateTime, locale, t } from './i18n.js';
 import { element } from './worker-ui.js';
 import { badge, button, isConfirmed, focusKey, rememberFocus, restoreFocus } from './workflow-dom.js';
 import { WorkflowEditor } from './workflow-editor.js';
@@ -100,6 +100,8 @@ class WorkflowsView {
   private isPending = false;
   /** Failure text captured while a control is in flight. */
   private failure = '';
+  /** Project selected when the open draft was opened; it is saved only there. */
+  private draftProject = '';
 
   /**
    * Build the view shell.
@@ -109,7 +111,15 @@ class WorkflowsView {
   public constructor(hooks: WorkflowsHooks) {
     this.hooks = hooks;
     this.editor = new WorkflowEditor({
-      send: async (operation, input) => this.send(operation, input),
+      send: async (operation, input) => {
+        if (this.draftProject !== this.selectedProject()) {
+          return {
+            ok: false,
+            error: t('This draft was opened in another project. Switch back to that project to save it.'),
+          };
+        }
+        return this.send(operation, input);
+      },
       library: () => this.library,
       saved: (id) => {
         this.saved(id);
@@ -199,6 +209,15 @@ class WorkflowsView {
   }
 
   /**
+   * The project the shell has selected.
+   *
+   * @returns Project id, or an empty string when the shell does not report one.
+   */
+  private selectedProject(): string {
+    return this.hooks.project?.() ?? '';
+  }
+
+  /**
    * Send one control through the shell and capture its failure text.
    *
    * @param operation - Operation name.
@@ -219,10 +238,12 @@ class WorkflowsView {
   /** Re-render the library list and the preview when their data changed, keeping focus. */
   private render(): void {
     const viewed = this.viewedItem();
+    // Counts and summaries are plural messages built here, so a language change must rebuild them.
     const listKey = JSON.stringify([
       this.library.items.map((item) => [item.id, item.revision, item.isDefault, item.workflow.name]),
       viewed?.id,
       this.editor.originId,
+      locale(),
     ]);
     if (listKey !== this.listKey) {
       this.listKey = listKey;
@@ -238,7 +259,7 @@ class WorkflowsView {
         element('li', 'wf-hint', t('The workflow library appears once the project state loads.')),
       );
     }
-    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault]);
+    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault, locale()]);
     if (viewerKey === this.viewerKey) {
       return;
     }
@@ -419,6 +440,7 @@ class WorkflowsView {
     const { draft, origin, title } = make();
     this.status.textContent = '';
     this.followUp.replaceChildren();
+    this.draftProject = this.selectedProject();
     this.editor.open(draft, origin, title);
     this.render();
   }
@@ -466,6 +488,7 @@ class WorkflowsView {
       return;
     }
     const { draft, origin } = draftFrom(item, this.library);
+    this.draftProject = this.selectedProject();
     this.editor.open(draft, origin, t('Edit “{name}”', { name: item.workflow.name }));
     this.status.textContent = t('Loaded the latest revision of “{id}”.', { id });
     this.render();
