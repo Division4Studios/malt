@@ -86,7 +86,7 @@ export function maintenancePanel(requests: readonly Data[], action: (id: string)
     const button = document.createElement('button');
     button.type = 'button';
     button.classList.add('small-button');
-    button.textContent = t('Queue source improvement: {value}', { value: text(request, 'name') });
+    button.textContent = t('Queue source improvement: {name}', { name: text(request, 'name') });
     button.addEventListener('click', () => {
       action(text(request, 'id'));
     });

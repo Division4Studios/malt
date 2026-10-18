@@ -66,8 +66,8 @@ export function validatePrices(
     const values = FIELDS.map(([key]) => parsePrice(row[key] ?? '')).filter((value) => value !== null);
     if (model === '' || values.length !== FIELDS.length) {
       return {
-        error: t('Enter a model name and four non-negative prices for {value}.', {
-          value: model === '' ? 'every row' : model,
+        error: t('Enter a model name and four non-negative prices for {model}.', {
+          model: model === '' ? t('every row') : model,
         }),
       };
     }

@@ -42,12 +42,12 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Every minute': '每分钟',
   'Every {step} minutes': '每 {step} 分钟',
   'At {minute} minutes past every hour': '每小时的第 {minute} 分钟',
-  'At minutes {value} past every hour': '每小时的第 {value} 分钟',
-  'At {value}:{value2}': '{value}:{value2}',
-  'At {value} minutes past {hourText}': '{hourText}的第 {value} 分钟',
+  'At minutes {minutes} past every hour': '每小时的第 {minutes} 分钟',
+  'At {hour}:{minute}': '{hour}:{minute}',
+  'At {minute} minutes past {hourText}': '{hourText}的第 {minute} 分钟',
   'At minutes {minuteList} during {hourText}': '{hourText}期间的第 {minuteList} 分钟',
   'Every {step} minutes during {hourText}': '{hourText}期间每 {step} 分钟',
-  'on day {value} of the month': '每月 {value} 日',
+  'on day {days} of the month': '每月 {days} 日',
   'every day': '每天',
   '{text}, in {monthText}': '{text}，在{monthText}',
   'Invalid schedule.': '计划无效。',
@@ -107,7 +107,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
     '创建一个，让 CI 或本地脚本可以提交目标，例如“修复失败的构建”。',
   Off: '已关闭',
   'Project default workflow': '项目默认工作流',
-  'Workflow: {value}': '工作流：{value}',
+  'Workflow: {setting}': '工作流：{setting}',
   'No upcoming fire.': '没有即将到来的触发。',
   'Off: enable it to schedule fires.': '已关闭：启用后才会安排触发。',
   'Next fires in {timeZone}': '接下来的触发（{timeZone}）',
@@ -132,8 +132,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'plan review': '计划评审',
   'final check': '最终检查',
   'merge verification': '合并验证',
-  '{role} ran {kind} on {provider} ({value}). Follow it on the Board and in Sessions.':
-    '{role} 已在 {provider} 上运行 {kind}（{value}）。可在看板和会话中跟踪。',
+  '{role} ran {kind} on {provider} ({state}). Follow it on the Board and in Sessions.':
+    '{role} 已在 {provider} 上运行 {kind}（{state}）。可在看板和会话中跟踪。',
   '{role} started {kind} on {provider}. Follow it on the Board and in Sessions.':
     '{role} 已在 {provider} 上开始 {kind}。可在看板和会话中跟踪。',
   'Parked: the factory is not set up. Configure factory & validation first.':
@@ -147,8 +147,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Parked: no provider is eligible ({list}).': '已搁置：没有符合条件的提供方（{list}）。',
   'Submit an objective; this step then shows the first role that starts, or why none can.':
     '提交一个目标；此步骤随后会显示第一个启动的角色，或说明为何无法启动。',
-  'No role has started for {value} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.':
-    '已有 {value} 分钟没有角色启动，也未报告任何关卡。请打开“任务 → 工作为何在运行或被搁置”查看完整证据。',
+  'No role has started for {minutes} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.':
+    '已有 {minutes} 分钟没有角色启动，也未报告任何关卡。请打开“任务 → 工作为何在运行或被搁置”查看完整证据。',
   'Queued. A role normally starts within one scheduling cycle, a few seconds.':
     '已排队。角色通常会在一个调度周期（几秒钟）内启动。',
   'Check this machine': '检查此机器',
@@ -163,7 +163,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'uses the stage defaults': '使用阶段默认值',
   'the default workflow': '默认工作流',
   'Connect the GitHub repository and Project': '连接 GitHub 仓库与 Project',
-  'Connected to {value}.': '已连接到 {value}。',
+  'Connected to {repository}.': '已连接到 {repository}。',
   'Choose the repository and the GitHub Project its deliveries appear in.':
     '选择仓库以及其交付项所在的 GitHub Project。',
   'Choose providers, checks and model policy': '选择提供方、检查和模型策略',
@@ -209,7 +209,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
     '值的长度为 {valueMin} 到 {valueMax} 个字符；过短的值在脱敏时会遮盖普通输出。',
   'Values cannot contain NUL characters.': '值不能包含 NUL 字符。',
   'Not granted to any role type yet.': '尚未授予任何角色类型。',
-  'Injected into {value}.': '注入到 {value}。',
+  'Injected into {targets}.': '注入到 {targets}。',
   'no role types': '没有角色类型',
   Created: '已创建',
   Rotated: '已轮换',
@@ -223,8 +223,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Only attempts of these types receive the secret, as an environment variable.':
     '只有这些类型的尝试会以环境变量的形式收到该机密。',
   'New secret': '新机密',
-  'Rotate {value}': '轮换 {value}',
-  'Grants of {value}': '{value} 的授权',
+  'Rotate {name}': '轮换 {name}',
+  'Grants of {name}': '{name} 的授权',
   'Not saved. The notice at the top of the console says why.': '未保存。控制台顶部的提示说明了原因。',
   'Secrets are sealed with AES-256-GCM under a key in this project’s private .malt folder. Granted role types receive them as environment variables; they are redacted from logs, transcripts and check output, and never shown again.':
     '机密使用此项目私有 .malt 文件夹中的密钥以 AES-256-GCM 加密。被授权的角色类型以环境变量形式接收它们；它们会从日志、会话记录和检查输出中脱敏，并且不再显示。',
@@ -241,8 +241,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Claude Code': 'Claude Code',
   Codex: 'Codex',
   'Not checked yet. Run the provider checks.': '尚未检查。请运行提供方检查。',
-  'Subscription: {value}': '订阅：{value}',
-  '{value}: {value2} · resets {resets}': '{value}：{value2} · {resets} 重置',
+  'Subscription: {usage}': '订阅：{usage}',
+  '{window}: {usage} · resets {resets}': '{window}：{usage} · {resets} 重置',
   Broker: 'Broker',
   'not answering': '无响应',
   'Console Node.js': '控制台 Node.js',

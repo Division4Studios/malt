@@ -340,7 +340,11 @@ export function stepEditor(context: StepContext): HTMLFieldSetElement {
   const legend = element('legend', 'wf-step-legend');
   const title = element('span', '', step.title);
   title.dataset['titleOf'] = step.uid;
-  legend.append(t('Step {value}: ', { value: context.index + 1 }), title, ` · ${KIND_LABELS[step.kind] ?? step.kind}`);
+  legend.append(
+    t('Step {number}: ', { number: context.index + 1 }),
+    title,
+    ` · ${KIND_LABELS[step.kind] ?? step.kind}`,
+  );
   const problems = element('ul', 'wf-problems');
   problems.dataset['problemsFor'] = step.uid;
   problems.id = `wf-${step.uid}-problems`;

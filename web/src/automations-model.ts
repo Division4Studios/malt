@@ -521,14 +521,14 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
     }
     return minutes.length === 1
       ? t('At {minute} minutes past every hour', { minute })
-      : t('At minutes {value} past every hour', { value: ranges(minutes, String) });
+      : t('At minutes {minutes} past every hour', { minutes: ranges(minutes, String) });
   }
   if (minutes.length === 1 && hours.length === 1) {
-    return t('At {value}:{value2}', { value: pad(hour), value2: pad(minute) });
+    return t('At {hour}:{minute}', { hour: pad(hour), minute: pad(minute) });
   }
   const hourText = ranges(hours, (value) => `${pad(value)}:00`);
   if (minutes.length === 1) {
-    return t('At {value} minutes past {hourText}', { value: pad(minute), hourText });
+    return t('At {minute} minutes past {hourText}', { minute: pad(minute), hourText });
   }
   const minuteList = ranges(minutes, String);
   return step === null
@@ -545,7 +545,7 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
 function dayText(parsed: ParsedCron): string {
   const [days = [], months = [], weekdays = []] = parsed.values.slice(2);
   const [isDayRestricted = false, isMonthRestricted = false, isWeekdayRestricted = false] = parsed.restricted.slice(2);
-  const dayWords = t('on day {value} of the month', { value: ranges(days, String) });
+  const dayWords = t('on day {days} of the month', { days: ranges(days, String) });
   const weekdayWords = `on ${ranges(weekdays, (value) => WEEKDAYS[value] ?? String(value))}`;
   let text = t('every day');
   if (isDayRestricted && isWeekdayRestricted) {

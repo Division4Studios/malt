@@ -18,12 +18,12 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   'No capacity gate reported. Dispatch still requires eligible work and workflow gates; spare capacity does not guarantee launch.':
     '未报告容量关卡。分派仍需要可执行的工作和工作流关卡；有空闲容量并不保证会启动。',
   'sample age unknown': '采样时间未知',
-  '{value}s old · {status}': '{value} 秒前 · {status}',
-  '{value} · total memory {value2} MiB · {freshness}': '{value} · 总内存 {value2} MiB · {freshness}',
-  'Broker reservations {value} / resources.maxActiveJobs {value2}. Other broker pipelines/reservations: {other} (identities private).':
-    'Broker 预留 {value} / resources.maxActiveJobs {value2}。其他 Broker 流水线/预留：{other}（身份不公开）。',
-  'resources.maxCpuPercent {value}% · resources.minFreeMemoryMb {value2} · resources.minFreeMemoryPercent {value3}%.':
-    'resources.maxCpuPercent {value}% · resources.minFreeMemoryMb {value2} · resources.minFreeMemoryPercent {value3}%。',
+  '{seconds}s old · {status}': '{seconds} 秒前 · {status}',
+  '{resources} · total memory {memory} MiB · {freshness}': '{resources} · 总内存 {memory} MiB · {freshness}',
+  'Broker reservations {reserved} / resources.maxActiveJobs {limit}. Other broker pipelines/reservations: {other} (identities private).':
+    'Broker 预留 {reserved} / resources.maxActiveJobs {limit}。其他 Broker 流水线/预留：{other}（身份不公开）。',
+  'resources.maxCpuPercent {cpu}% · resources.minFreeMemoryMb {memory} · resources.minFreeMemoryPercent {memoryPercent}%.':
+    'resources.maxCpuPercent {cpu}% · resources.minFreeMemoryMb {memory} · resources.minFreeMemoryPercent {memoryPercent}%。',
   'Admission evidence unavailable; refresh the console or configure the paused factory.':
     '准入证据不可用；请刷新控制台或配置已暂停的工厂。',
   'none reported or unknown': '未报告或未知',
@@ -40,7 +40,7 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   'Why work is running or parked': '工作为何在运行或被搁置',
   'Weekly window': '每周窗口',
   'usage unknown': '用量未知',
-  '{value}% used{value2}': '已用 {value}%{value2}',
+  '{percent}% used{limit}': '已用 {percent}%{limit}',
   'Individual subscription windows not reported · usage unknown.': '未报告各订阅窗口 · 用量未知。',
   '{minutes} minute window': '{minutes} 分钟窗口',
   '{label}: {usage} · resets {deadline}': '{label}：{usage} · {deadline} 重置',
@@ -87,8 +87,8 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
     '证据必须与已安装的 CLI 相符。保存并不证明模型能力或可用配额。',
   'Unknown support: this entry cannot launch an explicit-policy assignment.':
     '支持情况未知：此条目无法启动显式策略任务。',
-  'Editing revision {value}. Save requires a paused, settled factory. Unknown quota stays unknown.':
-    '正在编辑修订 {value}。保存需要工厂已暂停且稳定。未知配额保持未知。',
+  'Editing revision {revision}. Save requires a paused, settled factory. Unknown quota stays unknown.':
+    '正在编辑修订 {revision}。保存需要工厂已暂停且稳定。未知配额保持未知。',
   'Add allowed model': '添加允许的模型',
   'Add provider/tier default': '添加提供方/等级默认值',
   'Allowed model': '允许的模型',
@@ -246,7 +246,7 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   'Supervisor diagnostic': '监督器诊断',
   '✓ No delivery blockers awaiting attention.': '✓ 没有等待处理的交付阻塞。',
   'Additional scopes are available in the delivery board.': '更多范围可在交付看板中查看。',
-  '{value} · issue #{value2}': '{value} · 议题 #{value2}',
+  '{action} · issue #{issue}': '{action} · 议题 #{issue}',
   'Reviewed the current blocker.': '已评审当前阻塞。',
   'ISSUE {issue}': '议题 {issue}',
   'PR {pr}': 'PR {pr}',

@@ -323,7 +323,7 @@ export function checklistInput(goal: Goal, rows: readonly ChecklistRow[]): { inp
   const items: Data[] = [];
   for (const [index, row] of filled.entries()) {
     const text = row.text.trim();
-    const label = t('Item {value}', { value: index + 1 });
+    const label = t('Item {number}', { number: index + 1 });
     if (text === '' || text.length > ITEM_TEXT_MAX) {
       return {
         error: t('{label} needs text of at most {itemTextMax} characters.', {

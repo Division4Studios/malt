@@ -43,7 +43,7 @@ export interface HistoryHooks {
 function revisionLabel(revision: Revision): string {
   const savedAt = revision.createdAt === null ? null : new Date(revision.createdAt);
   const saved = savedAt === null ? t('shipped or frozen copy') : `saved ${formatDateTime(savedAt)}`;
-  return t('Revision {value} · {saved}', { value: revision.revision.slice(0, REVISION_DIGITS), saved });
+  return t('Revision {revision} · {saved}', { revision: revision.revision.slice(0, REVISION_DIGITS), saved });
 }
 
 /**

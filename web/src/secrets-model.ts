@@ -267,7 +267,7 @@ export function grantText(secret: SecretView, types: SecretsModel['types']): str
     return t('Not granted to any role type yet.');
   }
   const labels = secret.grants.map((grant) => types.find((type) => type.name === grant)?.label ?? `${grant} (removed)`);
-  return t('Injected into {value}.', { value: labels.join(', ') });
+  return t('Injected into {targets}.', { targets: labels.join(', ') });
 }
 
 /**
