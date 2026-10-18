@@ -206,7 +206,11 @@ await test('held deliveries start no new attempts and finished ones leave the bo
   const board = (): string[] => consoleView(repository).deliveries.map((card) => card.taskId);
   assert.ok(board().includes(recent.id));
   assert.ok(!board().includes(old.id), 'Finished deliveries archive themselves after a week.');
-  assert.equal(consoleView(repository).archived, 1);
+  assert.equal(consoleView(repository).archived.total, 1);
+  assert.deepEqual(
+    consoleView(repository).archived.recent.map((entry) => entry.taskId),
+    [old.id],
+  );
   archiveDeliveries(repository, { taskIds: [old.id], archive: false });
   archiveDeliveries(repository, { taskIds: [recent.id], archive: true });
   assert.ok(board().includes(old.id), 'Unarchiving keeps a delivery on the board.');

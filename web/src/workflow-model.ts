@@ -8,7 +8,6 @@
  *
  * @file
  */
-
 import { child, data, hasFlag, records, text } from './api.js';
 
 import type { Data } from './api.js';
@@ -70,10 +69,29 @@ export const KIND_LABELS: Readonly<Record<string, string>> = {
   final: 'Final check',
   verify: 'Verify main',
 };
+/** Seats a newly added step of each kind starts with. */
+const DEFAULT_ROLES: Readonly<Record<string, readonly string[]>> = {
+  specify: ['product-owner'],
+  plan: ['team-lead'],
+  plan_review: ['plan-reviewer'],
+  plan_revise: ['team-lead'],
+  approve: [],
+  implement: ['developer-1', 'developer-2'],
+  review: ['qa-1'],
+  adjudicate: ['fixer'],
+  document: ['librarian'],
+  regress: ['regression-verifier'],
+  final: ['final-tester'],
+  verify: ['final-tester'],
+};
 /** Kinds that cannot be skipped (mirrors `REQUIRED_KINDS`). */
 const REQUIRED_KINDS: ReadonlySet<string> = new Set(['plan', 'implement', 'final', 'verify']);
 /** Kinds that cannot carry a gate: merges are approved by an approval step instead. */
 const UNGATED_KINDS: ReadonlySet<string> = new Set(['final', 'verify', 'approve']);
+/** Delivery kinds that stay at the end when steps are added. */
+const TAIL_KINDS: ReadonlySet<string> = new Set(['final', 'verify']);
+/** Suffix added to copied workflow ids. */
+const COPY_SUFFIX = '-copy';
 
 /** One workflow section. */
 export type SectionName = 'planning' | 'delivery';
@@ -167,6 +185,18 @@ const uidCounter = { next: 0 };
 function allocateUid(): string {
   uidCounter.next += 1;
   return `step-${String(uidCounter.next)}`;
+}
+
+/**
+ * Replace one id in a reference list.
+ *
+ * @param ids - `after` or `inputs` references.
+ * @param from - Id being replaced.
+ * @param to - Its replacement.
+ * @returns New list in the same order.
+ */
+function replaceId(ids: readonly string[], from: string, to: string): string[] {
+  return ids.map((id) => (id === from ? to : id));
 }
 
 /**
@@ -393,4 +423,365 @@ export function kindAllows(kind: string): { roles: boolean; blind: boolean; gate
     gate: !UNGATED_KINDS.has(kind),
     optional: !REQUIRED_KINDS.has(kind),
   };
+}
+
+/**
+ * Change a step's kind and clear settings the new kind does not support.
+ *
+ * @param step - Current step.
+ * @param kind - New kind.
+ * @returns Normalized step.
+ */
+export function withKind(step: DraftStep, kind: string): DraftStep {
+  const allows = kindAllows(kind);
+  const previous = DEFAULT_ROLES[step.kind] ?? [];
+  // Untouched default seats follow the kind; seats the operator chose are kept.
+  const isDefault = step.roles.length === previous.length && step.roles.every((role) => previous.includes(role));
+  const kept = !isDefault && allows.roles ? step.roles : [];
+  return {
+    ...step,
+    kind,
+    roles: allows.roles && kept.length === 0 ? [...(DEFAULT_ROLES[kind] ?? [])] : kept,
+    blind: allows.blind && step.blind,
+    gate: allows.gate && step.gate,
+    optional: allows.optional && step.optional,
+  };
+}
+
+/**
+ * Every step id in a draft.
+ *
+ * @param draft - The workflow being edited.
+ * @returns Ids across both sections.
+ */
+export function stepIds(draft: DraftWorkflow): Set<string> {
+  return new Set([...draft.planning, ...draft.delivery].map((step) => step.id));
+}
+
+/**
+ * Replace one section of a draft.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Section to replace.
+ * @param steps - New steps.
+ * @returns Updated draft.
+ */
+function withSection(draft: DraftWorkflow, section: SectionName, steps: readonly DraftStep[]): DraftWorkflow {
+  return section === 'planning' ? { ...draft, planning: steps } : { ...draft, delivery: steps };
+}
+
+/**
+ * Apply a field patch to one step.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Planning or delivery, where the step lives.
+ * @param uid - Step identity.
+ * @param patch - Fields to replace; use {@link renameStep} for ids and {@link withKind} for kinds.
+ * @returns Updated draft.
+ */
+export function updateStep(
+  draft: DraftWorkflow,
+  section: SectionName,
+  uid: string,
+  patch: Partial<Omit<DraftStep, 'uid' | 'id'>>,
+): DraftWorkflow {
+  return withSection(
+    draft,
+    section,
+    draft[section].map((step) => (step.uid === uid ? { ...step, ...patch } : step)),
+  );
+}
+
+/**
+ * Rename a step and update every `after` and `inputs` reference in its section.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Planning or delivery, where the step lives.
+ * @param uid - Step identity.
+ * @param id - New id.
+ * @returns Updated draft.
+ */
+export function renameStep(draft: DraftWorkflow, section: SectionName, uid: string, id: string): DraftWorkflow {
+  const previous = draft[section].find((step) => step.uid === uid)?.id;
+  if (previous === undefined || previous === id) {
+    return draft;
+  }
+  const swap = (ids: readonly string[]): string[] => replaceId(ids, previous, id);
+  return withSection(
+    draft,
+    section,
+    draft[section].map((step) => {
+      return {
+        ...step,
+        id: step.uid === uid ? id : step.id,
+        after: swap(step.after),
+        inputs: step.inputs === null ? null : swap(step.inputs),
+      };
+    }),
+  );
+}
+
+/**
+ * Insert a new step with sensible defaults. In delivery it goes before the
+ * trailing final/verify steps, after the step before it, and takes that
+ * step's place in the final step's `after`, so the chain stays connected.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Planning or delivery, where steps are added.
+ * @param kind - Kind to add.
+ * @returns Updated draft and the new step's uid.
+ */
+export function addStep(
+  draft: DraftWorkflow,
+  section: SectionName,
+  kind: string,
+): { draft: DraftWorkflow; uid: string } {
+  const steps = draft[section];
+  const tail =
+    section === 'delivery' && !TAIL_KINDS.has(kind)
+      ? steps.findIndex((candidate) => TAIL_KINDS.has(candidate.kind))
+      : -1;
+  const position = tail === -1 ? steps.length : tail;
+  const previous = steps[position - 1];
+  const title = KIND_LABELS[kind] ?? kind;
+  const step = withKind(
+    {
+      uid: allocateUid(),
+      id: deriveKey(kind.replaceAll('_', '-'), stepIds(draft)),
+      kind,
+      title,
+      roles: [],
+      profile: '',
+      after: previous === undefined ? [] : [previous.id],
+      inputs: null,
+      blind: false,
+      gate: false,
+      optional: false,
+      provider: '',
+      instructions: '',
+    },
+    kind,
+  );
+  const relinked: DraftStep[] = [];
+  for (const [index, existing] of steps.entries()) {
+    const shouldRelink = previous !== undefined && index >= position && existing.after.includes(previous.id);
+    relinked.push(shouldRelink ? { ...existing, after: replaceId(existing.after, previous.id, step.id) } : existing);
+  }
+  const next = [...relinked.slice(0, position), step, ...relinked.slice(position)];
+  return { draft: withSection(draft, section, next), uid: step.uid };
+}
+
+/**
+ * Remove a step. Steps that ran after it now run after its own predecessors,
+ * so a chain stays connected; it is dropped from explicit inputs.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Planning or delivery, where the step lives.
+ * @param uid - Step identity.
+ * @returns Updated draft.
+ */
+export function removeStep(draft: DraftWorkflow, section: SectionName, uid: string): DraftWorkflow {
+  const removed = draft[section].find((step) => step.uid === uid);
+  if (removed === undefined) {
+    return draft;
+  }
+  const rest = draft[section].filter((step) => step.uid !== uid);
+  return withSection(
+    draft,
+    section,
+    rest.map((step) => {
+      if (!step.after.includes(removed.id) && step.inputs?.includes(removed.id) !== true) {
+        return step;
+      }
+      const after = step.after.flatMap((id) => (id === removed.id ? removed.after : id));
+      return {
+        ...step,
+        after: [...new Set(after)],
+        inputs: step.inputs === null ? null : step.inputs.filter((id) => id !== removed.id),
+      };
+    }),
+  );
+}
+
+/**
+ * Move a step one place earlier or later. References are kept; the checks
+ * flag any that now point at a later step.
+ *
+ * @param draft - The workflow being edited.
+ * @param section - Planning or delivery, where the step lives.
+ * @param uid - Step identity.
+ * @param offset - `-1` for earlier, `1` for later.
+ * @returns Updated draft, unchanged at either end.
+ */
+export function moveStep(draft: DraftWorkflow, section: SectionName, uid: string, offset: -1 | 1): DraftWorkflow {
+  const steps = [...draft[section]];
+  const index = steps.findIndex((step) => step.uid === uid);
+  const target = index + offset;
+  const moving = steps[index];
+  const other = steps[target];
+  if (index === -1 || moving === undefined || other === undefined) {
+    return draft;
+  }
+  steps[index] = other;
+  steps[target] = moving;
+  return withSection(draft, section, steps);
+}
+
+/**
+ * Copy a step list with fresh browser identities.
+ *
+ * @param steps - Steps to copy.
+ * @returns Equal steps with new uids.
+ */
+function freshSteps(steps: readonly DraftStep[]): DraftStep[] {
+  return steps.map((step) => ({ ...step, uid: allocateUid() }));
+}
+
+/**
+ * Open a library workflow as a draft; a built-in is copied under a new id and name.
+ *
+ * @param item - Library entry.
+ * @param library - Whole library, for unique ids and names.
+ * @returns Draft and the origin its save will expect.
+ */
+export function draftFrom(item: LibraryItem, library: Library): { draft: DraftWorkflow; origin: DraftOrigin } {
+  const base = {
+    ...item.workflow,
+    planning: freshSteps(item.workflow.planning),
+    delivery: freshSteps(item.workflow.delivery),
+  };
+  return item.source === 'project'
+    ? { draft: base, origin: { id: item.id, revision: item.revision } }
+    : { draft: { ...base, ...copyNames(item.workflow, library) }, origin: { id: '', revision: null } };
+}
+
+/**
+ * Suggest a unique id and name for a copy.
+ *
+ * @param workflow - Workflow being copied.
+ * @param library - Existing library.
+ * @returns Unused id and name.
+ */
+export function copyNames(
+  workflow: Pick<DraftWorkflow, 'id' | 'name'>,
+  library: Library,
+): { id: string; name: string } {
+  const ids = new Set(library.items.map((item) => item.id));
+  const names = new Set(library.items.map((item) => item.workflow.name));
+  const stem = workflow.id.slice(0, KEY_MAX - COPY_SUFFIX.length);
+  let name = `${workflow.name} (copy)`;
+  let index = 1;
+  while (names.has(name)) {
+    index += 1;
+    name = `${workflow.name} (copy ${String(index)})`;
+  }
+  return { id: uniqueKey(`${stem}${COPY_SUFFIX}`, ids), name };
+}
+
+/**
+ * Start a new workflow with the smallest valid delivery: implement, review, final, verify.
+ *
+ * @param library - Existing library, for a unique id and name.
+ * @returns Draft and an origin that expects no existing revision.
+ */
+export function blankDraft(library: Library): { draft: DraftWorkflow; origin: DraftOrigin } {
+  const ids = new Set(library.items.map((item) => item.id));
+  let draft: DraftWorkflow = {
+    id: uniqueKey('workflow', ids),
+    name: 'New workflow',
+    description: '',
+    planning: [],
+    delivery: [],
+  };
+  // Tail kinds first, so the review is inserted between implementation and the final check.
+  for (const kind of ['implement', 'final', 'verify', 'review']) {
+    draft = addStep(draft, 'delivery', kind).draft;
+  }
+  return { draft, origin: { id: '', revision: null } };
+}
+
+/**
+ * The wire form of one step: no uid, nulls for empty profile and provider.
+ *
+ * @param step - Draft step.
+ * @returns Plain step definition.
+ */
+function wireStep(step: DraftStep): Record<string, unknown> {
+  return {
+    id: step.id,
+    kind: step.kind,
+    title: step.title,
+    roles: [...step.roles],
+    profile: step.profile.trim() === '' ? null : step.profile.trim(),
+    after: [...step.after],
+    inputs: step.inputs === null ? null : [...step.inputs],
+    blind: step.blind,
+    gate: step.gate,
+    optional: step.optional,
+    provider: step.provider === '' ? null : step.provider,
+    instructions: step.instructions,
+  };
+}
+
+/**
+ * The wire form of a workflow definition.
+ *
+ * @param draft - The workflow being edited.
+ * @returns Plain definition the server validates.
+ */
+export function wireWorkflow(draft: DraftWorkflow): Record<string, unknown> {
+  return {
+    version: 1,
+    id: draft.id,
+    name: draft.name,
+    description: draft.description,
+    planning: draft.planning.map((step) => wireStep(step)),
+    delivery: draft.delivery.map((step) => wireStep(step)),
+  };
+}
+
+/**
+ * The revision a save must expect: the opened revision while the id is unchanged, otherwise none.
+ *
+ * @param draft - The workflow being edited.
+ * @param origin - Where the draft came from.
+ * @returns Revision digest, or null for a new workflow.
+ */
+export function expectedRevision(draft: DraftWorkflow, origin: DraftOrigin): string | null {
+  return draft.id === origin.id ? origin.revision : null;
+}
+
+/**
+ * Input of `factory_workflow_save`.
+ *
+ * @param draft - The workflow being edited.
+ * @param origin - Where the draft came from.
+ * @returns Request body.
+ */
+export function saveRequest(
+  draft: DraftWorkflow,
+  origin: DraftOrigin,
+): { workflow: Record<string, unknown>; expectedRevision: string | null } {
+  return { workflow: wireWorkflow(draft), expectedRevision: expectedRevision(draft, origin) };
+}
+
+/**
+ * Input of `factory_workflow_default`.
+ *
+ * @param workflowId - Workflow to make the default.
+ * @returns Request body.
+ */
+export function defaultRequest(workflowId: string): { workflowId: string } {
+  return { workflowId };
+}
+
+/**
+ * Whether two drafts define the same workflow, ignoring browser identities.
+ *
+ * @param left - First draft.
+ * @param right - Second draft.
+ * @returns True when their wire forms are equal.
+ */
+export function isSameDefinition(left: DraftWorkflow, right: DraftWorkflow): boolean {
+  return JSON.stringify(wireWorkflow(left)) === JSON.stringify(wireWorkflow(right));
 }
