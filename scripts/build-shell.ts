@@ -105,6 +105,7 @@ const FILES = [
   'dist/roles-ui.js',
   'dist/secrets-model.js',
   'dist/secrets-ui.js',
+  'dist/capability-model.js',
   'dist/step-override-model.js',
   'dist/workflow-history-model.js',
   'dist/workflow-history-ui.js',
