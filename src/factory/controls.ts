@@ -7,6 +7,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
+import { settleReads } from '../inbox-reads.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
@@ -94,10 +95,31 @@ export function recordCapacity(context: FactoryContext, input: unknown): void {
 }
 
 /**
- * Release a stopped assignment's managed identity so the next provider can reconnect immediately.
+ * Acknowledge what a successful managed attempt was shown of its inbox; a
+ * failed or interrupted attempt leaves those messages unread for the next one.
  *
- * @param store - Selected team's durable presence.
- * @param job - Current fenced attempt, after owned native processes have settled.
+ * @param store - Project store, inside the settlement transaction.
+ * @param job - Settled attempt.
+ * @param state - Its final state.
+ */
+export function settleConsumedMessages(store: Store, job: FactoryJob, state: FactoryJob['state']): void {
+  const actor = store
+    .execute('list_agents', {}, null)
+    .find((agent) => agent.name === `factory-${job.role}` && agent.runtime === 'factory-managed');
+  if (actor === undefined) {
+    return;
+  }
+  const acknowledged = settleReads(store.db, actor.id, state === 'succeeded', store.now());
+  if (acknowledged > 0) {
+    store.event('MESSAGES_READ', actor.id, { jobId: job.id, count: acknowledged });
+  }
+}
+
+/**
+ * End a managed attempt's bridge presence.
+ *
+ * @param store - Project store, inside the settlement transaction.
+ * @param job - Settled attempt.
  */
 export function retireManagedPresence(store: Store, job: FactoryJob): void {
   const actor = store

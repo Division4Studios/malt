@@ -7,6 +7,8 @@
  *
  * @file
  */
+import { askForDecision, shouldAskOperator, useContinuation } from './checkpoint-decisions.ts';
+import { extensionHold } from './extension-gate.ts';
 import { livenessPolicy } from './liveness-schema.ts';
 import { LivenessMonitor } from './liveness.ts';
 import { ProgressSampler } from './progress-signals.ts';
@@ -14,6 +16,7 @@ import { ProgressSampler } from './progress-signals.ts';
 import type { JobLiveness } from './liveness-schema.ts';
 import type { LivenessTimers } from './liveness.ts';
 import type { FactoryRepository } from './repository.ts';
+import type { ResourceSnapshot } from './resources.ts';
 import type { FactoryConfig, FactoryJob } from './schema.ts';
 
 /** Prefix of the abort reason a checkpoint stop records. */
@@ -26,7 +29,9 @@ const STOP_PREFIX = 'Assignment stopped at its checkpoint:';
  * @returns `stalled N min` or `hard ceiling`, or null.
  */
 export function checkpointStop(liveness: JobLiveness | undefined): string | null {
-  return liveness?.state === 'stalled' || liveness?.state === 'ceiling' ? liveness.stopReason : null;
+  return liveness?.state === 'stalled' || liveness?.state === 'ceiling' || liveness?.state === 'held'
+    ? liveness.stopReason
+    : null;
 }
 
 /**
@@ -39,6 +44,7 @@ export function checkpointStop(liveness: JobLiveness | undefined): string | null
  * @param input.controller - Whole-attempt cancellation.
  * @param input.worktree - Owned worktree once prepared, for code-editing steps.
  * @param input.timers - Timers, real ones by default.
+ * @param input.gate - Supported quota refresh and machine counters; without it every productive checkpoint extends.
  * @returns Started monitor; dispose it when the attempt settles.
  */
 export function superviseLiveness(input: {
@@ -48,6 +54,7 @@ export function superviseLiveness(input: {
   controller: AbortController;
   worktree: () => string | null;
   timers?: LivenessTimers;
+  gate?: { readonly refresh: () => Promise<void>; readonly resources: () => ResourceSnapshot };
 }): LivenessMonitor {
   const { repository, job } = input;
   const sampler = new ProgressSampler({
@@ -57,9 +64,13 @@ export function superviseLiveness(input: {
     artifact: job.artifact,
     worktree: input.worktree,
   });
+  const normal = livenessPolicy(input.settings);
+  // An operator continuation bounds this attempt by its minutes and replaces the extension gate.
+  const continued = useContinuation(repository, job, normal);
+  const policy = continued ?? normal;
   const monitor = new LivenessMonitor({
     startedAt: job.startedAt,
-    policy: livenessPolicy(input.settings),
+    policy,
     now: () => repository.store.now(),
     sample: async () => await sampler.sample(),
     record: (liveness) => {
@@ -69,10 +80,49 @@ export function superviseLiveness(input: {
       }
     },
     stop: (reason) => {
+      if (shouldAskOperator(monitor.liveness, policy, repository.store.now())) {
+        askForDecision(repository, job, monitor.liveness);
+      }
       input.controller.abort(new Error(`${STOP_PREFIX} ${reason}.`));
     },
     ...(input.timers !== undefined && { timers: input.timers }),
+    ...(input.gate !== undefined &&
+      continued === null && { gate: extensionCheck(input.repository, job, input.settings, input.gate) }),
   });
   monitor.start();
   return monitor;
+}
+
+/**
+ * The extension gate for one attempt: refresh supported quota, then check its
+ * provider's verified headroom, cooldown and the machine's pressure.
+ *
+ * @param repository - Project ledger.
+ * @param job - Supervised attempt.
+ * @param settings - Project policy.
+ * @param gate - Quota refresh and machine counters.
+ * @param gate.refresh - Supported, unpaid quota refresh.
+ * @param gate.resources - Latest machine counters.
+ * @returns Gate resolving to a refusal reason, or null to extend.
+ */
+function extensionCheck(
+  repository: FactoryRepository,
+  job: FactoryJob,
+  settings: FactoryConfig,
+  gate: { readonly refresh: () => Promise<void>; readonly resources: () => ResourceSnapshot },
+): () => Promise<string | null> {
+  return async () => {
+    await gate.refresh();
+    const sharing = repository
+      .jobs()
+      .filter((candidate) => candidate.state === 'running' && candidate.provider === job.provider).length;
+    const hold = extensionHold({
+      capacity: repository.capacity(job.provider, settings),
+      settings,
+      resources: gate.resources(),
+      sharing,
+      now: repository.store.now(),
+    });
+    return hold?.reason ?? null;
+  };
 }
