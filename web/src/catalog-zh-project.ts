@@ -313,6 +313,16 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Proposals to link, merge or change tickets from the product owner and team lead appear here.':
     '产品负责人和团队负责人关于关联、合并或变更工单的提议会显示在这里。',
   'Show more recommendations': '显示更多建议',
+  'Rationale (required)': '理由（必填）',
+  Refresh: '刷新',
+  'Write a rationale before deciding.': '请先填写理由再做决定。',
+  'Sending decision…': '正在提交决定…',
+  'This proposal changed since you opened it. Refresh to review the current revision.':
+    '你打开之后该提议已更改。请刷新以审阅当前修订。',
+  'Approved.': '已批准。',
+  'Rejected.': '已拒绝。',
+  'The decision could not be sent.': '无法提交决定。',
+  'Not decided: {reason} Your rationale is kept; try again.': '未决定：{reason} 你的理由已保留，请重试。',
   Revision: '修订',
   Tickets: '工单',
   Survivor: '保留工单',

@@ -9,7 +9,7 @@ import { createRecommendationsView } from '../web/dist/recommendations-ui.js';
 import { FakeElement, fake, installDom } from './dom-shim.ts';
 
 /**
- * A detail route these tests never reach.
+ * A detail or decision route these tests never reach.
  *
  * @returns Never; always rejects.
  */
@@ -81,6 +81,10 @@ function mount(t: Parameters<typeof installDom>[0]): {
       return {};
     },
     detail: async () => {
+      await Promise.resolve();
+      throw new Error('Not needed here.');
+    },
+    decide: async () => {
       await Promise.resolve();
       throw new Error('Not needed here.');
     },
@@ -156,6 +160,7 @@ await test('a read started for the previous project is discarded after a reset',
       return {};
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -178,6 +183,7 @@ await test('a failed read receipt stays visible after the refresh', async (t) =>
       throw new Error('Receipt refused.');
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -209,6 +215,7 @@ await test('a receipt settling after a project reset does not reach the new proj
       throw new Error('Old project receipt refused.');
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -257,6 +264,7 @@ await test('a change on an earlier loaded page redraws the pane', async (t) => {
       return {};
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -287,6 +295,7 @@ await test('more than one page is reachable through the cursor', async (t) => {
       return {};
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -343,6 +352,7 @@ await test('a language change relabels the pane but keeps proposal text exactly 
       return {};
     },
     detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);

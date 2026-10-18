@@ -128,6 +128,7 @@ export class ProjectViews {
         await request(scoped(hooks.project(), '/api/recommendation/read'), { id, revision }),
       detail: async (id) =>
         await request(`${scoped(hooks.project(), '/api/recommendation')}&id=${encodeURIComponent(id)}`),
+      decide: async (input) => await request(scoped(hooks.project(), '/api/recommendation/decide'), input),
     });
     // Recommendations redraw their own labels: proposal text must never pass through catalog translation.
     onLocaleChange(
