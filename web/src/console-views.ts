@@ -179,7 +179,14 @@ export class ConsoleViews {
     ]);
     // The static shell is written in English; show it in the stored language.
     translateTree(document.body, 'en');
-    onLocaleChange(() => [document.body, ...this.roots()], hooks.rerender);
+    // Route-backed views (attempts, costs) rebuild their combined labels on their next read.
+    onLocaleChange(
+      () => [document.body, ...this.roots()],
+      () => {
+        this.reset();
+        hooks.rerender();
+      },
+    );
   }
 
   /**
