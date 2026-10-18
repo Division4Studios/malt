@@ -180,6 +180,25 @@ export function writeIfAbsent(file: string, contents: string): 'created' | 'exis
 }
 
 /**
+ * Refuse any broker URL that is not plain HTTP on a loopback host.
+ *
+ * Project bearer tokens and RPC bodies are only ever sent to this URL, so it
+ * is checked where configuration is loaded or saved and again at the network
+ * sink: a configuration assembled in memory cannot route requests off the host.
+ *
+ * @param raw - Broker URL from a project configuration.
+ * @returns The parsed loopback URL.
+ * @throws {Error} When the URL is not local HTTP; see LOCAL_HOSTNAMES.
+ */
+export function assertLocalBrokerUrl(raw: string): URL {
+  const url = new URL(raw);
+  if (url.protocol !== 'http:' || !LOCAL_HOSTNAMES.has(url.hostname)) {
+    throw new Error('The broker URL must use local HTTP.');
+  }
+  return url;
+}
+
+/**
  * Read and parse a JSON file.
  *
  * @param file - Absolute path of the file.
@@ -249,11 +268,7 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
     throw new Error(INVALID_CONFIGURATION, { cause: parsed.error });
   }
 
-  // Refuse any non-local broker URL; see LOCAL_HOSTNAMES.
-  const url = new URL(parsed.data.url);
-  if (url.protocol !== 'http:' || !LOCAL_HOSTNAMES.has(url.hostname)) {
-    throw new Error('The broker URL must use local HTTP.');
-  }
+  assertLocalBrokerUrl(parsed.data.url);
 
   ensurePrivateStateIgnored(root, directory);
   if (options.create === true) {
@@ -277,10 +292,7 @@ export function loadConfig(project: string = process.cwd(), options: LoadConfigO
  */
 export function saveBrokerDiscovery(config: MeshConfig): void {
   const parsed = persistedConfigSchema.parse(config);
-  const url = new URL(parsed.url);
-  if (url.protocol !== 'http:' || !LOCAL_HOSTNAMES.has(url.hostname)) {
-    throw new Error('The broker URL must use local HTTP.');
-  }
+  assertLocalBrokerUrl(parsed.url);
   writeAtomic(path.join(config.directory, 'config.json'), `${JSON.stringify(parsed, null, 2)}\n`);
 }
 

@@ -53,6 +53,8 @@ Usage: node src/cli.ts <command> [options]
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  capability-status            Show connector capability policies, support and history
+  capability-set --file FILE   Change one connector capability policy (human only)
   factory-setup --file FILE    Configure target factory validation and resource policies
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch
@@ -65,6 +67,9 @@ Usage: node src/cli.ts <command> [options]
   factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
+  factory-manager --body TEXT  Message the persistent delivery manager
+  factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
+  factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   agents                       List registered agents and presence
   events                       Read the durable coordination event log

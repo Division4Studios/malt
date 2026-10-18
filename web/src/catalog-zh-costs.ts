@@ -66,8 +66,8 @@ export const ZH_COSTS: Readonly<Record<string, string>> = {
   'Model prices (USD per million tokens)': '模型价格（每百万 token 的美元价格）',
   'Add model': '添加模型',
   'Save prices': '保存价格',
-  'No prices are built in. Enter the per-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.':
-    '没有内置价格。请填写你实际支付的每 token 价格，或让模型保持未定价。提供方上报的成本始终优先于这些估算。',
+  'No prices are built in. Enter the per-million-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.':
+    '没有内置价格。请填写你实际支付的每百万 token 价格，或让模型保持未定价。提供方上报的成本始终优先于这些估算。',
   'Model identifier': '模型标识符',
   '{label} USD per million tokens': '{label}（每百万 token 美元）',
   'Prices saved.': '价格已保存。',
@@ -150,6 +150,7 @@ export const ZH_COSTS: Readonly<Record<string, string>> = {
   'No provider log was recorded for this attempt.': '此尝试没有记录提供方日志。',
   '{malformed} unrecognized log lines were skipped.': '已跳过 {malformed} 行无法识别的日志。',
   'Files touched ({length})': '涉及的文件（{length}）',
+  'More files were touched than are listed here.': '实际涉及的文件比这里列出的更多。',
   'Specification and plan': '规格与计划',
   'Plan refinement': '计划细化',
   Development: '开发',
