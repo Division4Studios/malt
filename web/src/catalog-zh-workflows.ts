@@ -324,4 +324,8 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
     '新目标现在使用“{name}”。运行中的目标不受影响。',
   'The default was not changed. The console notice explains why.': '默认值未更改。控制台提示说明了原因。',
   'The default was not changed: {error}': '默认值未更改：{error}',
+  'The workflow draft was closed because the console switched projects; nothing was saved.':
+    '控制台切换了项目，因此工作流草稿已关闭；未保存任何内容。',
+  'This draft was opened in another project, so it was not saved here.':
+    '此草稿是在另一个项目中打开的，因此未在此保存。',
 };
