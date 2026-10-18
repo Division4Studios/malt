@@ -61,12 +61,14 @@ const FILES = [
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',
+  'dist/log-tails.js',
   'dist/console-model.js',
   'dist/board-model.js',
   'dist/approval-model.js',
   'dist/console-dom.js',
   'dist/approval-dialog.js',
   'dist/inbox-ui.js',
+  'dist/board-actions.js',
   'dist/board-ui.js',
   'dist/delivery-ui.js',
   'sessions.css',
@@ -78,6 +80,7 @@ const FILES = [
   'dist/workflow-step-editor.js',
   'dist/workflow-editor.js',
   'dist/workflows-ui.js',
+  'workflows.css',
 ] as const;
 /** Fixed build output root independent of the invocation directory. */
 const ROOT = path.resolve(import.meta.dirname, '..', 'web');
