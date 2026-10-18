@@ -28,16 +28,20 @@ import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryTask, Feature } from './schema.ts';
-import type { SpendCaps, SpendScope, SpendStatus, SpendUsage } from './spend-schema.ts';
+import type { SpendCaps, SpendChoice, SpendScope, SpendStatus, SpendUsage } from './spend-schema.ts';
 
 /** Settled attempts priced per refresh, bounding stream reads in one tick. */
 const REFRESH_BATCH = 20;
+/** Upper bound on refresh batches one drain runs, a guard against a row that never settles. */
+const DRAIN_BATCHES = 500;
 /** Stream reads in flight at once. */
 const READ_BATCH = 16;
 /** Milliseconds in one day. */
 const DAY_MS = 86_400_000;
 /** Notices remembered; older keys are pruned. */
 const NOTICES_MAX = 500;
+/** Most uncapped scopes offered to the cap picker. */
+const CHOICES_MAX = 500;
 
 /** Stored caps row. */
 const capsRowSchema = z.object({ revision: z.number().int().nonnegative(), data: z.string() });
@@ -399,6 +403,26 @@ function openScopes(repository: FactoryRepository): { features: Feature[]; tasks
 }
 
 /**
+ * Record settled attempts' spend before admission. While caps are set, an
+ * attempt not yet recorded (or repriced) may already exceed one, so every
+ * pending batch is recorded before the gate is read; without caps one batch
+ * per pass keeps the cost views current.
+ *
+ * @param repository - Selected project ledger.
+ * @param mesh - Project paths for attempt streams.
+ */
+export async function drainSpend(repository: FactoryRepository, mesh: MeshConfig): Promise<void> {
+  let recorded = await refreshSpend(repository, mesh);
+  for (let batch = 1; recorded === REFRESH_BATCH && batch < DRAIN_BATCHES; batch += 1) {
+    if (!hasCaps(readCaps(repository.store).caps)) {
+      return;
+    }
+    // eslint-disable-next-line no-await-in-loop -- Each batch reads the rows the previous one left.
+    recorded = await refreshSpend(repository, mesh);
+  }
+}
+
+/**
  * Every open scope that a cap currently stops.
  *
  * @param repository - Selected project ledger.
@@ -492,22 +516,31 @@ export function spendStatus(repository: FactoryRepository): SpendStatus {
   const policy = caps.unpriced;
   const spent = ledger(store, caps);
   const { features, tasks } = openScopes(repository);
+  const choices: SpendChoice[] = [];
   const objectives = features.flatMap((feature) => {
     const cap = capFor(caps.objectives, caps.objectiveDefault, feature.id);
     const label = feature.objective.split('\n', 1)[0]?.slice(0, OBJECTIVE_MAX) ?? '';
     const totals = spent.byFeature.get(feature.id) ?? NOTHING;
-    return cap === null ? [] : [usageRow({ scope: 'objective', id: feature.id, label }, totals, { cap, policy })];
+    if (cap === null) {
+      choices.push({ scope: 'objective', id: feature.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'objective', id: feature.id, label }, totals, { cap, policy })];
   });
   const deliveries = tasks.flatMap((task) => {
     const cap = capFor(caps.deliveries, caps.deliveryDefault, task.id);
     const label = `#${String(task.issue)} ${task.title}`;
     const totals = spent.byTask.get(task.id) ?? NOTHING;
-    return cap === null ? [] : [usageRow({ scope: 'delivery', id: task.id, label }, totals, { cap, policy })];
+    if (cap === null) {
+      choices.push({ scope: 'delivery', id: task.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'delivery', id: task.id, label }, totals, { cap, policy })];
   });
   const project = usageRow(
     { scope: 'project', id: '', label: `Project, last ${String(caps.windowDays)} days` },
     spent.project,
     { cap: caps.project, policy },
   );
-  return { revision, caps, usage: [project, ...objectives, ...deliveries] };
+  return { revision, caps, usage: [project, ...objectives, ...deliveries], choices: choices.slice(0, CHOICES_MAX) };
 }

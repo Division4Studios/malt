@@ -89,7 +89,9 @@ export function classifyAttempt(facts: AttemptFacts): FailureClass | null {
   if (facts.state === 'succeeded') {
     return null;
   }
-  if (facts.waiting !== null || (facts.error instanceof MeshError && facts.error.code === 'FACTORY_GATED')) {
+  // A provider turn that returned no usable result was paid for, even when completion reports it as a gate error.
+  const isGated = !facts.isResultMissing && facts.error instanceof MeshError && facts.error.code === 'FACTORY_GATED';
+  if (isGated || facts.waiting !== null) {
     return 'gate';
   }
   if (facts.isCoolingDown || LIMIT_PATTERN.test(facts.reason ?? '')) {
@@ -147,6 +149,8 @@ export interface StepScope {
   readonly head: string | null;
   /** Workflow step. */
   readonly step: string | null;
+  /** When the operator last retried the work; attempts finished before it no longer count. */
+  readonly since?: number | undefined;
 }
 
 /** Retry state of one step. */
@@ -186,7 +190,10 @@ function isSameScope(job: FactoryJob, scope: StepScope): boolean {
  * @returns Retry state, or null when the step may run now.
  */
 export function retryState(jobs: readonly FactoryJob[], scope: StepScope, reconcileMs: number): RetryState | null {
-  const finished = jobs.filter((job) => job.state !== 'running' && isSameScope(job, scope));
+  const since = scope.since ?? 0;
+  const finished = jobs.filter(
+    (job) => job.state !== 'running' && isSameScope(job, scope) && (job.finishedAt ?? job.startedAt) >= since,
+  );
   const latest = finished.at(-1);
   if (latest === undefined || latest.state === 'succeeded') {
     return null;
