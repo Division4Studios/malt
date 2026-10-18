@@ -114,7 +114,7 @@ select:focus-visible,
   outline-offset: 3px;
 }
 select {
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -570,7 +570,8 @@ select {
   border-left: 4px solid var(--red);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #2a141c;
+  background: var(--state-bad);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;

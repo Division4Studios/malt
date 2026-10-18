@@ -13,9 +13,10 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
-import { featureWorkflow, planningApprovals } from './pipeline.ts';
+import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
@@ -104,8 +105,7 @@ async function provision(context: FactoryContext): Promise<void> {
   const candidates1 = context.repository
     .features()
     .filter(
-      (candidate) =>
-        candidate.phase === 'provisioning' && planningApprovals(candidate, featureWorkflow(candidate)).length === 0,
+      (candidate) => candidate.phase === 'provisioning' && isPlanningComplete(candidate, featureWorkflow(candidate)),
     );
   for (const feature of candidates1) {
     try {
@@ -114,6 +114,10 @@ async function provision(context: FactoryContext): Promise<void> {
     } catch (error) {
       const current = context.repository.features().find((candidate) => candidate.id === feature.id);
       if (current === undefined || current.scopeReplacement !== undefined) {
+        continue;
+      }
+      if (isCapabilityDenied(error)) {
+        parkFeature(context.repository, current, error);
         continue;
       }
       context.repository.saveFeature({
@@ -411,6 +415,10 @@ async function flushEffects(context: FactoryContext): Promise<void> {
       await context.remote.effect(effect);
       context.repository.settleEffect(effect, null);
     } catch (error) {
+      if (isCapabilityDenied(error)) {
+        parkEffect(context.repository, effect, error);
+        continue;
+      }
       context.repository.settleEffect(effect, Error.isError(error) ? error.message : 'GitHub synchronization failed.');
     }
   }
@@ -501,6 +509,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
  * @param context - Current workspace factory.
  */
 export async function reconcile(context: FactoryContext): Promise<void> {
+  resumeCapabilityBlocks(context.repository);
   await importReady(context);
   await provision(context);
   for (const task of context.repository.tasks()) {

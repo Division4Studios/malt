@@ -12,7 +12,7 @@ Dependencies name real prerequisites. Independent slices can merge separately. K
 
 ## Local development
 
-Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex/Claude subscriptions and GitHub credentials are not required for fixture tests.
+Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex, Claude Code or Copilot subscriptions and GitHub credentials are not required for fixture tests.
 
 ```sh
 npm ci --ignore-scripts
