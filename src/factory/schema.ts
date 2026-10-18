@@ -52,6 +52,7 @@ import {
   saveWorkflowRequestSchema,
   stepResultSchema,
   planningResultSchema,
+  planOutputSchema,
   dispositionsSchema,
 } from './workflow-schema.ts';
 
@@ -291,6 +292,8 @@ export const featureSchema = z.object({
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
+  /** Typed specification and plan outputs with the source each was planned against, oldest first. */
+  planOutputs: z.array(planOutputSchema).optional(),
   /** Operator-owned definition of done; agents propose or check items only with evidence. */
   definitionOfDone: z.array(doneItemSchema).max(DONE_ITEMS_MAX).optional(),
 });
