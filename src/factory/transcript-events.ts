@@ -15,7 +15,6 @@ export type TranscriptSink = Pick<
   | 'text'
   | 'openTool'
   | 'closeTool'
-  | 'fileChange'
   | 'touch'
   | 'addUsage'
   | 'report'
@@ -25,7 +24,10 @@ export type TranscriptSink = Pick<
   | 'countUnknown'
   | 'markProviderError'
   | 'awaitInput'
->;
+> & {
+  /** Record a provider file change; `id` is the provider item, so separate patches to one file stay distinct. */
+  readonly fileChange: (changes: readonly { path: string; kind: string }[], id: string) => void;
+};
 
 /** Claude tools whose input names a file being written, and the naming field. */
 const CLAUDE_EDIT_TOOLS = new Map([
@@ -480,7 +482,7 @@ function codexCompleted(builder: TranscriptSink, item: Item): void {
   } else if (item.type === 'reasoning' && text.success) {
     builder.text('thinking', 'Thinking', text.data.text);
   } else if (item.type === 'file_change' && changes.success) {
-    builder.fileChange(changes.data.changes);
+    builder.fileChange(changes.data.changes, item.id);
   } else if (item.type === 'todo_list' && todo.success) {
     const lines = todo.data.items.map((entry) => `${entry.completed ? '[x]' : '[ ]'} ${entry.text}`);
     builder.text('status', 'Plan', lines.join('\n'));
