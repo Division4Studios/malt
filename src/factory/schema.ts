@@ -397,6 +397,8 @@ export const taskSchema = z.object({
   repairs: z.array(repairRoundSchema).default([]),
   /** Last operator retry; repair rounds before it no longer count toward the caps. */
   repairsResetAt: z.number().optional(),
+  /** Reviewed source the supervisor last merged advanced main into; reviews then cover only that merge. */
+  refreshedFrom: z.object({ head: z.string(), base: z.string(), at: z.number() }).optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),

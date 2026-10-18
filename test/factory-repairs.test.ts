@@ -553,3 +553,92 @@ function developJob(task: FactoryTask): Record<string, unknown> {
     artifact: 'fixture-artifact',
   };
 }
+
+/**
+ * Publish one delivery change from the owned worktree and put the delivery in review on that head.
+ *
+ * @param fixture - Test fixture.
+ * @param file - File the delivery changes.
+ * @returns Published head.
+ */
+async function publishedInReview(fixture: Fixture, file: string): Promise<string> {
+  const { repository, workspaces } = fixture.context;
+  repository.editTask(fixture.task.id, (current) => ({ ...current, phase: 'development', head: null, reviews: [] }));
+  const developer = await workspaces.developer(repository.task(fixture.task.id));
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its owned worktree.
+  await writeFile(path.join(developer.directory, file), 'delivery change\n');
+  const owned = { branch: developer.branch, worktree: developer.directory, base: developer.base };
+  repository.editTask(fixture.task.id, (current) => ({ ...current, ...owned }));
+  const published = await workspaces.publish(repository.task(fixture.task.id), async () => {
+    await delay(0);
+  });
+  const source = { head: published.head, base: published.base };
+  repository.editTask(fixture.task.id, (current) => ({ ...current, phase: 'review', ...source }));
+  fixture.setPr({ headRefOid: published.head, baseRefOid: published.base, statusCheckRollup: [PASSING_CHECK] });
+  return published.head;
+}
+
+/**
+ * Commit and push a change to main from the project checkout.
+ *
+ * @param fixture - Test fixture.
+ * @param file - File main changes.
+ * @returns New main.
+ */
+async function advanceMain(fixture: Fixture, file: string): Promise<string> {
+  const { mesh, workspaces } = fixture.context;
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its temporary project.
+  await writeFile(path.join(mesh.root, file), 'main change\n');
+  await workspaces.git(['add', file]);
+  await workspaces.git(['commit', '-m', 'Main moves on']);
+  await workspaces.git(['push', 'origin', 'main']);
+  const main = await workspaces.base();
+  fixture.setPr({ baseRefOid: main });
+  return main;
+}
+
+await test('main advancing under a reviewed PR is merged in without a developer turn and re-reviewed on the merge', async (t) => {
+  const fixture = await repairFixture(t);
+  const { context } = fixture;
+  const head = await publishedInReview(fixture, 'delivery.txt');
+  const main = await advanceMain(fixture, 'unrelated.txt');
+  await reconcile(context);
+  const refreshed = context.repository.task(fixture.task.id);
+  assert.equal(refreshed.phase, 'review');
+  assert.equal(refreshed.base, main);
+  assert.notEqual(refreshed.head, head);
+  assert.equal(refreshed.refreshedFrom?.head, head);
+  assert.deepEqual(refreshed.reviews, []);
+  assert.equal(
+    context.repository.jobs().some((job) => job.kind === 'develop'),
+    false,
+    'no developer turn',
+  );
+  const parents = await context.workspaces.git(['rev-list', '--parents', '-n', '1', refreshed.head ?? '']);
+  assert.equal(parents.split(' ').length, 3, 'the refresh is a real merge of main');
+  const remote = await context.workspaces.git(['ls-remote', 'origin', refreshed.branch ?? '']);
+  assert.equal(remote.startsWith(refreshed.head ?? '-'), true, 'the merge is pushed to the PR branch');
+  const prompt = assignmentPrompt({
+    job: jobSchema.parse({ ...developJob(refreshed), kind: 'review', role: 'qa-1' }),
+    task: refreshed,
+    feature: null,
+    skill: null,
+    standards: [],
+    evidence: {},
+  });
+  assert.match(prompt, /only merged advanced main into this source/v);
+});
+
+await test('a conflicting main refresh becomes a merge-conflict repair for the original developer', async (t) => {
+  const fixture = await repairFixture(t);
+  const { context } = fixture;
+  await publishedInReview(fixture, 'shared.txt');
+  await advanceMain(fixture, 'shared.txt');
+  await reconcile(context);
+  const conflicted = context.repository.task(fixture.task.id);
+  assert.equal(conflicted.phase, 'development');
+  assert.deepEqual(
+    conflicted.repairs.map((round) => [round.kind, round.files]),
+    [['conflict', ['shared.txt']]],
+  );
+});

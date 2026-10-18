@@ -15,6 +15,7 @@ import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { failedChecks } from './ci-logs.ts';
 import { didAdoptExternalMerge } from './external-merge.ts';
+import { didRefreshOntoMain } from './main-refresh.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, planningApprovals } from './pipeline.ts';
@@ -232,16 +233,7 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     await recoverMerge(context, task, pr);
     return;
   }
-  const isSourceMoved = pr.headRefOid !== record.head || pr.baseRefOid !== record.base;
-  if (isAutoMergeArmed(pr) && (isSourceMoved || (failedChecks(pr.statusCheckRollup) ?? []).length > 0)) {
-    // A reworked or refreshed head must never be merged by an earlier auto-merge request.
-    await context.remote.disarm?.(pr.number);
-  }
-  if (isSourceMoved) {
-    refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
-    return;
-  }
-  if (await didHandleFailedChecks(context, record, pr)) {
+  if ((await didHandleMovedSource(context, record, pr)) || (await didHandleFailedChecks(context, record, pr))) {
     return;
   }
   if (record.phase === 'merge_ready') {
@@ -254,6 +246,29 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
   if (record.phase === 'merging') {
     await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Disarm a stale auto-merge, then refresh a reviewed source whose base moved, or return it to its developer.
+ *
+ * @param context - Project Git, ledger and GitHub.
+ * @param task - Delivery at its recorded head and base.
+ * @param pr - Current PR state.
+ * @returns True when the head or base moved and this pass handled it.
+ */
+async function didHandleMovedSource(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<boolean> {
+  const isSourceMoved = pr.headRefOid !== task.head || pr.baseRefOid !== task.base;
+  if (isAutoMergeArmed(pr) && (isSourceMoved || (failedChecks(pr.statusCheckRollup) ?? []).length > 0)) {
+    // A reworked or refreshed head must never be merged by an earlier auto-merge request.
+    await context.remote.disarm?.(pr.number);
+  }
+  if (!isSourceMoved) {
+    return false;
+  }
+  if (!(await didRefreshOntoMain(context, task, pr))) {
+    refreshRequired(context, task, 'The remote PR head or main advanced. Previous approvals are invalid.');
+  }
+  return true;
 }
 
 /**

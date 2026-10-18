@@ -447,6 +447,44 @@ export class WorkspaceManager {
   }
 
   /**
+   * Merge advanced main into a published, reviewed branch and push it, with no edits of its own.
+   *
+   * @param task - Published delivery at its reviewed head.
+   * @returns New head and base, or the conflicted paths and main (the merge is aborted; the branch is unchanged).
+   * @throws {MeshError} When the owned branch is missing or changed locally.
+   */
+  public async refreshPublished(
+    task: FactoryTask,
+  ): Promise<{ head: string; base: string } | { conflicts: string[]; base: string }> {
+    this.assertDeliveryTask(task);
+    if (task.worktree === null || task.branch === null || task.head === null) {
+      throw new MeshError('FACTORY_GATED', 'A main refresh needs an owned, published branch.');
+    }
+    const directory = task.worktree;
+    this.assertOwnedPath(directory);
+    const source = await this.snapshot(directory);
+    const branch = await this.git(['branch', '--show-current'], directory);
+    if (source.status !== '' || source.head !== task.head || branch !== task.branch) {
+      throw new MeshError('FACTORY_GATED', 'The published branch changed locally; preserve it for developer repair.');
+    }
+    const base = await this.base();
+    try {
+      await this.mergeBase(task, base, directory);
+    } catch (error) {
+      const conflicts = await this.conflictedFiles(directory);
+      if (conflicts.length === 0) {
+        throw error;
+      }
+      await this.git(['merge', '--abort'], directory);
+      return { conflicts, base };
+    }
+    const head = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.assertDeliveryHead(task, head, base);
+    await this.git(['push', this.config.remote, task.branch], directory);
+    return { head, base };
+  }
+
+  /**
    * Retry only a previously validated unchanged branch after an ambiguous push.
    *
    * @param task - Durable publication checkpoint.
