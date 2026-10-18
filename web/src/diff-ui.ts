@@ -109,6 +109,18 @@ function patchBody(path: string, patch: DiffPatchView): HTMLElement {
   return body;
 }
 
+/**
+ * The result shown when a read answered for a newer head than the one on screen.
+ *
+ * @returns Unavailable view that explains the next live update reloads it.
+ */
+function moved(): { readonly state: 'unavailable'; readonly reason: string } {
+  return {
+    state: 'unavailable',
+    reason: t('This delivery published a new head while its changes were read; they reload with the next update.'),
+  };
+}
+
 /** The Changes section of one delivery. */
 export class DeliveryDiff {
   /** Stable section element. */
@@ -123,6 +135,8 @@ export class DeliveryDiff {
   private taskId = '';
   /** Its current head, if published. */
   private head: string | null = null;
+  /** Its current base, if published. */
+  private base: string | null = null;
   /** Loaded summary, or null before loading. */
   private summary: DiffSummaryView | null = null;
   /** Loaded patches by path. */
@@ -161,7 +175,10 @@ export class DeliveryDiff {
     this.key = key;
     this.taskId = taskId;
     this.head = head;
+    this.base = base;
     this.summary = null;
+    // A read still in flight belongs to the previous delivery or head; it no longer holds the button.
+    this.isLoading = false;
     this.patches.clear();
     this.pending.clear();
     this.opened.clear();
@@ -254,15 +271,24 @@ export class DeliveryDiff {
       summary = readDiffSummary(await request(route));
     } catch (error) {
       summary = { state: 'unavailable', reason: failureText(error, t('The diff could not be read.')) };
-    } finally {
-      this.isLoading = false;
     }
     if (key !== this.key) {
       return;
     }
-    this.summary = summary;
+    this.isLoading = false;
+    this.summary = this.isShownPair(summary) ? summary : moved();
     this.render();
     this.element.querySelector<HTMLElement>('.delivery-diff-totals')?.focus({ preventScroll: true });
+  }
+
+  /**
+   * Whether a read result was generated for the source pair on screen.
+   *
+   * @param view - Summary or patch.
+   * @returns True for an unavailable result or one for the displayed base and head.
+   */
+  private isShownPair(view: DiffSummaryView | DiffPatchView): boolean {
+    return view.state !== 'ready' || (view.head === this.head && view.base === this.base);
   }
 
   /**
@@ -288,6 +314,11 @@ export class DeliveryDiff {
       return;
     }
     this.pending.delete(path);
+    if (!this.isShownPair(patch)) {
+      // The delivery published a new head after the summary was read; never mix the two.
+      details.append(patchBody(path, moved()));
+      return;
+    }
     this.patches.set(path, patch);
     details.append(patchBody(path, patch));
   }
