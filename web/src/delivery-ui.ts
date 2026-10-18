@@ -23,7 +23,7 @@ import {
   shortSha,
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
-import { phrase, t, translated } from './i18n.js';
+import { keepLiteral, phrase, t, translated } from './i18n.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -239,9 +239,13 @@ function resultBody(result: StepResult): HTMLElement {
   if (result.role !== '') {
     body.append(element('p', 'subtle', t('Reported by {role}', { role: result.role })));
   }
-  body.append(element('p', 'step-summary', result.summary === '' ? t('No summary recorded.') : result.summary));
+  body.append(
+    result.summary === ''
+      ? element('p', 'step-summary', t('No summary recorded.'))
+      : keepLiteral(element('p', 'step-summary', result.summary)),
+  );
   if (result.findings.length > 0) {
-    body.append(element('h5', 'step-subheading', t('Findings')), findingsList(result.findings));
+    body.append(element('h5', 'step-subheading', t('Findings')), keepLiteral(findingsList(result.findings)));
   }
   if (result.dispositions.length > 0) {
     body.append(dispositionsTable(result));

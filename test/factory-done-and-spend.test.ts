@@ -22,7 +22,14 @@ import { savePrices } from '../src/factory/price-table.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
-import { announceSpendBlocks, refreshSpend, saveCaps, spendGate, spendStatus } from '../src/factory/spend.ts';
+import {
+  announceSpendBlocks,
+  drainSpend,
+  refreshSpend,
+  saveCaps,
+  spendGate,
+  spendStatus,
+} from '../src/factory/spend.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
@@ -268,11 +275,39 @@ await test('a reached delivery cap stops new attempts until the operator raises 
       [other.id, 0, 1, null],
     ],
   );
+  assert.deepEqual(
+    status.choices.filter((choice) => choice.scope === 'delivery'),
+    [],
+    'Capped deliveries are not offered again.',
+  );
 
   saveCaps(repository, { caps: { deliveryDefault: 1, deliveries: { [spent.id]: 2 } }, expectedRevision: 1 });
   assert.equal(spendGate(repository).block({ taskId: spent.id, featureId: null }), null, 'Raising the cap resumes it.');
   saveCaps(repository, { caps: { project: 1, windowDays: 7 }, expectedRevision: 2 });
   assert.equal(spendGate(repository).block({ taskId: null, featureId: null })?.scope, 'project');
+  const offered = spendStatus(repository).choices.filter((choice) => choice.scope === 'delivery');
+  assert.deepEqual(
+    offered.map((choice) => choice.id).toSorted((left, right) => left.localeCompare(right)),
+    [spent.id, other.id].toSorted((left, right) => left.localeCompare(right)),
+    'Uncapped deliveries can be capped, including one that has not run.',
+  );
+});
+
+await test('every settled attempt is recorded before a capped scope is admitted again', async (t) => {
+  const context = project(t);
+  const { repository } = context;
+  const busy = delivery(repository);
+  saveCaps(repository, { caps: { deliveryDefault: 2.05 }, expectedRevision: 0 });
+  for (let index = 0; index < 25; index += 1) {
+    attempt(context, { taskId: busy.id }, 0.1);
+  }
+  await drainSpend(repository, context.mesh);
+  assert.equal(await refreshSpend(repository, context.mesh), 0, 'Nothing is left unrecorded.');
+  assert.equal(
+    spendGate(repository).block({ taskId: busy.id, featureId: null })?.reason,
+    'cap',
+    'The 21st and later attempts count before admission, not a pass later.',
+  );
 });
 
 await test('unpriced attempts block a capped scope only under the block policy, and prices re-estimate', async (t) => {
