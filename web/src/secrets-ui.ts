@@ -90,6 +90,8 @@ class SecretEditor {
   private model: SecretsModel = { secrets: [], audit: [], types: [] };
   /** Whether a save is in flight. */
   private isSending = false;
+  /** Counts openings, so a pending save only finishes the opening that sent it. */
+  private opening = 0;
   /** Operator control path. */
   private readonly control: OperatorControl;
 
@@ -112,6 +114,16 @@ class SecretEditor {
     this.value.autocomplete = 'new-password';
     this.value.spellcheck = false;
     this.value.maxLength = VALUE_MAX;
+    // A single-line field would silently drop the line breaks of a pasted key; refuse it instead.
+    this.value.addEventListener('paste', (event) => {
+      if (!/[\n\r]/v.test(event.clipboardData?.getData('text') ?? '')) {
+        return;
+      }
+      event.preventDefault();
+      this.error.textContent = t(
+        'This value has line breaks, which this field cannot keep. Encode a multi-line key, such as with base64, and save that instead.',
+      );
+    });
     this.reveal.type = 'checkbox';
     this.reveal.addEventListener('change', () => {
       this.value.type = this.reveal.checked ? 'text' : 'password';
@@ -163,6 +175,9 @@ class SecretEditor {
    * @param model - Current model.
    */
   public open(mode: Mode, secret: SecretView | null, model: SecretsModel): void {
+    this.opening += 1;
+    this.isSending = false;
+    this.save.disabled = false;
     this.mode = mode;
     this.editing = secret;
     this.model = model;
@@ -239,15 +254,32 @@ class SecretEditor {
     this.isSending = true;
     this.save.disabled = true;
     this.error.textContent = '';
+    const sent = this.opening;
     try {
-      if (await this.control(operation, input)) {
-        this.element.close();
-      } else {
-        this.error.textContent = t('Not saved. The notice at the top of the console says why.');
-      }
+      this.finish(sent, await this.control(operation, input));
     } finally {
-      this.isSending = false;
-      this.save.disabled = false;
+      if (sent === this.opening) {
+        this.isSending = false;
+        this.save.disabled = false;
+      }
+    }
+  }
+
+  /**
+   * Finish a save, unless the operator closed this dialog and opened another
+   * secret while it was pending.
+   *
+   * @param sent - Opening that sent the save.
+   * @param isSaved - Whether the control was applied.
+   */
+  private finish(sent: number, isSaved: boolean): void {
+    if (sent !== this.opening) {
+      return;
+    }
+    if (isSaved) {
+      this.element.close();
+    } else {
+      this.error.textContent = t('Not saved. The notice at the top of the console says why.');
     }
   }
 }

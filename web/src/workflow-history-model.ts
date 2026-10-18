@@ -178,6 +178,9 @@ function stepDetails(before: DraftStep, after: DraftStep): string[] {
 function sectionChanges(section: SectionName, older: readonly DraftStep[], newer: readonly DraftStep[]): StepChange[] {
   const before = new Map(older.map((step) => [step.id, step]));
   const after = new Map(newer.map((step) => [step.id, step]));
+  // Order is part of the definition (startable steps are offered in it), so a move is a change too.
+  const olderOrder = older.filter((step) => after.has(step.id)).map((step) => step.id);
+  const newerOrder = newer.filter((step) => before.has(step.id)).map((step) => step.id);
   const changes: StepChange[] = [];
   for (const step of newer) {
     const previous = before.get(step.id);
@@ -185,7 +188,12 @@ function sectionChanges(section: SectionName, older: readonly DraftStep[], newer
       changes.push({ section, id: step.id, title: step.title, change: 'added', details: [] });
       continue;
     }
-    const details = stepDetails(previous, step);
+    const from = olderOrder.indexOf(step.id);
+    const to = newerOrder.indexOf(step.id);
+    const details = [
+      ...stepDetails(previous, step),
+      ...(from === to ? [] : [t('position: {from} → {to}', { from: from + 1, to: to + 1 })]),
+    ];
     if (details.length > 0) {
       changes.push({ section, id: step.id, title: step.title, change: 'changed', details });
     }

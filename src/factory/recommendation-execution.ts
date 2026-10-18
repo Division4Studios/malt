@@ -350,14 +350,17 @@ export async function retryRecommendation(context: ExecutionContext, input: unkn
     throw new MeshError('FACTORY_GATED', 'Only a failed recommendation can be retried at its revision.');
   }
   const fence = { id: record.id, revision: record.revision, state: 'failed' as const };
-  const effects = plannedEffects(record);
-  const touched = new Set(
-    effects.filter((effect) => repository.effectCompleted(effect.id)).map((effect) => effect.issue),
-  );
-  if (touched.size === 0) {
+  // A guidance record changed nothing locally, so it is fully revalidated from approved. A ticket operation
+  // already moved its local edges at start; revalidating its objectives would see that change as staleness.
+  if (!isTicketOperation(record)) {
     repository.recommendations.transition({ ...fence, next: 'approved', reason: 'Operator retry; revalidating.' });
     return { state: 'approved' };
   }
+  const touched = new Set(
+    plannedEffects(record)
+      .filter((effect) => repository.effectCompleted(effect.id))
+      .map((effect) => effect.issue),
+  );
   const untouched = record.body.observedIssues.filter((observed) => !touched.has(observed.issue));
   const fresh = await freshness(context, { ...record, body: { ...record.body, observedIssues: untouched } });
   if (fresh.state !== 'fresh') {
