@@ -144,6 +144,7 @@ export async function viewSupport(context: ViewContext): Promise<ViewSupport> {
  * @param context - Connected Project.
  * @param support - Result of the live check; never unsupported.
  * @returns Saved views.
+ * @throws {MeshError} GITHUB_UNAVAILABLE when the views cannot be read; an unread list is never taken as empty.
  */
 export async function readViews(
   context: ViewContext,
@@ -157,7 +158,11 @@ export async function readViews(
     `query($id: ID!) { node(id: $id) { ... on ProjectV2 { views(first: ${String(VIEW_LIMIT)}) { nodes { ${VIEW_FIELDS} } } } } }`,
     { id: context.projectId },
   );
-  return dataOf(result, projectViewsSchema)?.node.views.nodes ?? [];
+  const views = dataOf(result, projectViewsSchema)?.node.views.nodes;
+  if (views === undefined) {
+    throw new MeshError('GITHUB_UNAVAILABLE', 'The Project views could not be read; retry the same requestId.');
+  }
+  return views;
 }
 
 /**

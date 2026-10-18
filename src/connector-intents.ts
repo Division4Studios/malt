@@ -33,6 +33,17 @@ export interface IntentSteps<Result> {
   readonly result: z.ZodType<Result, z.ZodTypeDef, unknown>;
 }
 
+/**
+ * Whether an intent was already recorded for a request ID.
+ *
+ * @param directory - Folder holding one kind of change's intents.
+ * @param requestId - Caller-chosen stable identity of the change.
+ * @returns True once its first run wrote it.
+ */
+export function hasIntent(directory: string, requestId: string): boolean {
+  return readIntent(path.join(directory, `${requestId}.json`)) !== null;
+}
+
 /** The run in progress for each intent file; connector operations all execute in the broker process. */
 const RUNNING = new Map<string, Promise<undefined>>();
 
