@@ -20,6 +20,7 @@ import { credentialValues } from './authentication.ts';
 import { nativeModelArguments } from './provider-selection.ts';
 import { claudeQuota, claudeWindows } from './quota-windows.ts';
 import { AGENT_OUTPUT_SCHEMA, COOLDOWN_MS, resultSchema } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 
 import type { SubscriptionWindow } from './quota-windows.ts';
 import type { MeshConfig } from '../config.ts';
@@ -152,7 +153,8 @@ export function agentLaunch(
     record.role,
   ];
   const limits = settings.providers[record.provider];
-  const isDeveloper = record.role === 'developer-1' || record.role === 'developer-2';
+  // Implementation, fix and documentation steps edit their owned worktree; every other step reads only.
+  const isDeveloper = CODE_JOB_KINDS.has(record.kind);
   if (record.provider === 'codex') {
     const codexArguments = [
       'exec',

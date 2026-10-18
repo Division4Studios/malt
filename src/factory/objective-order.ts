@@ -29,8 +29,23 @@ export function objectiveOrder(store: Store): z.output<typeof orderSchema> {
   );
   return {
     orderRevision: rows[0]?.revision ?? 0,
-    features: rows.flatMap((row) => (row.data === null ? [] : [featureSchema.parse(JSON.parse(row.data))])),
+    // Order views omit frozen workflow copies; rank updates patch stored JSON in place.
+    features: rows
+      .filter((row) => row.data !== null)
+      .map((row) => withoutWorkflow(featureSchema.parse(JSON.parse(row.data ?? '')))),
   };
+}
+
+/**
+ * An objective without its frozen workflow copy, for views that do not need it.
+ *
+ * @param feature - Stored objective.
+ * @returns Copy without the `workflow` key.
+ */
+export function withoutWorkflow(feature: z.output<typeof featureSchema>): z.output<typeof featureSchema> {
+  const copy = { ...feature };
+  delete copy.workflow;
+  return copy;
 }
 
 /**
