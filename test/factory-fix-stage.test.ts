@@ -334,3 +334,23 @@ await test('a fixer that skips a finding is stopped for an operator decision', a
   assert.equal(stopped.phase, 'blocked');
   assert.match(stopped.error ?? '', /review-1 needs exactly one disposition/v);
 });
+
+await test('supervisor commits record the delivery, step, seat and attempt as trailers', async (t) => {
+  const fix = await fixture(t);
+  await implementAndReview(fix);
+  await writeGreeting(fix, 'hello world');
+  await perform(
+    fix,
+    { role: 'fixer', kind: 'adjudicate', step: 'fix' },
+    { dispositions: [{ id: 'review-1', decision: 'adopted', reason: 'Typo', evidence: 'Fixed' }] },
+  );
+  const { worktree } = fix.context.repository.task(fix.taskId);
+  assert.ok(worktree !== null);
+  const log = await fix.context.workspaces.git(['log', '--format=%s%n%b', '-n', '2'], worktree);
+  assert.match(log, /^Fix review findings for #4: Greeting file/v);
+  assert.match(log, /X-MALT-Step: fix\nX-MALT-Role: fixer\nX-MALT-Attempt: [\d\-a-f]{36}/v);
+  assert.match(
+    log,
+    /Deliver #4: Greeting file\nX-MALT-Delivery: #4\nX-MALT-Step: implement\nX-MALT-Role: developer-1/v,
+  );
+});
