@@ -89,6 +89,8 @@ declare module '*/web/dist/workflow-model.js' {
   export const PROVIDERS: readonly string[];
   /** Longest valid key. */
   export const KEY_MAX: number;
+  /** Longest step title or workflow name. */
+  export const TITLE_MAX: number;
 
   /**
    * Whether a value is a valid key.
