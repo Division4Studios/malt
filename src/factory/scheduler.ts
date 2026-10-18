@@ -318,10 +318,12 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   ) {
     intents.push({ role: 'learning-steward', kind: 'learn', taskId: null, featureId: null, head: null, base: null });
   }
+  const held = new Set(input.tasks.filter((task) => task.hold !== null).map((task) => task.id));
+  const admitted = intents.filter((intent) => intent.taskId === null || !held.has(intent.taskId));
   const queue = input.objectiveQueue;
   return queue === undefined
-    ? intents
-    : intents.filter((intent) => {
+    ? admitted
+    : admitted.filter((intent) => {
         return queue.existingOnly === true
           ? intent.taskId !== null
           : queue.focusedFeatureId === null || intent.featureId === queue.focusedFeatureId;
