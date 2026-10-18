@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 
 import { run } from '../src/database.ts';
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
@@ -379,6 +380,54 @@ await test('a wait raised after progress in one poll survives out-of-band progre
   assert.notEqual(observed.progress, null);
   assert.equal(observed.awaiting, 'Question through AskUserQuestion');
   assert.equal((await sampler.sample()).awaiting, 'Question through AskUserQuestion', 'later idle polls keep the wait');
+});
+
+await test('a sampler that never answers cannot hold off the checkpoint', async () => {
+  let now = 0;
+  const timers: { at: number; callback: () => void }[] = [];
+  const stops: string[] = [];
+  const records: JobLiveness[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => now,
+    sample: async () => Promise.withResolvers<ProgressObservation>().promise,
+    record: (liveness) => {
+      records.push(liveness);
+    },
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (callback, ms) => {
+      const timer = { at: now + ms, callback };
+      timers.push(timer);
+      return () => {
+        timers.splice(timers.indexOf(timer), 1);
+      };
+    },
+  });
+  monitor.start();
+  for (let step = 0; step < 50 && stops.length === 0 && timers.length > 0; step += 1) {
+    timers.sort((left, right) => right.at - left.at);
+    const next = timers.pop();
+    assert.ok(next !== undefined);
+    now = next.at;
+    next.callback();
+    await tick();
+  }
+  assert.deepEqual(stops, ['stalled 10 min']);
+  assert.equal(now, firstCheckpoint(0, POLICY));
+  assert.equal(records.at(-1)?.state, 'stalled');
+});
+
+await test('separate patches to one file each count as progress; a repeated item counts once', () => {
+  const sink = new ProgressSink();
+  const change = [{ path: 'src/a.ts', kind: 'update' }];
+  sink.fileChange(change, 'item_1');
+  sink.fileChange(change, 'item_2');
+  sink.fileChange(change, 'item_2');
+  assert.equal(sink.meaningful, 2);
+  assert.equal(sink.lastSignal, 'edit src/a.ts');
 });
 
 /**
