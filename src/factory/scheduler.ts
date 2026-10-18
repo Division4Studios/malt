@@ -268,7 +268,14 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     ) {
       return;
     }
-    const scope = { kind, taskId: task.id, featureId: task.featureId, head: task.head, step: step.id };
+    const scope = {
+      kind,
+      taskId: task.id,
+      featureId: task.featureId,
+      head: task.head,
+      step: step.id,
+      since: task.repairsResetAt,
+    };
     if (isBackingOff(input.jobs, scope, { now: input.now, reconcileMs: input.config.reconcileMs })) {
       return;
     }

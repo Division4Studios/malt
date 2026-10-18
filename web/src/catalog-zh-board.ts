@@ -186,6 +186,8 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   'No public file changes.': '没有公开的文件更改。',
   'Loading patch…': '正在加载补丁…',
   'The patch could not be read.': '无法读取补丁。',
+  'This delivery published a new head while its changes were read; they reload with the next update.':
+    '读取更改时此交付项发布了新的提交；更改会在下次更新时重新加载。',
   Plan: '计划',
   'Definition of done': '完成定义',
   Note: '备注',

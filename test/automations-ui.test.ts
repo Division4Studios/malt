@@ -109,6 +109,9 @@ await test('cron expressions read as plain language and invalid ones explain the
     ['0 0 * * 7', 'At 00:00, on Sunday.'],
     ['@weekly', 'At 00:00, on Sunday.'],
     ['*/30 9-17 * * mon-fri', 'Every 30 minutes during 09:00 to 17:00, on Monday to Friday.'],
+    // A day field starting with `*` stays unrestricted, as on the broker: Mondays only, not every day.
+    ['0 0 */1 * mon', 'At 00:00, on Monday.'],
+    ['0 9 * jan *', 'At 09:00, every day, in January.'],
   ];
   for (const [expression, text] of cases) {
     assert.deepEqual(describeCron(expression), { text, isValid: true }, expression);
