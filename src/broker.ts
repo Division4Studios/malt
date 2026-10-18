@@ -800,23 +800,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
 
   // Periodically expire silent agents even when no requests arrive, and wake
   // anyone waiting on a presence-dependent state.
-  const sweep = setInterval(
-    () => {
-      for (const team of allTeams()) {
-        try {
-          team.store.expire();
-          sweepRetention(team.store);
-          team.waiters.notify();
-        } catch (error) {
-          log('error', 'broker', 'presence_sweep_failed', {
-            team: team.config.team,
-            code: error instanceof MeshError ? error.code : 'ERROR',
-          });
-        }
+  const sweepMs = Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS);
+  const sweep = setInterval(() => {
+    for (const team of allTeams()) {
+      try {
+        team.store.expire();
+        sweepRetention(team.store);
+        team.waiters.notify();
+      } catch (error) {
+        log('error', 'broker', 'presence_sweep_failed', {
+          team: team.config.team,
+          code: error instanceof MeshError ? error.code : 'ERROR',
+        });
       }
-    },
-    Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS),
-  );
+    }
+  }, sweepMs);
   // The sweep alone must never keep the process alive.
   sweep.unref();
 
