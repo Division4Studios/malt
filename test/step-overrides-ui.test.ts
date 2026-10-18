@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import {
   ANY_PROVIDER,
   SEAT_PROFILE,
+  KEPT_SEATS,
   initialChoice,
   libraryWorkflowSteps,
   overrideSummary,
@@ -128,9 +129,22 @@ await test('saved overrides seed the editor, including explicit nulls', () => {
     stepId: 'review',
     include: true,
     role: '',
+    seats: [],
     profile: SEAT_PROFILE,
     provider: ANY_PROVIDER,
   });
+  // Several override seats survive an untouched save, and an unrelated provider change.
+  const multi = [{ stepId: 'review', roles: ['qa-1', 'qa-2'] }];
+  const kept = initialChoice(review, multi);
+  assert.deepEqual([kept.role, kept.seats], [KEPT_SEATS, ['qa-1', 'qa-2']]);
+  const steps = [review];
+  assert.deepEqual(overridesFrom(steps, new Map([['review', kept]]), multi), multi);
+  assert.deepEqual(overridesFrom(steps, new Map([['review', { ...kept, provider: 'claude' }]]), multi), [
+    { stepId: 'review', roles: ['qa-1', 'qa-2'], provider: 'claude' },
+  ]);
+  assert.deepEqual(overridesFrom(steps, new Map([['review', { ...kept, role: 'qa-2' }]]), multi), [
+    { stepId: 'review', roles: ['qa-2'] },
+  ]);
 });
 
 await test('library workflows, seats and profiles come from the factory snapshot', () => {

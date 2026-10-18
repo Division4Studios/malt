@@ -130,6 +130,8 @@ class AutomationEditor {
   private editing: AutomationView | null = null;
   /** Whether a save is in flight. */
   private isSending = false;
+  /** Counts openings, so a save finishing after the dialog was reopened leaves the new draft alone. */
+  private opening = 0;
   /** Operator control path. */
   private readonly control: OperatorControl;
   /** Receives a newly issued trigger secret. */
@@ -234,6 +236,7 @@ class AutomationEditor {
   ): void {
     this.kind = kind;
     this.editing = editing;
+    this.opening += 1;
     const draft = draftOf(editing);
     const isSchedule = kind === 'schedule';
     const blankTitle = t(isSchedule ? 'New schedule' : 'New trigger');
@@ -299,21 +302,38 @@ class AutomationEditor {
     this.save.disabled = true;
     this.error.textContent = '';
     const issued: Issued = { value: null };
+    const started = this.opening;
     try {
       const isSaved = await this.control(operation, input, (result) => {
         issued.value = issuedSecret(result);
       });
-      if (!isSaved) {
-        this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
-        return;
-      }
-      this.element.close();
-      if (issued.value !== null) {
-        this.saved(issued.value.secret, issued.value.trigger);
-      }
+      this.finish(isSaved, started === this.opening, issued);
     } finally {
       this.isSending = false;
       this.save.disabled = false;
+    }
+  }
+
+  /**
+   * Apply a save's outcome; one finishing after the dialog was reopened leaves the new draft alone.
+   *
+   * @param isSaved - Whether the save was applied.
+   * @param isCurrent - Whether the dialog still shows the draft that was saved.
+   * @param issued - Secret issued with a new trigger, if any.
+   */
+  private finish(isSaved: boolean, isCurrent: boolean, issued: Issued): void {
+    if (!isSaved) {
+      if (isCurrent) {
+        this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
+      }
+      return;
+    }
+    if (isCurrent) {
+      this.element.close();
+    }
+    // A new trigger's secret is shown once, even when the editor has since moved on to another draft.
+    if (issued.value !== null) {
+      this.saved(issued.value.secret, issued.value.trigger);
     }
   }
 }

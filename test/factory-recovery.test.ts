@@ -819,3 +819,103 @@ await test('an adopted commit contained in main verifies, closes and completes w
     'Completion effects never reopen or re-scope an issue.',
   );
 });
+
+/**
+ * Give the fixture delivery current approvals and move it to merging.
+ *
+ * @param context - Fixture ledger.
+ * @param task - Fixture delivery.
+ */
+function approveForMerge(context: FactoryContext, task: FactoryTask): void {
+  const head = task.head ?? '';
+  const base = task.base ?? '';
+  context.repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'merging',
+      reviews: [
+        ...current.reviews,
+        { role: 'qa-2', head, base, outcome: 'success', summary: 'Reviewed exact source.', jobId: randomUUID() },
+      ],
+      finalReview: { head, base, jobId: randomUUID(), summary: 'Integration passed.' },
+    };
+  });
+}
+
+await test('a merge GitHub completes later waits in merging with its reason, then is adopted', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  approveForMerge(context, task);
+  const reason =
+    'Auto-merge is armed, awaiting 1 approving review; GitHub merges the exact reviewed head when protection allows.';
+  const pending: FactoryContext = {
+    ...context,
+    remote: { ...context.remote, merge: async () => await delay(0, { pending: reason }) },
+  };
+  await reconcile(pending);
+  const waiting = context.repository.task(task.id);
+  assert.equal(waiting.phase, 'merging');
+  assert.equal(waiting.error, reason);
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(pending);
+  assert.equal(context.repository.task(task.id).phase, 'verifying');
+});
+
+await test('auto-merge is disarmed before a moved head is reworked', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  const disarmed: number[] = [];
+  const watched: FactoryContext = {
+    ...context,
+    remote: {
+      ...context.remote,
+      disarm: async (number) => {
+        await delay(0);
+        disarmed.push(number);
+      },
+    },
+  };
+  pr.autoMergeRequest = { enabledAt: '2026-10-17T00:00:00Z' };
+  pr.headRefOid = 'f'.repeat(40);
+  await reconcile(watched);
+  assert.deepEqual(disarmed, [3]);
+  assert.equal(context.repository.task(task.id).phase, 'development');
+});
+
+await test('a PR merged outside the factory at the recorded head is adopted and verified on main', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  const adopted = context.repository.task(task.id);
+  assert.equal(adopted.phase, 'verifying');
+  assert.equal(adopted.merge, task.head);
+  assert.equal(adopted.error, null);
+  assert.deepEqual(adopted.reviews, [], 'adoption implies no QA approval');
+  assert.equal(adopted.finalReview, null);
+});
+
+await test('a parked delivery whose PR was merged elsewhere is adopted instead of waiting for an operator', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  context.repository.editTask(task.id, (current) => ({ ...current, phase: 'development', reviews: [] }));
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  assert.equal(context.repository.task(task.id).phase, 'verifying');
+});
+
+await test('an external merge of another head or off main stays an operator decision', async (t) => {
+  const moved = await fixture(t);
+  moved.pr.state = 'MERGED';
+  moved.pr.headRefOid = 'f'.repeat(40);
+  moved.pr.mergeCommit = { oid: 'f'.repeat(40) };
+  await reconcile(moved.context);
+  assert.equal(moved.context.repository.task(moved.task.id).phase, 'blocked');
+
+  const elsewhere = await fixture(t);
+  elsewhere.pr.state = 'MERGED';
+  elsewhere.pr.mergeCommit = { oid: 'e'.repeat(40) };
+  await reconcile(elsewhere.context);
+  const blocked = elsewhere.context.repository.task(elsewhere.task.id);
+  assert.equal(blocked.phase, 'blocked');
+  assert.match(blocked.error ?? '', /without the current factory QA\/final gates/v);
+});

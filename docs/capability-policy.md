@@ -71,8 +71,24 @@ mutation.
 Not yet gated: the delivery adapter's direct repository effects (pull request
 creation, merges, PR/issue closure, comments and native dependency edges) still
 call GitHub without a capability check. Dependency edges are only reachable after
-the same plan's `relationships`-gated issue creation. Labels, milestones, views
-and Jira are separate capabilities with their own deliveries.
+the same plan's `relationships`-gated issue creation. Labels, milestones and views
+are separate capabilities with their own deliveries.
+
+### Jira
+
+Jira mutations in `src/jira/writes.ts` call `authorize` with the same principal
+rules before any request to the Jira site, so a denial makes no call.
+
+| Mutation                 | Capabilities                       |
+| ------------------------ | ---------------------------------- |
+| Create an issue          | `issue-create`                     |
+| Create a child/sub-task  | `issue-create` and `relationships` |
+| Transition an issue      | `transition`                       |
+| Comment on an issue      | `comment`                          |
+| Link two issues          | `relationships`                    |
+| Add or remove its labels | `label-use`                        |
+
+`comment` is new with Jira and, like every capability, starts `disabled`.
 
 ## Denials in the factory
 

@@ -114,6 +114,8 @@ export class ChecklistDialog {
   private goal: Goal | null = null;
   /** Whether a save is in flight. */
   private isSending = false;
+  /** Counts openings, so a pending save only finishes the opening that sent it. */
+  private opening = 0;
 
   /**
    * Build the dialog once; it is attached to the document on first use.
@@ -178,6 +180,8 @@ export class ChecklistDialog {
     if (!this.element.isConnected) {
       document.body.append(this.element);
     }
+    this.opening += 1;
+    this.isSending = false;
     this.goal = goal;
     this.heading.textContent = t('Definition of done · {title}', {
       title: goal.title === '' ? t('Untitled objective') : goal.title,
@@ -261,17 +265,23 @@ export class ChecklistDialog {
     this.status.textContent = t('Saving…');
     this.isSending = true;
     this.save.disabled = true;
+    const sent = this.opening;
     let message = t('The definition of done was not saved. If it changed elsewhere, reopen the editor and try again.');
+    let isSaved = false;
     try {
-      if (await this.control('factory_objective_done', built.input)) {
-        this.isSending = false;
-        this.element.close();
-        return;
-      }
+      isSaved = await this.control('factory_objective_done', built.input);
     } catch (error) {
       message = error instanceof Error ? error.message : message;
     }
+    // The operator may have closed this editor and opened another objective while the save was pending.
+    if (sent !== this.opening) {
+      return;
+    }
     this.isSending = false;
+    if (isSaved) {
+      this.element.close();
+      return;
+    }
     this.status.textContent = '';
     this.save.disabled = false;
     this.error.textContent = message;

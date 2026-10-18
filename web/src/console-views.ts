@@ -70,6 +70,8 @@ export interface ConsoleViewHooks {
   readonly control: OperatorControl;
   /** Route the console to another view. */
   readonly select: (view: string) => void;
+  /** Switch the console to another open project. */
+  readonly selectProject: (project: string) => void;
   /** Open the investigation dialog for a blocked delivery. */
   readonly triage: (taskId: string) => void;
   /** Show an objective's recovery choices. */
@@ -142,9 +144,12 @@ export class ConsoleViews {
       },
     });
     this.workflows = createWorkflowsView({ control: hooks.control, project: hooks.project });
-    this.notifier = new InboxNotifier(() => {
+    this.notifier = new InboxNotifier((project) => {
+      if (project !== null && project !== hooks.project()) {
+        hooks.selectProject(project);
+      }
       hooks.select('inbox');
-    });
+    }, hooks.project);
     this.refreshed = new Map<RefreshedView, RefreshingView>([
       ['sessions', this.sessions],
       ['costs', createCostsView({ project: hooks.project, control: hooks.control })],
@@ -168,7 +173,7 @@ export class ConsoleViews {
       ],
       ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
       ['automations', createAutomationsView({ control: hooks.control })],
-      ['roles', createRolesView({ control: hooks.control })],
+      ['roles', createRolesView({ control: hooks.control, project: hooks.project })],
       ['secrets', createSecretsView({ control: hooks.control })],
       ['delivery', this.delivery],
       ['objective', this.goals],
@@ -176,7 +181,14 @@ export class ConsoleViews {
     ]);
     // The static shell is written in English; show it in the stored language.
     translateTree(document.body, 'en');
-    onLocaleChange(() => [document.body, ...this.roots()], hooks.rerender);
+    // Route-backed views (attempts, costs) rebuild their combined labels on their next read.
+    onLocaleChange(
+      () => [document.body, ...this.roots()],
+      () => {
+        this.reset();
+        hooks.rerender();
+      },
+    );
   }
 
   /**

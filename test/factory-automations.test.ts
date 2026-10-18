@@ -144,6 +144,9 @@ await test('disabled schedules never fire, enabling recomputes the next slot, an
   assert.equal(enabled.nextAt, Date.UTC(2026, 9, 21, 0), 'Two in Berlin summer time is midnight UTC.');
   const manual = runAutomation(repository, { id: saved.id, requestId: crypto.randomUUID() });
   assert.ok(manual.featureId !== null);
+  const afterRun = automationsStatus(repository.store).find((entry) => entry.id === saved.id);
+  assert.equal(afterRun?.lastFiredAt, manual.at, 'A manual run is the latest fire.');
+  assert.equal(afterRun.kind === 'schedule' ? afterRun.nextAt : null, enabled.nextAt, 'The next slot is unchanged.');
   assert.throws(() => deleteAutomation(repository, { id: saved.id, expectedRevision: 1 }), /changed since/v);
   deleteAutomation(repository, { id: saved.id, expectedRevision: 2 });
   assert.deepEqual(automationsStatus(repository.store), []);
