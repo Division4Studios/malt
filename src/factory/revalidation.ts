@@ -113,7 +113,13 @@ export function revalidationIntents(
   }
   const timing = { now: input.now, reconcileMs: input.config.reconcileMs };
   const task = input.tasks.find((candidate) => {
-    const scope = { kind: 'revalidate' as const, taskId: candidate.id, featureId: candidate.featureId, head: null };
+    const scope = {
+      kind: 'revalidate' as const,
+      taskId: candidate.id,
+      featureId: candidate.featureId,
+      head: null,
+      since: candidate.repairsResetAt,
+    };
     return (
       isRevalidationDue(candidate, input.tasks, input.config) &&
       candidate.hold === null &&

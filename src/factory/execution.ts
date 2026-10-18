@@ -276,6 +276,13 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
       };
     });
     if (await isConflicted(context, task, { directory: cwd, base: prepared.base })) {
+      if (record.kind !== 'develop') {
+        // The conflict round returned the delivery to its developer; this stage's turn would be discarded.
+        throw new MeshError(
+          'FACTORY_GATED',
+          'Refreshing onto main conflicted; the delivery returned to its developer to resolve it.',
+        );
+      }
       // Prepare commands may read conflicted manifests; the developer resolves first and publication reruns the checks.
       return { cwd, snapshot: null, checks: [{ stage: 'prepare', skipped: 'Unresolved merge conflicts with main.' }] };
     }

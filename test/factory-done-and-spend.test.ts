@@ -326,6 +326,31 @@ await test('the definition of done fences completion and every change is logged'
   });
   assert.equal(isDefinitionMet(feature()), true);
   assert.equal(feature().definitionOfDone?.[1]?.evidence, 'Tracked separately', 'Unchanged items keep their evidence.');
+  assert.throws(
+    () => {
+      saveDefinition(repository, {
+        featureId,
+        expectedUpdatedAt: feature().updatedAt,
+        items: [
+          { id: first.id, text: first.text, state: 'checked' },
+          { id: first.id, text: 'Another requirement', state: 'checked' },
+        ],
+      });
+    },
+    { code: 'INVALID_INPUT' },
+    'An item id appears once.',
+  );
+  saveDefinition(repository, {
+    featureId,
+    expectedUpdatedAt: feature().updatedAt,
+    items: [
+      { id: first.id, text: 'Desktop checkout passes the audit', state: 'checked' },
+      { id: second.id, text: second.text, state: 'waived' },
+    ],
+  });
+  const edited = feature().definitionOfDone?.[0];
+  assert.equal(edited?.by, 'operator', 'An edited checked item is the operator’s claim.');
+  assert.equal(edited.evidence, null, 'Evidence for the old text is not kept.');
   noteObjective(repository, { featureId, note: 'Design review moved to Friday.' });
   for (let index = 0; index < 5; index += 1) {
     logObjective(repository.store, featureId, {
@@ -335,7 +360,7 @@ await test('the definition of done fences completion and every change is logged'
     });
   }
   const page = readObjectiveLog(repository, { featureId, limit: 3 });
-  assert.equal(page.total, 8);
+  assert.equal(page.total, 9);
   assert.deepEqual(
     page.entries.map((entry) => entry.body),
     ['step 4', 'step 3', 'step 2'],
@@ -345,7 +370,7 @@ await test('the definition of done fences completion and every change is logged'
   assert.equal(older.next, null);
   assert.deepEqual(
     older.entries.map((entry) => entry.kind),
-    ['check_in', 'check_in', 'note', 'criteria', 'criteria'],
+    ['check_in', 'check_in', 'note', 'criteria', 'criteria', 'criteria'],
   );
   assert.throws(() => noteObjective(repository, { featureId: randomUUID(), note: 'x' }), { code: 'NOT_FOUND' });
 });

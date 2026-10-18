@@ -256,13 +256,32 @@ const REPAIR_LABELS: Readonly<Record<RepairRound['kind'], string>> = translated(
 });
 
 /**
+ * Keep a collapsible panel's open state across re-renders.
+ *
+ * @param details - Panel.
+ * @param id - Stable panel identity.
+ * @param expanded - Identities of the panels the operator opened.
+ */
+function rememberOpen(details: HTMLDetailsElement, id: string, expanded: Set<string>): void {
+  details.toggleAttribute('open', expanded.has(id));
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      expanded.add(id);
+    } else {
+      expanded.delete(id);
+    }
+  });
+}
+
+/**
  * Build the repair rounds section: each failed CI run or conflicted refresh the
  * supervisor returned to the developer, with its redacted evidence.
  *
  * @param delivery - Delivery shown.
+ * @param expanded - Panels the operator opened, kept across live updates.
  * @returns Section element, or `null` when the delivery had no repair round.
  */
-function repairsSection(delivery: Delivery): HTMLElement | null {
+function repairsSection(delivery: Delivery, expanded: Set<string>): HTMLElement | null {
   if (delivery.repairs.length === 0) {
     return null;
   }
@@ -273,8 +292,15 @@ function repairsSection(delivery: Delivery): HTMLElement | null {
     const item = element('li', 'repair-round');
     item.dataset['kind'] = round.kind;
     const details = element('details', 'step-result');
-    const label = `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`;
-    details.append(element('summary', '', label), element('p', 'step-summary', round.summary));
+    const id = `${delivery.taskId}:repair:${String(index)}`;
+    rememberOpen(details, id, expanded);
+    const summary = element(
+      'summary',
+      '',
+      `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`,
+    );
+    summary.dataset['focusKey'] = `result:${id}`;
+    details.append(summary, element('p', 'step-summary', round.summary));
     if (round.findings.length > 0) {
       const findings = element('ul', 'step-findings');
       findings.append(...round.findings.map((finding) => element('li', 'repair-finding', finding)));
@@ -470,7 +496,7 @@ class DeliveryView {
     }
     pipeline.append(title, layers);
     const top = header(delivery);
-    const repairs = repairsSection(delivery);
+    const repairs = repairsSection(delivery, this.expanded);
     this.diff.show(delivery.taskId, delivery.head, delivery.base);
     this.body.replaceChildren(top, pipeline, ...(repairs === null ? [] : [repairs]), this.diff.element);
     restoreFocus(this.root, focused, top.querySelector('h2'));
@@ -563,7 +589,7 @@ class DeliveryView {
   private resultNode(delivery: Delivery, step: Step, result: StepResult): HTMLElement {
     const id = `${delivery.taskId}:${step.id}`;
     const details = element('details', 'step-result');
-    details.open = this.expanded.has(id);
+    rememberOpen(details, id, this.expanded);
     const summary = element(
       'summary',
       '',
@@ -571,13 +597,6 @@ class DeliveryView {
     );
     summary.dataset['focusKey'] = `result:${id}`;
     details.append(summary, resultBody(result));
-    details.addEventListener('toggle', () => {
-      if (details.open) {
-        this.expanded.add(id);
-      } else {
-        this.expanded.delete(id);
-      }
-    });
     return details;
   }
 
