@@ -32,11 +32,12 @@ Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest su
 git clone https://github.com/Division4Studios/malt.git
 cd malt
 npm ci --ignore-scripts
+npm run build:web
 node src/cli.ts doctor --project /absolute/path/to/your/project
 node src/cli.ts ui --with-broker --project /absolute/path/to/your/project --port 4318
 ```
 
-Run `doctor` first. It checks Node.js, Git, the Claude Code and Codex CLIs and their subscription logins, GitHub CLI authentication, the broker and console ports, and whether the project (or its `.malt`) is writable. Each check reports **PASS**, **FAIL** or **FIX-IT** with one fix line; it exits non-zero on any failure and prints one JSON document with `--json`. It never creates or changes project state. Contributors can also run `npm run check`.
+Run `doctor` first. It checks Node.js, Git, the Claude Code and Codex CLIs and their subscription logins, GitHub CLI authentication, the broker and console ports, and whether the project (or its `.malt`) is writable. Each check reports **PASS**, **FAIL** or **FIX-IT** with one fix line; it exits non-zero on any failure and prints one JSON document with `--json`. It never creates or changes project state. `npm run build:web` builds the browser console into the Git-ignored `web/dist/`; run it again after pulling changes. Contributors can also run `npm run check`.
 
 Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process (it survives restarts; `node src/cli.ts pairing-code --project <path>` shows it again and `--rotate` re-issues it), and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
 
