@@ -15,7 +15,6 @@ export type TranscriptSink = Pick<
   | 'text'
   | 'openTool'
   | 'closeTool'
-  | 'fileChange'
   | 'touch'
   | 'addUsage'
   | 'report'
@@ -25,7 +24,10 @@ export type TranscriptSink = Pick<
   | 'countUnknown'
   | 'markProviderError'
   | 'awaitInput'
->;
+> & {
+  /** Record a provider file change; `id` is the provider item, so separate patches to one file stay distinct. */
+  readonly fileChange: (changes: readonly { path: string; kind: string }[], id: string) => void;
+};
 
 /** Claude tools whose input names a file being written, and the naming field. */
 const CLAUDE_EDIT_TOOLS = new Map([
