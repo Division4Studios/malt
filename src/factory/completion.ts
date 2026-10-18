@@ -262,35 +262,43 @@ async function completeDevelopment(
   }
   const { worktree } = record;
   try {
-    await context.workspaces.publish(record, async (source) => {
-      signal.throwIfAborted();
-      const snapshot = await context.workspaces.snapshot(worktree);
-      await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
-      await context.workspaces.assertUnchanged(snapshot);
-      signal.throwIfAborted();
-      const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
-      if (claim?.state !== 'running' || claim.token !== job.token) {
-        throw new MeshError('FACTORY_GATED', 'The developer claim expired before publication.');
-      }
-      context.repository.store.transaction(() => {
-        context.repository.editTask(record.id, (current) => {
-          if (current.phase !== 'development' || current.version !== record.version || current.developer !== job.role) {
-            throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
-          }
-          return {
-            ...current,
-            phase: 'publishing',
-            head: source.head,
-            base: source.base,
-            reviews: [],
-            implementation: { head: source.head, base: source.base, at: context.repository.store.now() },
-            finalReview: null,
-            error: null,
-          };
+    await context.workspaces.publish(
+      record,
+      async (source) => {
+        signal.throwIfAborted();
+        const snapshot = await context.workspaces.snapshot(worktree);
+        await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
+        await context.workspaces.assertUnchanged(snapshot);
+        signal.throwIfAborted();
+        const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
+        if (claim?.state !== 'running' || claim.token !== job.token) {
+          throw new MeshError('FACTORY_GATED', 'The developer claim expired before publication.');
+        }
+        context.repository.store.transaction(() => {
+          context.repository.editTask(record.id, (current) => {
+            if (
+              current.phase !== 'development' ||
+              current.version !== record.version ||
+              current.developer !== job.role
+            ) {
+              throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
+            }
+            return {
+              ...current,
+              phase: 'publishing',
+              head: source.head,
+              base: source.base,
+              reviews: [],
+              implementation: { head: source.head, base: source.base, at: context.repository.store.now() },
+              finalReview: null,
+              error: null,
+            };
+          });
+          queueDevelopmentComment(context, record.id, job.role, evidence.summary);
         });
-        queueDevelopmentComment(context, record.id, job.role, evidence.summary);
-      });
-    });
+      },
+      { step: job.step ?? 'implement', kind: 'implement', role: job.role, jobId: job.id },
+    );
   } catch (error) {
     if (!(error instanceof PublicationSizeError)) {
       throw error;
