@@ -9,7 +9,8 @@
  *
  * HTTP surface:
  *
- * - `GET /health` returns `{ ok: true, version }` for health checks.
+ * - `GET /health` returns `{ ok: true, version, revision }` for health checks;
+ *   `revision` is the source commit this broker was started from.
  * - `POST /rpc` takes `{ operation, input, credentials }` and returns either
  *   `{ result }` or `{ error: { code, message } }` with a matching status.
  *   An `x-agentmesh-team` header addresses a workspace team; without it the
@@ -30,15 +31,24 @@
 
 import { Buffer } from 'node:buffer';
 import { timingSafeEqual } from 'node:crypto';
-import { once } from 'node:events';
 import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { boundPortOf, closeServer, listen } from './broker-server.ts';
 import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
-import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
+import { handleBindingOperation } from './connector-bindings.ts';
+import { isBindingOperation } from './connector-schemas.ts';
+import { fireTrigger } from './factory/automations.ts';
+import {
+  AGENT_OPERATIONS,
+  OPERATOR_ONLY_MESSAGE,
+  OPERATOR_ONLY_OPERATIONS,
+  assertManagerScope,
+} from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
+import { managedToolGate } from './factory/role-handlers.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
@@ -56,13 +66,17 @@ import {
   isOperation,
   parseInput,
 } from './protocol.ts';
+import { sweepRetention } from './retention.ts';
 import { redactResolvedSecrets } from './secrets.ts';
+import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
+import { TRIGGER_PATH, triggerCall } from './trigger-request.ts';
 import { Waiters } from './waiters.ts';
 
 import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
+import type { BindingOperation } from './connector-schemas.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
@@ -338,11 +352,6 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-/** Loopback webhook path: `/triggers/<trigger id>`. */
-const TRIGGER_PATH = /^\/triggers\/(?<id>[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/v;
-/** Authorization scheme a trigger secret is presented with. */
-const BEARER = 'Bearer ';
-
 /**
  * Fire a webhook trigger. The caller proves itself with the trigger's own
  * secret, not the project token, so a local script can hold one narrowly
@@ -360,16 +369,7 @@ async function handleTrigger(context: BrokerContext, request: IncomingMessage, i
   if (team === undefined) {
     throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
   }
-  const authorization = request.headers.authorization ?? '';
-  const key = request.headers['idempotency-key'];
-  const body = await readJson(request);
-  const isEmpty = typeof body === 'object' && body !== null && Object.keys(body).length === 0;
-  const result = team.factory.fireTrigger({
-    id,
-    secret: authorization.startsWith(BEARER) ? authorization.slice(BEARER.length) : '',
-    idempotencyKey: typeof key === 'string' ? key : null,
-    payload: isEmpty ? '' : JSON.stringify(body, null, 2),
-  });
+  const result = fireTrigger(team.factory.repository, triggerCall(request.headers, await readJson(request), id));
   team.waiters.notify();
   return result;
 }
@@ -518,14 +518,10 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
-  const gate = {
-    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
-    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
-  };
-  assertManagedTool(gate, operation, credentials);
+  assertManagedTool(managedToolGate(team.store, team.factory.repository), operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
-    assertFactoryAuthority(team, operation, credentials);
+    assertFactoryAuthority(team, operation, credentials, input);
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return team.factory.execute(
       operation,
@@ -553,10 +549,19 @@ async function handleRpc(
  * @param team - Selected project.
  * @param operation - Validated factory operation.
  * @param credentials - Optional attached agent identity.
+ * @param input - Validated operation input, inspected for manager-restricted actions.
  * @throws {MeshError} When an agent attempts an operator-only operation.
  */
-function assertFactoryAuthority(team: Team, operation: Operation, credentials: PresentedCredentials | undefined): void {
+function assertFactoryAuthority(
+  team: Team,
+  operation: Operation,
+  credentials: PresentedCredentials | undefined,
+  input: unknown,
+): void {
   if (credentials === undefined) {
+    if (operation === 'factory_manager_ask') {
+      throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+    }
     return;
   }
   if (OPERATOR_ONLY_OPERATIONS.has(operation)) {
@@ -564,6 +569,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     throw new MeshError('NOT_ORCHESTRATOR', OPERATOR_ONLY_MESSAGE);
   }
   const actor = team.store.authenticate(credentials);
+  if (team.factory.manager.isManagerActor(actor)) {
+    assertManagerScope(operation, input);
+    return;
+  }
+  if (operation === 'factory_manager_ask') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+  }
   if (!AGENT_OPERATIONS.has(operation) && actor !== team.store.coordination.leadId()) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
@@ -573,7 +585,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - Capability policy, GitHub or learning operation.
+ * @param operation - MCP binding, capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -581,10 +593,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  */
 async function handleProjectOperation(
   team: Team,
-  operation: CapabilityOperation | GitHubOperation | LearningOperation,
+  operation: BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isBindingOperation(operation)) {
+    return handleBindingOperation(team, operation, input, credentials);
+  }
   if (isCapabilityOperation(operation)) {
     return handleCapabilityOperation(team, operation, input, credentials);
   }
@@ -689,7 +704,7 @@ async function respond(
     throw new MeshError('FORBIDDEN_ORIGIN', 'Browser requests are not supported.');
   }
   if (record.method === 'GET' && record.url === '/health') {
-    sendJson(response, HTTP_OK, { ok: true, version: VERSION });
+    sendJson(response, HTTP_OK, { ok: true, version: VERSION, revision: SOURCE_REVISION });
     return;
   }
   const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
@@ -792,22 +807,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
 
   // Periodically expire silent agents even when no requests arrive, and wake
   // anyone waiting on a presence-dependent state.
-  const sweep = setInterval(
-    () => {
-      for (const team of allTeams()) {
-        try {
-          team.store.expire();
-          team.waiters.notify();
-        } catch (error) {
-          log('error', 'broker', 'presence_sweep_failed', {
-            team: team.config.team,
-            code: error instanceof MeshError ? error.code : 'ERROR',
-          });
-        }
+  const sweepMs = Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS);
+  const sweep = setInterval(() => {
+    for (const team of allTeams()) {
+      try {
+        team.store.expire();
+        sweepRetention(team.store);
+        team.waiters.notify();
+      } catch (error) {
+        log('error', 'broker', 'presence_sweep_failed', {
+          team: team.config.team,
+          code: error instanceof MeshError ? error.code : 'ERROR',
+        });
       }
-    },
-    Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS),
-  );
+    }
+  }, sweepMs);
   // The sweep alone must never keep the process alive.
   sweep.unref();
 
@@ -866,49 +880,4 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       }
     },
   };
-}
-
-/**
- * Start listening, resolving once bound or rejecting on a bind error.
- *
- * @param server - The HTTP server.
- * @param port - The port to bind.
- * @param host - The interface to bind.
- * @returns A promise settled when listening starts or fails.
- */
-async function listen(server: http.Server, port: number, host: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<undefined>();
-  server.once('error', reject);
-  server.listen(port, host, () => {
-    server.removeListener('error', reject);
-    resolve(undefined);
-  });
-  return promise;
-}
-
-/**
- * Stop accepting connections and wait for in-flight requests to finish.
- *
- * @param server - The HTTP server.
- */
-async function closeServer(server: http.Server): Promise<void> {
-  // Subscribe before closing so the 'close' event cannot be missed.
-  const closed = once(server, 'close');
-  server.close();
-  await closed;
-}
-
-/**
- * Read the TCP port a listening server is bound to.
- *
- * @param server - The broker's server, after `listen` succeeded.
- * @returns The TCP port number, which the OS chose when port 0 was requested.
- * @throws {Error} When the server is not bound to a TCP address.
- */
-function boundPortOf(server: http.Server): number {
-  const address = server.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('Broker is not listening on a TCP port.');
-  }
-  return address.port;
 }
