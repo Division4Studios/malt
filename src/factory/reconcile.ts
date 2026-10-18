@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
@@ -20,6 +21,7 @@ import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
+import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
@@ -50,7 +52,11 @@ function shortSha(sha: string): string {
  * @param featureId - Owning product request.
  * @returns Initial dependency-ready task state.
  */
-export function deliveryTask(context: FactoryContext, issue: ReadyIssue, featureId: string | null): FactoryTask {
+export function deliveryTask(
+  context: Pick<FactoryContext, 'repository'>,
+  issue: ReadyIssue,
+  featureId: string | null,
+): FactoryTask {
   const feature = context.repository.features().find((candidate) => candidate.id === featureId);
   return {
     id: randomUUID(),
@@ -88,7 +94,8 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     repairs: [],
     revalidation: null,
     workflow: feature?.workflow,
-    ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
+    // Always frozen, so a later change to the objective's gate affects only deliveries provisioned after it.
+    gates: { merge: feature?.gates?.merge ?? false },
     ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
     updatedAt: context.repository.store.now(),
   };
@@ -149,6 +156,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         createdAt: now,
         updatedAt: now,
         approvals: [],
+        gates: objectiveGates(context.repository),
       };
       context.repository.saveFeature(feature);
     }
@@ -451,6 +459,11 @@ export async function closeParents(context: FactoryContext): Promise<void> {
     ) {
       continue;
     }
+    // The operator may have changed the checklist while GitHub was read: decide on the objective as it is now.
+    const current = context.repository.features().find((candidate) => candidate.id === feature.id);
+    if (current?.phase !== 'active' || !isDefinitionMet(current)) {
+      continue;
+    }
     context.repository.enqueueEffect({
       id: `feature-${feature.id}:status`,
       kind: 'status',
@@ -476,7 +489,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       continue;
     }
     context.repository.saveFeature({
-      ...feature,
+      ...current,
       phase: 'done',
       error: null,
       updatedAt: context.repository.store.now(),
@@ -502,6 +515,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
 export async function reconcile(context: FactoryContext): Promise<void> {
   await importReady(context);
   await provision(context);
+  blockExhausted(context.repository, context.settings.reconcileMs);
   for (const task of context.repository.tasks()) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Delivery transitions serialize merges and remote recovery per project.
