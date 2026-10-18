@@ -9,15 +9,13 @@
  * @file
  */
 import { t } from './i18n.js';
-import { NOTIFY_ON, freshItems, notificationContent } from './inbox-model.js';
+import { NOTIFY_ON, freshItems, inboxRequest, notificationContent } from './inbox-model.js';
 import { element } from './worker-ui.js';
 
 import type { InboxItem } from './console-model.js';
 
 /** Browser storage key for the operator's choice; a convenience, never required. */
 const PREFERENCE_KEY = 'malt.inbox.notifications';
-/** Message the service worker posts when a notification is clicked. */
-export const OPEN_INBOX_MESSAGE = 'malt-open-inbox';
 
 /**
  * Whether this browser can show notifications at all.
@@ -70,16 +68,20 @@ export class InboxNotifier {
   private isOn = isPreferenceOn();
   /** Items open at the previous snapshot; `null` until the first one. */
   private previous: ReadonlySet<string> | null = null;
-  /** Routes the console to the Inbox. */
-  private readonly openInbox: () => void;
+  /** Routes the console to a project's Inbox (`null` keeps the selected project). */
+  private readonly openInbox: (project: string | null) => void;
+  /** Selected project, which a notification remembers. */
+  private readonly project: () => string;
 
   /**
    * Build the toggle and listen for notification clicks.
    *
-   * @param openInbox - Routes the console to the Inbox.
+   * @param openInbox - Routes the console to a project's Inbox.
+   * @param project - Selected project id.
    */
-  public constructor(openInbox: () => void) {
+  public constructor(openInbox: (project: string | null) => void, project: () => string) {
     this.openInbox = openInbox;
+    this.project = project;
     this.toggle.type = 'button';
     this.toggle.addEventListener('click', () => {
       void this.change();
@@ -87,8 +89,9 @@ export class InboxNotifier {
     this.element.append(this.toggle, ' ', this.hint);
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', (event) => {
-        if (event.origin === location.origin && event.data === OPEN_INBOX_MESSAGE) {
-          openInbox();
+        const requested = event.origin === location.origin ? inboxRequest(event.data) : undefined;
+        if (requested !== undefined) {
+          openInbox(requested);
         }
       });
     }
@@ -111,8 +114,9 @@ export class InboxNotifier {
     ) {
       return;
     }
+    const project = this.project();
     for (const item of fresh) {
-      void show(item, this.openInbox);
+      void show(item, project, this.openInbox);
     }
   }
 
@@ -157,17 +161,18 @@ export class InboxNotifier {
  * Raise one notification through the service worker, or directly without one.
  *
  * @param item - New open item.
+ * @param project - Project the item belongs to; a click shows that project's Inbox.
  * @param openInbox - Routes the console to the Inbox when a direct notification is clicked.
  */
-async function show(item: InboxItem, openInbox: () => void): Promise<void> {
+async function show(item: InboxItem, project: string, openInbox: (project: string) => void): Promise<void> {
   const content = notificationContent(item);
-  const options = { body: content.body, tag: content.tag, data: { view: 'inbox' } };
+  const options = { body: content.body, tag: content.tag, data: { view: 'inbox', project } };
   const registration = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : undefined;
   if (registration === undefined) {
     const notification = new Notification(content.title, options);
     notification.addEventListener('click', () => {
       focus();
-      openInbox();
+      openInbox(project);
     });
     return;
   }
