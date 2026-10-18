@@ -4,12 +4,13 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import * as automation from './automations.ts';
+import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -17,20 +18,26 @@ import {
   configureProject,
   shouldParkForMemory,
   recoverUnownedClaims,
-  recordScopeFeedback,
   recordCapacity,
   latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
+import { deliveryDiff } from './delivery-diff.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
 import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
-import { applyInstructionRequest } from './instruction-requests.ts';
+import { instructControl } from './instruction-control.ts';
 import { IssueGuard } from './issue-guard.ts';
+import { attemptRecord } from './job-records.ts';
+import { ledgerHandlers } from './ledger-handlers.ts';
+import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
+import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { ManagerService, managerHandlers } from './manager-controls.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
+import { checkDefinition } from './objective-goals.ts';
 import { reorderObjective } from './objective-order.ts';
 import { deliveryFocus } from './objective-queue-schema.ts';
 import { queueObjective } from './objectives.ts';
@@ -38,13 +45,12 @@ import { policySetupBlocker } from './policy-blockers.ts';
 import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
-import { runAgent } from './providers.ts';
+import { askQuestion, isAwaitingAnswer, didAskOperator } from './questions.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
 import { retryBlocked } from './recovery.ts';
-import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
   ResourceSampler,
@@ -53,16 +59,20 @@ import {
   resourceProbe,
   hasCriticalMemoryPressure,
 } from './resources.ts';
+import { classifySettlement } from './retry-policy.ts';
+import { roleHandlers } from './role-handlers.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
-import { replaceScope } from './scope-changes.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
-import { factoryStatus } from './status.ts';
+import { announceSpendBlocks, refreshSpend, spendGate } from './spend.ts';
+import { factoryStatus, preflight } from './status.ts';
+import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
+import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -95,6 +105,8 @@ export interface FactoryOptions {
   readonly resources?: ResourceProbe;
   /** In-process native terminal substitutes, unavailable to browser/MCP callers. */
   readonly terminals?: TerminalOptions;
+  /** Fixture manager provider and clock; never exposed to browser or MCP callers. */
+  readonly manager?: Omit<ConstructorParameters<typeof ManagerService>[2], 'home'>;
 }
 /** One cancellable pipeline owned by this supervisor. */
 interface Running {
@@ -113,6 +125,10 @@ interface AttemptState {
   state: 'succeeded' | 'failed' | 'interrupted';
   /** Supervisor-observed failure or cancellation reason for the manager report. */
   reason: string | null;
+  /** Error that failed the attempt, used to classify its retry. */
+  error: unknown;
+  /** The attempt asked the operator a question; its result waits for the answer. */
+  isAwaitingAnswer?: boolean;
 }
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
@@ -120,6 +136,8 @@ export class FactoryService {
   public readonly repository: FactoryRepository;
   /** Operator sessions share this supervisor's admission and lifecycle controls. */
   public readonly terminals: TerminalService;
+  /** Persistent delivery manager (#211); independent of factory pause. */
+  public readonly manager: ManagerService;
   /** Dependencies selected at construction. */
   private readonly options: FactoryOptions;
   /** Project scope. */
@@ -180,6 +198,7 @@ export class FactoryService {
       pool: LOCAL_JOBS,
       resources: () => this.sampler.latest,
     });
+    this.manager = new ManagerService(mesh, this.repository, { ...options.manager, home: options.home });
   }
 
   /**
@@ -204,11 +223,11 @@ export class FactoryService {
       repository: this.repository,
       settings,
       providerVersions: this.options.agent === undefined ? {} : 'fixture',
-      remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
+      remote: this.options.remote ?? deliveryFor(this.mesh, settings, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
-      agent: this.options.agent ?? (async (request) => runAgent(request, processes)),
+      agent: this.options.agent ?? defaultAgent(processes),
     };
     return this.context;
   }
@@ -219,12 +238,17 @@ export class FactoryService {
    * @returns Dashboard and MCP state.
    */
   public async status(): Promise<unknown> {
-    return factoryStatus(this.repository, this.mesh, {
-      connected: this.connected,
-      error: this.error ?? this.issueGuard.waitingReason(this.repository),
-      resources: this.sampler.latest,
-      admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
-    });
+    return factoryStatus(
+      this.repository,
+      this.mesh,
+      {
+        connected: this.connected,
+        error: this.error ?? this.issueGuard.waitingReason(this.repository),
+        resources: this.sampler.latest,
+        admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
+      },
+      this.learning,
+    );
   }
 
   /** Resume durable requested operation after broker restart. */
@@ -320,6 +344,7 @@ export class FactoryService {
     }
     this.quota.cancel();
     await this.terminals.closeAll(shouldPause ? 'factory paused' : 'broker shutdown', !shouldPause);
+    await (shouldPause ? Promise.resolve() : this.manager.close());
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
     if (this.driving !== null) {
       await this.driving;
@@ -342,6 +367,8 @@ export class FactoryService {
     const handlers: Record<FactoryOperation, () => unknown> = {
       factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
+      factory_ask: () => askQuestion(this.configured(), parsed, actorId),
+      factory_step_overrides: () => changeStepOverrides(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
@@ -352,11 +379,14 @@ export class FactoryService {
         );
       },
       factory_skill_decide: async () => decideSkill(this.configured(), parsed),
-      factory_instruct: () => this.controlInstruct(parsed),
+      factory_instruct: () => instructControl(this.repository, this.running, parsed),
       factory_status: async () => this.status(),
+      factory_preflight: async () => preflight(this.repository.config(), this.mesh),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
-      factory_setup: () => this.controlSetup(parsed),
-      factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
+      factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
+      ...managerHandlers(this.manager, parsed),
+      factory_setup: async () => this.controlSetup(parsed),
+      factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -383,6 +413,18 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
+      factory_delivery_diff: async () => deliveryDiff(this.configured(), input),
+      ...workflowHandlers(this.repository, input),
+      factory_objective_check: () => checkDefinition(this.configured(), input, actorId),
+      ...ledgerHandlers(this.repository, this.mesh, input),
+      ...roleHandlers({
+        configured: () => this.configured(),
+        repository: this.repository,
+        directory: this.mesh.directory,
+        learning: this.learning,
+        setup: async (settings) => this.controlSetup(settings),
+        input,
+      }),
     };
     return await handlers[operation]();
   }
@@ -444,8 +486,13 @@ export class FactoryService {
     if (!canDispatch(this.repository, this.stopped)) {
       return;
     }
+    automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
+    await refreshSpend(this.repository, this.mesh);
+    const spend = spendGate(this.repository);
+    announceSpendBlocks(this.repository, spend);
     const scheduling = {
+      isSpendBlocked: (target: { taskId: string | null; featureId: string | null }) => spend.block(target) !== null,
       feedbackAt: latestLearningFeedback(this.repository),
       config: context.settings,
       tasks: this.repository.tasks(),
@@ -465,7 +512,10 @@ export class FactoryService {
       return;
     }
     for (const intent of intents) {
-      if (admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null) {
+      if (
+        isAwaitingAnswer(this.repository.store, intent) ||
+        admittedAssignment(context, this.sampler.latest, LOCAL_JOBS, intent) === null
+      ) {
         continue;
       }
       // eslint-disable-next-line no-await-in-loop -- A developer claim waits for its unpaid issue-state decision.
@@ -504,26 +554,8 @@ export class FactoryService {
     if (admitted === null) {
       return;
     }
-    const { provider, routing } = admitted;
-    const id = randomUUID();
-    const now = this.repository.store.now();
-    const job: FactoryJob = {
-      ...intent,
-      target: intent.target ?? null,
-      id,
-      provider,
-      routing,
-      token: randomUUID(),
-      state: 'running',
-      startedAt: now,
-      finishedAt: null,
-      expiresAt: now + LEASE_MS,
-      reservation: context.settings.providers[provider].reservationTokens,
-      usageTokens: null,
-      pid: null,
-      summary: null,
-      artifact: path.join(this.mesh.directory, 'factory', 'jobs', id),
-    };
+    const job = attemptRecord(context, intent, admitted);
+    const { id } = job;
     if (!this.repository.claim(job, context.settings)) {
       return;
     }
@@ -559,23 +591,31 @@ export class FactoryService {
    */
   private async perform(job: FactoryJob, controller: AbortController): Promise<void> {
     const context = this.configured();
-    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null };
-    const timer = setTimeout(() => {
-      controller.abort(new Error(`Assignment exceeded its ${String(context.settings.jobTimeoutMs)} ms timeout.`));
-    }, context.settings.jobTimeoutMs);
+    const attempt: AttemptState = { execution: null, isInferred: false, state: 'failed', reason: null, error: null };
+    const owned: { cwd: string | null } = { cwd: null };
+    const monitor = superviseLiveness({
+      repository: this.repository,
+      job,
+      settings: context.settings,
+      controller,
+      worktree: () => owned.cwd,
+    });
     try {
-      await this.executeAttempt(job, controller, attempt);
+      await this.executeAttempt(job, controller, attempt, owned);
     } catch (error) {
+      attempt.error = error;
       if (controller.signal.aborted || this.stopped) {
         attempt.state = 'interrupted';
         attempt.reason = Error.isError(controller.signal.reason) ? controller.signal.reason.message : null;
+      } else if (didAskOperator(this.repository, job, attempt)) {
+        attempt.reason = null;
       } else {
         attempt.reason = Error.isError(error) ? error.message : 'Managed stage failed.';
         await this.failure(job, attempt.reason);
       }
     } finally {
-      clearTimeout(timer);
-      await this.settleAttempt(job, attempt);
+      monitor.dispose();
+      await this.settleAttempt(job, attempt, checkpointStop(monitor.liveness));
       this.nextReconcile = 0;
     }
   }
@@ -586,12 +626,22 @@ export class FactoryService {
    * @param job - Durable claim.
    * @param controller - Pipeline cancellation.
    * @param attempt - Accumulated execution evidence.
+   * @param owned - Receives the owned worktree once prepared.
+   * @param owned.cwd - Owned worktree path.
    */
-  private async executeAttempt(job: FactoryJob, controller: AbortController, attempt: AttemptState): Promise<void> {
+  private async executeAttempt(
+    job: FactoryJob,
+    controller: AbortController,
+    attempt: AttemptState,
+    owned: { cwd: string | null },
+  ): Promise<void> {
     const outcome = attempt;
     const context = this.configured();
     outcome.execution = await executeJob(context, job, {
       signal: controller.signal,
+      onSource: (cwd) => {
+        Object.assign(owned, { cwd });
+      },
       onSpawn: (pid) => {
         outcome.isInferred = true;
         const spawned = this.repository.jobs().find((candidate) => candidate.id === job.id);
@@ -629,6 +679,9 @@ export class FactoryService {
         return;
       }
     }
+    if (didAskOperator(this.repository, job, outcome)) {
+      return;
+    }
     await completeJob(context, job, outcome.execution, controller.signal);
     outcome.state = outcome.execution.waiting === null ? 'succeeded' : 'failed';
   }
@@ -638,18 +691,23 @@ export class FactoryService {
    *
    * @param job - Original token.
    * @param attempt - Executed evidence.
+   * @param stopReason - Liveness checkpoint stop, if one stopped the attempt.
    */
-  private async settleAttempt(job: FactoryJob, attempt: AttemptState): Promise<void> {
+  private async settleAttempt(job: FactoryJob, attempt: AttemptState, stopReason: string | null): Promise<void> {
     triage.settleTriage(this.repository, job, attempt.state);
+    const now = this.repository.store.now();
+    const failureClass = classifySettlement(attempt, { now, stopReason, isStopping: this.stopped });
     const hasSettled = this.repository.finishJob(
       job,
       attempt.execution?.completion?.usageTokens ?? (attempt.isInferred ? null : 0),
       attempt.state,
-      settlementEvidence(attempt, this.stopped, this.repository.store.now()),
+      { ...settlementEvidence(attempt, this.stopped, now), failureClass },
     );
     refundUnpaidAttempt(this.repository, job, {
       hasSettled,
-      isUnpaidGate: attempt.execution?.completion === null && attempt.execution.waiting !== null,
+      isUnpaidGate:
+        attempt.isAwaitingAnswer === true ||
+        (attempt.execution?.completion === null && attempt.execution.waiting !== null),
       state: attempt.state,
     });
     await retireSnapshot(this.configured(), attempt.execution?.snapshot ?? null);
@@ -692,52 +750,18 @@ export class FactoryService {
   }
 
   /**
-   * Handle the validated factory_instruct operator control.
-   *
-   * @param parsed - Validated control input.
-   * @returns Durable control result.
-   * @throws {MeshError} When setup, role or task gates reject the request.
-   */
-  private controlInstruct(parsed: unknown): unknown {
-    const value = factorySchemas.factory_instruct.parse(parsed);
-    if (value.taskId !== undefined) {
-      this.repository.task(value.taskId);
-    }
-    const result = applyInstructionRequest(this.repository, value, () => {
-      const instructionId = this.repository.instruct(value.role, value.taskId ?? null, value.body);
-      const replacement = value.replan ? replaceScope(this.repository, { ...value, instructionId }) : null;
-      if (value.replan) {
-        recordScopeFeedback(this.repository, value.body);
-      }
-      this.repository.notify(`Operator instruction to ${value.role}: ${value.body}`);
-      return { instructionId, replacement };
-    });
-    const { decision } = result;
-    if (!result.isFresh) {
-      return decision;
-    }
-    for (const job of this.repository.jobs()) {
-      const isRelevant = value.replan
-        ? value.taskId === undefined || decision.replacement?.taskIds.includes(job.taskId ?? '') === true
-        : job.role === value.role && (value.taskId === undefined || job.taskId === value.taskId);
-      if (isRelevant && job.state === 'running') {
-        this.running.get(job.id)?.controller.abort(new Error('Operator instruction changed the active assignment.'));
-      }
-    }
-    return decision;
-  }
-
-  /**
    * Handle the validated factory_setup operator control.
    *
    * @param parsed - Validated control input.
    * @returns Durable control result.
    * @throws {MeshError} When setup, role or task gates reject the request.
    */
-  private controlSetup(parsed: unknown): unknown {
+  private async controlSetup(parsed: unknown): Promise<unknown> {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
+    // A rejected local hub remote must leave saved settings unchanged.
+    await prepareDelivery(this.mesh, parsed, this.options.remote !== undefined);
     this.context = null;
     this.connected = false;
     this.error = null;

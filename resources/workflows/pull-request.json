@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "id": "pull-request",
+  "name": "Pull request with human merge approval",
+  "description": "The safest way to start with a new repository. No planning: the objective is the single delivery. Two reviews (one blind) feed a fixer, then the pull request waits in your Inbox for an explicit merge approval bound to its exact head before the final check, merge and main verification.",
+  "planning": [],
+  "delivery": [
+    { "id": "implement", "kind": "implement", "title": "Implementation", "roles": ["developer-1", "developer-2"] },
+    { "id": "review", "kind": "review", "title": "Code review", "roles": ["qa-1"], "after": ["implement"] },
+    {
+      "id": "blind-review",
+      "kind": "review",
+      "title": "Blind code review",
+      "roles": ["qa-2"],
+      "after": ["implement"],
+      "blind": true
+    },
+    {
+      "id": "fix",
+      "kind": "adjudicate",
+      "title": "Rule on findings and fix",
+      "roles": ["fixer"],
+      "after": ["review", "blind-review"]
+    },
+    { "id": "approve-merge", "kind": "approve", "title": "Approve merge", "after": ["fix"] },
+    {
+      "id": "final",
+      "kind": "final",
+      "title": "Final end-to-end check",
+      "roles": ["final-tester"],
+      "after": ["approve-merge"]
+    },
+    { "id": "verify", "kind": "verify", "title": "Verify merged main", "roles": ["final-tester"], "after": ["final"] }
+  ]
+}

@@ -14,6 +14,7 @@ import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
+import { isClaimEligible } from './delivery-controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
 import { saveFactorySettings } from './model-policy-controls.ts';
@@ -34,7 +35,6 @@ import {
   taskSchema,
 } from './schema.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
-import { isCurrentTriage } from './triage.ts';
 
 import type { Store } from '../store.ts';
 import type { HandoffEvidence } from './handoffs.ts';
@@ -73,6 +73,31 @@ const BOARD_STATES = {
   blocked: 'Blocked',
 } as const;
 
+/**
+ * The stored record of a settled attempt.
+ *
+ * @param job - Running record.
+ * @param outcome - Settlement facts.
+ * @param outcome.state - Final state.
+ * @param outcome.usage - Actual usage, or null when unknown.
+ * @param outcome.finishedAt - Settlement time.
+ * @param outcome.settlement - Evidence carrying the failure class.
+ * @returns Finished record.
+ */
+function settledJob(
+  job: FactoryJob,
+  outcome: { state: FactoryJob['state']; usage: number | null; finishedAt: number; settlement: HandoffEvidence },
+): FactoryJob {
+  const failureClass = outcome.settlement.failureClass ?? undefined;
+  return {
+    ...job,
+    state: outcome.state,
+    usageTokens: outcome.usage,
+    finishedAt: outcome.finishedAt,
+    ...(failureClass !== undefined && { failureClass }),
+  };
+}
+
 /** Durable, transactional workspace factory state. */
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
@@ -107,6 +132,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_jobs_by_start ON factory_jobs(json_extract(data, '$.startedAt') DESC, id DESC);
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effect_receipts (id TEXT PRIMARY KEY);
@@ -432,6 +458,30 @@ export class FactoryRepository {
   }
 
   /**
+   * Record an operator mark such as a hold or an archive choice without
+   * bumping the delivery's version, so a running attempt fenced on that version
+   * still publishes normally.
+   *
+   * @param id - Delivery identity.
+   * @param change - Pure edit that touches only operator marks.
+   * @returns Stored delivery.
+   */
+  public markTask(id: string, change: (task: FactoryTask) => FactoryTask): FactoryTask {
+    return this.store.transaction(() => {
+      const previous = this.task(id);
+      const task = taskSchema.parse({ ...change(previous), version: previous.version, updatedAt: previous.updatedAt });
+      this.putTask(task);
+      this.store.event('FACTORY_TASK_UPDATED', null, {
+        taskId: id,
+        issue: task.issue,
+        phase: task.phase,
+        head: task.head,
+      });
+      return task;
+    });
+  }
+
+  /**
    * Retrieve source/worktree history for safe cleanup after a repaired merge.
    *
    * @param id - Delivery identity.
@@ -566,7 +616,7 @@ export class FactoryRepository {
   public claim(job: FactoryJob, config: FactoryConfig): boolean {
     const record = job;
     return this.store.transaction(() => {
-      if (!this.scopeEligible(record)) {
+      if (!isClaimEligible(this, record)) {
         return false;
       }
       const live = this.jobs().filter((candidate) => candidate.state === 'running');
@@ -676,13 +726,8 @@ export class FactoryRepository {
         cooldownUntil: Math.max(capacity.cooldownUntil, settlement.cooldown ?? 0),
         updatedAt: this.store.now(),
       });
-      run(
-        this.store.db,
-        'UPDATE factory_jobs SET state=?,data=? WHERE id=?',
-        state,
-        JSON.stringify({ ...current, state, usageTokens: usage, finishedAt: this.store.now() }),
-        job.id,
-      );
+      const finished = settledJob(current, { state, usage, finishedAt: this.store.now(), settlement });
+      run(this.store.db, 'UPDATE factory_jobs SET state=?,data=? WHERE id=?', state, JSON.stringify(finished), job.id);
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
@@ -766,22 +811,6 @@ export class FactoryRepository {
           WHERE id NOT IN (SELECT effect_id FROM factory_effect_keys);
       `);
     });
-  }
-
-  /**
-   * Fence superseded work inside the same transaction as role admission.
-   *
-   * @param job - Proposed claim.
-   * @returns Whether its scope is still eligible.
-   */
-  private scopeEligible(job: FactoryJob): boolean {
-    const queue = this.objectiveQueue.read();
-    const focus = queue.focusedFeatureId;
-    return (
-      (job.kind !== 'triage' || isCurrentTriage(this, job)) &&
-      (queue.existingOnly ? job.taskId !== null : focus === null || job.featureId === focus) &&
-      (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
-    );
   }
 
   /**

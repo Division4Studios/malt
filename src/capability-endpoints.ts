@@ -12,12 +12,14 @@ import { z } from 'zod/v3';
 import { CAPABILITIES } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile } from './config.ts';
 import { capabilityState, parseConnection } from './connector.ts';
-import { MeshError } from './protocol.ts';
+import { MeshError, parseInput } from './protocol.ts';
 
 import type { Capability, CapabilityPolicyChange, CapabilityPolicyStore } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { CapabilityName, CapabilityState, Capabilities } from './connector.ts';
-import type { OperationInput } from './protocol.ts';
+import type { CapabilityOperation, OperationInput } from './protocol.ts';
+import type { PresentedCredentials, Store } from './store.ts';
+import type { Waiters } from './waiters.ts';
 
 /** The single human identity a project-token caller can prove. */
 export const PROJECT_OPERATOR = { kind: 'human', id: 'project-operator' } as const;
@@ -160,4 +162,55 @@ export function setCapability(
     throw error;
   }
   return capabilityStatus(policy, config);
+}
+
+/** The workspace services a capability operation uses. */
+export interface CapabilityTeam {
+  /** Selected project's store. */
+  readonly store: Store;
+  /** Its connector capability policies. */
+  readonly policy: CapabilityPolicyStore;
+  /** Its configuration. */
+  readonly config: MeshConfig;
+  /** Long-poll waiters to wake after an edit. */
+  readonly waiters: Waiters;
+}
+
+/**
+ * Read connector capability policies, or apply a human edit. Agents may read
+ * the policy that governs them but can never change it, whatever their role.
+ *
+ * @param team - Current workspace's store, policy, configuration and waiters.
+ * @param operation - Capability policy operation.
+ * @param input - Untrusted RPC input.
+ * @param credentials - Authenticated bridge identity, absent for the operator.
+ * @returns The project's policy view.
+ * @throws {MeshError} HUMAN_CONTROL_REQUIRED when an agent attempts an edit.
+ */
+export function handleCapabilityOperation(
+  team: CapabilityTeam,
+  operation: CapabilityOperation,
+  input: unknown,
+  credentials: PresentedCredentials | undefined,
+): unknown {
+  if (operation === 'capability_policy_status') {
+    parseInput(operation, input);
+    if (credentials !== undefined) {
+      team.store.authenticate(credentials);
+    }
+    return capabilityStatus(team.policy, team.config);
+  }
+  if (credentials !== undefined) {
+    // Malformed input still reports INVALID_INPUT before authentication.
+    parseInput(operation, input);
+    team.store.authenticate(credentials);
+    throw new MeshError('HUMAN_CONTROL_REQUIRED', 'Only the human operator may change connector capability policy.');
+  }
+  const change = parseInput(operation, input);
+  const result = setCapability(team.policy, team.config, change);
+  team.store.transaction(() => {
+    team.store.event('CAPABILITY_POLICY_CHANGED', null, { capability: change.capability });
+  });
+  team.waiters.notify();
+  return result;
 }
