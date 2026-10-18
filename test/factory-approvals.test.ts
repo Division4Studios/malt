@@ -242,3 +242,38 @@ await test('briefs become one delivery with acceptance from the Acceptance secti
   assert.deepEqual(only.acceptanceCriteria, ['A failed charge retries after an hour', 'The retry is logged']);
   assert.equal(briefPlan('fix the typo').deliveries[0]?.acceptanceCriteria.length, 1);
 });
+
+await test('rejecting the specification gate sends the specification back for revision', (t) => {
+  const repository = project(t);
+  const assured = builtinWorkflows().find((workflow) => workflow.id === 'malt-assured');
+  assert.ok(assured !== undefined);
+  const gated = workflowSchema.parse({
+    ...assured,
+    id: 'gated-spec',
+    planning: assured.planning.map((step) => (step.kind === 'specify' ? { ...step, gate: true } : step)),
+  });
+  workflowLibrary(repository.store).save({ workflow: gated, expectedRevision: null });
+  const { featureId } = queueObjective(repository, { objective: 'Gate the specification', workflowId: 'gated-spec' });
+  const feature = repository.features().find((candidate) => candidate.id === featureId);
+  assert.ok(feature !== undefined);
+  const specification = {
+    outcome: 'success' as const,
+    summary: 'Specification.',
+    findings: [],
+    deliveries: [],
+    skillActions: [],
+    instructionReceipts: [],
+  };
+  repository.saveFeature({ ...feature, productPlan: specification });
+  const rejection = {
+    requestId: randomUUID(),
+    featureId,
+    stepId: 'specify',
+    head: '',
+    approve: false,
+    note: 'The specification misses the export format.',
+  };
+  assert.deepEqual(decideApproval(repository, rejection), { result: 'rejected' });
+  const revised = repository.features().find((candidate) => candidate.id === featureId);
+  assert.equal(revised?.productPlan, null, 'the rejected specification is written again, not kept');
+});
