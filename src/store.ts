@@ -373,10 +373,8 @@ export class Store implements CoordinationHost {
     this.coordination = new Coordination(this);
     this.handlers = this.createHandlers();
     this.migrate(version);
-    log('info', 'storage', 'database_ready', {
-      schemaVersion: Number(SCHEMA_VERSION),
-      migrated: version !== SCHEMA_VERSION,
-    });
+    const wasMigrated = version !== SCHEMA_VERSION;
+    log('info', 'storage', 'database_ready', { schemaVersion: Number(SCHEMA_VERSION), migrated: wasMigrated });
   }
 
   /**
