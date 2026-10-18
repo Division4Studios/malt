@@ -9,6 +9,7 @@ import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { forgetAttemptSecrets } from './attempt-secrets.ts';
 import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -627,6 +628,7 @@ export class FactoryService {
       }
     } finally {
       monitor.dispose();
+      forgetAttemptSecrets(job.id);
       await this.settleAttempt(job, attempt, checkpointStop(monitor.liveness));
       this.nextReconcile = 0;
     }
