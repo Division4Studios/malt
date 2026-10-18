@@ -59,7 +59,7 @@ The operator also chooses which factory roles may perform the enabled mutations;
 
 ### Traceability and the source of truth
 
-`src/jira/traceability.ts` posts progress, pull request and merged-main evidence as Jira comments, each once per stable request ID: the journal is written before Jira is called and the comment carries a `MALT evidence <project>:<request>` line, so a retry after a lost response finds the comment instead of posting it again. Branch names use the Jira key unchanged (`branchKey` in `src/factory/tracker-key.ts`) so Jira's development panel links them. Before a job starts, `recheckIssue` re-reads the issue and refuses to work it once it is done, resolved or assigned to someone else, and `credentialBlocker` turns a rejected (revoked, rotated or expired) token into one operator blocker instead of repeated failing turns.
+`src/jira/traceability.ts` posts progress, pull request and merged-main evidence as Jira comments, each once per stable request ID: the journal is written before Jira is called and the comment carries a `MALT evidence <project>:<request>` line, so a retry after a lost response reads every page of the issue's comments, finds the comment and does not post it again. A lock file beside the journal keeps a second attempt for the same request from running until the first ends. Branch names use the Jira key unchanged (`branchKey` in `src/factory/tracker-key.ts`) so Jira's development panel links them. Before a job starts, `recheckIssue` re-reads the issue and refuses to work it once it is done, resolved or assigned to someone else, and `credentialBlocker` turns a rejected (revoked, rotated or expired) token into one operator blocker instead of repeated failing turns.
 
 ### Authentication and deployment decisions for 1.0
 
