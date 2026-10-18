@@ -11,7 +11,7 @@
 import { z } from 'zod/v3';
 
 /** Bound one recorded summary or finding. */
-const TEXT_MAX = 4000;
+export const REVALIDATION_TEXT_MAX = 4000;
 /** Bound findings kept per verdict. */
 const MAX_FINDINGS = 20;
 /** Bound predecessors recorded per verdict; plans allow at most 100 deliveries. */
@@ -43,8 +43,8 @@ export const revalidationSchema = z
     predecessors: z.array(predecessorSchema).max(MAX_PREDECESSORS),
     /** `confirmed` lets implementation start; `revise` stops the delivery for the operator. */
     outcome: z.enum(['confirmed', 'revise']),
-    summary: z.string().max(TEXT_MAX),
-    findings: z.array(z.string().max(TEXT_MAX)).max(MAX_FINDINGS),
+    summary: z.string().max(REVALIDATION_TEXT_MAX),
+    findings: z.array(z.string().max(REVALIDATION_TEXT_MAX)).max(MAX_FINDINGS),
     at: z.number(),
   })
   .strict();

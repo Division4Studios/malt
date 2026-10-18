@@ -7,6 +7,8 @@
  *
  * @file
  */
+import { HOLD_PREFIX } from './retry-policy.ts';
+
 import type { JobLiveness, LivenessPolicy, LivenessState } from './liveness-schema.ts';
 
 /** Milliseconds in one minute. */
@@ -105,6 +107,12 @@ export interface LivenessOptions {
   readonly record: (liveness: JobLiveness) => void;
   /** Stop the assignment with its recorded reason. */
   readonly stop: (reason: string) => void;
+
+  /**
+   * Whether a productive assignment may be extended; resolves to a refusal
+   * reason, or null to extend. Without a gate every productive checkpoint extends.
+   */
+  readonly gate?: () => Promise<string | null>;
   /** Timers; real ones by default. */
   readonly timers?: LivenessTimers;
 }
@@ -183,7 +191,7 @@ export class LivenessMonitor {
     }
     this.observe(observation);
     if (this.options.now() >= this.current.nextCheckpointAt) {
-      this.checkpoint();
+      await this.checkpoint();
     }
     this.schedule();
   }
@@ -198,15 +206,30 @@ export class LivenessMonitor {
   }
 
   /**
-   * Take one sample; a failed sample counts as no progress.
+   * Take one sample, bounded by the next checkpoint; a failed or late sample counts as no progress.
    *
-   * @returns What the sampler saw, or no progress when sampling failed.
+   * @returns What the sampler saw, or no progress when sampling failed or outlasted the checkpoint.
    */
   private async observation(): Promise<ProgressObservation> {
+    const none: ProgressObservation = { progress: null, awaiting: null };
+    // A sampler that hangs must never stop the checkpoint, and so the ceiling, from being enforced.
+    const budget = Math.max(0, this.current.nextCheckpointAt - this.options.now());
+    const cancels: (() => void)[] = [];
+    const deadline = new Promise<ProgressObservation>((resolve) => {
+      cancels.push(
+        this.timers(() => {
+          resolve(none);
+        }, budget),
+      );
+    });
     try {
-      return await this.options.sample();
+      return await Promise.race([this.options.sample(), deadline]);
     } catch {
-      return { progress: null, awaiting: null };
+      return none;
+    } finally {
+      for (const cancel of cancels) {
+        cancel();
+      }
     }
   }
 
@@ -230,14 +253,26 @@ export class LivenessMonitor {
     this.update({ ...this.current, state, lastProgressAt, lastSignal, awaiting });
   }
 
-  /** Apply the due checkpoint. */
-  private checkpoint(): void {
+  /**
+   * Apply the due checkpoint.
+   *
+   * @returns Once the checkpoint is applied.
+   */
+  private async checkpoint(): Promise<void> {
     const decision = checkpointDecision({
       startedAt: this.options.startedAt,
       now: this.options.now(),
       lastProgressAt: this.current.lastProgressAt,
       policy: this.options.policy,
     });
+    const hold = decision.action === 'extend' ? await this.holdReason() : null;
+    if (this.hasEnded()) {
+      return;
+    }
+    if (hold !== null) {
+      this.end('held', `${HOLD_PREFIX} ${hold}`);
+      return;
+    }
     if (decision.action === 'extend') {
       this.update({
         ...this.current,
@@ -250,7 +285,33 @@ export class LivenessMonitor {
       decision.state === 'stalled' && this.current.awaiting !== null
         ? `${decision.reason} (awaiting input)`
         : decision.reason;
-    this.update({ ...this.current, state: decision.state, stopReason: reason });
+    this.end(decision.state, reason);
+  }
+
+  /**
+   * Ask the gate whether a productive assignment may continue; a failed check holds it.
+   *
+   * @returns Refusal reason, or null to extend.
+   */
+  private async holdReason(): Promise<string | null> {
+    if (this.options.gate === undefined) {
+      return null;
+    }
+    try {
+      return await this.options.gate();
+    } catch {
+      return 'extension safety could not be verified';
+    }
+  }
+
+  /**
+   * Record the final state and stop the assignment.
+   *
+   * @param state - Stalled, ceiling or held.
+   * @param reason - Recorded stop reason.
+   */
+  private end(state: 'stalled' | 'ceiling' | 'held', reason: string): void {
+    this.update({ ...this.current, state, stopReason: reason });
     this.dispose();
     this.options.stop(reason);
   }
