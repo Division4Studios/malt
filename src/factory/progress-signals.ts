@@ -459,10 +459,9 @@ export class ProgressSampler {
    */
   public async sample(): Promise<ProgressObservation> {
     const signals: string[] = [];
-    const before = this.sink.meaningful;
-    await this.tail.poll();
-    if (this.sink.meaningful > before && this.sink.lastSignal !== null) {
-      signals.push(this.sink.lastSignal);
+    const log = await this.pollLog();
+    if (log.signal !== null) {
+      signals.push(log.signal);
     }
     const cwd = this.source.worktree();
     if (cwd !== null) {
@@ -481,9 +480,27 @@ export class ProgressSampler {
     }
     this.checkInCount = recorded.count;
     const progress = signals.at(-1) ?? null;
-    if (progress !== null) {
+    if (progress !== null && !log.isWaitRaised) {
       this.sink.resume();
     }
     return { progress: progress === null ? null : label(progress), awaiting: this.sink.awaiting };
+  }
+
+  /**
+   * Decode new log lines. Decoded progress already clears a wait in stream
+   * order, so a wait that is still set after new progress, or a new wait, was
+   * raised later in this poll and must survive out-of-band progress.
+   *
+   * @returns The newest decoded signal, if any, and whether a wait was raised in this poll.
+   */
+  private async pollLog(): Promise<{ signal: string | null; isWaitRaised: boolean }> {
+    const before = this.sink.meaningful;
+    const waitBefore = this.sink.awaiting;
+    await this.tail.poll();
+    const hasProgress = this.sink.meaningful > before;
+    return {
+      signal: hasProgress ? this.sink.lastSignal : null,
+      isWaitRaised: this.sink.awaiting !== null && (hasProgress || this.sink.awaiting !== waitBefore),
+    };
   }
 }

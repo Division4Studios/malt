@@ -12,11 +12,14 @@ import { appendFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
 
+import { run } from '../src/database.ts';
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
-import { LINE_BYTES_MAX, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
+import { LINE_BYTES_MAX, ProgressSampler, ProgressSink, StreamTail } from '../src/factory/progress-signals.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 import { claudeLine, codexLine } from '../src/factory/transcript-events.ts';
+import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
@@ -342,6 +345,40 @@ await test('the stream tail carries split lines and skips oversized ones within 
   write(file, '{"type":"rotated"}\n');
   await tail.poll();
   assert.deepEqual(lines.slice(-1), ['{"type":"rotated"}'], 'a replaced log is read from its start');
+});
+
+await test('a wait raised after progress in one poll survives out-of-band progress', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  // The repository creates the factory tables.
+  const { store } = new FactoryRepository(new Store(mesh));
+  defer(() => {
+    store.close();
+  });
+  const job = jobSchema.parse(jobFields({ artifact: mesh.directory }));
+  run(store.db, 'INSERT INTO factory_jobs VALUES(?,?,?,?)', job.id, job.role, job.state, JSON.stringify(job));
+  const sampler = new ProgressSampler({
+    store,
+    jobId: job.id,
+    provider: 'claude',
+    artifact: mesh.directory,
+    worktree: () => null,
+  });
+  const events = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
+    { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: {} }] } },
+  ];
+  const log = events.map((event) => `${JSON.stringify(event)}\n`);
+  write(path.join(mesh.directory, 'stdout.log'), log.join(''));
+  run(store.db, 'INSERT INTO factory_progress VALUES(?,?,?)', job.id, 'tests-pass', '{}');
+  const observed = await sampler.sample();
+  assert.notEqual(observed.progress, null);
+  assert.equal(observed.awaiting, 'Question through AskUserQuestion');
+  assert.equal((await sampler.sample()).awaiting, 'Question through AskUserQuestion', 'later idle polls keep the wait');
 });
 
 /**
