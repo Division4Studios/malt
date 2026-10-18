@@ -130,7 +130,7 @@ await test('a missing or logged-out provider is fix-it; no provider at all fails
 await test('GitHub CLI absent or logged out is fix-it, and a port held by a MALT broker passes', async () => {
   const absent = await runDoctor({ project: '/p', probes: probes({}, ['gh --version']) });
   assert.equal(status(absent, 'github').status, 'fix-it');
-  assert.match(status(absent, 'github').fix ?? '', /cli\.github\.com/v);
+  assert.ok((status(absent, 'github').fix ?? '').startsWith('Install GitHub CLI from cli.github.com,'));
   const loggedOut = await runDoctor({ project: '/p', probes: probes({}, ['gh auth status']) });
   assert.equal(status(loggedOut, 'github').status, 'fix-it');
   assert.match(status(loggedOut, 'github').fix ?? '', /gh auth login/v);
