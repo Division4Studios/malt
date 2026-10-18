@@ -42,6 +42,7 @@ export const FACTORY_COMMANDS = [
   'factory-local',
   'factory-manager',
   'factory-reconcile-github',
+  'factory-worktrees-adopt',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -73,6 +74,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-local': 'factory_local',
   'factory-manager': 'factory_manager',
   'factory-reconcile-github': 'factory_reconcile_github',
+  'factory-worktrees-adopt': 'factory_worktrees_adopt',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([

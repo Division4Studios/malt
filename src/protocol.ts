@@ -752,6 +752,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
     'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
+  factory_worktrees_adopt:
+    'Human operator only, while paused: hand ownership of .malt/worktrees to the environment this broker runs in, after stopping the other host or Docker supervisor. The previous owner is recorded.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   factory_workflow_save:
