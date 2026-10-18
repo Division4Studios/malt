@@ -108,6 +108,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'settings-ui',
     'project-views',
     'roles-model',
+    'roles-dom',
     'roles-ui',
     'secrets-model',
     'secrets-ui',

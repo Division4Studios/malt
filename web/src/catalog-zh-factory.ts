@@ -135,7 +135,6 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   Repository: '仓库',
   'GitHub Project URL': 'GitHub Project 链接',
   'Workflow status field': '工作流状态字段',
-  Status: '状态',
   'Paste the Project link; its owner and number are derived automatically. Use Status to match the existing board. GitHub CLI verifies repository access, Project permission and all workflow options before saving. Saved views are not changed.':
     '粘贴 Project 链接；其所有者和编号会自动推导。使用“Status”以匹配现有看板。保存前 GitHub CLI 会验证仓库访问、Project 权限和所有工作流选项。已保存的视图不会被更改。',
   'Configure factory policy': '配置工厂策略',
