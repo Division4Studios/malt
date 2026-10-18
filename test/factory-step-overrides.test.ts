@@ -6,17 +6,23 @@
  * @file
  */
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
 import test from 'node:test';
 
+import { consoleView } from '../src/factory/console-view.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { featureWorkflow, taskWorkflow } from '../src/factory/pipeline.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { factoryConfigSchema } from '../src/factory/schema.ts';
+import { jobIntents } from '../src/factory/scheduler.ts';
+import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { changeStepOverrides } from '../src/factory/step-override-controls.ts';
 import { overrideProblems, withOverrides } from '../src/factory/step-overrides.ts';
-import { builtinWorkflows } from '../src/factory/workflows.ts';
+import { builtinWorkflows, workflowLibrary } from '../src/factory/workflows.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
+import { MeshError } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
@@ -187,4 +193,138 @@ await test('objective overrides change planning seats and provider, and freeze o
     false,
   );
   assert.equal(delivery.delivery.find((step) => step.id === 'blind-review')?.provider, null);
+});
+
+await test('a delivery override changes the seat the scheduler offers and is fenced by version and started steps', (t) => {
+  const context = fixture(t);
+  const { featureId } = queueObjective(context.repository, { objective: 'Greet visitors', workflowId: 'quick' });
+  const task = provision(context, featureId);
+  assert.throws(
+    () => {
+      return changeStepOverrides(context.repository, {
+        taskId: task.id,
+        expectedVersion: task.version + 1,
+        overrides: [{ stepId: 'review', roles: ['qa-2'] }],
+      });
+    },
+    (error: unknown) => error instanceof MeshError && error.code === 'INVALID_REVISION',
+  );
+  const saved = changeStepOverrides(context.repository, {
+    taskId: task.id,
+    expectedVersion: task.version,
+    overrides: [{ stepId: 'review', roles: ['qa-2'], provider: 'claude' }],
+  });
+  assert.deepEqual(saved.overrides, [{ stepId: 'review', roles: ['qa-2'], provider: 'claude' }]);
+  const head = 'c'.repeat(40);
+  const base = 'd'.repeat(40);
+  const reviewing = context.repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'review',
+      developer: 'developer-1',
+      head,
+      base,
+      implementation: { head, base, at: 1 },
+    };
+  });
+  const intents = jobIntents({
+    config: context.settings,
+    tasks: context.repository.tasks(),
+    features: context.repository.features(),
+    jobs: context.repository.jobs(),
+    skillRequests: [],
+    now: context.repository.store.now(),
+  });
+  const review = intents.find((intent) => intent.taskId === task.id && intent.step === 'review');
+  assert.deepEqual([review?.role, review?.preferredProvider], ['qa-2', 'claude']);
+  // Once an attempt ran the review, its settings are fixed.
+  const job = jobSchema.parse({
+    role: 'qa-2',
+    kind: 'review',
+    taskId: task.id,
+    featureId,
+    head,
+    base,
+    step: 'review',
+    target: null,
+    id: randomUUID(),
+    provider: 'claude',
+    token: randomUUID(),
+    state: 'running',
+    startedAt: 1,
+    finishedAt: null,
+    expiresAt: Number.MAX_SAFE_INTEGER,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: path.join(context.mesh.directory, 'factory', 'jobs', randomUUID()),
+  });
+  assert.equal(context.repository.claim(job, context.settings), true);
+  assert.throws(() => {
+    return changeStepOverrides(context.repository, {
+      taskId: task.id,
+      expectedVersion: reviewing.version,
+      overrides: [],
+    });
+  }, /already started and keep their settings: review/v);
+  const card = consoleView(context.repository).deliveries.find((delivery) => delivery.taskId === task.id);
+  const customization = card?.customization ?? null;
+  assert.ok(customization !== null);
+  assert.equal(customization.version, reviewing.version);
+  assert.deepEqual(
+    customization.steps.filter((step) => step.started).map((step) => step.id),
+    ['implement', 'review'],
+  );
+});
+
+await test('objective overrides change only planning steps that have not started', (t) => {
+  const context = fixture(t);
+  const library = workflowLibrary(context.repository.store);
+  assert.equal(library.freeze('full-assurance').id, 'full-assurance');
+  const { featureId } = queueObjective(context.repository, {
+    objective: 'Greet visitors',
+    workflowId: 'full-assurance',
+  });
+  const feature = objective(context, featureId);
+  const changed = changeStepOverrides(context.repository, {
+    featureId,
+    expectedVersion: feature.updatedAt,
+    overrides: [{ stepId: 'plan-review', provider: 'claude' }],
+  });
+  assert.equal(changed.overrides.length, 1);
+  const updated = objective(context, featureId);
+  context.repository.saveFeature({
+    ...updated,
+    planningResults: [
+      {
+        schemaVersion: 1,
+        stepId: 'plan-review',
+        kind: 'plan_review',
+        role: 'plan-reviewer',
+        jobId: randomUUID(),
+        outcome: 'success',
+        summary: 'Fine',
+        findings: [],
+        dispositions: [],
+        at: 2,
+      },
+    ],
+  });
+  const reviewed = objective(context, featureId);
+  assert.throws(() => {
+    return changeStepOverrides(context.repository, {
+      featureId,
+      expectedVersion: reviewed.updatedAt,
+      overrides: [],
+    });
+  }, /already started/v);
+  assert.throws(() => {
+    return changeStepOverrides(context.repository, {
+      featureId,
+      taskId: randomUUID(),
+      expectedVersion: reviewed.updatedAt,
+      overrides: [],
+    });
+  }, /exactly one delivery or one objective/v);
 });

@@ -703,6 +703,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Human operator only: answer one open agent question once, with one of its choices and/or text. Repeating the request id reports the first result. The step that asked runs again with the answer.',
   factory_gates:
     'Human operator only: change the plan or merge approval gate of one objective, or the merge gate of one delivery, before the work reaches that gate. Other deliveries keep the gates they froze.',
+  factory_step_overrides:
+    "Human operator only: replace one objective's or one delivery's step overrides at the version you saw (a delivery's version, an objective's updatedAt). Skip optional steps, or change a step's seats, organization profile or preferred provider; the result must still be a valid workflow, and steps that already started keep their settings. An objective's overrides are copied onto deliveries provisioned later.",
   factory_approve:
     'Human operator only: approve or reject one workflow approval step or gated step for a delivery (bound to the exact head reviewed) or an objective plan. Rejections require a reason, which returns to the developer or the planning lead.',
   factory_attempts:
