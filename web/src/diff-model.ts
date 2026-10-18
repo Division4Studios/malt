@@ -8,6 +8,7 @@
  */
 import { asData } from './console-model.js';
 import { parseDiff } from './diff-parse.js';
+import { phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 import type { DiffRow } from './diff-parse.js';
@@ -21,14 +22,14 @@ const KIB = 1024;
 /** Mode of a side that does not exist. */
 const NO_MODE = '000000';
 /** Visible label per change kind. */
-const STATUS_LABELS: Readonly<Record<DiffStatus, string>> = {
-  added: 'Added',
-  deleted: 'Deleted',
-  modified: 'Modified',
-  renamed: 'Renamed',
-  copied: 'Copied',
-  type_changed: 'Type changed',
-};
+const STATUS_LABELS: Readonly<Record<DiffStatus, string>> = translated({
+  added: phrase('Added'),
+  deleted: phrase('Deleted'),
+  modified: phrase('Modified'),
+  renamed: phrase('Renamed'),
+  copied: phrase('Copied'),
+  type_changed: phrase('Type changed'),
+});
 
 /** One change kind. */
 export type DiffStatus = (typeof STATUSES)[number];
@@ -134,7 +135,7 @@ function isStatus(value: string): value is DiffStatus {
  */
 function unavailable(source: Data | null): { readonly state: 'unavailable'; readonly reason: string } {
   const reason = source === null ? '' : textOf(source, 'reason');
-  return { state: 'unavailable', reason: reason === '' ? 'The diff could not be read.' : reason };
+  return { state: 'unavailable', reason: reason === '' ? t('The diff could not be read.') : reason };
 }
 
 /**
@@ -245,7 +246,7 @@ export function statusText(file: DiffFileView): string {
   if (file.oldPath === null) {
     return label;
   }
-  const similarity = file.similarity === null ? '' : ` (${String(file.similarity)}% similar)`;
+  const similarity = file.similarity === null ? '' : t(' ({similarity}% similar)', { similarity: file.similarity });
   return `${label} from ${file.oldPath}${similarity}`;
 }
 
@@ -256,7 +257,7 @@ export function statusText(file: DiffFileView): string {
  * @returns `+12 −3`, or `Binary`.
  */
 export function countText(file: DiffFileView): string {
-  return file.isBinary ? 'Binary' : `+${String(file.additions ?? 0)} −${String(file.deletions ?? 0)}`;
+  return file.isBinary ? t('Binary') : `+${String(file.additions ?? 0)} −${String(file.deletions ?? 0)}`;
 }
 
 /**
@@ -268,10 +269,10 @@ export function countText(file: DiffFileView): string {
 export function fileNotes(file: DiffFileView): string[] {
   const notes: string[] = [];
   if (file.baseMode !== file.headMode && file.baseMode !== NO_MODE && file.headMode !== NO_MODE) {
-    notes.push(`Mode ${file.baseMode} → ${file.headMode}`);
+    notes.push(t('Mode {baseMode} → {headMode}', { baseMode: file.baseMode, headMode: file.headMode }));
   }
   if (file.isBinary) {
-    notes.push('Binary content; no line diff.');
+    notes.push(t('Binary content; no line diff.'));
   }
   return notes;
 }
@@ -284,8 +285,11 @@ export function fileNotes(file: DiffFileView): string[] {
  */
 export function totalsText(summary: Extract<DiffSummaryView, { state: 'ready' }>): string {
   const { files, additions, deletions } = summary.totals;
-  const noun = files === 1 ? 'file' : 'files';
-  return `${String(files)} ${noun} changed · +${String(additions)} −${String(deletions)}`;
+  return t('{files, plural, one {# file} other {# files}} changed · +{additions} −{deletions}', {
+    files,
+    additions,
+    deletions,
+  });
 }
 
 /**
@@ -297,11 +301,20 @@ export function totalsText(summary: Extract<DiffSummaryView, { state: 'ready' }>
 export function summaryNotes(summary: Extract<DiffSummaryView, { state: 'ready' }>): string[] {
   const notes: string[] = [];
   if (summary.isTruncated) {
-    notes.push(`Showing the first ${String(summary.files.length)} of ${String(summary.totals.files)} changed files.`);
+    notes.push(
+      t('Showing the first {length} of {files} changed files.', {
+        length: summary.files.length,
+        files: summary.totals.files,
+      }),
+    );
   }
   if (summary.privateChanges > 0) {
-    const noun = summary.privateChanges === 1 ? 'path' : 'paths';
-    notes.push(`${String(summary.privateChanges)} private runtime or credential ${noun} changed and are not shown.`);
+    notes.push(
+      t(
+        '{privateChanges, plural, one {# private runtime or credential path} other {# private runtime or credential paths}} changed and are not shown.',
+        { privateChanges: summary.privateChanges },
+      ),
+    );
   }
   return notes;
 }
@@ -327,6 +340,6 @@ export function truncationText(patch: Extract<DiffPatchView, { state: 'ready' }>
     return null;
   }
   return patch.bytes === null
-    ? 'This file changes too much to show here. Open it in your editor or on GitHub.'
-    : `Showing the first part of a ${String(Math.ceil(patch.bytes / KIB))} KiB patch.`;
+    ? t('This file changes too much to show here. Open it in your editor or on GitHub.')
+    : t('Showing the first part of a {value} KiB patch.', { value: Math.ceil(patch.bytes / KIB) });
 }
