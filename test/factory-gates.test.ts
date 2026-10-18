@@ -14,6 +14,7 @@ import {
   planningApprovals,
   taskWorkflow,
 } from '../src/factory/pipeline.ts';
+import { deliveryTask } from '../src/factory/reconcile.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
 import { builtinWorkflows, workflowDigest } from '../src/factory/workflows.ts';
@@ -196,4 +197,27 @@ await test('the operator changes gates only before the work reaches them', (t) =
   });
   reject({ featureId, plan: false }, 'FACTORY_GATED');
   assert.deepEqual(changeGates(repository, { featureId, merge: true }), { gates: { plan: true, merge: true } });
+});
+
+await test('removing the merge gate of a fully reviewed delivery makes it merge ready', (t) => {
+  const repository = project(t);
+  const task = reviewed(repository, 'review', true);
+  assert.equal(isReviewComplete(task, taskWorkflow(task)), false);
+  assert.deepEqual(changeGates(repository, { taskId: task.id, merge: false }), { gates: { merge: false } });
+  assert.equal(repository.task(task.id).phase, 'merge_ready');
+  const held = reviewed(repository, 'review', false);
+  changeGates(repository, { taskId: held.id, merge: true });
+  assert.equal(repository.task(held.id).phase, 'review');
+});
+
+await test('a delivery freezes its merge gate so later objective changes affect only new deliveries', (t) => {
+  const repository = project(t, { merge: true });
+  const issue = { issue: 3, parentIssue: 1, title: 'Gate', description: 'Bounded.', acceptanceCriteria: ['Visible'] };
+  assert.deepEqual(deliveryTask({ repository }, issue, null).gates, { merge: false });
+  const now = repository.store.now();
+  const legacy = { id: randomUUID(), objective: 'Legacy', phase: 'active', productPlan: null, plan: null } as const;
+  repository.saveFeature({ ...legacy, parentIssue: 1, error: null, createdAt: now, updatedAt: now, approvals: [] });
+  assert.deepEqual(deliveryTask({ repository }, issue, legacy.id).gates, { merge: false });
+  const { featureId } = queueObjective(repository, { objective: 'Gated by default' });
+  assert.deepEqual(deliveryTask({ repository }, issue, featureId).gates, { merge: true });
 });

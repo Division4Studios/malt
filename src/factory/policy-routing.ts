@@ -185,6 +185,7 @@ export function recordProviderReadiness(
   if (versions !== 'fixture') {
     delete versions.codex;
     delete versions.claude;
+    delete versions.copilot;
     for (const provider of providers) {
       versions[provider.provider] = provider.version;
     }

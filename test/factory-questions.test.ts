@@ -168,7 +168,7 @@ await test('a managed question holds its step, sets the attempt aside and return
   const ask = {
     key: 'format',
     question: `JSON or SQLite for the export? Secret: ${f.mesh.token}`,
-    choices: ['JSON', 'SQLite'],
+    choices: ['JSON', 'SQLite', `Ask ${f.mesh.token}`],
     allowText: true,
   };
   const asked = await factory.execute('factory_ask', ask, actor.id);
@@ -191,6 +191,10 @@ await test('a managed question holds its step, sets the attempt aside and return
   const question = questionAskedBy(store, job.id);
   assert.ok(question !== undefined);
   assert.ok(!question.question.includes(f.mesh.token), 'secrets are redacted before storage');
+  assert.ok(
+    question.choices.every((choice) => !choice.includes(f.mesh.token)),
+    'and so are choices',
+  );
   assert.equal(isAwaitingAnswer(store, implementIntent(f)), true);
   assert.equal(isAwaitingAnswer(store, implementIntent(f, 'document')), false, 'other steps are not held');
 
@@ -209,7 +213,7 @@ await test('a managed question holds its step, sets the attempt aside and return
   assert.ok(item !== undefined);
   assert.equal(item.lane, 'reply');
   assert.equal(item.questionId, question.id);
-  assert.deepEqual(item.choices, ['JSON', 'SQLite']);
+  assert.deepEqual(item.choices.slice(0, 2), ['JSON', 'SQLite']);
 
   const requestId = randomUUID();
   await assert.rejects(factory.execute('factory_answer', { questionId: question.id, requestId }), {
