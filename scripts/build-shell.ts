@@ -61,6 +61,7 @@ const FILES = [
   'dist/theme.js',
   'dist/objective-ui.js',
   'dist/console-views.js',
+  'dist/log-tails.js',
   'dist/console-model.js',
   'dist/board-model.js',
   'dist/approval-model.js',

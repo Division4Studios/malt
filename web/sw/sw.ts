@@ -53,6 +53,7 @@ const SHELL = [
   '/theme.js',
   '/objective-ui.js',
   '/console-views.js',
+  '/log-tails.js',
   '/console-model.js',
   '/board-model.js',
   '/approval-model.js',
