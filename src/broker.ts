@@ -64,7 +64,6 @@ import {
   isOperation,
   parseInput,
 } from './protocol.ts';
-import { sweepRetention } from './retention.ts';
 import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
@@ -805,7 +804,6 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       for (const team of allTeams()) {
         try {
           team.store.expire();
-          sweepRetention(team.store);
           team.waiters.notify();
         } catch (error) {
           log('error', 'broker', 'presence_sweep_failed', {
