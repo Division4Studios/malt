@@ -15,6 +15,7 @@ import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { stripVTControlCharacters } from 'node:util';
 
+import { trustedExecutable } from '../executables.ts';
 import { SecretRedactor } from '../secrets.ts';
 
 import { REPAIR_FINDING_MAX } from './repair-schema.ts';
@@ -292,8 +293,7 @@ export function ciFinding(check: CheckState, log: string | null, head: string): 
 export function githubTextRunner(root: string): (args: readonly string[]) => Promise<string | null> {
   return async (args) => {
     return new Promise<string | null>((resolve) => {
-      // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-      const child = spawn('gh', [...args], {
+      const child = spawn(trustedExecutable('gh'), [...args], {
         cwd: root,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'ignore'],
