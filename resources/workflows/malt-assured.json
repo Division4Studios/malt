@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "id": "malt-assured",
+  "name": "MALT assured delivery",
+  "description": "The original MALT pipeline. The product owner refines the objective and the team lead splits it into small atomic deliveries. Each delivery is implemented, reviewed by two independent QA roles on its exact head, rechecked end to end before a serialized merge, and verified on actual main. Review defects return to the original developer.",
+  "planning": [
+    { "id": "specify", "kind": "specify", "title": "Product refinement", "roles": ["product-owner"] },
+    { "id": "plan", "kind": "plan", "title": "Atomic delivery plan", "roles": ["team-lead"], "after": ["specify"] }
+  ],
+  "delivery": [
+    { "id": "implement", "kind": "implement", "title": "Implementation", "roles": ["developer-1", "developer-2"] },
+    { "id": "acceptance", "kind": "review", "title": "Acceptance review", "roles": ["qa-1"], "after": ["implement"] },
+    { "id": "engineering", "kind": "review", "title": "Engineering review", "roles": ["qa-2"], "after": ["implement"] },
+    {
+      "id": "final",
+      "kind": "final",
+      "title": "Final end-to-end check",
+      "roles": ["final-tester"],
+      "after": ["acceptance", "engineering"]
+    },
+    { "id": "verify", "kind": "verify", "title": "Verify merged main", "roles": ["final-tester"], "after": ["final"] }
+  ]
+}

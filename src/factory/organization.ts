@@ -44,14 +44,29 @@ export const frozenOrganizationSchema = z.object({
  * Construct a bounded organization against the runtime's actual execution seats.
  *
  * @param roles - Supported independent seats, including the mandatory gates.
+ * @param lateRoles - Seats added after organizations were first saved; absent members default.
  * @returns Schema with reference and acyclic reporting validation.
  */
-export function organizationSchema(roles: readonly [string, ...string[]]): z.ZodDefault<z.ZodEffects<typeof base>> {
+export function organizationSchema(
+  roles: readonly [string, ...string[]],
+  lateRoles: readonly string[] = [],
+): z.ZodDefault<z.ZodEffects<z.ZodEffects<typeof base>>> {
   const defaults = {
     types: { general: { label: 'Project role', instructions: '', skills: [], minimumTier: 'small' as const } },
     members: Object.fromEntries(roles.map((role) => [role, { type: 'general', reportsTo: defaultManager(role) }])),
   };
   return base
+    .transform((value) => {
+      // Only seats introduced later are filled; a missing original seat still fails below.
+      const type = value.types['general'] === undefined ? Object.keys(value.types)[0] : 'general';
+      const members = { ...value.members };
+      for (const role of lateRoles) {
+        if (type !== undefined && members[role] === undefined) {
+          members[role] = { type, reportsTo: defaultManager(role) };
+        }
+      }
+      return { ...value, members };
+    })
     .superRefine((value, context) => {
       if (Object.keys(value.types).length === 0 || Object.keys(value.types).length > MAX_TYPES) {
         context.addIssue({ code: z.ZodIssueCode.custom, message: 'Configure between one and 32 agent types.' });
