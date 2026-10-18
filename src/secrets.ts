@@ -33,7 +33,12 @@ export class SecretRedactor {
    * @param secrets - Credentials already owned by the coordinating backend.
    */
   public constructor(secrets: readonly string[]) {
-    this.secrets = secrets.filter((secret) => secret !== '').toSorted((left, right) => right.length - left.length);
+    // Structured output (provider JSON streams, final messages) carries a value with a newline, quote or
+    // backslash in its JSON-escaped form, so that form is redacted too.
+    const forms = secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]);
+    this.secrets = [...new Set(forms)]
+      .filter((secret) => secret !== '')
+      .toSorted((left, right) => right.length - left.length);
   }
 
   /**
@@ -106,4 +111,42 @@ export class SecretRedactor {
       this.secrets.some((secret) => remaining < secret.length && secret.startsWith(this.pending.slice(offset)))
     );
   }
+}
+
+/** Most connector credential values remembered for redaction in this process. */
+const RESOLVED_MAX = 64;
+/** Values resolved from connector credential handles; never persisted. */
+const resolved = new Set<string>();
+
+/**
+ * Remember a credential value resolved from a connector handle, so diagnostics
+ * and error responses of this process can never echo it.
+ *
+ * @param value - Resolved credential value; empty values are ignored.
+ */
+export function registerResolvedSecret(value: string): void {
+  if (value === '' || resolved.has(value)) {
+    return;
+  }
+  if (resolved.size >= RESOLVED_MAX) {
+    const [oldest] = resolved;
+    if (oldest !== undefined) {
+      resolved.delete(oldest);
+    }
+  }
+  resolved.add(value);
+}
+
+/**
+ * Remove every resolved connector credential value from text.
+ *
+ * @param text - Diagnostic or error text.
+ * @returns Text with each remembered value replaced by `[REDACTED]`.
+ */
+export function redactResolvedSecrets(text: string): string {
+  if (resolved.size === 0) {
+    return text;
+  }
+  const redactor = new SecretRedactor([...resolved]);
+  return redactor.redact(text);
 }

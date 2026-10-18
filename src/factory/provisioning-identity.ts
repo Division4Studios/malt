@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
+import { SUPERVISOR_PRINCIPAL } from '../capability-policy.ts';
+
 import { readIntakeMetadata, saveIntakeMetadata } from './intake-corpus.ts';
 
 import type { ProjectGitHub } from '../github.ts';
@@ -88,7 +90,7 @@ export function deliveryOperationIdentity(featureId: string, key: string): strin
  * @returns Original unresolved native request identities.
  */
 export async function readProvisioningOperations(github: ProjectGitHub): Promise<OperationSnapshot[]> {
-  const status = pendingSchema.parse(await github.execute('github_status', {}));
+  const status = pendingSchema.parse(await github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {}));
   return status.pendingOperations.map((operation) => {
     return {
       identity: operation.input.requestId,

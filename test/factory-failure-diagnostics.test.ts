@@ -36,23 +36,29 @@ async function publish(f: Fixture, task: FactoryTask = f.task): Promise<{ head: 
 await test('a failed command keeps its family, subcommand, exit code and a redacted, bounded stderr tail', async (t) => {
   const defer = createCleanup(t);
   const { root } = createProject(defer);
+  // Credential-shaped fixtures are built at runtime so no token-shaped literal is ever committed.
+  const token = ['ghp', 'fixture'.repeat(4)].join('_');
+  const password = ['not', 'a', 'password'].join('-');
   const previous = process.env['GH_TOKEN'];
-  process.env['GH_TOKEN'] = 'ghp_fixtureTokenValue123456789';
+  process.env['GH_TOKEN'] = token;
+  process.env['FIXTURE_URL'] = `https://${['user', password].join(':')}@example.invalid/r`;
   defer(() => {
+    delete process.env['FIXTURE_URL'];
     if (previous === undefined) {
       delete process.env['GH_TOKEN'];
     } else {
       process.env['GH_TOKEN'] = previous;
     }
   });
-  const script = `process.stderr.write('x'.repeat(9000) + ' push to https://user:hunter2@example.invalid/r failed ' + process.env.GH_TOKEN); process.exit(3)`;
+  const script = `process.stderr.write('x'.repeat(9000) + ' push to ' + process.env.FIXTURE_URL + ' failed ' + process.env.GH_TOKEN); process.exit(3)`;
   const failure = await rejection(command(process.execPath, ['-e', script], root));
   assert.ok(failure instanceof CommandFailureError);
   assert.equal(failure.command.exitCode, 3);
   assert.equal(failure.command.isTimeout, false);
   assert.equal(failure.command.subcommand, null, 'option-only invocations name no subcommand');
   assert.ok(failure.command.stderrTail.length <= 4000);
-  assert.doesNotMatch(failure.command.stderrTail, /ghp_fixtureTokenValue|hunter2/v);
+  assert.equal(failure.command.stderrTail.includes(token), false);
+  assert.equal(failure.command.stderrTail.includes(password), false);
   assert.match(failure.command.stderrTail, /\[REDACTED\]/v);
   assert.match(failure.message, /^The node command failed with exit code 3\./v);
   assert.doesNotMatch(failure.message, /process\.exit/v, 'arguments never appear in the message');

@@ -23,7 +23,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
-import { STATE_DIRECTORY_NAME, loadIdentity, sessionIdentity } from './config.ts';
+import { STATE_DIRECTORY_NAME, assertLocalBrokerUrl, loadIdentity, sessionIdentity } from './config.ts';
 import { log } from './log.ts';
 import { MeshError, PROJECT_OPERATION_TIMEOUT_MS, WAIT_TIMEOUT_DEFAULT_MS, isMeshErrorCode } from './protocol.ts';
 import { teamAccessSchema } from './teams.ts';
@@ -31,7 +31,13 @@ import { teamAccessSchema } from './teams.ts';
 import type { MeshConfig } from './config.ts';
 import type { AgentRow } from './database.ts';
 import type { FactoryOperation } from './factory/schema.ts';
-import type { GitHubOperation, LearningOperation, Operation, OperationRawInput } from './protocol.ts';
+import type {
+  CapabilityOperation,
+  GitHubOperation,
+  LearningOperation,
+  Operation,
+  OperationRawInput,
+} from './protocol.ts';
 import type { Credentials, StoreOperation, StoreResults } from './store.ts';
 import type { WaitResult } from './waiters.ts';
 
@@ -48,9 +54,36 @@ const WAIT_NETWORK_GRACE_MS = 5000;
 export type ClientOperation = StoreOperation | GitHubOperation | LearningOperation | FactoryOperation | 'wait_for_work';
 
 /** The result type of every operation an agent session can call. */
-export interface ClientResults extends StoreResults, Record<LearningOperation | FactoryOperation, unknown> {
+export interface ClientResults
+  extends StoreResults, Record<LearningOperation | FactoryOperation | CapabilityOperation, unknown> {
   /** This project's non-secret GitHub connection and pending operations. */
   readonly github_status: unknown;
+  /** Read-only setup discovery of the account, repositories, Projects and capabilities. */
+  readonly github_discover: unknown;
+  /** Per-section verification of the saved connection. */
+  readonly github_verify: unknown;
+  /** Independently saved, still unverified tracker or source section. */
+  readonly github_section_save: unknown;
+  /** Repository labels. */
+  readonly github_labels: unknown;
+  /** An issue's labels after applying existing ones. */
+  readonly github_label_apply: unknown;
+  /** The created, edited or deleted label. */
+  readonly github_label_manage: unknown;
+  /** Repository milestones. */
+  readonly github_milestones: unknown;
+  /** An issue and its assigned milestone. */
+  readonly github_milestone_assign: unknown;
+  /** The created, edited, closed or deleted milestone. */
+  readonly github_milestone_manage: unknown;
+  /** Saved Project views and how they are reached. */
+  readonly github_views: unknown;
+  /** The created or adopted saved view. */
+  readonly github_view_create: unknown;
+  /** The created, changed or deleted Project field. */
+  readonly github_field_manage: unknown;
+  /** The changed or deleted saved view. */
+  readonly github_view_manage: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */
@@ -177,7 +210,8 @@ export async function rpc(
   // network deadline.
   const deadline = AbortSignal.timeout(deadlineFor(operation, input));
   const combined = AbortSignal.any(signal === undefined ? [deadline] : [deadline, signal]);
-  const url = new URL('/rpc', config.url);
+  // The bearer token and body never leave the host, whatever built this config.
+  const url = new URL('/rpc', assertLocalBrokerUrl(config.url));
   let response: Response;
   try {
     response = await fetch(url, {

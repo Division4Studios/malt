@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 
 import { z } from 'zod/v3';
 
+import { DISPOSITION_ID_MAX, DISPOSITION_TEXT_MAX, MAX_DISPOSITIONS } from './agent-output.ts';
 import { FACTORY_ROLES, PROVIDERS, keySchema } from './seats.ts';
 
 /** Steps that turn an objective into atomic deliveries. */
@@ -377,6 +378,9 @@ function reviewProblems(
     if (implement !== undefined && hasSharedRole(review, implement)) {
       problems.push(`"${review.title}" cannot be performed by the implementer.`);
     }
+    if (implement !== undefined && !ancestorIds(steps, review.id).has(implement.id)) {
+      problems.push(`"${review.title}" must run after "${implement.title}", so it has work to review.`);
+    }
   }
   if (final?.roles.some((role) => authors.has(role)) === true) {
     problems.push('The final step must be independent of everyone who wrote code.');
@@ -525,15 +529,13 @@ export const saveWorkflowRequestSchema = z
 export const workflowHistoryRequestSchema = z.object({ workflowId: keySchema }).strict();
 /** Default workflow selection request. */
 export const defaultWorkflowRequestSchema = z.object({ workflowId: keySchema }).strict();
-/** Bound dispositions recorded by one fix. */
-const MAX_DISPOSITIONS = 200;
 /** The fixer's ruling on one review finding, identified as `<reviewStepId>-<n>`. */
 export const dispositionSchema = z
   .object({
-    id: z.string().min(1).max(TITLE_MAX),
+    id: z.string().min(1).max(DISPOSITION_ID_MAX),
     decision: z.enum(['adopted', 'rejected', 'merged']),
-    reason: z.string().min(1).max(NOTE_MAX),
-    evidence: z.string().max(NOTE_MAX),
+    reason: z.string().min(1).max(DISPOSITION_TEXT_MAX),
+    evidence: z.string().max(DISPOSITION_TEXT_MAX),
   })
   .strict();
 /** One ruling. */

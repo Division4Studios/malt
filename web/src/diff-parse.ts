@@ -130,6 +130,25 @@ function unprefixed(value: string): string {
 }
 
 /**
+ * Find the quote that closes a C-quoted path, skipping escaped characters such
+ * as `\"`, so a path containing a quote followed by a space stays whole.
+ *
+ * @param text - Text starting with an opening quote.
+ * @returns Index of the closing quote, or -1 when it is missing.
+ */
+function closingQuote(text: string): number {
+  let index = 1;
+  while (index < text.length) {
+    const character = text[index];
+    if (character === '"') {
+      return index;
+    }
+    index += character === '\\' ? 2 : 1;
+  }
+  return -1;
+}
+
+/**
  * Read the path from a `diff --git` line. An unquoted unrenamed pair is split
  * by symmetry, so a path containing ` b/` still resolves correctly; a rename
  * is resolved later from its `rename to` or `+++` header.
@@ -140,7 +159,7 @@ function unprefixed(value: string): string {
 function headerPath(raw: string): string {
   const rest = raw.slice('diff --git '.length);
   if (rest.startsWith('"')) {
-    const end = rest.indexOf('" ', 1);
+    const end = closingQuote(rest);
     return unprefixed(gitPath(end === -1 ? rest : rest.slice(0, end + 1)));
   }
   const length = (rest.length - ' b/'.length - 'a/'.length) / 2;

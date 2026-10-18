@@ -12,11 +12,11 @@ import { MeshError } from '../protocol.ts';
 import { MERGE_GATE_PENDING } from './merge-path.ts';
 import { awaitingApproval, featureWorkflow, isReviewComplete, planningApprovals, taskWorkflow } from './pipeline.ts';
 import { attemptBudget } from './repair-schema.ts';
-import { factorySchemas } from './schema.ts';
+import { REJECTED_REQUESTS_MAX, factorySchemas } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
 import type { Feature } from './schema.ts';
-import type { WorkflowStep } from './workflows.ts';
+import type { Workflow, WorkflowStep } from './workflows.ts';
 import type { z } from 'zod/v3';
 
 /** What a decision did. */
@@ -65,6 +65,40 @@ function waitingStep(waiting: readonly WorkflowStep[], stepId: string): Workflow
 }
 
 /**
+ * Whether a decision request was already applied, as an approval or a rejection.
+ *
+ * @param scope - Delivery or objective.
+ * @param scope.approvals - Recorded approvals.
+ * @param scope.rejectedRequests - Recent rejection request ids.
+ * @param requestId - Request to look for.
+ * @returns True for a retried decision.
+ */
+function isDecided(
+  scope: {
+    readonly approvals: readonly { readonly requestId: string }[];
+    readonly rejectedRequests?: readonly string[] | undefined;
+  },
+  requestId: string,
+): boolean {
+  return (
+    scope.approvals.some((approval) => approval.requestId === requestId) ||
+    (scope.rejectedRequests ?? []).includes(requestId)
+  );
+}
+
+/**
+ * The recent rejection ids after recording one more.
+ *
+ * @param scope - Delivery or objective.
+ * @param scope.rejectedRequests - Ids recorded so far.
+ * @param requestId - Rejection being recorded.
+ * @returns Bounded ids, newest last.
+ */
+function rejected(scope: { readonly rejectedRequests?: readonly string[] | undefined }, requestId: string): string[] {
+  return [...(scope.rejectedRequests ?? []), requestId].slice(-REJECTED_REQUESTS_MAX);
+}
+
+/**
  * Decide a delivery step bound to the source under review.
  *
  * @param repository - Project ledger, inside a transaction.
@@ -74,7 +108,7 @@ function waitingStep(waiting: readonly WorkflowStep[], stepId: string): Workflow
  */
 function decideDelivery(repository: FactoryRepository, decision: Decision): DecisionResult {
   const task = repository.task(decision.taskId ?? '');
-  if (task.approvals.some((approval) => approval.requestId === decision.requestId)) {
+  if (isDecided(task, decision.requestId)) {
     return { result: 'repeated' };
   }
   const workflow = taskWorkflow(task, repository.features());
@@ -90,6 +124,7 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
         phase: config !== null && current.attempts >= attemptBudget(current, config) ? 'blocked' : 'development',
         reviews: [],
         approvals: [],
+        rejectedRequests: rejected(current, decision.requestId),
         finalReview: null,
         error: `${step.title} was rejected: ${decision.note}`,
         feedback: [...current.feedback, `Operator rejected "${step.title}": ${decision.note}`],
@@ -121,6 +156,34 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
 }
 
 /**
+ * Whether a planning step comes before any plan step: no plan step is among
+ * its predecessors, transitively.
+ *
+ * @param workflow - Objective workflow.
+ * @param step - Decided step.
+ * @returns True for specification-stage steps.
+ */
+function isBeforePlan(workflow: Workflow, step: WorkflowStep): boolean {
+  const steps = new Map(workflow.planning.map((candidate) => [candidate.id, candidate]));
+  const pending = [step];
+  const seen = new Set<string>();
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    if (current.kind === 'plan') {
+      return false;
+    }
+    for (const id of current.after) {
+      const previous = steps.get(id);
+      if (previous === undefined || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      pending.push(previous);
+    }
+  }
+  return true;
+}
+
+/**
  * Decide a planning approval before deliveries are created.
  *
  * @param repository - Project ledger, inside a transaction.
@@ -133,10 +196,11 @@ function decidePlanning(repository: FactoryRepository, decision: Decision): Deci
   if (feature === undefined) {
     throw new MeshError('NOT_FOUND', 'No objective with that ID in this project.');
   }
-  if (feature.approvals.some((approval) => approval.requestId === decision.requestId)) {
+  if (isDecided(feature, decision.requestId)) {
     return { result: 'repeated' };
   }
-  const step = waitingStep(planningApprovals(feature, featureWorkflow(feature)), decision.stepId);
+  const workflow = featureWorkflow(feature);
+  const step = waitingStep(planningApprovals(feature, workflow), decision.stepId);
   const now = repository.store.now();
   const updated: Feature = decision.approve
     ? {
@@ -151,7 +215,10 @@ function decidePlanning(repository: FactoryRepository, decision: Decision): Deci
         ...feature,
         phase: 'refining',
         plan: null,
+        // Rejecting specification-stage work (its gate, or an approval before any plan) revises the specification.
+        ...(isBeforePlan(workflow, step) && { productPlan: null }),
         approvals: [],
+        rejectedRequests: rejected(feature, decision.requestId),
         error: `Plan rejected at "${step.title}": ${decision.note}`,
         updatedAt: now,
       };
