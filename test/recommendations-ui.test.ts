@@ -174,6 +174,85 @@ await test('a failed read receipt stays visible after the refresh', async (t) =>
   assert.match(root.textContent, /Unread/v);
 });
 
+await test('a receipt settling after a project reset does not reach the new project', async (t) => {
+  const dom = installDom(t);
+  const gate: { release: (() => void) | null } = { release: null };
+  let lists = 0;
+  const pane = createRecommendationsView({
+    list: async () => {
+      lists += 1;
+      await Promise.resolve();
+      return page();
+    },
+    markRead: async () => {
+      await new Promise<void>((resolve) => {
+        gate.release = resolve;
+      });
+      throw new Error('Old project receipt refused.');
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const [open] = root.querySelector('button')?.listeners.get('click') ?? [];
+  assert.ok(typeof open === 'function');
+  Reflect.apply(open, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  pane.reset();
+  gate.release?.();
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.equal(lists, 1, 'no refresh follows the old receipt');
+  assert.doesNotMatch(root.textContent, /Old project receipt refused/v);
+});
+
+await test('a change on an earlier loaded page redraws the pane', async (t) => {
+  const dom = installDom(t);
+  const state = { action: 'First wording' };
+  const pane = createRecommendationsView({
+    list: async (cursor) => {
+      await Promise.resolve();
+      if (cursor !== null) {
+        return page(false, 'd'.repeat(64));
+      }
+      const body = {
+        kind: 'related',
+        tickets: [4],
+        action: state.action,
+        evidence: [],
+        preview: { before: 'a', after: 'b' },
+      };
+      const row = { id: 'a'.repeat(64), revision: 'b'.repeat(64), state: 'awaiting_human', unread: false, body };
+      return {
+        items: [row],
+        counts: { unread: 0, pending: 2 },
+        contentRevision: state.action,
+        nextCursor: 'e'.repeat(64),
+      };
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      return {};
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const more = root.querySelectorAll('button').find((node) => node.textContent === 'Show more recommendations');
+  const [load] = more?.listeners.get('click') ?? [];
+  assert.ok(typeof load === 'function');
+  Reflect.apply(load, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  state.action = 'Second wording';
+  await pane.refresh();
+  assert.match(root.textContent, /Second wording/v);
+});
+
 await test('more than one page is reachable through the cursor', async (t) => {
   const dom = installDom(t);
   const after: (string | null)[] = [];
