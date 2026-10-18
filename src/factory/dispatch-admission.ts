@@ -3,6 +3,7 @@
  *
  * @file
  */
+import { stepProfile } from './job-records.ts';
 import { recordPolicyBlocker } from './policy-blockers.ts';
 import { PolicyBlockedError } from './policy-routing.ts';
 import { resourceBlocker } from './resources.ts';
@@ -22,7 +23,7 @@ import type { Provider, FactoryJob } from './schema.ts';
  * @param context - Selected project's durable policy/accounting.
  * @param sample - Latest local resource measurement.
  * @param pool - Shared broker-wide owned pipelines.
- * @param intent - Exact role/scope before any claim or token reservation.
+ * @param intent - Exact role/scope before any claim or token reservation; its preferred provider waits rather than switching.
  * @returns Provider and frozen routing, or null while capacity/policy is unavailable.
  * @throws {Error} For unexpected routing failures; policy ineligibility is handled separately.
  */
@@ -41,15 +42,18 @@ export function admittedAssignment(
     config.providers[name].enabled &&= routings.has(name);
   }
   const now = context.repository.store.now();
-  const provider = chooseProvider({
-    config,
-    capacities: pool.capacities(
-      PROVIDERS.map((name) => context.repository.capacity(name, context.settings)),
+  const provider = chooseProvider(
+    {
+      config,
+      capacities: pool.capacities(
+        PROVIDERS.map((name) => context.repository.capacity(name, context.settings)),
+        now,
+      ),
+      jobs: pool.jobs(),
       now,
-    ),
-    jobs: pool.jobs(),
-    now,
-  });
+    },
+    intent.preferredProvider ?? null,
+  );
   const routing = provider === null ? undefined : routings.get(provider);
   return provider === null || routing === undefined ? null : { provider, routing };
 }
@@ -99,7 +103,14 @@ function eligibleRoutings(
     try {
       routings.set(
         provider,
-        routeAssignment({ intent, provider, settings: context.settings, task, versions: context.providerVersions }),
+        routeAssignment({
+          intent,
+          provider,
+          settings: context.settings,
+          task,
+          profile: stepProfile(context, intent, task),
+          versions: context.providerVersions,
+        }),
       );
     } catch (error) {
       if (!(error instanceof PolicyBlockedError)) {

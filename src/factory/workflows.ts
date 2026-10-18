@@ -23,13 +23,13 @@ import { z } from 'zod/v3';
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
-import { factorySchemas } from './schema.ts';
-import { DEFAULT_WORKFLOW_ID, workflowSchema, workflowDigest } from './workflow-schema.ts';
+import { DEFAULT_WORKFLOW_ID, workflowDigest, workflowSchema } from './workflow-schema.ts';
 
 import type { Store } from '../store.ts';
-import type { Workflow, WorkflowSummary, FrozenWorkflow, workflowLibrarySchema } from './workflow-schema.ts';
+import type { FrozenWorkflow, Workflow, WorkflowSummary, workflowLibrarySchema } from './workflow-schema.ts';
 
 export * from './workflow-schema.ts';
+
 /** Revisions listed per workflow in the console. */
 const HISTORY_LIMIT = 50;
 /** Built-in workflow definitions shipped with the source. */
@@ -154,12 +154,12 @@ export class WorkflowLibrary {
   /**
    * Save a new revision. Built-in ids are reserved; clone them under a new id.
    *
-   * @param input - Untrusted definition and the revision the editor started from.
+   * @param input - Parsed operation input: an unvalidated definition and the revision the editor loaded.
    * @returns The saved revision summary.
    * @throws {MeshError} For invalid definitions, reserved ids or concurrent edits.
    */
-  public save(input: unknown): WorkflowSummary {
-    const { workflow: raw, expectedRevision } = factorySchemas.factory_workflow_save.parse(input);
+  public save(input: { readonly workflow?: unknown; readonly expectedRevision: string | null }): WorkflowSummary {
+    const { workflow: raw, expectedRevision } = input;
     const parsed = workflowSchema.safeParse(raw);
     if (!parsed.success) {
       throw new MeshError('INVALID_INPUT', parsed.error.issues.map((issue) => issue.message).join(' '));
@@ -209,11 +209,11 @@ export class WorkflowLibrary {
   /**
    * Choose the workflow new objectives use.
    *
-   * @param input - Untrusted workflow id.
+   * @param input - Parsed operation input naming the workflow.
    * @throws {MeshError} For an unknown workflow.
    */
-  public setDefault(input: unknown): void {
-    const { workflowId } = factorySchemas.factory_workflow_default.parse(input);
+  public setDefault(input: { readonly workflowId: string }): void {
+    const { workflowId } = input;
     this.store.transaction(() => {
       if (this.find(workflowId) === null) {
         throw new MeshError('NOT_FOUND', `No workflow named "${workflowId}".`);
