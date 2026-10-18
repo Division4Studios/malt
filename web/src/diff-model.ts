@@ -73,6 +73,9 @@ export type DiffSummaryView =
 export type DiffPatchView =
   | {
       readonly state: 'ready';
+      /** Source pair the server generated the patch from. */
+      readonly base: string;
+      readonly head: string;
       readonly path: string;
       readonly rows: readonly DiffRow[];
       readonly notes: readonly string[];
@@ -208,12 +211,15 @@ export function readDiffPatch(value: unknown): DiffPatchView {
   if (source?.['state'] !== 'ready') {
     return unavailable(source);
   }
-  const [file] = parseDiff(textOf(source, 'patch'));
+  // A file-type change (symlink to file) is two sections for one path: keep both.
+  const sections = parseDiff(textOf(source, 'patch'));
   return {
     state: 'ready',
+    base: textOf(source, 'base'),
+    head: textOf(source, 'head'),
     path: textOf(source, 'path'),
-    rows: file?.rows ?? [],
-    notes: file?.notes ?? [],
+    rows: sections.flatMap((section) => section.rows),
+    notes: sections.flatMap((section) => section.notes),
     isTruncated: source['isTruncated'] === true,
     bytes: countOf(source, 'bytes'),
   };

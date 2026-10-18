@@ -329,7 +329,32 @@ await test('GitHub connection is explicit, project-local and preserves existing 
   assert.equal(snapshot.totalCount, 2);
 });
 
-await test('the actual merge adapter rechecks native protected reviews and advancing base before expected-head merge', async (t) => {
+/**
+ * Answer the merge adapter's protection reads for a fixture repository.
+ *
+ * @param route - GitHub API route.
+ * @param state - Fixture protection.
+ * @param state.isProtected - Whether the base branch is protected (one required review).
+ * @param state.isAutoMergeAllowed - Repository auto-merge setting.
+ * @returns API response.
+ * @throws {Error} For classic protection on an unprotected branch, as GitHub answers 404.
+ */
+function protectionRoute(route: string, state: { isProtected: boolean; isAutoMergeAllowed: boolean }): unknown {
+  if (route.endsWith('/protection')) {
+    if (!state.isProtected) {
+      throw new Error('HTTP 404: Branch not protected');
+    }
+    return { required_pull_request_reviews: { required_approving_review_count: 1 } };
+  }
+  if (route.includes('/rules/branches/')) {
+    return [];
+  }
+  return route.includes('/branches/')
+    ? { protected: state.isProtected }
+    : { allow_auto_merge: state.isAutoMergeAllowed };
+}
+
+await test('the actual merge adapter waits precisely or arms auto-merge for protected reviews, and rechecks the base before an expected-head merge', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
   const github = mechanicsGitHub(config, remote.run);
@@ -377,12 +402,19 @@ await test('the actual merge adapter rechecks native protected reviews and advan
     error: null,
     updatedAt: 1,
   });
-  const state = { decision: 'REVIEW_REQUIRED', base, isMerged: false, isProtected: false };
+  const state = {
+    decision: 'REVIEW_REQUIRED',
+    base,
+    isMerged: false,
+    isProtected: true,
+    isAutoMergeAllowed: false,
+    isArmed: false,
+  };
   const mutations: string[][] = [];
   const runner: GitHubRunner = async (args) => {
     await delay(0);
-    if (args[0] === 'api' && args[1]?.includes('/branches/') === true) {
-      return { protected: state.isProtected };
+    if (args[0] === 'api') {
+      return protectionRoute(args[1] ?? '', state);
     }
     if (args[0] === 'pr' && args[1] === 'view') {
       return {
@@ -393,32 +425,55 @@ await test('the actual merge adapter rechecks native protected reviews and advan
         baseRefName: 'main',
         isDraft: false,
         state: state.isMerged ? 'MERGED' : 'OPEN',
-        mergeStateStatus: 'CLEAN',
+        mergeStateStatus: state.decision === 'APPROVED' ? 'CLEAN' : 'BLOCKED',
         mergeCommit: state.isMerged ? { oid: merge } : null,
         statusCheckRollup: [],
         reviewDecision: state.decision,
+        autoMergeRequest: state.isArmed ? { enabledAt: '2026-10-17T00:00:00Z' } : null,
       };
     }
     mutations.push([...args]);
-    state.isMerged = true;
+    if (args.includes('--auto')) {
+      state.isArmed = true;
+    } else {
+      state.isMerged = true;
+    }
     return {};
   };
   const adapter = new GitHubDelivery(config, github, runner);
-  await assert.rejects(adapter.merge(task, settings), /authenticated review approval/v);
+  const handoff = await adapter.merge(task, settings);
+  assert.ok(typeof handoff !== 'string');
+  assert.match(handoff.pending, /^PR #3 is awaiting 1 approving review\. Auto-merge is off/v);
+  assert.equal(mutations.length, 0, 'a missing approval is a precise wait, never a merge attempt');
+  state.isAutoMergeAllowed = true;
+  const armed = await adapter.merge(task, settings);
+  assert.ok(typeof armed !== 'string');
+  assert.match(armed.pending, /Auto-merge is armed, awaiting 1 approving review/v);
+  assert.equal(mutations.length, 1);
+  const enable = mutations[0];
+  assert.ok(enable !== undefined);
+  assert.deepEqual(enable.slice(-4), ['--squash', '--auto', '--match-head-commit', head]);
+  await adapter.merge(task, settings);
+  assert.equal(mutations.length, 1, 'an armed request is not re-armed');
   state.decision = 'APPROVED';
+  state.isArmed = false;
   state.base = merge;
   await assert.rejects(adapter.merge(task, settings), /stale/v);
-  assert.equal(mutations.length, 0);
+  assert.equal(mutations.length, 1);
   state.base = base;
+  state.isProtected = false;
   await assert.rejects(adapter.merge(task, settings), /not protected/v);
-  assert.equal(mutations.length, 0);
+  assert.equal(mutations.length, 1);
   state.isProtected = true;
   assert.equal(await adapter.merge(task, settings), merge);
-  assert.equal(mutations.length, 1);
-  const operation = mutations[0];
+  assert.equal(mutations.length, 2);
+  const operation = mutations[1];
   assert.ok(operation !== undefined);
   assert.equal(operation.includes('--admin'), false);
+  assert.equal(operation.includes('--auto'), false);
   assert.equal(operation[operation.indexOf('--match-head-commit') + 1], head);
+  await adapter.disarm(3);
+  assert.deepEqual(mutations[2]?.slice(-1), ['--disable-auto']);
   state.isMerged = false;
   state.isProtected = false;
   const localPolicy = { ...settings, requireBranchProtection: false };
@@ -427,8 +482,9 @@ await test('the actual merge adapter rechecks native protected reviews and advan
   await assert.rejects(adapter.inspect(3), z.ZodError);
   state.decision = '';
   assert.equal((await adapter.inspect(3)).reviewDecision, null);
+  state.decision = 'APPROVED';
   assert.equal(await adapter.merge(task, localPolicy), merge);
-  assert.equal(mutations.length, 2, 'An explicit local-gate policy may merge without changing GitHub protection.');
+  assert.equal(mutations.length, 4, 'An explicit local-gate policy may merge without changing GitHub protection.');
 });
 
 await test('the actual factory delivery adapter provisions a valid native feature and reconciles atomic children', async (t) => {

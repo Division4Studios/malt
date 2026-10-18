@@ -90,6 +90,19 @@ function rowValues(row: HTMLTableRowElement): [string, string][] {
   return [...row.querySelectorAll('input')].map((input) => [input.name, input.value]);
 }
 
+/** Plain decimal formatting the price validator accepts; never exponents. */
+const DECIMAL = new Intl.NumberFormat('en-US', { useGrouping: false, maximumFractionDigits: 20 });
+
+/**
+ * A saved price as the decimal text the validator accepts, so tiny prices reload without exponents.
+ *
+ * @param value - Saved USD per million tokens.
+ * @returns Plain decimal text.
+ */
+function decimalText(value: number): string {
+  return DECIMAL.format(value);
+}
+
 /** Editable price table bound to one loaded revision. */
 export class PriceEditor {
   /** Root form. */
@@ -142,7 +155,7 @@ export class PriceEditor {
         'p',
         'subtle',
         t(
-          'No prices are built in. Enter the per-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.',
+          'No prices are built in. Enter the per-million-token prices you actually pay, or leave models unpriced. Provider-reported costs always take precedence over these estimates.',
         ),
       ),
       table,
@@ -174,6 +187,12 @@ export class PriceEditor {
     this.body.replaceChildren(...(rows.length === 0 ? [this.row(null)] : rows.map((row) => this.row(row))));
   }
 
+  /** Forget any draft, as when another project is selected; the next load replaces the rows. */
+  public reset(): void {
+    this.revision = -1;
+    this.isDirty = false;
+  }
+
   /**
    * Build one editable row.
    *
@@ -194,7 +213,7 @@ export class PriceEditor {
       const input = element('input');
       input.name = key;
       input.inputMode = 'decimal';
-      input.value = price === null ? '' : String(number(price, key));
+      input.value = price === null ? '' : decimalText(number(price, key));
       input.setAttribute('aria-label', t('{label} USD per million tokens', { label }));
       const field = element('td');
       field.append(input);

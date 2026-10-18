@@ -11,9 +11,10 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod/v3';
 
 import { run, selectAll, selectOne } from '../database.ts';
+import { retireEarlierSystemIdentities, retireSystemIdentity, SYSTEM_RUNTIME } from '../identity-retirement.ts';
 import { MeshError } from '../protocol.ts';
 
-import { retireManagedPresence } from './controls.ts';
+import { retireManagedPresence, settleConsumedMessages } from './controls.ts';
 import { isClaimEligible } from './delivery-controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
@@ -34,7 +35,9 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
+import { expandWorkKeys } from './work-keys.ts';
 
 import type { Store } from '../store.ts';
 import type { HandoffEvidence } from './handoffs.ts';
@@ -112,6 +115,8 @@ export class FactoryRepository {
   public readonly store: Store;
   /** System sender, prepared only when an actual factory is configured. */
   private sender: string | null = null;
+  /** When this supervisor's ledger opened; system identities registered earlier are leftovers. */
+  private readonly startedAt: number;
 
   /**
    * Add versioned factory tables without modifying existing mesh history.
@@ -120,6 +125,7 @@ export class FactoryRepository {
    */
   public constructor(store: Store) {
     this.store = store;
+    this.startedAt = store.now();
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS factory_settings (id INTEGER PRIMARY KEY CHECK(id = 1), data TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 0);
       CREATE TABLE IF NOT EXISTS factory_progress (job_id TEXT NOT NULL REFERENCES factory_jobs(id), key TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(job_id,key));
@@ -132,6 +138,8 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_jobs_by_start ON factory_jobs(json_extract(data, '$.startedAt') DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS factory_job_checkpoints ON factory_jobs(json_extract(data, '$.checkpoint.state'));
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effect_receipts (id TEXT PRIMARY KEY);
@@ -143,7 +151,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_handoffs (instruction_id TEXT PRIMARY KEY REFERENCES factory_instructions(id), job_id TEXT NOT NULL UNIQUE, data TEXT NOT NULL);
       INSERT OR IGNORE INTO metadata(key, value) VALUES ('factory_schema_version', '1');
     `);
-    this.expandWorkKeys();
+    expandWorkKeys(store);
     initializeObjectiveOrder(store);
     this.instructionLedger = new InstructionLedger(store);
     this.objectiveQueue = new ObjectiveQueue(store);
@@ -211,11 +219,15 @@ export class FactoryRepository {
     saveFactorySettings(this, config);
   }
 
-  /** Prepare the factory sender without making it a coding-work participant. */
+  /**
+   * Prepare the factory sender without making it a coding-work participant,
+   * retiring any system identity an earlier broker left behind.
+   */
   public prepareSender(): void {
     if (this.sender !== null) {
       return;
     }
+    this.store.transaction(() => retireEarlierSystemIdentities(this.store.db, this.startedAt));
     const suffix = randomUUID().slice(0, IDENTITY_SUFFIX_LENGTH);
     this.sender = this.store.register({
       name: `factory-system-${suffix}`,
@@ -223,7 +235,7 @@ export class FactoryRepository {
       sessionId: randomUUID(),
       role: 'observer',
       provider: 'system',
-      runtime: 'factory',
+      runtime: SYSTEM_RUNTIME,
       ephemeral: true,
     }).id;
   }
@@ -281,7 +293,13 @@ export class FactoryRepository {
    */
   public release(owner: string): void {
     this.store.transaction(() => {
-      run(this.store.db, 'DELETE FROM factory_lease WHERE owner=?', owner);
+      const { changes } = run(this.store.db, 'DELETE FROM factory_lease WHERE owner=?', owner);
+      // A supervisor that released its own lease ends its own system identity; the next notice prepares a fresh one.
+      if (changes === 0 || this.sender === null) {
+        return;
+      }
+      retireSystemIdentity(this.store.db, this.sender);
+      this.sender = null;
     });
   }
 
@@ -310,7 +328,12 @@ export class FactoryRepository {
    */
   public jobs(): FactoryJob[] {
     return this.rows(
-      `SELECT data FROM factory_jobs WHERE state='running' OR id IN (SELECT id FROM factory_jobs ORDER BY rowid DESC LIMIT ${String(RECENT_JOBS)}) ORDER BY rowid`,
+      // An attempt whose checkpoint decision is pending or unused stays visible beyond the recent window,
+      // so its step stays held (or its continuation usable) however many other attempts follow.
+      `SELECT data FROM factory_jobs WHERE state='running'
+         OR json_extract(data, '$.checkpoint.state') = 'pending'
+         OR (json_extract(data, '$.checkpoint.state') = 'continue' AND json_extract(data, '$.checkpoint.consumedBy') IS NULL)
+         OR id IN (SELECT id FROM factory_jobs ORDER BY rowid DESC LIMIT ${String(RECENT_JOBS)}) ORDER BY rowid`,
       jobSchema,
     );
   }
@@ -452,6 +475,30 @@ export class FactoryRepository {
           `Issue #${String(task.issue)}: ${task.phase}. ${task.error ?? task.feedback.at(-1) ?? task.title}`,
         );
       }
+      return task;
+    });
+  }
+
+  /**
+   * Record an operator mark such as a hold or an archive choice without
+   * bumping the delivery's version, so a running attempt fenced on that version
+   * still publishes normally.
+   *
+   * @param id - Delivery identity.
+   * @param change - Pure edit that touches only operator marks.
+   * @returns Stored delivery.
+   */
+  public markTask(id: string, change: (task: FactoryTask) => FactoryTask): FactoryTask {
+    return this.store.transaction(() => {
+      const previous = this.task(id);
+      const task = taskSchema.parse({ ...change(previous), version: previous.version, updatedAt: previous.updatedAt });
+      this.putTask(task);
+      this.store.event('FACTORY_TASK_UPDATED', null, {
+        taskId: id,
+        issue: task.issue,
+        phase: task.phase,
+        head: task.head,
+      });
       return task;
     });
   }
@@ -600,7 +647,10 @@ export class FactoryRepository {
         live.some((candidate) => {
           return (
             candidate.role === record.role ||
-            (record.kind === 'develop' && candidate.taskId === record.taskId && candidate.kind === 'develop')
+            // Code-editing steps share the delivery's worktree, so at most one runs per delivery.
+            (CODE_JOB_KINDS.has(record.kind) &&
+              candidate.taskId === record.taskId &&
+              CODE_JOB_KINDS.has(candidate.kind))
           );
         })
       ) {
@@ -703,6 +753,7 @@ export class FactoryRepository {
       });
       const finished = settledJob(current, { state, usage, finishedAt: this.store.now(), settlement });
       run(this.store.db, 'UPDATE factory_jobs SET state=?,data=? WHERE id=?', state, JSON.stringify(finished), job.id);
+      settleConsumedMessages(this.store, current, state);
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
@@ -757,35 +808,6 @@ export class FactoryRepository {
    */
   private rows<T>(sql: string, schema: z.ZodType<T, z.ZodTypeDef, unknown>): T[] {
     return selectAll(this.store.db, payloadSchema, sql).map((row) => schema.parse(JSON.parse(row.data)));
-  }
-
-  /**
-   * Record provider-typed work keys in side tables so legacy positional writers keep their column counts.
-   * Triggers key rows written by any code version; the backfill covers rows that predate them.
-   */
-  private expandWorkKeys(): void {
-    this.store.transaction(() => {
-      this.store.db.exec(`
-        CREATE TABLE IF NOT EXISTS factory_task_keys (task_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS factory_effect_keys (effect_id TEXT PRIMARY KEY, tracker_provider TEXT NOT NULL, external_key TEXT NOT NULL);
-        CREATE TRIGGER IF NOT EXISTS factory_task_key_insert AFTER INSERT ON factory_tasks BEGIN
-          INSERT OR IGNORE INTO factory_task_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
-        END;
-        CREATE TRIGGER IF NOT EXISTS factory_task_key_delete AFTER DELETE ON factory_tasks BEGIN
-          DELETE FROM factory_task_keys WHERE task_id=OLD.id;
-        END;
-        CREATE TRIGGER IF NOT EXISTS factory_effect_key_insert AFTER INSERT ON factory_effects BEGIN
-          INSERT OR IGNORE INTO factory_effect_keys VALUES(NEW.id,'github',CAST(NEW.issue AS TEXT));
-        END;
-        CREATE TRIGGER IF NOT EXISTS factory_effect_key_delete AFTER DELETE ON factory_effects BEGIN
-          DELETE FROM factory_effect_keys WHERE effect_id=OLD.id;
-        END;
-        INSERT OR IGNORE INTO factory_task_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_tasks
-          WHERE id NOT IN (SELECT task_id FROM factory_task_keys);
-        INSERT OR IGNORE INTO factory_effect_keys SELECT id,'github',CAST(issue AS TEXT) FROM factory_effects
-          WHERE id NOT IN (SELECT effect_id FROM factory_effect_keys);
-      `);
-    });
   }
 
   /**
