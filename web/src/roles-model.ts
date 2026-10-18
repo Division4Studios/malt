@@ -566,6 +566,17 @@ function union(first: readonly string[], second: readonly string[]): string[] {
   return [...all];
 }
 
+/** An empty model before the first snapshot. */
+export const EMPTY_ROLES: RolesModel = {
+  isConfigured: false,
+  isPaused: false,
+  types: [],
+  members: [],
+  catalog: { revision: null, skills: [], tools: [], native: [] },
+  models: [],
+  secrets: {},
+};
+
 /**
  * The revision-checked organization save.
  *

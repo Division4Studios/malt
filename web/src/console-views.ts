@@ -171,7 +171,7 @@ export class ConsoleViews {
       ],
       ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
       ['automations', createAutomationsView({ control: hooks.control })],
-      ['roles', createRolesView({ control: hooks.control })],
+      ['roles', createRolesView({ control: hooks.control, project: hooks.project })],
       ['secrets', createSecretsView({ control: hooks.control })],
       ['delivery', this.delivery],
       ['objective', this.goals],

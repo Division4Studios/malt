@@ -13,6 +13,7 @@ import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom
 import { t } from './i18n.js';
 import { checkbox, fillSelect, labelled, prioritized } from './roles-dom.js';
 import {
+  EMPTY_ROLES,
   INSTRUCTIONS_MAX,
   LABEL_MAX,
   MAX_SERVERS,
@@ -42,18 +43,9 @@ import type { MemberDraft, RolesModel, ServerDraft, TypeDraft } from './roles-mo
 export interface RolesHooks {
   /** Operator control path. */
   readonly control: OperatorControl;
+  /** Selected project id; a draft belongs to the project it was started in. */
+  readonly project?: () => string;
 }
-
-/** An empty model before the first snapshot. */
-const EMPTY: RolesModel = {
-  isConfigured: false,
-  isPaused: false,
-  types: [],
-  members: [],
-  catalog: { revision: null, skills: [], tools: [], native: [] },
-  models: [],
-  secrets: {},
-};
 
 /** One server row in the editor. */
 interface ServerRow {
@@ -106,7 +98,7 @@ class TypeEditor {
   /** Type being edited, or `null` for a new one. */
   private editing: TypeDraft | null = null;
   /** Current view model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Seats using the type. */
   private seats: readonly string[] = [];
   /** Receives the edited type. */
@@ -416,7 +408,7 @@ class RolesView implements ConsoleViewHandle {
   /** Type editor. */
   private readonly editor: TypeEditor;
   /** Latest validated model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Draft types, or `null` while nothing is edited. */
   private types: TypeDraft[] | null = null;
   /** Draft members, or `null` while nothing is edited. */
@@ -427,6 +419,8 @@ class RolesView implements ConsoleViewHandle {
   private isSending = false;
   /** Signature of the last render. */
   private rendered = '';
+  /** Project the shown organization and any draft belong to. */
+  private project = '';
   /** Shell callbacks. */
   private readonly hooks: RolesHooks;
 
@@ -467,6 +461,13 @@ class RolesView implements ConsoleViewHandle {
    * @param snapshot - Untrusted live snapshot.
    */
   public update(snapshot: unknown): void {
+    const project = this.hooks.project?.() ?? '';
+    if (project !== this.project) {
+      // Two projects can share an organization revision; never let one project's draft be saved into another.
+      this.project = project;
+      this.editor.element.close();
+      this.discard();
+    }
     this.model = readRoles(snapshot);
     this.render();
   }
