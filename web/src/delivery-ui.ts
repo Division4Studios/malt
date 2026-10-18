@@ -23,7 +23,7 @@ import {
   shortSha,
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
-import { phrase, t, translated } from './i18n.js';
+import { keepLiteral, phrase, t, translated } from './i18n.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -47,6 +47,40 @@ export interface DeliveryHooks {
 
 /** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
 const TITLE_KEY = 'delivery-title';
+/** How often relative times (liveness checkpoint, retry wait) are recomputed. */
+const CLOCK_MS = 1000;
+
+/**
+ * The relative-time facts of a delivery, by the `data-clock` name of their element.
+ *
+ * @param delivery - Delivery shown.
+ * @param now - Current time.
+ * @returns Text per clocked fact the delivery has.
+ */
+function clockedFacts(delivery: Delivery, now: number): ReadonlyMap<string, string> {
+  const facts = new Map<string, string>();
+  const liveness = delivery.running?.liveness ?? null;
+  if (liveness !== null) {
+    facts.set('liveness', livenessText(liveness, now));
+  }
+  if (delivery.retry !== null) {
+    facts.set('retry', retryText(delivery.retry, now));
+  }
+  return facts;
+}
+
+/**
+ * A fact value that the view's clock keeps current.
+ *
+ * @param name - Clocked fact name.
+ * @param value - Text at render time.
+ * @returns Value element.
+ */
+function clocked(name: string, value: string): HTMLElement {
+  const span = element('span', '', value);
+  span.dataset['clock'] = name;
+  return span;
+}
 
 /** A mounted delivery view. */
 export interface DeliveryHandle extends ConsoleViewHandle {
@@ -109,12 +143,14 @@ function header(delivery: Delivery): HTMLElement {
   fact(facts, t('Base'), shortSha(delivery.base));
   fact(facts, t('Pull request'), delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, t('Open pull request')));
   fact(facts, t('Running now'), runningText(delivery) ?? t('Nothing'));
-  const liveness = delivery.running?.liveness ?? null;
-  if (liveness !== null) {
-    fact(facts, t('Liveness'), livenessText(liveness, Date.now()));
+  const timed = clockedFacts(delivery, Date.now());
+  const liveness = timed.get('liveness');
+  if (liveness !== undefined) {
+    fact(facts, t('Liveness'), clocked('liveness', liveness));
   }
-  if (delivery.retry !== null) {
-    fact(facts, t('Retry'), retryText(delivery.retry, Date.now()));
+  const retry = timed.get('retry');
+  if (retry !== undefined) {
+    fact(facts, t('Retry'), clocked('retry', retry));
   }
   if (delivery.held !== null) {
     fact(
@@ -203,9 +239,13 @@ function resultBody(result: StepResult): HTMLElement {
   if (result.role !== '') {
     body.append(element('p', 'subtle', t('Reported by {role}', { role: result.role })));
   }
-  body.append(element('p', 'step-summary', result.summary === '' ? t('No summary recorded.') : result.summary));
+  body.append(
+    result.summary === ''
+      ? element('p', 'step-summary', t('No summary recorded.'))
+      : keepLiteral(element('p', 'step-summary', result.summary)),
+  );
   if (result.findings.length > 0) {
-    body.append(element('h5', 'step-subheading', t('Findings')), findingsList(result.findings));
+    body.append(element('h5', 'step-subheading', t('Findings')), keepLiteral(findingsList(result.findings)));
   }
   if (result.dispositions.length > 0) {
     body.append(dispositionsTable(result));
@@ -220,13 +260,32 @@ const REPAIR_LABELS: Readonly<Record<RepairRound['kind'], string>> = translated(
 });
 
 /**
+ * Keep a collapsible panel's open state across re-renders.
+ *
+ * @param details - Panel.
+ * @param id - Stable panel identity.
+ * @param expanded - Identities of the panels the operator opened.
+ */
+function rememberOpen(details: HTMLDetailsElement, id: string, expanded: Set<string>): void {
+  details.toggleAttribute('open', expanded.has(id));
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      expanded.add(id);
+    } else {
+      expanded.delete(id);
+    }
+  });
+}
+
+/**
  * Build the repair rounds section: each failed CI run or conflicted refresh the
  * supervisor returned to the developer, with its redacted evidence.
  *
  * @param delivery - Delivery shown.
+ * @param expanded - Panels the operator opened, kept across live updates.
  * @returns Section element, or `null` when the delivery had no repair round.
  */
-function repairsSection(delivery: Delivery): HTMLElement | null {
+function repairsSection(delivery: Delivery, expanded: Set<string>): HTMLElement | null {
   if (delivery.repairs.length === 0) {
     return null;
   }
@@ -237,8 +296,15 @@ function repairsSection(delivery: Delivery): HTMLElement | null {
     const item = element('li', 'repair-round');
     item.dataset['kind'] = round.kind;
     const details = element('details', 'step-result');
-    const label = `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`;
-    details.append(element('summary', '', label), element('p', 'step-summary', round.summary));
+    const id = `${delivery.taskId}:repair:${String(index)}`;
+    rememberOpen(details, id, expanded);
+    const summary = element(
+      'summary',
+      '',
+      `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`,
+    );
+    summary.dataset['focusKey'] = `result:${id}`;
+    details.append(summary, element('p', 'step-summary', round.summary));
     if (round.findings.length > 0) {
       const findings = element('ul', 'step-findings');
       findings.append(...round.findings.map((finding) => element('li', 'repair-finding', finding)));
@@ -338,6 +404,10 @@ class DeliveryView {
     actions.append(this.customize, this.mergeGate, this.lifecycle, this.attempts);
     toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
+    // Snapshots skip unchanged deliveries, so relative times advance on their own clock.
+    setInterval(() => {
+      this.tick();
+    }, CLOCK_MS);
   }
 
   /**
@@ -365,6 +435,24 @@ class DeliveryView {
     this.factory = child(data(snapshot), 'factory');
     this.dialog.sync(this.model.open);
     this.render();
+  }
+
+  /** Recompute the shown delivery's relative times. */
+  private tick(): void {
+    if (!this.root.isConnected) {
+      return;
+    }
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    if (delivery === undefined) {
+      return;
+    }
+    const facts = clockedFacts(delivery, Date.now());
+    for (const node of this.body.querySelectorAll<HTMLElement>('[data-clock]')) {
+      const value = facts.get(node.dataset['clock'] ?? '');
+      if (value !== undefined && node.textContent !== value) {
+        node.textContent = value;
+      }
+    }
   }
 
   /** Re-render when the shown delivery or its approvals changed. */
@@ -412,7 +500,7 @@ class DeliveryView {
     }
     pipeline.append(title, layers);
     const top = header(delivery);
-    const repairs = repairsSection(delivery);
+    const repairs = repairsSection(delivery, this.expanded);
     this.diff.show(delivery.taskId, delivery.head, delivery.base);
     this.body.replaceChildren(top, pipeline, ...(repairs === null ? [] : [repairs]), this.diff.element);
     restoreFocus(this.root, focused, top.querySelector('h2'));
@@ -505,7 +593,7 @@ class DeliveryView {
   private resultNode(delivery: Delivery, step: Step, result: StepResult): HTMLElement {
     const id = `${delivery.taskId}:${step.id}`;
     const details = element('details', 'step-result');
-    details.open = this.expanded.has(id);
+    rememberOpen(details, id, this.expanded);
     const summary = element(
       'summary',
       '',
@@ -513,13 +601,6 @@ class DeliveryView {
     );
     summary.dataset['focusKey'] = `result:${id}`;
     details.append(summary, resultBody(result));
-    details.addEventListener('toggle', () => {
-      if (details.open) {
-        this.expanded.add(id);
-      } else {
-        this.expanded.delete(id);
-      }
-    });
     return details;
   }
 

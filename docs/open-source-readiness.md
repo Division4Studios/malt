@@ -41,4 +41,4 @@ Runtime source `6aadf99` passed the full strict check and all 347 tests. Public 
 
 ## Repeat before release
 
-Run `npm run check`, `npm audit`, the Docker smoke, current-tree and history scans, link/template review and a real browser inspection. Confirm security settings, fresh main protections, the private reporting form and sponsor destination. Review the exact archive/image/SBOM and verify release provenance. Do not publish private scan reports, raw transcripts, credentials or host-specific audit paths. See [maintainer operations](maintainer-operations.md) for the operational sequence.
+Run `npm run check`, `npm audit`, the Docker smoke, current-tree and history scans, link/template review and a real browser inspection. Confirm security settings, fresh main protections, the private reporting form and sponsor destination. Review the exact archive/image/SBOM and verify release provenance (`gh attestation verify`) on the draft the release workflow prepares. Do not publish private scan reports, raw transcripts, credentials or host-specific audit paths. See [maintainer operations](maintainer-operations.md) for the operational sequence.

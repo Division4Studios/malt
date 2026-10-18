@@ -281,6 +281,8 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
       finalReview: null,
       error: input.action === 'wait' ? note : null,
       feedback: [...current.feedback, `Operator ${input.action}: ${note}`],
+      // Resuming is an operator retry: earlier failed attempts and repair rounds no longer count toward the caps.
+      ...(input.action !== 'wait' && { repairsResetAt: repository.store.now() }),
     };
   });
   if (input.action === 'repair' && task.developer !== null) {
@@ -365,7 +367,13 @@ function adoptDelivered(repository: FactoryRepository, input: Input, evidence: D
  */
 export function queueBlockerInvestigations(repository: FactoryRepository): void {
   for (const task of repository.tasks()) {
-    if (task.phase !== 'blocked' || task.scopeReplacement !== undefined || task.merge !== null) {
+    // A capability block already names its human action; diagnosing it would spend a paid turn.
+    if (
+      task.phase !== 'blocked' ||
+      task.scopeReplacement !== undefined ||
+      task.merge !== null ||
+      task.capabilityBlock !== undefined
+    ) {
       continue;
     }
     const prior = selectOne(
