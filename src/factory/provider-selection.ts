@@ -6,6 +6,20 @@ import { modelSelectionSchema } from './model-policy.ts';
 import type { FactoryConfig, FactoryJob, Provider } from './schema.ts';
 
 /**
+ * Native effort override for one CLI family.
+ *
+ * @param provider - Actual native CLI family.
+ * @param effort - Selected supported effort.
+ * @returns Literal effort arguments.
+ */
+function effortArguments(provider: Provider, effort: string): string[] {
+  if (provider === 'codex') {
+    return ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`];
+  }
+  return [provider === 'copilot' ? '--reasoning-effort' : '--effort', effort];
+}
+
+/**
  * Construct native arguments without shell interpolation or mutable defaults.
  *
  * @param provider - Actual native CLI family.
@@ -16,9 +30,7 @@ import type { FactoryConfig, FactoryJob, Provider } from './schema.ts';
 function argumentsFor(provider: Provider, model: string | undefined, effort: string | null): string[] {
   const args = model === undefined ? [] : ['--model', model];
   if (effort !== null) {
-    args.push(
-      ...(provider === 'codex' ? ['-c', `model_reasoning_effort=${JSON.stringify(effort)}`] : ['--effort', effort]),
-    );
+    args.push(...effortArguments(provider, effort));
   }
   return args;
 }
