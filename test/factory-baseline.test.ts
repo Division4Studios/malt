@@ -12,7 +12,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { baselineEvidence, baselineFor, refreshBaseline } from '../src/factory/baseline.ts';
+import { baselineEvidence, baselineFor, cancelBaseline, refreshBaseline } from '../src/factory/baseline.ts';
 import { assignmentPrompt } from '../src/factory/prompts.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema } from '../src/factory/schema.ts';
@@ -39,10 +39,12 @@ async function refuse(): Promise<never> {
  * Factory services over a real repository whose test commands are scripted.
  *
  * @param t - Owns cleanup.
+ * @param prepareCommands - Commands that prepare each snapshot.
  * @returns Context, recorded command runs and the fixture.
  */
 async function setup(
   t: TestContext,
+  prepareCommands: { file: string; args: string[] }[] = [],
 ): Promise<{ context: FactoryContext; runs: ProcessSpec[]; f: Awaited<ReturnType<typeof fixture>> }> {
   const f = await fixture(t);
   const store = new Store(f.mesh);
@@ -50,6 +52,7 @@ async function setup(
     store.close();
   });
   const settings = factoryConfigSchema.parse({
+    prepareCommands,
     testCommands: [
       { file: process.execPath, args: ['unit'] },
       { file: process.execPath, args: ['integration'] },
@@ -62,7 +65,13 @@ async function setup(
   const processes = async (spec: ProcessSpec): Promise<ProcessResult> => {
     runs.push(spec);
     await delay(0);
-    const isFailing = spec.args.includes('integration');
+    if (spec.args.includes('hang')) {
+      await new Promise((resolve) => {
+        spec.signal.addEventListener('abort', resolve, { once: true });
+      });
+      return { exitCode: null, stdout: '', stderr: '', interrupted: true };
+    }
+    const isFailing = spec.args.includes('integration') || spec.args.includes('broken');
     return {
       exitCode: isFailing ? 1 : 0,
       stdout: isFailing ? `integration failed near ${f.mesh.token}` : 'ok',
@@ -119,6 +128,37 @@ await test('main is measured once per head, failures are recorded redacted, and 
   await f.workspaces.git(['push', 'origin', 'main']);
   await refreshBaseline(context);
   assert.equal(runs.length, 4, 'a new main head is measured again');
+});
+
+await test('main is prepared before it is measured, and a failed preparation leaves the baseline pending', async (t) => {
+  const prepared = await setup(t, [{ file: process.execPath, args: ['install'] }]);
+  const head = await prepared.f.workspaces.base();
+  await refreshBaseline(prepared.context);
+  assert.deepEqual(
+    prepared.runs.map((spec) => spec.args[0]),
+    ['install', 'unit', 'integration'],
+    'preparation runs first, in the same snapshot',
+  );
+  assert.equal(baselineFor(prepared.context.repository.store, head)?.passed, false);
+
+  const broken = await setup(t, [{ file: process.execPath, args: ['broken'] }]);
+  await refreshBaseline(broken.context);
+  assert.deepEqual(baselineEvidence(broken.context.repository.store, head), { head, pending: true });
+  assert.equal(broken.runs.length, 1, 'no test runs after a failed preparation');
+});
+
+await test('stopping the supervisor cancels and awaits a running baseline', async (t) => {
+  const { context, runs, f } = await setup(t, [{ file: process.execPath, args: ['hang'] }]);
+  const head = await f.workspaces.base();
+  const measuring = refreshBaseline(context);
+  while (runs.length === 0) {
+    await delay(5);
+  }
+  await cancelBaseline(context.repository.store);
+  assert.deepEqual(baselineEvidence(context.repository.store, head), { head, pending: true });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture's own temporary snapshot path.
+  assert.equal(existsSync(runs[0]?.cwd ?? ''), false, 'the snapshot is cleaned up before cancellation returns');
+  await measuring;
 });
 
 await test('delivery assignments are told to treat main failures as known', async (t) => {

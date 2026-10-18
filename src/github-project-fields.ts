@@ -223,25 +223,31 @@ export async function manageField(context: FieldContext, input: FieldInput): Pro
       await assertTarget(context, input, fieldId);
     }
   }
-  return runIntent(directory, input.requestId, input, {
-    reconcile: async () => {
-      if (input.action === 'create') {
-        const fields = await listFields(context);
-        const found = fields.find((candidate) => candidate.name === input.name);
-        return found === undefined ? undefined : { action: 'create', field: found };
-      }
-      const field = await currentField(context, fieldId ?? '');
-      if (input.action === 'delete') {
-        return field === null ? { action: 'delete', field: null } : undefined;
-      }
-      // A change counts as done only on the exact field, with every requested property.
-      return field !== null && isChanged(field, input)
-        ? { action: 'change', field: { id: field.id, name: field.name } }
-        : undefined;
+  // The intent names its Project, so a retry after the workspace switched Projects is a different change.
+  return runIntent(
+    directory,
+    input.requestId,
+    { ...input, projectId: context.projectId },
+    {
+      reconcile: async () => {
+        if (input.action === 'create') {
+          const fields = await listFields(context);
+          const found = fields.find((candidate) => candidate.name === input.name);
+          return found === undefined ? undefined : { action: 'create', field: found };
+        }
+        const field = await currentField(context, fieldId ?? '');
+        if (input.action === 'delete') {
+          return field === null ? { action: 'delete', field: null } : undefined;
+        }
+        // A change counts as done only on the exact field, with every requested property.
+        return field !== null && isChanged(field, input)
+          ? { action: 'change', field: { id: field.id, name: field.name } }
+          : undefined;
+      },
+      perform: async () => mutate(context, input),
+      result: resultSchema,
     },
-    perform: async () => mutate(context, input),
-    result: resultSchema,
-  });
+  );
 }
 
 /**

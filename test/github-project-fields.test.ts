@@ -145,6 +145,20 @@ await test('a field create whose response was lost yields exactly one field', as
   assert.deepEqual(project.mutations, ['create']);
 });
 
+await test('a field change retried after switching Projects is refused, not applied to the old one', async (t) => {
+  const { context, project } = fixture(t);
+  const remove = { requestId: 'g', action: 'delete' as const, fieldId: 'F_2', name: 'Estimate' };
+  const unreachable: typeof context.runner = async (args, input) => {
+    if (JSON.stringify(input ?? {}).includes('mutation')) {
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Network unreachable.');
+    }
+    return await project.run(args, input);
+  };
+  await assert.rejects(manageField({ ...context, runner: unreachable }, remove), { code: 'GITHUB_UNAVAILABLE' });
+  await assert.rejects(manageField({ ...context, projectId: 'PVT_OTHER' }, remove), { code: 'INVALID_INPUT' });
+  assert.ok(project.fields.has('F_2'), 'the previously connected Project keeps its field');
+});
+
 await test('a completed delete replays, and a retried option change is performed until it shows', async (t) => {
   const { context, project } = fixture(t);
   const remove = { requestId: 'e', action: 'delete' as const, fieldId: 'F_2', name: 'Estimate' };

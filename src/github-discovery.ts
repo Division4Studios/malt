@@ -98,8 +98,10 @@ const ownerProjectsSchema = z.object({ repositoryOwner: z.object({ projectsV2: p
 const projectNodeSchema = z.object({ node: projectSchema.nullable() });
 /** `repositoryOwner.projectV2(number)`. */
 const ownerProjectSchema = z.object({ repositoryOwner: z.object({ projectV2: projectSchema.nullable() }).nullable() });
-/** `node` as a single-select field. */
-const fieldNodeSchema = z.object({ node: fieldSchema.nullable() });
+/** The Project that owns a field. */
+const fieldOwnerSchema = z.object({ id: z.string() });
+/** `node` as a single-select field, with the Project that owns it. */
+const fieldNodeSchema = z.object({ node: fieldSchema.extend({ project: fieldOwnerSchema.optional() }).nullable() });
 /** Field connection page. */
 const fieldPageSchema = z.object({ nodes: z.array(fieldSchema) });
 /** `node.fields`. */
@@ -286,7 +288,7 @@ async function projectFields(
     return [];
   }
   const fields: DiscoveredField[] = [];
-  const pages = [data.node.fields.nodes, await savedFields(runner, data.node.fields.nodes, wanted)];
+  const pages = [data.node.fields.nodes, await savedFields(runner, project.id, data.node.fields.nodes, wanted)];
   for (const page of pages) {
     for (const field of page) {
       if (field.id !== undefined && field.name !== undefined) {
@@ -301,22 +303,25 @@ async function projectFields(
  * Read saved fields the first page did not list, by their stable IDs.
  *
  * @param runner - GitHub CLI seam.
+ * @param projectId - Selected Project; a field another Project owns is never taken as its own.
  * @param listed - Fields the first page returned.
  * @param wanted - Saved field IDs.
- * @returns The missing saved fields that still exist.
+ * @returns The missing saved fields that still exist on the selected Project.
  */
 async function savedFields(
   runner: GitHubRunner,
+  projectId: string,
   listed: readonly z.output<typeof fieldSchema>[],
   wanted: readonly string[],
 ): Promise<z.output<typeof fieldSchema>[]> {
   const missing = wanted.filter((id) => listed.every((field) => field.id !== id));
   const found: z.output<typeof fieldSchema>[] = [];
+  const query = `query($id: ID!) { node(id: $id) { ${SELECT_FIELDS} ... on ProjectV2FieldCommon { project { id } } } }`;
   for (const id of missing) {
     // eslint-disable-next-line no-await-in-loop -- At most the few saved fields, read one at a time.
-    const result = await readGraphQL(runner, `query($id: ID!) { node(id: $id) { ${SELECT_FIELDS} } }`, { id });
+    const result = await readGraphQL(runner, query, { id });
     const field = dataOf(result, fieldNodeSchema)?.node;
-    if (field !== null && field !== undefined) {
+    if (field !== null && field !== undefined && field.project?.id === projectId) {
       found.push(field);
     }
   }
