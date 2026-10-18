@@ -9,6 +9,7 @@ import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { forgetAttemptSecrets } from './attempt-secrets.ts';
 import * as automation from './automations.ts';
 import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
@@ -65,7 +66,7 @@ import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
-import { announceSpendBlocks, refreshSpend, spendGate } from './spend.ts';
+import { announceSpendBlocks, drainSpend, spendGate } from './spend.ts';
 import { factoryStatus, preflight } from './status.ts';
 import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
@@ -501,7 +502,7 @@ export class FactoryService {
     }
     automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
-    await refreshSpend(this.repository, this.mesh);
+    await drainSpend(this.repository, this.mesh);
     const spend = spendGate(this.repository);
     announceSpendBlocks(this.repository, spend);
     const scheduling = {
@@ -628,6 +629,7 @@ export class FactoryService {
       }
     } finally {
       monitor.dispose();
+      forgetAttemptSecrets(job.id);
       await this.settleAttempt(job, attempt, checkpointStop(monitor.liveness));
       this.nextReconcile = 0;
     }
