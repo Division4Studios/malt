@@ -15,6 +15,8 @@ import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
 import { failedChecks } from './ci-logs.ts';
+import { deliveryTask } from './delivery-task.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
@@ -22,13 +24,13 @@ import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
+import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
-import type { ReadyIssue } from './scheduler.ts';
 import type { FactoryTask, Feature } from './schema.ts';
 
 /** Commit id characters shown in progress log entries. */
@@ -44,57 +46,7 @@ function shortSha(sha: string): string {
   return sha.slice(0, SHORT_SHA);
 }
 
-/**
- * Build one ledger task from a GitHub atomic issue.
- *
- * @param context - Project ledger and clock.
- * @param issue - Native delivery issue.
- * @param featureId - Owning product request.
- * @returns Initial dependency-ready task state.
- */
-export function deliveryTask(context: FactoryContext, issue: ReadyIssue, featureId: string | null): FactoryTask {
-  const feature = context.repository.features().find((candidate) => candidate.id === featureId);
-  return {
-    id: randomUUID(),
-    featureId,
-    issue: issue.issue,
-    parentIssue: issue.parentIssue,
-    key: `issue-${String(issue.issue)}`,
-    title: issue.title,
-    description: issue.description,
-    acceptanceCriteria: [...issue.acceptanceCriteria],
-    dependencies: [],
-    capabilityTier: null,
-    skills: [],
-    phase: 'ready',
-    developer: null,
-    branch: null,
-    worktree: null,
-    head: null,
-    base: null,
-    pr: null,
-    prUrl: null,
-    merge: null,
-    reviews: [],
-    feedback: [],
-    finalReview: null,
-    verifiedMain: null,
-    attempts: 0,
-    version: 0,
-    error: null,
-    approvals: [],
-    implementation: null,
-    stepResults: [],
-    hold: null,
-    archive: null,
-    repairs: [],
-    revalidation: null,
-    workflow: feature?.workflow,
-    ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
-    ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
-    updatedAt: context.repository.store.now(),
-  };
-}
+export { deliveryTask } from './delivery-task.ts';
 
 /**
  * Provision reviewed plans and resume partial native issue creation.
@@ -155,6 +107,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         createdAt: now,
         updatedAt: now,
         approvals: [],
+        gates: objectiveGates(context.repository),
       };
       context.repository.saveFeature(feature);
     }
@@ -481,6 +434,11 @@ export async function closeParents(context: FactoryContext): Promise<void> {
     ) {
       continue;
     }
+    // The operator may have changed the checklist while GitHub was read: decide on the objective as it is now.
+    const current = context.repository.features().find((candidate) => candidate.id === feature.id);
+    if (current?.phase !== 'active' || !isDefinitionMet(current)) {
+      continue;
+    }
     context.repository.enqueueEffect({
       id: `feature-${feature.id}:status`,
       kind: 'status',
@@ -506,7 +464,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       continue;
     }
     context.repository.saveFeature({
-      ...feature,
+      ...current,
       phase: 'done',
       error: null,
       updatedAt: context.repository.store.now(),
@@ -533,6 +491,7 @@ export async function reconcile(context: FactoryContext): Promise<void> {
   resumeCapabilityBlocks(context.repository);
   await importReady(context);
   await provision(context);
+  blockExhausted(context.repository, context.settings.reconcileMs);
   for (const task of context.repository.tasks()) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Delivery transitions serialize merges and remote recovery per project.
