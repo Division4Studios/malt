@@ -36,6 +36,8 @@ declare module '*/web/dist/roles-model.js' {
     readonly effort: string | null;
     /** How the tool list applies. */
     readonly toolMode: 'deny' | 'allow';
+    /** Deny rules saved beside an allow list. */
+    readonly keptDeny: readonly string[];
     /** Tools the mode lists. */
     readonly tools: readonly string[];
     /** Local MCP servers. */
