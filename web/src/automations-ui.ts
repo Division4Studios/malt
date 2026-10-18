@@ -328,16 +328,12 @@ class AutomationEditor {
    */
   private finish(opening: number, isSaved: boolean, issued: Issued): void {
     const isCurrent = opening === this.opening;
-    if (!isSaved) {
-      if (isCurrent) {
-        this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
-      }
-      return;
-    }
-    if (isCurrent) {
+    if (isCurrent && isSaved) {
       this.element.close();
+    } else if (isCurrent) {
+      this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
     }
-    if (issued.value !== null) {
+    if (isSaved && issued.value !== null) {
       this.saved(issued.value.secret, issued.value.trigger);
     }
   }
