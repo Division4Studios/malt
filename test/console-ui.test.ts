@@ -323,6 +323,13 @@ void test('approval requests bind the right owner, head and note', () => {
   );
   assert.ok(isPending(deliveryTarget, model.open));
   assert.ok(!isPending(deliveryTarget, [planItem]));
+  assert.ok(
+    !isPending(
+      deliveryTarget,
+      model.open.map((item) => ({ ...item, head: 'reworked' })),
+    ),
+    'a reopened step at a new head is a different decision',
+  );
   const [delivery] = model.deliveries;
   const security = delivery?.steps.find((candidate) => candidate.id === 'security');
   assert.ok(delivery !== undefined && security !== undefined);
@@ -360,4 +367,28 @@ await test('lifecycle controls hold, resume and archive exactly the deliveries s
   });
   assert.deepEqual(held.deliveries[0]?.held, { at: 2, reason: 'r' });
   assert.deepEqual(held.archived, { total: 3, recent: [{ taskId: DONE_TASK, issue: 9, title: 'Old' }] });
+});
+
+void test('answered decisions without a stable id are skipped', () => {
+  const model = readConsole({
+    factory: {
+      console: {
+        deliveries: [],
+        objectives: [],
+        goals: [],
+        archived: { total: 0, recent: [] },
+        inbox: {
+          open: [],
+          answered: [
+            { title: 'No id', note: '', at: 1 },
+            { id: 'a1', title: 'Kept', note: '', at: 2 },
+          ],
+        },
+      },
+    },
+  });
+  assert.deepEqual(
+    model.answered.map((item) => item.id),
+    ['a1'],
+  );
 });
