@@ -68,6 +68,14 @@ declare module '*/web/dist/i18n.js' {
   export function translated<Table extends object>(table: Table): Table;
 
   /**
+   * The `Intl` locale dates and numbers are formatted in: the host's own
+   * English variant for English.
+   *
+   * @returns BCP 47 tag.
+   */
+  export function formatLocale(): string;
+
+  /**
    * Format a date and time in the language in force.
    *
    * @param value - Date or epoch milliseconds.
