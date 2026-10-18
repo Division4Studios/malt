@@ -15,6 +15,7 @@ import { test } from 'node:test';
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';
 import { command } from '../src/factory/commands.ts';
+import { numstatEntry } from '../src/factory/delivery-diff.ts';
 import { PATCH_BYTES_MAX, PATCH_LINES_MAX, diffPatchSchema, diffSummarySchema } from '../src/factory/diff-schema.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
@@ -72,6 +73,8 @@ async function history(root: string): Promise<{ base: string; head: string }> {
   rmSync(path.join(root, 'remove.txt'));
   rmSync(path.join(root, 'rename-me.txt'));
   put(root, 'renamed.txt', `${lines}\n`);
+  // The renamed-away path becomes a directory holding a private file.
+  put(root, 'rename-me.txt/.env', 'TOKEN=hidden\n');
   put(root, 'bin.dat', Buffer.from([0, 9, 9, 9, 0, 255]));
   put(root, 'café.txt', 'accent\n');
   put(root, 'wide.txt', `${Array.from({ length: 1000 }, () => 'x'.repeat(WIDE_LINE)).join('\n')}\n`);
@@ -162,7 +165,7 @@ await test('the summary reports every change kind and hides private paths', asyn
     new Set(summary.files.map((file) => file.path)),
     new Set(['bin.dat', 'café.txt', 'huge.txt', 'keep.txt', 'remove.txt', 'renamed.txt', 'tool.sh', 'wide.txt']),
   );
-  assert.equal(summary.privateChanges, 1);
+  assert.equal(summary.privateChanges, 2);
   assert.equal(summary.isTruncated, false);
   const keep = listed(summary.files, 'keep.txt');
   assert.deepEqual([keep.status, keep.additions, keep.deletions, keep.isBinary], ['modified', 2, 1, false]);
@@ -194,6 +197,7 @@ await test('patches are generated per listed path, bounded and refused for anyth
   const renamed = await read('renamed.txt');
   assert.ok(renamed.state === 'ready');
   assert.match(renamed.patch, /^rename from rename-me\.txt$/mv);
+  assert.doesNotMatch(renamed.patch, /hidden|\.env/v, 'a directory under the old path is not part of the pair');
   const accent = await read('café.txt');
   assert.ok(accent.state === 'ready');
   assert.match(accent.patch, /^\+accent$/mv);
@@ -267,4 +271,10 @@ await test('unpublished deliveries explain why, and only the operator or lead ma
   assert.equal(repeated.status, 400);
   const unknown = await fetch(`${route}&extra=1`, { headers });
   assert.equal(unknown.status, 400);
+});
+
+await test('numstat paths keep leading tabs; an empty path marks a rename', () => {
+  assert.deepEqual(numstatEntry('1\t2\t\tfirst'), { added: '1', deleted: '2', path: '\tfirst' });
+  assert.deepEqual(numstatEntry('3\t0\tsrc/a\tb.ts'), { added: '3', deleted: '0', path: 'src/a\tb.ts' });
+  assert.deepEqual(numstatEntry('-\t-\t'), { added: '-', deleted: '-', path: '' });
 });

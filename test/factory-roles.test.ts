@@ -122,6 +122,7 @@ await test('tool policies only narrow a seat and an allow list restricts only th
   );
   // An allow list naming a tool the seat lacks never grants it.
   assert.equal(permittedTools('factory-qa-1', { allow: ['mesh_learning_record'], deny: [] }).size, 0);
+  assert.ok(permittedTools('factory-qa-2', undefined).has('factory_objective_check'), 'a QA seat can verify items');
   assert.ok(!permittedTools(developer, { allow: [], deny: ['mesh_send_message'] }).has('send_message'));
   assert.equal(isToolDenied(developer, { allow: [], deny: ['mesh_send_message'] }, 'send_message'), true);
   // Operations outside the seat's tools are left to their own authority checks.

@@ -302,7 +302,7 @@ export function admissionEvidence(
       maxCpuPercent,
       minFreeMemoryMb,
       minFreeMemoryPercent,
-      providers: { codex: limit('codex'), claude: limit('claude') },
+      providers: { codex: limit('codex'), claude: limit('claude'), copilot: limit('copilot') },
     },
     providers,
     blocker: admissionBlocker(policy, sample, pool.size, providers),
