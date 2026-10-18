@@ -71,6 +71,7 @@ import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
+import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -425,6 +426,7 @@ export class FactoryService {
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
       factory_delivery_diff: async () => deliveryDiff(this.configured(), input),
+      ...workflowHandlers(this.repository, input),
       factory_objective_check: () => checkDefinition(this.configured(), input, actorId),
       ...ledgerHandlers(this.repository, this.mesh, input),
       ...roleHandlers({
