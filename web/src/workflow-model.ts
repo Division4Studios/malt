@@ -42,7 +42,7 @@ export const SEATS = [
   'regression-verifier',
 ] as const;
 /** Provider families a step may prefer (mirrors `PROVIDERS`). */
-export const PROVIDERS = ['codex', 'claude'] as const;
+export const PROVIDERS = ['codex', 'claude', 'copilot'] as const;
 /** Section bounds (mirror the schema maxima), so the editor stops adding before the server refuses. */
 export const MAX_STEPS = { planning: 12, delivery: 24 } as const;
 /** Longest valid key. */
