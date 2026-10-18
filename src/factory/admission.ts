@@ -6,6 +6,8 @@
 
 import { MeshError } from '../protocol.ts';
 
+import { PROVIDERS } from './schema.ts';
+
 import type { Capacity, FactoryConfig, FactoryJob } from './schema.ts';
 
 /** Owned pipelines retain their policy until all descendants have settled. */
@@ -59,7 +61,7 @@ export class AdmissionPool {
         effective.resources.maxActiveJobs,
         entry.settings.resources.maxActiveJobs,
       );
-      for (const provider of ['codex', 'claude'] as const) {
+      for (const provider of PROVIDERS) {
         effective.providers[provider].concurrency = Math.min(
           effective.providers[provider].concurrency,
           entry.settings.providers[provider].concurrency,

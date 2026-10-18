@@ -15,6 +15,8 @@ export const ANSWER_MAX = 2000;
 const NOTIFICATION_BODY_MAX = 180;
 /** Stored opt-in value. */
 export const NOTIFY_ON = 'on';
+/** Message the service worker posts when a notification is clicked; matches `sw.ts`. */
+export const OPEN_INBOX_MESSAGE = 'malt-open-inbox';
 
 /** Answer to send, or why it cannot be sent yet. */
 export type AnswerInput =
@@ -68,6 +70,22 @@ export function freshItems(
     fresh: previous === null ? [] : open.filter((item) => item.lane === 'reply' && !previous.has(item.id)),
     seen,
   };
+}
+
+/**
+ * Read a notification click relayed by the service worker.
+ *
+ * @param message - Untrusted message data.
+ * @returns The project whose Inbox to show (`null` for the selected one), or `undefined` for another message.
+ */
+export function inboxRequest(message: unknown): string | null | undefined {
+  if (message === OPEN_INBOX_MESSAGE) {
+    return null;
+  }
+  if (typeof message !== 'object' || message === null || !('type' in message) || message.type !== OPEN_INBOX_MESSAGE) {
+    return undefined;
+  }
+  return 'project' in message && typeof message.project === 'string' && message.project !== '' ? message.project : null;
 }
 
 /**
