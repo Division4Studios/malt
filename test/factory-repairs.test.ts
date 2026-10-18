@@ -236,6 +236,8 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
     'fetch https://bot:hunter2@github.com/fixture/app.git',
     'Authorization: Bearer abc.def.ghi',
     'authorization: Basic dXNlcjpwYXNzd29yZA== trailing',
+    'authorization = opaque-credential-1',
+    '"authorization":  "opaque-credential-2"',
     'mesh-secret-value appears here',
     'Unexpected token in JSON at position 4',
   ].join('\n');
@@ -247,6 +249,7 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
   assert.match(clean, /https:\/\/\[REDACTED\]@github\.com/v);
   assert.match(clean, /^Authorization: \[REDACTED\]$/mv);
   assert.match(clean, /^authorization: \[REDACTED\]$/mv, 'a non-Bearer credential is redacted whole');
+  assert.doesNotMatch(clean, /opaque-credential/v, 'spacing around the delimiter does not expose the value');
   assert.match(clean, /^Running npm test$/mv);
   assert.match(clean, /Unexpected token in JSON/v, 'ordinary prose keeps its words');
 });
@@ -567,9 +570,14 @@ function developJob(task: FactoryTask): Record<string, unknown> {
  *
  * @param fixture - Test fixture.
  * @param file - File the delivery changes.
+ * @param phase - `merge_ready` once every review approved it.
  * @returns Published head.
  */
-async function publishedInReview(fixture: Fixture, file: string): Promise<string> {
+async function publishedInReview(
+  fixture: Fixture,
+  file: string,
+  phase: 'review' | 'merge_ready' = 'review',
+): Promise<string> {
   const { repository, workspaces } = fixture.context;
   repository.editTask(fixture.task.id, (current) => ({ ...current, phase: 'development', head: null, reviews: [] }));
   const developer = await workspaces.developer(repository.task(fixture.task.id));
@@ -581,7 +589,7 @@ async function publishedInReview(fixture: Fixture, file: string): Promise<string
     await delay(0);
   });
   const source = { head: published.head, base: published.base };
-  repository.editTask(fixture.task.id, (current) => ({ ...current, phase: 'review', ...source }));
+  repository.editTask(fixture.task.id, (current) => ({ ...current, phase, ...source }));
   fixture.setPr({ headRefOid: published.head, baseRefOid: published.base, statusCheckRollup: [PASSING_CHECK] });
   return published.head;
 }
@@ -608,7 +616,7 @@ async function advanceMain(fixture: Fixture, file: string): Promise<string> {
 await test('main advancing under a reviewed PR is merged in without a developer turn and re-reviewed on the merge', async (t) => {
   const fixture = await repairFixture(t);
   const { context } = fixture;
-  const head = await publishedInReview(fixture, 'delivery.txt');
+  const head = await publishedInReview(fixture, 'delivery.txt', 'merge_ready');
   const main = await advanceMain(fixture, 'unrelated.txt');
   await reconcile(context);
   const refreshed = context.repository.task(fixture.task.id);
@@ -635,6 +643,37 @@ await test('main advancing under a reviewed PR is merged in without a developer 
     evidence: {},
   });
   assert.match(prompt, /only merged advanced main into this source/v);
+  // Any later code change ends the merge-only scope.
+  const repaired = { ...refreshed, head: 'f'.repeat(40) };
+  const full = assignmentPrompt({
+    job: jobSchema.parse({ ...developJob(repaired), kind: 'review', role: 'qa-1' }),
+    task: repaired,
+    feature: null,
+    skill: null,
+    standards: [],
+    evidence: {},
+  });
+  assert.doesNotMatch(full, /only merged advanced main/v, 'new code after the refresh is reviewed in full');
+});
+
+await test('a refresh before every review approved keeps the full review scope', async (t) => {
+  const fixture = await repairFixture(t);
+  const { context } = fixture;
+  await publishedInReview(fixture, 'delivery.txt');
+  await advanceMain(fixture, 'unrelated.txt');
+  await reconcile(context);
+  const refreshed = context.repository.task(fixture.task.id);
+  assert.equal(refreshed.phase, 'review');
+  assert.equal(refreshed.refreshedFrom, undefined, 'unreviewed changes never get a merge-only review');
+  const prompt = assignmentPrompt({
+    job: jobSchema.parse({ ...developJob(refreshed), kind: 'review', role: 'qa-1' }),
+    task: refreshed,
+    feature: null,
+    skill: null,
+    standards: [],
+    evidence: {},
+  });
+  assert.doesNotMatch(prompt, /only merged advanced main/v);
 });
 
 await test('a conflicting main refresh becomes a merge-conflict repair for the original developer', async (t) => {

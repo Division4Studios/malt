@@ -34,12 +34,12 @@ export async function hasParkedPRUpdate(context: FactoryContext, task: FactoryTa
     }
     const error = `PR #${String(task.pr)} is already merged. Operator decision required: verify actual merged main or investigate missing factory gates. No QA approvals are implied.`;
     if (current.merge !== pr.mergeCommit.oid || current.error !== error) {
+      // The recorded head stays: adopting the merged head here would let the next pass adopt a merge it refused.
       context.repository.editTask(task.id, (value) => {
         return {
           ...value,
           phase: 'blocked',
           merge: pr.mergeCommit?.oid ?? null,
-          head: pr.headRefOid,
           base: pr.baseRefOid,
           reviews: [],
           finalReview: null,

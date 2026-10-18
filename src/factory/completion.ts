@@ -109,12 +109,14 @@ async function recordLesson(
  * @param context - Delivery services.
  * @param task - Original delivery.
  * @param finding - Reproducible QA/test/final finding.
+ * @param causes - The report's individual findings; each is its own lesson, keyed without the review summary.
  * @returns Updated delivery state.
  */
 export async function rejectDelivery(
   context: FactoryContext,
   task: FactoryTask,
   finding: string,
+  causes: readonly string[] = [],
 ): Promise<FactoryTask> {
   const wasMerged = task.merge !== null;
   const isExhausted = task.attempts >= attemptBudget(task, context.settings);
@@ -135,7 +137,9 @@ export async function rejectDelivery(
     returned,
     `Changes requested for ${returned.developer ?? 'the responsible developer'}:\n\n${finding}\n\nQA reports the defect; implementation remains assigned to the developer. New source requires two new independent reviews.`,
   );
-  await recordLesson(context, returned, finding, 'rework');
+  await Promise.all(
+    (causes.length === 0 ? [finding] : causes).map(async (cause) => recordLesson(context, returned, cause, 'rework')),
+  );
   return returned;
 }
 
@@ -238,7 +242,7 @@ async function applyDelivery(
     return;
   }
   if (result.outcome !== 'success' && !isRuledByFixer(context, record, task, result)) {
-    await rejectDelivery(context, task, [result.summary, ...result.findings].join('\n'));
+    await rejectDelivery(context, task, [result.summary, ...result.findings].join('\n'), result.findings);
     return;
   }
   switch (record.kind) {
