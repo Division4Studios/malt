@@ -187,6 +187,23 @@ await test('build rows report versions and the installed shell revision, or say 
   );
   assert.equal(rows.get('MALT'), '0.1.0');
   assert.equal(rows.get('Offline shell cache'), '0123456789ab');
+  assert.equal(rows.get('Broker source'), 'not reported');
+  const commit = 'abcdef0123456789abcdef0123456789abcdef01';
+  const sources = new Map(
+    buildRows(
+      {
+        brokerRevision: { commit, isDirty: null, origin: 'image' },
+        consoleRevision: { commit, isDirty: true, origin: 'checkout' },
+      },
+      [],
+    ),
+  );
+  assert.equal(sources.get('Broker source'), 'abcdef012345 (container image)');
+  assert.equal(sources.get('Console source'), 'abcdef012345 with uncommitted changes');
+  const unread = new Map(buildRows({ consoleRevision: { commit, isDirty: null, origin: 'checkout' } }, []));
+  assert.equal(unread.get('Console source'), 'abcdef012345 (uncommitted changes unknown)');
+  const unknown = new Map(buildRows({ consoleRevision: { commit: null, isDirty: null, origin: 'unknown' } }, []));
+  assert.equal(unknown.get('Console source'), 'unknown (not a Git checkout and no image revision)');
   const missing = new Map(buildRows(null, []));
   assert.equal(missing.get('Broker'), 'not answering');
   assert.equal(missing.get('Offline shell cache'), 'not installed in this browser');

@@ -10,7 +10,14 @@
 import { MeshError } from '../protocol.ts';
 
 import { logObjective } from './objective-log.ts';
-import { dispositionProblems, featureWorkflow, planFindings, planningStep, stepOf } from './pipeline.ts';
+import {
+  dispositionProblems,
+  featureWorkflow,
+  isPlanningWorkDone,
+  planFindings,
+  planningStep,
+  stepOf,
+} from './pipeline.ts';
 import { validatePlan } from './scheduler.ts';
 import { sealedHead } from './source-reader.ts';
 import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
@@ -56,10 +63,10 @@ export function completePlanning(context: FactoryContext, job: FactoryJob, resul
     stop(context, feature, updated);
     return;
   }
-  const next = planningStep(updated, workflow);
   context.repository.saveFeature({
     ...updated,
-    phase: next === null ? 'provisioning' : 'refining',
+    // Only decisions may remain once every planning attempt has its result.
+    phase: isPlanningWorkDone(updated, workflow) ? 'provisioning' : 'refining',
     error: null,
     updatedAt: now,
   });
