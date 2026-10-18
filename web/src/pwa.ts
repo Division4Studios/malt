@@ -6,6 +6,9 @@
 
 import { LocalRequestError } from './api.js';
 import { t } from './i18n.js';
+import { isInstallEvent } from './worker-ui.js';
+
+import type { InstallEvent } from './worker-ui.js';
 
 /** Unauthorized response status. */
 const UNAUTHORIZED = 401;
@@ -60,6 +63,27 @@ export async function installShellUpdates(
   } catch {
     announce(t('The console is usable, but offline shell installation is unavailable in this browser.'));
   }
+}
+
+/**
+ * Show the install button once the browser offers installation, and prompt on click.
+ *
+ * @param button - Install control, hidden until the browser offers installation.
+ */
+export function bindInstallPrompt(button: HTMLButtonElement): void {
+  let offer: InstallEvent | null = null;
+  const control = button;
+  addEventListener('beforeinstallprompt', (event) => {
+    if (!isInstallEvent(event)) {
+      return;
+    }
+    event.preventDefault();
+    offer = event;
+    control.hidden = false;
+  });
+  control.addEventListener('click', () => {
+    void offer?.prompt();
+  });
 }
 
 /**

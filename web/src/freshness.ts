@@ -5,8 +5,10 @@
  */
 /** Maximum age before a connected view becomes explicitly stale. */
 const STALE_MS = 30_000;
-/** Bound repeated failures until a new successful observation or operator focus. */
+/** Failed reads at the normal cadence before backing off. */
 const MAX_FAILURES = 5;
+/** Cadence after that, so a returning daemon is still noticed without a reload. */
+const BACKOFF_MS = 300_000;
 
 /** Observation clock shared by the stream and its single-flight fallback. */
 export class Freshness {
@@ -33,7 +35,8 @@ export class Freshness {
    */
   public async recover(read: () => Promise<void>): Promise<void> {
     const age = Date.now() - Math.max(this.observedAt, this.attemptedAt);
-    if (this.pending || this.failures >= MAX_FAILURES || age < STALE_MS) {
+    const cadence = this.failures >= MAX_FAILURES ? BACKOFF_MS : STALE_MS;
+    if (this.pending || age < cadence) {
       return;
     }
     this.pending = true;

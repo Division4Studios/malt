@@ -688,14 +688,17 @@ export function readConsole(snapshot: unknown): ConsoleModel {
       .map((record) => parseInboxItem(record))
       .filter((entry) => entry !== null),
     archived: parseArchived(view['archived']),
-    answered: objects(inbox['answered']).map((record) => {
-      return {
-        id: text(record, 'id'),
-        title: text(record, 'title'),
-        note: text(record, 'note'),
-        at: number(record, 'at'),
-      };
-    }),
+    // Like every other Inbox entry, an answered decision without a stable id is skipped.
+    answered: objects(inbox['answered'])
+      .filter((record) => text(record, 'id') !== '')
+      .map((record) => {
+        return {
+          id: text(record, 'id'),
+          title: text(record, 'title'),
+          note: text(record, 'note'),
+          at: number(record, 'at'),
+        };
+      }),
   };
 }
 
