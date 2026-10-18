@@ -1,5 +1,5 @@
 /**
- * Four stable navigation groups with contextual, keyboard-native subviews.
+ * Stable navigation groups with contextual, keyboard-native subviews.
  *
  * @file
  */
@@ -7,7 +7,8 @@
 const GROUPS = {
   mission: ['overview', 'activity'],
   workflow: ['workflow', 'team', 'deliveries'],
-  workers: ['workers'],
+  workers: ['sessions', 'workers'],
+  costs: ['costs'],
   project: ['setup', 'learning'],
 };
 
@@ -50,7 +51,17 @@ export function updateNavigation(view: string): void {
 }
 
 /** View routes remain local UI state, not a competing delivery ledger. */
-export type View = 'overview' | 'team' | 'workflow' | 'deliveries' | 'workers' | 'activity' | 'learning' | 'setup';
+export type View =
+  | 'overview'
+  | 'team'
+  | 'workflow'
+  | 'deliveries'
+  | 'workers'
+  | 'sessions'
+  | 'costs'
+  | 'activity'
+  | 'learning'
+  | 'setup';
 
 /** UI navigation descriptions. */
 export const HEADINGS: Record<View, readonly [string, string]> = {
@@ -59,6 +70,8 @@ export const HEADINGS: Record<View, readonly [string, string]> = {
   team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
   deliveries: ['Delivery pipeline.', 'Small scopes, independent reviews, verified outcomes.'],
   workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
+  sessions: ['Attempts and transcripts.', 'Every bounded attempt: what it read, ran, changed and cost.'],
+  costs: ['Costs.', 'Spend and tokens from recorded usage, by role, model and delivery.'],
   activity: ['Activity stream.', 'The committed story of your software factory.'],
   learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
   setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],

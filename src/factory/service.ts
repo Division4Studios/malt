@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import { decideApproval } from './approvals.ts';
+import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -22,6 +23,7 @@ import {
   latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
+import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
@@ -333,6 +335,16 @@ export class FactoryService {
   }
 
   /**
+   * Fire a loopback webhook trigger presented with its own secret.
+   *
+   * @param call - Trigger id, presented secret, optional idempotency key and payload text.
+   * @returns The objective filed or matched by key.
+   */
+  public fireTrigger(call: Parameters<typeof automation.fireTrigger>[1]): { featureId: string } {
+    return automation.fireTrigger(this.repository, call);
+  }
+
+  /**
    * Execute validated human/designated-lead factory controls.
    *
    * @param operation - Project factory operation.
@@ -393,6 +405,12 @@ export class FactoryService {
       factory_transcript: async () => telemetry.transcript(this.repository, this.mesh, input),
       factory_costs: async () => telemetry.costs(this.repository, this.mesh, input),
       factory_prices: () => telemetry.prices(this.repository, input),
+      factory_hold: () => holdDeliveries(this.repository, input),
+      factory_archive: () => archiveDeliveries(this.repository, input),
+      factory_schedule_save: () => automation.saveSchedule(this.repository, input),
+      factory_trigger_save: () => automation.saveTrigger(this.repository, input),
+      factory_automation_delete: () => automation.deleteAutomation(this.repository, input),
+      factory_automation_run: () => automation.runAutomation(this.repository, input),
     };
     return await handlers[operation]();
   }
@@ -454,6 +472,7 @@ export class FactoryService {
     if (!canDispatch(this.repository, this.stopped)) {
       return;
     }
+    automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
