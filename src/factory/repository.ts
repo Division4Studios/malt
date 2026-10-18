@@ -14,6 +14,7 @@ import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
 import { retireManagedPresence } from './controls.ts';
+import { isClaimEligible } from './delivery-controls.ts';
 import { buildHandoff, handoffBody } from './handoffs.ts';
 import { InstructionLedger } from './instructions.ts';
 import { saveFactorySettings } from './model-policy-controls.ts';
@@ -34,7 +35,6 @@ import {
   taskSchema,
 } from './schema.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
-import { isCurrentTriage } from './triage.ts';
 
 import type { Store } from '../store.ts';
 import type { HandoffEvidence } from './handoffs.ts';
@@ -566,7 +566,7 @@ export class FactoryRepository {
   public claim(job: FactoryJob, config: FactoryConfig): boolean {
     const record = job;
     return this.store.transaction(() => {
-      if (!this.scopeEligible(record)) {
+      if (!isClaimEligible(this, record)) {
         return false;
       }
       const live = this.jobs().filter((candidate) => candidate.state === 'running');
@@ -766,22 +766,6 @@ export class FactoryRepository {
           WHERE id NOT IN (SELECT effect_id FROM factory_effect_keys);
       `);
     });
-  }
-
-  /**
-   * Fence superseded work inside the same transaction as role admission.
-   *
-   * @param job - Proposed claim.
-   * @returns Whether its scope is still eligible.
-   */
-  private scopeEligible(job: FactoryJob): boolean {
-    const queue = this.objectiveQueue.read();
-    const focus = queue.focusedFeatureId;
-    return (
-      (job.kind !== 'triage' || isCurrentTriage(this, job)) &&
-      (queue.existingOnly ? job.taskId !== null : focus === null || job.featureId === focus) &&
-      (job.taskId === null || this.task(job.taskId).scopeReplacement === undefined)
-    );
   }
 
   /**
