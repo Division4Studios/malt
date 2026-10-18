@@ -14,6 +14,7 @@
 
 import { logObjective } from './objective-log.ts';
 import { isBackingOff } from './retry-policy.ts';
+import { REVALIDATION_TEXT_MAX } from './revalidation-schema.ts';
 import { sealedHead } from './source-reader.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -105,7 +106,14 @@ export function isRevalidationDue(
  * @returns At most one intent.
  */
 export function revalidationIntents(
-  input: { config: FactoryConfig; tasks: readonly FactoryTask[]; jobs: readonly FactoryJob[]; now: number },
+  input: {
+    config: FactoryConfig;
+    tasks: readonly FactoryTask[];
+    jobs: readonly FactoryJob[];
+    now: number;
+    isSpendBlocked?: (target: { readonly taskId: string | null; readonly featureId: string | null }) => boolean;
+    objectiveQueue?: { readonly focusedFeatureId: string | null };
+  },
   live: readonly FactoryJob[],
 ): JobIntent[] {
   if (!input.config.briefRevalidation || live.some((job) => job.role === 'team-lead')) {
@@ -120,9 +128,13 @@ export function revalidationIntents(
       head: null,
       since: candidate.repairsResetAt,
     };
+    // Admission filters apply before choosing: an unfocused or spend-blocked delivery must not hold the only slot.
+    const focused = input.objectiveQueue?.focusedFeatureId ?? null;
     return (
       isRevalidationDue(candidate, input.tasks, input.config) &&
       candidate.hold === null &&
+      (focused === null || candidate.featureId === focused) &&
+      input.isSpendBlocked?.({ taskId: candidate.id, featureId: candidate.featureId }) !== true &&
       live.every((job) => job.taskId !== candidate.id) &&
       !isBackingOff(input.jobs, { ...scope, step: null }, timing)
     );
@@ -220,8 +232,9 @@ export function completeRevalidation(context: FactoryContext, job: FactoryJob, r
     plannedAgainst: plannedAgainst(feature),
     predecessors,
     outcome: isConfirmed ? 'confirmed' : 'revise',
-    summary: result.summary,
-    findings: result.findings.slice(0, MAX_FINDINGS),
+    // A provider result may be longer than the recorded verdict allows; keep the verdict, bounded.
+    summary: result.summary.slice(0, REVALIDATION_TEXT_MAX),
+    findings: result.findings.slice(0, MAX_FINDINGS).map((finding) => finding.slice(0, REVALIDATION_TEXT_MAX)),
     at: repository.store.now(),
   };
   const reason = [`Brief revalidation proposes changes: ${result.summary}`, ...record.findings].join('\n');
