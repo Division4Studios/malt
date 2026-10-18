@@ -36,8 +36,17 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
-import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
+import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
+import { CapabilityPolicyStore } from './capability-policy.ts';
+import { fireTrigger } from './factory/automations.ts';
+import {
+  AGENT_OPERATIONS,
+  OPERATOR_ONLY_MESSAGE,
+  OPERATOR_ONLY_OPERATIONS,
+  assertManagerScope,
+} from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
+import { managedToolGate } from './factory/role-handlers.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
@@ -48,24 +57,27 @@ import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
   errorStatus,
-  isGitHubOperation,
+  isCapabilityOperation,
   isFactoryOperation,
   isLearningOperation,
+  isProjectOperation,
   isOperation,
   parseInput,
 } from './protocol.ts';
 import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
+import { TRIGGER_PATH, triggerCall } from './trigger-request.ts';
 import { Waiters } from './waiters.ts';
 
+import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
-import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
+import type { CapabilityOperation, GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
 import type { TeamAccess, TeamConfig } from './teams.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -160,6 +172,8 @@ export interface Team {
   readonly learning: ProjectLearning;
   /** This workspace's GitHub Project integration and operation queue. */
   readonly github: ProjectGitHub;
+  /** This workspace's connector capability policies. */
+  readonly policy: CapabilityPolicyStore;
   /** The team's configuration (token, project ID, ...). */
   readonly config: MeshConfig;
   /** The team's store. */
@@ -214,13 +228,15 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     return context.home;
   }
   const store = new Store(config, { now: context.now });
-  const github = new ProjectGitHub(config, context.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, context.githubRunner?.(config));
   const team: Team = {
     config,
     store,
     waiters: new Waiters(store),
     github,
+    policy,
     learning,
     factory: new FactoryService(
       config,
@@ -331,11 +347,6 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-/** Loopback webhook path: `/triggers/<trigger id>`. */
-const TRIGGER_PATH = /^\/triggers\/(?<id>[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/v;
-/** Authorization scheme a trigger secret is presented with. */
-const BEARER = 'Bearer ';
-
 /**
  * Fire a webhook trigger. The caller proves itself with the trigger's own
  * secret, not the project token, so a local script can hold one narrowly
@@ -353,16 +364,7 @@ async function handleTrigger(context: BrokerContext, request: IncomingMessage, i
   if (team === undefined) {
     throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
   }
-  const authorization = request.headers.authorization ?? '';
-  const key = request.headers['idempotency-key'];
-  const body = await readJson(request);
-  const isEmpty = typeof body === 'object' && body !== null && Object.keys(body).length === 0;
-  const result = team.factory.fireTrigger({
-    id,
-    secret: authorization.startsWith(BEARER) ? authorization.slice(BEARER.length) : '',
-    idempotencyKey: typeof key === 'string' ? key : null,
-    payload: isEmpty ? '' : JSON.stringify(body, null, 2),
-  });
+  const result = fireTrigger(team.factory.repository, triggerCall(request.headers, await readJson(request), id));
   team.waiters.notify();
   return result;
 }
@@ -511,14 +513,10 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
-  const gate = {
-    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
-    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
-  };
-  assertManagedTool(gate, operation, credentials);
+  assertManagedTool(managedToolGate(team.store, team.factory.repository), operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
-    assertFactoryAuthority(team, operation, credentials);
+    assertFactoryAuthority(team, operation, credentials, input);
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return team.factory.execute(
       operation,
@@ -526,7 +524,7 @@ async function handleRpc(
       credentials === undefined ? null : team.store.authenticate(credentials),
     );
   }
-  if (isLearningOperation(operation) || isGitHubOperation(operation)) {
+  if (isProjectOperation(operation)) {
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return handleProjectOperation(team, operation, input, credentials);
   }
@@ -546,10 +544,19 @@ async function handleRpc(
  * @param team - Selected project.
  * @param operation - Validated factory operation.
  * @param credentials - Optional attached agent identity.
+ * @param input - Validated operation input, inspected for manager-restricted actions.
  * @throws {MeshError} When an agent attempts an operator-only operation.
  */
-function assertFactoryAuthority(team: Team, operation: Operation, credentials: PresentedCredentials | undefined): void {
+function assertFactoryAuthority(
+  team: Team,
+  operation: Operation,
+  credentials: PresentedCredentials | undefined,
+  input: unknown,
+): void {
   if (credentials === undefined) {
+    if (operation === 'factory_manager_ask') {
+      throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+    }
     return;
   }
   if (OPERATOR_ONLY_OPERATIONS.has(operation)) {
@@ -557,6 +564,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
     throw new MeshError('NOT_ORCHESTRATOR', OPERATOR_ONLY_MESSAGE);
   }
   const actor = team.store.authenticate(credentials);
+  if (team.factory.manager.isManagerActor(actor)) {
+    assertManagerScope(operation, input);
+    return;
+  }
+  if (operation === 'factory_manager_ask') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+  }
   if (!AGENT_OPERATIONS.has(operation) && actor !== team.store.coordination.leadId()) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
@@ -566,7 +580,7 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - GitHub or learning operation.
+ * @param operation - Capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -574,10 +588,13 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
  */
 async function handleProjectOperation(
   team: Team,
-  operation: GitHubOperation | LearningOperation,
+  operation: CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isCapabilityOperation(operation)) {
+    return handleCapabilityOperation(team, operation, input, credentials);
+  }
   parseInput(operation, input);
   if (credentials !== undefined && operation === 'learning_set_skill_state') {
     throw new MeshError('NOT_ORCHESTRATOR', 'Project skill activation and retirement require the human operator.');
@@ -593,9 +610,13 @@ async function handleProjectOperation(
       "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
     );
   }
+  // Mutations admit only the designated lead above, so agents act as team-lead;
+  // other credentialed callers reach here only for reads, which need no capability.
+  const principal: CapabilityPrincipal =
+    actor === null ? PROJECT_OPERATOR : { kind: 'agent', id: actor, role: 'team-lead' };
   const result = isLearningOperation(operation)
     ? await team.learning.execute(operation, input, actor ?? '')
-    : await team.github.execute(operation, input);
+    : await team.github.execute(principal, operation, input);
   if (!READ_PROJECT_OPERATIONS.has(operation)) {
     team.store.transaction(() => {
       team.store.event('PROJECT_OPERATION_COMPLETED', actor, { operation });
@@ -737,7 +758,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const github = new ProjectGitHub(config, options.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, options.githubRunner?.(config));
   const context: BrokerContext = {
     home: {
@@ -745,6 +767,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       store,
       waiters,
       github,
+      policy,
       learning,
       factory: new FactoryService(
         config,

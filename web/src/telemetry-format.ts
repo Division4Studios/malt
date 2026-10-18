@@ -245,7 +245,8 @@ export function stackBars(
       const extent = (value / max) * height;
       const visible = Math.max(extent - gap, 1);
       segments.push({ series, value, y: baseline - visible, height: visible });
-      baseline -= extent;
+      // A segment raised to the minimum height still takes its gap, so the next never overlaps it.
+      baseline -= Math.max(extent, visible + gap);
     }
     return { day: entry.day, total: entry.totalUsd, segments };
   });

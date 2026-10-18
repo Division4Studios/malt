@@ -3,7 +3,8 @@
  * review/gate/optional flags, provider, profile and instructions. The form
  * only reports intents through `act`; the draft editor owns the data. Fields a
  * kind does not support are not rendered. Labels that name other steps carry
- * `data-title-of` / `data-id-of` so renames update them in place.
+ * `data-title-of` so title edits update them in place; an id rename re-renders
+ * the section, so every reference control names the new id.
  *
  * @file
  */

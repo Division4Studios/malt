@@ -571,6 +571,7 @@ select {
   border-radius: 8px;
   padding: 10px 14px;
   background: var(--error-bg);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;
