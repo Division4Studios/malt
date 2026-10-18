@@ -77,6 +77,8 @@ const SHELL = [
   '/project-views.js',
   '/roles-model.js',
   '/roles-ui.js',
+  '/secrets-model.js',
+  '/secrets-ui.js',
   '/delivery-ui.js',
   '/goal-model.js',
   '/checklist-dialog.js',
