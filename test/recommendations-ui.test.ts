@@ -13,13 +13,14 @@ const HOSTILE = '<img src=x onerror="globalThis.pwnedRecommendation=true"> **mer
  * A page with one unread awaiting-human proposal.
  *
  * @param isUnread - Unread flag.
+ * @param id - Recommendation identity.
  * @returns Untrusted page.
  */
-function page(isUnread = true): Record<string, unknown> {
+function page(isUnread = true, id = 'a'.repeat(64)): Record<string, unknown> {
   return {
     items: [
       {
-        id: 'a'.repeat(64),
+        id,
         revision: 'b'.repeat(64),
         state: 'awaiting_human',
         unread: isUnread,
@@ -122,4 +123,160 @@ await test('the Project entry shows accessible pending and unread counts, cleare
   assert.equal(badge.textContent, '1 · 1 new');
   pane.reset();
   assert.equal(badge.textContent, '');
+});
+
+await test('a read started for the previous project is discarded after a reset', async (t) => {
+  const dom = installDom(t);
+  const gate: { release: (() => void) | null } = { release: null };
+  const pane = createRecommendationsView({
+    list: async () => {
+      await new Promise<void>((resolve) => {
+        gate.release = resolve;
+      });
+      return page();
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      return {};
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  const pending = pane.refresh();
+  pane.reset();
+  gate.release?.();
+  await pending;
+  assert.equal(root.textContent, '', 'the previous project never repopulates the pane');
+});
+
+await test('a failed read receipt stays visible after the refresh', async (t) => {
+  const dom = installDom(t);
+  const pane = createRecommendationsView({
+    list: async () => {
+      await Promise.resolve();
+      return page();
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      throw new Error('Receipt refused.');
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const [open] = root.querySelector('button')?.listeners.get('click') ?? [];
+  assert.ok(typeof open === 'function');
+  Reflect.apply(open, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.match(root.textContent, /Receipt refused\./v);
+  assert.match(root.textContent, /Unread/v);
+});
+
+await test('a receipt settling after a project reset does not reach the new project', async (t) => {
+  const dom = installDom(t);
+  const gate: { release: (() => void) | null } = { release: null };
+  let lists = 0;
+  const pane = createRecommendationsView({
+    list: async () => {
+      lists += 1;
+      await Promise.resolve();
+      return page();
+    },
+    markRead: async () => {
+      await new Promise<void>((resolve) => {
+        gate.release = resolve;
+      });
+      throw new Error('Old project receipt refused.');
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const [open] = root.querySelector('button')?.listeners.get('click') ?? [];
+  assert.ok(typeof open === 'function');
+  Reflect.apply(open, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  pane.reset();
+  gate.release?.();
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.equal(lists, 1, 'no refresh follows the old receipt');
+  assert.doesNotMatch(root.textContent, /Old project receipt refused/v);
+});
+
+await test('a change on an earlier loaded page redraws the pane', async (t) => {
+  const dom = installDom(t);
+  const state = { action: 'First wording' };
+  const pane = createRecommendationsView({
+    list: async (cursor) => {
+      await Promise.resolve();
+      if (cursor !== null) {
+        return page(false, 'd'.repeat(64));
+      }
+      const body = {
+        kind: 'related',
+        tickets: [4],
+        action: state.action,
+        evidence: [],
+        preview: { before: 'a', after: 'b' },
+      };
+      const row = { id: 'a'.repeat(64), revision: 'b'.repeat(64), state: 'awaiting_human', unread: false, body };
+      return {
+        items: [row],
+        counts: { unread: 0, pending: 2 },
+        contentRevision: state.action,
+        nextCursor: 'e'.repeat(64),
+      };
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      return {};
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const more = root.querySelectorAll('button').find((node) => node.textContent === 'Show more recommendations');
+  const [load] = more?.listeners.get('click') ?? [];
+  assert.ok(typeof load === 'function');
+  Reflect.apply(load, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  state.action = 'Second wording';
+  await pane.refresh();
+  assert.match(root.textContent, /Second wording/v);
+});
+
+await test('more than one page is reachable through the cursor', async (t) => {
+  const dom = installDom(t);
+  const after: (string | null)[] = [];
+  const pane = createRecommendationsView({
+    list: async (cursor) => {
+      after.push(cursor);
+      await Promise.resolve();
+      return cursor === null ? { ...page(), nextCursor: 'e'.repeat(64) } : page(false, 'd'.repeat(64));
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      return {};
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  const more = root.querySelectorAll('button').find((node) => node.textContent === 'Show more recommendations');
+  const [load] = more?.listeners.get('click') ?? [];
+  assert.ok(typeof load === 'function');
+  Reflect.apply(load, undefined, []);
+  await new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.deepEqual(after, [null, null, 'e'.repeat(64)]);
+  assert.equal(root.querySelectorAll('li').length, 2);
 });

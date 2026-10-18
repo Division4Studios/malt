@@ -13,7 +13,12 @@ declare module '*/web/dist/recommendations-ui.js' {
    * @returns The pane's stable root, its refresh and its project reset.
    */
   export function createRecommendationsView(hooks: {
-    readonly list: () => Promise<unknown>;
+    readonly list: (after: string | null) => Promise<unknown>;
     readonly markRead: (id: string, revision: string) => Promise<unknown>;
-  }): { readonly element: unknown; readonly refresh: () => Promise<void>; readonly reset: () => void };
+  }): {
+    readonly element: unknown;
+    readonly refresh: () => Promise<void>;
+    readonly reset: () => void;
+    readonly relabel: () => void;
+  };
 }
