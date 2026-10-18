@@ -288,6 +288,8 @@ class CostsView {
   private renderKey = '';
   /** Single-flight guard. */
   private isLoading = false;
+  /** Whether the selection changed during the read in flight. */
+  private isStale = false;
 
   /**
    * Build the view shell.
@@ -327,33 +329,58 @@ class CostsView {
   /** Re-read the summary for the current project and window. */
   public async refresh(): Promise<void> {
     const project = this.hooks.project();
-    if (project === '' || this.isLoading) {
+    if (project === '') {
+      return;
+    }
+    if (this.isLoading) {
+      this.isStale = true;
       return;
     }
     if (project !== this.project) {
+      // Drafts belong to the project they were typed for; never save them into another.
       this.project = project;
       this.renderKey = '';
+      this.editor.reset();
+      this.caps.reset();
     }
     this.isLoading = true;
+    this.isStale = false;
+    const days = this.window.value;
     try {
-      const route = `${scoped(project, '/api/costs')}&days=${encodeURIComponent(this.window.value)}&timeZone=${encodeURIComponent(this.timeZone)}`;
+      const route = `${scoped(project, '/api/costs')}&days=${encodeURIComponent(days)}&timeZone=${encodeURIComponent(this.timeZone)}`;
       const summary = data(await this.read(route));
-      if (project !== this.hooks.project()) {
-        return;
-      }
-      this.status.textContent = '';
-      this.editor.load(priceTable(summary));
-      this.caps.load(summary);
-      const key = JSON.stringify({ ...summary, generatedAt: 0 });
-      if (key !== this.renderKey) {
-        this.renderKey = key;
-        this.summary.replaceChildren(...summarySections(summary));
-      }
+      this.isStale = project !== this.hooks.project() || days !== this.window.value;
+      this.show(this.isStale ? null : summary);
     } catch (error) {
       this.status.textContent = error instanceof Error ? error.message : t('Costs could not be read.');
     } finally {
       this.isLoading = false;
+      // The window or project changed while this read was in flight: read the current selection.
+      if (this.isStale) {
+        void this.refresh();
+      }
     }
+  }
+
+  /**
+   * Render a summary that still matches the selection.
+   *
+   * @param summary - Validated summary, or null when the selection moved on.
+   */
+  private show(summary: Data | null): void {
+    if (summary === null) {
+      return;
+    }
+    this.status.textContent = '';
+    this.editor.load(priceTable(summary));
+    this.caps.load(summary);
+    const key = JSON.stringify({ ...summary, generatedAt: 0 });
+    if (key === this.renderKey) {
+      return;
+    }
+
+    this.renderKey = key;
+    this.summary.replaceChildren(...summarySections(summary));
   }
 }
 

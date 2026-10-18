@@ -25,6 +25,7 @@ import {
   PLANNING_KINDS,
   PROVIDERS,
   SEATS,
+  TITLE_MAX,
   addStep,
   blankDraft,
   copyNames,
@@ -307,6 +308,11 @@ void test('customizing a built-in copies it under a unique id and name', () => {
   assert.deepEqual(own.origin, { id: 'quick-copy', revision: REVISION });
   assert.equal(own.draft.id, 'quick-copy');
   assert.equal(copyNames({ id: 'x'.repeat(KEY_MAX), name: 'X' }, all).id, `${'x'.repeat(KEY_MAX - 5)}-copy`);
+  const long = 'L'.repeat(TITLE_MAX);
+  assert.ok(
+    copyNames({ id: 'long', name: long }, all).name.length <= TITLE_MAX,
+    'a copy of a full-length name still saves',
+  );
 });
 
 void test('a new workflow starts valid and saves with exact request bodies', () => {
@@ -558,9 +564,14 @@ void test('workflow-level checks reserve built-in ids and refuse collisions', ()
 });
 
 void test('server errors split into separate problems and stale revisions are recognised', () => {
-  const draft = removeStep(builtin('quick'), 'delivery', step(builtin('quick'), 'review').uid);
-  const joined = serverProblems({ ...draft, id: 'q2' }).join(' ');
-  assert.deepEqual(splitProblems(joined), serverProblems({ ...draft, id: 'q2' }));
+  const quick = builtin('quick');
+  const draft = removeStep(quick, 'delivery', step(quick, 'review').uid);
+  // The server ends every problem as a sentence before joining them.
+  const problems = serverProblems({ ...draft, id: 'Bad id', name: '' }).map((problem) =>
+    /[!.?]$/v.test(problem) ? problem : `${problem}.`,
+  );
+  assert.ok(problems.length > 1, 'the fixture really produces several problems');
+  assert.deepEqual(splitProblems(problems.join(' ')), problems);
   assert.deepEqual(splitProblems('One problem only'), ['One problem only']);
   assert.ok(isStaleRevision('This workflow changed since you opened it. Reload and reapply your edit.'));
   assert.equal(isStaleRevision('"x" is a built-in workflow; save a copy under a new id.'), false);
