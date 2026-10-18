@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
-import { run, selectAll } from '../database.ts';
+import { run, selectAll, selectOne } from '../database.ts';
 import { hasErrorCode } from '../errors.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -66,6 +66,8 @@ const auditSchema = z.object({
 });
 /** Stored row payload. */
 const rowSchema = z.object({ data: z.string() });
+/** Highest issued version row. */
+const versionRowSchema = z.object({ version: z.number().int().nonnegative() });
 
 /** A secret as status shows it: everything but the value. */
 export type SecretView = Omit<Sealed, 'iv' | 'tag' | 'ciphertext'>;
@@ -94,7 +96,35 @@ function ensureTables(store: Store): void {
   store.db.exec(`
     CREATE TABLE IF NOT EXISTS factory_vault (name TEXT PRIMARY KEY, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS factory_vault_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS factory_vault_versions (name TEXT PRIMARY KEY, version INTEGER NOT NULL);
   `);
+}
+
+/**
+ * The next version for a name. The highest version ever issued outlives a
+ * deletion, so a recreated secret never reuses a version an operator may
+ * still have open for the deleted one.
+ *
+ * @param store - Project SQLite owner.
+ * @param name - Secret name.
+ * @param current - Version of the existing secret, or 0.
+ * @returns Next version, recorded as issued.
+ */
+function nextVersion(store: Store, name: string, current = 0): number {
+  const issued = selectOne(
+    store.db,
+    versionRowSchema,
+    'SELECT version FROM factory_vault_versions WHERE name = ?',
+    name,
+  );
+  const version = Math.max(current, issued?.version ?? 0) + 1;
+  run(
+    store.db,
+    'INSERT INTO factory_vault_versions(name,version) VALUES(?,?) ON CONFLICT(name) DO UPDATE SET version=excluded.version',
+    name,
+    version,
+  );
+  return version;
 }
 
 /**
@@ -272,7 +302,7 @@ export function saveSecret(vault: Vault, input: SecretSave, types: readonly stri
       ...existing,
       ...sealedValue,
       name: input.name,
-      version: (existing?.version ?? 0) + 1,
+      version: nextVersion(vault.store, input.name, existing?.version),
       grants: input.grants,
       updatedAt: now,
     });
