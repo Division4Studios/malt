@@ -12,6 +12,7 @@ import { writeAtomic } from '../summary.ts';
 
 import { hasCriticalMemoryPressure } from './resources.ts';
 import { factoryConfigSchema, factorySchemas } from './schema.ts';
+import { CODE_JOB_KINDS, JOB_PHASE } from './seats.ts';
 import { installFactorySkills } from './skills.ts';
 import { isCurrentTriage, cancelTriage } from './triage.ts';
 
@@ -227,19 +228,9 @@ export function canApplyInstructionStage(context: FactoryContext, job: FactoryJo
     return true;
   }
   const task = context.repository.task(job.taskId);
-  const stages = {
-    develop: 'development',
-    review: 'review',
-    final: 'merge_ready',
-    verify: 'verifying',
-    plan: '',
-    refine: '',
-    learn: '',
-    skill: '',
-    triage: '',
-  } as const;
   return (
-    task.phase === stages[job.kind] && (job.kind === 'develop' || (task.head === job.head && task.base === job.base))
+    task.phase === JOB_PHASE[job.kind] &&
+    (CODE_JOB_KINDS.has(job.kind) || (task.head === job.head && task.base === job.base))
   );
 }
 
