@@ -26,6 +26,8 @@ import type { RecommendationOperator } from '../factory/recommendation-decisions
 import type { TerminalOperator } from '../factory/terminal-schema.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
+/** Largest manager conversation page served to the console. */
+const MANAGER_PAGE_MAX = 500;
 /** Static assets are explicit, preventing arbitrary path traversal. */
 const ASSETS = new Map<string, readonly [string, string]>([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -98,6 +100,10 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'automations-model',
     'automations-ui',
     'diff-parse',
+    'pulls-ui',
+    'pulls-controller',
+    'manager-ui',
+    'manager-controller',
     'diff-model',
     'diff-ui',
     'onboarding-model',
@@ -518,6 +524,41 @@ function historyQuery(url: URL): z.output<typeof historyQuerySchema> {
 }
 
 /**
+ * Parse one bounded delivery manager history page.
+ *
+ * @param url - Local request URL.
+ * @returns Event cursor and page size.
+ */
+function managerHistoryQuery(url: URL): { after: number; limit: number } {
+  const after = z.coerce
+    .number()
+    .int()
+    .nonnegative()
+    .parse(url.searchParams.get('after') ?? '0');
+  const limit = z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(MANAGER_PAGE_MAX)
+    .parse(url.searchParams.get('limit') ?? '200');
+  return { after, limit };
+}
+
+/**
+ * Project-scoped reads served by path.
+ *
+ * @param gateway - Gateway that reads the selected project's broker.
+ * @returns One read per path.
+ */
+function projectReads(gateway: ProjectGateway): Readonly<Record<string, (project: string) => Promise<unknown>>> {
+  return {
+    '/api/version': async (scope) => gateway.versions(scope),
+    '/api/preflight': async (scope) => gateway.preflight(scope),
+    '/api/capabilities': async (scope) => gateway.capabilities(scope),
+  };
+}
+
+/**
  * Dispatch authenticated inspection routes without mixing their cases with mutations.
  *
  * @param url - Validated local request URL.
@@ -561,12 +602,14 @@ async function inspectApi(
       await streams.open(gateway, project, { request, response, sessions });
       return;
     }
-    case '/api/version': {
-      json(response, HTTP.ok, await gateway.versions(project));
+    case '/api/manager-history': {
+      const { after, limit } = managerHistoryQuery(url);
+      json(response, HTTP.ok, await gateway.managerHistory(project, after, limit));
       return;
     }
-    case '/api/preflight': {
-      json(response, HTTP.ok, await gateway.preflight(project));
+    case '/api/local-pull': {
+      const number = z.coerce.number().int().positive().parse(url.searchParams.get('number'));
+      json(response, HTTP.ok, await gateway.localPull(project, number));
       return;
     }
     case '/api/artifact': {
@@ -574,8 +617,9 @@ async function inspectApi(
       return;
     }
     default: {
-      // Attempt, transcript and cost reads; any other path is an unknown inspection route (404).
-      json(response, HTTP.ok, await telemetryRoute(url, gateway));
+      // Version, preflight and capability reads, then attempt, transcript and cost reads; else unknown (404).
+      const read = projectReads(gateway)[url.pathname];
+      json(response, HTTP.ok, read === undefined ? await telemetryRoute(url, gateway) : await read(project));
     }
   }
 }

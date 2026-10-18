@@ -170,6 +170,15 @@ export class WorkflowEditor {
   }
 
   /**
+   * Whether a save is in flight; the draft cannot change or be replaced until it settles.
+   *
+   * @returns True while saving.
+   */
+  public get isBusy(): boolean {
+    return this.isSaving;
+  }
+
+  /**
    * Whether the open draft differs from what was opened.
    *
    * @returns True when closing would lose edits.
@@ -501,10 +510,9 @@ export class WorkflowEditor {
       );
       return;
     }
-    this.apply(renameStep(this.draft, section, step.uid, id));
-    for (const node of this.form.querySelectorAll(`[data-id-of="${CSS.escape(step.uid)}"]`)) {
-      node.textContent = id;
-    }
+    this.draft = renameStep(this.draft, section, step.uid, id);
+    // Re-render the section so every reference control, including forward references, names the new id.
+    this.renderSteps(section);
   }
 
   /**
@@ -628,13 +636,17 @@ export class WorkflowEditor {
     }
     this.isSaving = true;
     this.saveButton.disabled = true;
+    // The submitted draft cannot be edited until the save settles, so its outcome always describes it.
+    this.form.inert = true;
     this.clearFailure();
     this.status.textContent = t('Saving…');
-    const result = await this.hooks.send('factory_workflow_save', saveRequest(this.draft, this.origin));
+    const submitted = this.draft;
+    const result = await this.hooks.send('factory_workflow_save', saveRequest(submitted, this.origin));
     this.isSaving = false;
     this.saveButton.disabled = false;
+    this.form.inert = false;
     if (result.ok) {
-      this.hooks.saved(this.draft.id);
+      this.hooks.saved(submitted.id);
       return;
     }
     this.failed(result.error);
