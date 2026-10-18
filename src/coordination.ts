@@ -251,7 +251,9 @@ export class Coordination {
     return (
       id !== this.leadId() &&
       agent.role !== 'observer' &&
+      // Managed assignments and the persistent manager are scheduled by the supervisor, not check-in.
       agent.runtime !== 'factory-managed' &&
+      agent.runtime !== 'factory-manager' &&
       agent.lifetime !== 'ended'
     );
   }
