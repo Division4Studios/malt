@@ -37,12 +37,21 @@ import { z } from 'zod/v3';
 
 import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
+import { fireTrigger } from './factory/automations.ts';
+import {
+  AGENT_OPERATIONS,
+  OPERATOR_ONLY_MESSAGE,
+  OPERATOR_ONLY_OPERATIONS,
+  assertManagerScope,
+} from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
+import { managedToolGate } from './factory/role-handlers.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
+import { assertManagedTool } from './managed-tools.ts';
 import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
@@ -56,6 +65,7 @@ import {
 } from './protocol.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
+import { TRIGGER_PATH, triggerCall } from './trigger-request.ts';
 import { Waiters } from './waiters.ts';
 
 import type { CapabilityPrincipal } from './capability-policy.ts';
@@ -336,6 +346,28 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 }
 
 /**
+ * Fire a webhook trigger. The caller proves itself with the trigger's own
+ * secret, not the project token, so a local script can hold one narrowly
+ * scoped credential. Only the home team and teams already open are addressable.
+ *
+ * @param context - The broker context.
+ * @param request - The incoming request.
+ * @param id - Trigger id from the path.
+ * @returns The objective filed or matched by idempotency key.
+ * @throws {MeshError} For an unknown team or trigger, a wrong secret, bad JSON or too many calls.
+ */
+async function handleTrigger(context: BrokerContext, request: IncomingMessage, id: string): Promise<unknown> {
+  const slug = request.headers['x-agentmesh-team'];
+  const team = typeof slug === 'string' ? context.teams.get(slug) : context.home;
+  if (team === undefined) {
+    throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
+  }
+  const result = fireTrigger(team.factory.repository, triggerCall(request.headers, await readJson(request), id));
+  team.waiters.notify();
+  return result;
+}
+
+/**
  * Write a JSON response unless the client has already gone away.
  *
  * @param response - The server response.
@@ -479,9 +511,10 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  assertManagedTool(managedToolGate(team.store, team.factory.repository), operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
-    assertFactoryAuthority(team, operation, credentials);
+    assertFactoryAuthority(team, operation, credentials, input);
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return team.factory.execute(
       operation,
@@ -509,36 +542,34 @@ async function handleRpc(
  * @param team - Selected project.
  * @param operation - Validated factory operation.
  * @param credentials - Optional attached agent identity.
+ * @param input - Validated operation input, inspected for manager-restricted actions.
  * @throws {MeshError} When an agent attempts an operator-only operation.
  */
-function assertFactoryAuthority(team: Team, operation: Operation, credentials: PresentedCredentials | undefined): void {
+function assertFactoryAuthority(
+  team: Team,
+  operation: Operation,
+  credentials: PresentedCredentials | undefined,
+  input: unknown,
+): void {
   if (credentials === undefined) {
+    if (operation === 'factory_manager_ask') {
+      throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+    }
     return;
   }
-  if (
-    [
-      'factory_skill_decide',
-      'factory_export_maintenance',
-      'factory_recover',
-      'factory_reconcile_github',
-      'factory_recommendation_read',
-    ].includes(operation)
-  ) {
+  if (OPERATOR_ONLY_OPERATIONS.has(operation)) {
     team.store.authenticate(credentials);
-    throw new MeshError(
-      'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, objective recovery, GitHub reconciliation or cross-project maintenance.',
-    );
+    throw new MeshError('NOT_ORCHESTRATOR', OPERATOR_ONLY_MESSAGE);
   }
   const actor = team.store.authenticate(credentials);
-  if (
-    operation !== 'factory_status' &&
-    operation !== 'factory_recommendations' &&
-    operation !== 'factory_recommendation_propose' &&
-    operation !== 'factory_read_source' &&
-    operation !== 'factory_progress' &&
-    actor !== team.store.coordination.leadId()
-  ) {
+  if (team.factory.manager.isManagerActor(actor)) {
+    assertManagerScope(operation, input);
+    return;
+  }
+  if (operation === 'factory_manager_ask') {
+    throw new MeshError('NOT_ORCHESTRATOR', 'Only the live delivery manager asks the operator for decisions.');
+  }
+  if (!AGENT_OPERATIONS.has(operation) && actor !== team.store.coordination.leadId()) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
 }
@@ -666,7 +697,11 @@ async function respond(
     sendJson(response, HTTP_OK, { ok: true, version: VERSION });
     return;
   }
-  const result = await handleRpc(context, record, response, setOperation);
+  const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
+  const result =
+    triggerId === undefined
+      ? await handleRpc(context, record, response, setOperation)
+      : await handleTrigger(context, record, triggerId);
   sendJson(response, HTTP_OK, { result });
 }
 

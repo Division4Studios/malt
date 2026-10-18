@@ -12,7 +12,7 @@ Dependencies name real prerequisites. Independent slices can merge separately. K
 
 ## Local development
 
-Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex/Claude subscriptions and GitHub credentials are not required for fixture tests.
+Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex, Claude Code or Copilot subscriptions and GitHub credentials are not required for fixture tests.
 
 ```sh
 npm ci --ignore-scripts
@@ -26,6 +26,10 @@ CI uses a documentation fast path only when every changed path is a human-facing
 Classification executes the classifier from the immutable base commit, never from the proposed PR checkout. Missing base classifiers use full CI, including the initial introduction of this optimization. A PR changing the classifier cannot use its proposed classifier to exempt itself from validation.
 
 Frontend production dependencies are zero: native TypeScript, semantic HTML, browser APIs and CSS. The backend has exactly three runtime packages, each kept for one contained role: Zod (input validation), the MCP SDK (stdio protocol for agent sessions) and the pinned `node-pty` (scratch terminals only), alongside built-in `node:sqlite`. Do not add runtime packages; new code validates with hand-written checks where no Zod boundary exists. Runtime packages must use an MIT-compatible license (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0 or 0BSD), which the Security gate enforces. Keep exact version pins, install with `npm ci --ignore-scripts` and never import a development package at runtime. See the [dependency policy](docs/dependency-policy.md) for why each package stays and how they are locked down. Do not add frameworks, browser libraries, runtime package downloads or broad lint suppressions. Validate external input and preserve existing strict checks.
+
+### Console text
+
+Every operator-visible string in `web/src` goes through the message catalog. Write the English text itself as the key: `t('Pause factory')`, with `{name}` placeholders named for what they hold (`t('Instruct {role}', { role })`, never `{value}`), and English fallbacks inside parameters translated too and ICU plural branches for counts (`t('{count, plural, one {# file} other {# files}}', { count })`). Never build a sentence from translated fragments or English plural endings. Text in a table evaluated at module load is marked with `phrase('…')` and the table wrapped in `translated(…)`, so it follows a language change. Add the Simplified Chinese translation to the `web/src/catalog-zh-*.ts` file for that console area. `test/i18n.test.ts` fails when a message has no translation, a translation changes its placeholders, a translation outlives its message, or a view sets visible text from a hard-coded English literal; `node scripts/i18n-keys.ts` lists every message it checks.
 
 ## Native test resources
 

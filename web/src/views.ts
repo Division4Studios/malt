@@ -6,6 +6,8 @@
 import { child, firstText, numericText, number, records, text, hasFlag } from './api.js';
 import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { capacityView } from './capacity-view.js';
+import { definitionProgress } from './goal-ui.js';
+import { formatTime, t } from './i18n.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
 import { recoveryPanel } from './recovery-ui.js';
@@ -43,6 +45,10 @@ export const ROLES = [
   'qa-2',
   'final-tester',
   'learning-steward',
+  'plan-reviewer',
+  'fixer',
+  'librarian',
+  'regression-verifier',
 ] as const;
 /** Operator actions are routed by the controller, never run by a view. */
 export interface Actions {
@@ -224,28 +230,31 @@ function roleCard(state: Snapshot, role: string, actions: Actions): HTMLElement 
     ),
     element('h3', '', name),
   );
-  heading.append(identity, pill(isLive ? 'running' : 'spun down'));
+  heading.append(identity, pill(isLive ? 'running' : t('spun down')));
   node.append(heading);
   appendHandoffBadge(node, state, role);
   const routing = child(job, 'routing');
-  const model = firstText(text(routing, 'model'), 'CLI default · capability unverified');
+  const model = firstText(text(routing, 'model'), t('CLI default · capability unverified'));
   if (Object.keys(routing).length > 0) {
     node.append(element('p', 'subtle', `${model} · ${text(routing, 'tier')}`));
   }
   const pid = number(job, 'pid');
-  const processId = pid > 0 ? String(pid) : 'starting';
+  const processId = pid > 0 ? String(pid) : t('starting');
+  const provider = text(job, 'provider');
+  const kind = text(job, 'kind');
   node.append(
     element(
       'p',
       '',
       isLive
-        ? `${text(job, 'provider')} · ${text(job, 'kind')} · PID ${processId}`
-        : 'No model process · awaiting eligible work',
+        ? t('{provider} · {kind} · PID {processId}', { provider, kind, processId })
+        : t('No model process · awaiting eligible work'),
     ),
   );
   const issue = number(task, 'issue');
-  const parkedScope =
-    role === 'learning-steward' ? 'Evidence, research & project skills' : 'Planning / next assignment';
+  const parkedScope = t(
+    role === 'learning-steward' ? 'Evidence, research & project skills' : 'Planning / next assignment',
+  );
   node.append(
     issue > 0
       ? link(issueUrl(state, issue), `#${String(issue)} ${text(task, 'title')}`)
@@ -253,10 +262,10 @@ function roleCard(state: Snapshot, role: string, actions: Actions): HTMLElement 
   );
   const footer = element('div', 'role-footer');
   footer.append(
-    button('Open workspace ↗', () => {
+    button(t('Open workspace ↗'), () => {
       actions.inspect(role);
     }),
-    button('Send instruction', () => {
+    button(t('Send instruction'), () => {
       actions.instruct(role, text(task, 'id'), false);
     }),
   );
@@ -300,7 +309,7 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
     const detail = element('div');
     const evidence = child(event, 'data');
     const occurred = new Date(number(event, 'created_at'));
-    const eventTime = occurred.toLocaleTimeString();
+    const eventTime = formatTime(occurred);
     detail.append(
       element('div', 'event-text', text(event, 'type').replaceAll('_', ' ').toLowerCase()),
       element('div', 'event-time', eventTime),
@@ -319,7 +328,7 @@ export function activityView(state: Snapshot, isCompact = false): HTMLElement {
     body.append(node);
   }
   if (events.length === 0) {
-    body.append(element('p', 'subtle', 'No activity yet. A quiet factory is not consuming model tokens.'));
+    body.append(element('p', 'subtle', t('No activity yet. A quiet factory is not consuming model tokens.')));
   }
   return body;
 }
@@ -339,13 +348,20 @@ export function overviewView(state: Snapshot, actions: Actions, isConnected = tr
   const left = element('div');
   const team = element('div', 'panel-body');
   team.append(teamView(state, actions, false));
-  left.append(panel('Your autonomous team', '08 LOGICAL ROLES', team));
+  const roleCount = t('{count} LOGICAL ROLES', { count: String(ROLES.length).padStart(2, '0') });
+  left.append(panel(t('Your autonomous team'), roleCount, team));
   const queue = objectiveQueue(records(state.factory['features']), actions, child(state.factory, 'objectiveQueue'));
-  left.append(panel('Product queue', `${String(queue.unfinished)} UNFINISHED OBJECTIVES`, queue.body));
+  left.append(
+    panel(t('Product queue'), t('{unfinished} UNFINISHED OBJECTIVES', { unfinished: queue.unfinished }), queue.body),
+  );
+  const progress = definitionProgress({ factory: state.factory });
+  if (progress !== null) {
+    left.append(panel(t('Definitions of done'), t('OPEN CHECKLISTS'), progress));
+  }
   const right = element('div');
   right.append(
-    panel('Provider & local capacity', 'SUBSCRIPTION SESSIONS', capacityView(state)),
-    panel('Latest handoffs and messages', 'DURABLE RECORDS', handoffPreviews(state, isConnected)),
+    panel(t('Provider & local capacity'), t('SUBSCRIPTION SESSIONS'), capacityView(state)),
+    panel(t('Latest handoffs and messages'), t('DURABLE RECORDS'), handoffPreviews(state, isConnected)),
   );
   grid.append(left, right);
   node.append(recoveryPanel(state, actions), metrics, triagePanel(state, actions), grid);
@@ -363,15 +379,15 @@ export function deliveryView(state: Snapshot, actions: Actions): HTMLElement {
   const tasks = records(state.factory['tasks']);
   if (tasks.length === 0) {
     return empty(
-      'No delivery tickets yet',
-      'Product owner and team lead prepare atomic parent/child issues on the connected GitHub Project.',
+      t('No delivery tickets yet'),
+      t('Product owner and team lead prepare atomic parent/child issues on the connected GitHub Project.'),
     );
   }
   const board = element('div', 'board');
   const columns = [
     ['PREPARED', ['ready']],
     ['DEVELOPMENT', ['development', 'publishing', 'blocked']],
-    ['REVIEW & VERIFY', ['review', 'merge_ready', 'merging', 'verifying', 'closing']],
+    [t('REVIEW & VERIFY'), ['review', 'merge_ready', 'merging', 'verifying', 'closing']],
     ['DELIVERED', ['done']],
   ] as const;
   for (const [title, phases] of columns) {
@@ -400,16 +416,17 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const node = element('article', 'ticket');
   const phase = text(task, 'phase');
   const issue = number(task, 'issue');
-  const owner = firstText(text(task, 'developer'), 'unassigned');
+  const owner = firstText(text(task, 'developer'), t('unassigned'));
+  const attempts = numericText(task, 'attempts');
   node.append(
     link(issueUrl(state, issue), `#${String(issue)} · parent #${numericText(task, 'parentIssue')}`),
     element('h3', '', text(task, 'title')),
     pill(phase),
-    element('p', '', `Owner: ${owner} · attempts ${numericText(task, 'attempts')}`),
+    element('p', '', t('Owner: {owner} · attempts {attempts}', { owner, attempts })),
   );
   const reviews = records(task['reviews']);
   const head = firstText(text(task, 'head').slice(0, HEAD_LENGTH), 'unpublished');
-  node.append(element('p', '', `Independent QA: ${String(reviews.length)}/2 · head ${head}`));
+  node.append(element('p', '', t('Independent QA: {length}/2 · head {head}', { length: reviews.length, head })));
   const criteria = task['acceptanceCriteria'];
   if (Array.isArray(criteria)) {
     const list = element('ul');
@@ -424,20 +441,21 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
     node.append(element('p', 'error', text(task, 'error')));
   }
   if (text(task, 'prUrl') !== '') {
-    node.append(link(text(task, 'prUrl'), `PR #${numericText(task, 'pr')} ↗`));
+    const label = t('PR #{pr} ↗', { pr: numericText(task, 'pr') });
+    node.append(link(text(task, 'prUrl'), label));
   }
   const controls = element('div', 'ticket-actions');
   controls.append(
-    button('Instruct owner', () => {
+    button(t('Instruct owner'), () => {
       actions.instruct(owner === 'unassigned' ? 'team-lead' : owner, text(task, 'id'), false);
     }),
-    button('Change scope', () => {
+    button(t('Change scope'), () => {
       actions.instruct('team-lead', text(task, 'id'), true);
     }),
   );
   if (phase === 'blocked') {
     controls.append(
-      button('Retry resolved blocker', () => {
+      button(t('Retry resolved blocker'), () => {
         actions.retry(text(task, 'id'), false);
       }),
     );
@@ -471,21 +489,21 @@ export function workerView(
     const file = context.files.get(role) ?? 'stdout.log';
     const taskId = text(job, 'taskId');
     const tools = element('div', 'panel-body toolbar');
-    const processState = firstText(text(job, 'state'), 'spun down');
+    const processState = firstText(text(job, 'state'), t('spun down'));
     const selector = artifactSelector(role, file, context.actions.artifact);
     tools.append(
       selector,
       pill(processState),
-      button('Send instruction', () => {
+      button(t('Send instruction'), () => {
         context.actions.instruct(role, taskId, false);
       }),
-      button('Coordinated scope change', () => {
+      button(t('Coordinated scope change'), () => {
         context.actions.instruct('team-lead', taskId, true);
       }),
     );
     if (text(job, 'state') === 'running') {
       tools.append(
-        button('Cancel owned job', () => {
+        button(t('Cancel owned job'), () => {
           context.actions.cancel(jobId);
         }),
       );
@@ -495,15 +513,15 @@ export function workerView(
       'log',
       context.logs.get(`${jobId}:${file}`) ??
         (text(job, 'id') === ''
-          ? 'This role has not been started. No model process is running.'
-          : `Reading actual ${file}…`),
+          ? t('This role has not been started. No model process is running.')
+          : t('Reading actual {file}…', { file })),
     );
-    log.setAttribute('aria-label', `${role} captured output`);
+    log.setAttribute('aria-label', t('{role} captured output', { role }));
     log.dataset['job'] = text(job, 'id');
     log.dataset['file'] = file;
     const summary = firstText(
       text(job, 'summary'),
-      'Captured output and handoffs. This pane is not an interactive terminal.',
+      t('Captured output and handoffs. This pane is not an interactive terminal.'),
     );
     const body = workerBody({ factory: state.factory, role, taskId, summary, tools, log });
     body.prepend(selectionDetails(job, text(state.factory, 'error')));
@@ -531,29 +549,34 @@ export function learningView(state: Snapshot, actions: Actions): HTMLElement {
       continue;
     }
     const id = text(request, 'id');
+    const revision = text(request, 'revision');
     const item = element('article', 'lesson');
     item.append(
       element('h3', '', text(request, 'name')),
       element('p', '', text(request, 'reason')),
       element('p', '', text(request, 'summary')),
-      element('p', 'subtle', `Exact revision: ${text(request, 'revision')}`),
-      button('Review and approve', () => {
+      element('p', 'subtle', t('Exact revision: {revision}', { revision })),
+      button(t('Review and approve'), () => {
         actions.skillDecision(id, true);
       }),
-      button('Review and reject', () => {
+      button(t('Review and reject'), () => {
         actions.skillDecision(id, false);
       }),
     );
     decisions.append(item);
   }
-  grid.append(panel('Human approval gate', 'PROJECT OVERRIDES', decisions));
+  grid.append(panel(t('Human approval gate'), t('PROJECT OVERRIDES'), decisions));
   grid.append(
-    panel('Reusable factory improvements', 'SEPARATE SOURCE PIPELINE', maintenancePanel(requests, actions.maintenance)),
+    panel(
+      t('Reusable factory improvements'),
+      t('SEPARATE SOURCE PIPELINE'),
+      maintenancePanel(requests, actions.maintenance),
+    ),
   );
   for (const [heading, key] of [
-    ['Observed lessons', 'lessons'],
-    ['Active & retired skills', 'skills'],
-    ['Candidate proposals', 'candidates'],
+    [t('Observed lessons'), 'lessons'],
+    [t('Active & retired skills'), 'skills'],
+    [t('Candidate proposals'), 'candidates'],
   ] as const) {
     const items = records(state.learning[key]);
     const body = element('div');
@@ -576,10 +599,11 @@ export function learningView(state: Snapshot, actions: Actions): HTMLElement {
       body.append(node);
     }
     if (items.length === 0) {
+      const lowered = heading.toLowerCase();
       body.append(
         empty(
-          `No ${heading.toLowerCase()} yet`,
-          'The learning steward records real outcomes and proposes focused project-specific improvements.',
+          t('No {heading} yet', { heading: lowered }),
+          t('The learning steward records real outcomes and proposes focused project-specific improvements.'),
         ),
       );
     }
@@ -600,11 +624,13 @@ export function learningView(state: Snapshot, actions: Actions): HTMLElement {
     element(
       'p',
       'subtle',
-      'Bundled role skills are pinned and licensed in .malt/skills/builtin. Software upgrades refresh unchanged managed baselines and retain previous revisions. Project adaptations require independent lead review and human approval; active local revisions override defaults on new assignments.',
+      t(
+        'Bundled role skills are pinned and licensed in .malt/skills/builtin. Software upgrades refresh unchanged managed baselines and retain previous revisions. Project adaptations require independent lead review and human approval; active local revisions override defaults on new assignments.',
+      ),
     ),
   );
   appendBaselineWarning(sources, state.learning);
-  grid.append(panel('Reviewed research baseline', 'PINNED PROVENANCE', sources));
+  grid.append(panel(t('Reviewed research baseline'), t('PINNED PROVENANCE'), sources));
   return grid;
 }
 
@@ -619,25 +645,27 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
   const grid = element('div', 'setup-steps');
   const connection = child(state.github, 'connection');
   const project = child(connection, 'project');
-  const workflowField = firstText(text(child(connection, 'statusField'), 'name'), 'not selected');
+  const workflowField = firstText(text(child(connection, 'statusField'), 'name'), t('not selected'));
   const github = element('section', 'setup-card');
   const repositoryLabel = firstText(
     text(connection, 'repository'),
-    'Connect the selected target repository to its intended Project.',
+    t('Connect the selected target repository to its intended Project.'),
   );
   github.append(
-    element('div', 'eyebrow', '01 / DELIVERY SOURCE'),
-    element('h2', '', 'GitHub Project'),
-    pill(hasFlag(state.github, 'connected') ? 'connected' : 'not connected'),
+    element('div', 'eyebrow', t('01 / DELIVERY SOURCE')),
+    element('h2', '', t('GitHub Project')),
+    pill(hasFlag(state.github, 'connected') ? 'connected' : t('not connected')),
     element('p', 'subtle', repositoryLabel),
     element(
       'p',
       'subtle',
-      `Workflow field: ${workflowField}. Tickets appear in this Project; board grouping must use this field.`,
+      t('Workflow field: {workflowField}. Tickets appear in this Project; board grouping must use this field.', {
+        workflowField,
+      }),
     ),
-    link(text(project, 'url'), 'Open connected Project ↗'),
+    link(text(project, 'url'), t('Open connected Project ↗')),
     button(
-      'Configure connection',
+      t('Configure connection'),
       () => {
         actions.setup(true);
       },
@@ -646,47 +674,55 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
   );
   const factory = element('section', 'setup-card');
   factory.append(
-    element('div', 'eyebrow', '02 / EXECUTION POLICY'),
-    element('h2', '', 'Factory & validation'),
-    pill(hasFlag(state.factory, 'configured') ? 'configured' : 'setup required'),
+    element('div', 'eyebrow', t('02 / EXECUTION POLICY')),
+    element('h2', '', t('Factory & validation')),
+    pill(hasFlag(state.factory, 'configured') ? 'configured' : t('setup required')),
     element(
       'p',
       'subtle',
-      'Configure real prepare, test and end-to-end commands, provider executables, review standards and local resource limits. Pause before changing policy.',
+      t(
+        'Configure real prepare, test and end-to-end commands, provider executables, review standards and local resource limits. Pause before changing policy.',
+      ),
     ),
     button(
-      'Edit factory configuration',
+      t('Edit factory configuration'),
       () => {
         actions.setup(false);
       },
       'button secondary',
     ),
-    button('Edit model and effort policy', actions.modelPolicy, 'button secondary'),
+    button(t('Edit model and effort policy'), actions.modelPolicy, 'button secondary'),
   );
   const providers = element('section', 'setup-card');
   providers.append(
-    element('div', 'eyebrow', '03 / SUBSCRIPTION SESSIONS'),
-    element('h2', '', 'Codex + Claude'),
+    element('div', 'eyebrow', t('03 / SUBSCRIPTION SESSIONS')),
+    element('h2', '', t('Codex + Claude')),
     element(
       'p',
       'subtle',
-      'Authenticate the native CLIs on the machine or container running the broker. Provider keys never go in browser settings. Quota is unknown unless actual telemetry reports it.',
+      t(
+        'Authenticate the native CLIs on the machine or container running the broker. Provider keys never go in browser settings. Quota is unknown unless actual telemetry reports it.',
+      ),
     ),
     element(
       'p',
       'subtle',
-      'Windows: use native .exe paths. Docker: install and authenticate Linux provider CLIs inside the execution image.',
+      t(
+        'Windows: use native .exe paths. Docker: install and authenticate Linux provider CLIs inside the execution image.',
+      ),
     ),
   );
   const storage = element('section', 'setup-card');
   storage.append(
-    element('div', 'eyebrow', '04 / PROJECT MEMORY'),
-    element('h2', '', 'Durable, local, recoverable'),
+    element('div', 'eyebrow', t('04 / PROJECT MEMORY')),
+    element('h2', '', t('Durable, local, recoverable')),
     element('p', 'subtle', `${text(state.project, 'root')} / .malt`),
     element(
       'p',
       'subtle',
-      'Conversations, instructions, delivery state, skills and evidence stay with the project. The generated README is a navigation aid; SQLite and committed artifacts remain authoritative.',
+      t(
+        'Conversations, instructions, delivery state, skills and evidence stay with the project. The generated README is a navigation aid; SQLite and committed artifacts remain authoritative.',
+      ),
     ),
   );
   grid.append(github, factory, providers, storage);

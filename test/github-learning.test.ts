@@ -922,3 +922,24 @@ await test('issue close effects leave an already-closed issue and its recorded r
     { endpoint: 'repos/example/app/issues/8', input: { state: 'closed', state_reason: 'completed' } },
   ]);
 });
+
+await test('delivery adapter reads failed Actions job logs by job id and skips other CI links', async (t) => {
+  const config = createProject(createCleanup(t));
+  const remote = new FakeGitHub();
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const calls: string[][] = [];
+  const adapter = new GitHubDelivery(config, github, remote.run, async (args) => {
+    calls.push([...args]);
+    return await delay(0, 'raw job log');
+  });
+  const logs = await adapter.checkLogs([
+    { name: 'check', state: 'failed', url: 'https://github.com/example/app/actions/runs/1/job/9' },
+    { name: 'external', state: 'failed', url: 'https://ci.example.invalid/builds/1' },
+  ]);
+  assert.deepEqual(logs, [
+    { name: 'check', text: 'raw job log' },
+    { name: 'external', text: null },
+  ]);
+  assert.deepEqual(calls, [['api', 'repos/example/app/actions/jobs/9/logs']]);
+});

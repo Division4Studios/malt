@@ -4,6 +4,7 @@
  * @file
  */
 import { child, data, text, displayText } from './api.js';
+import { phrase, t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Snapshot, Data } from './api.js';
@@ -60,21 +61,23 @@ export function organizationPanel(state: Snapshot, edit: () => void): HTMLElemen
   const types = child(organization, 'types');
   const members = child(organization, 'members');
   section.append(
-    element('h2', '', 'Agent types & reporting hierarchy'),
+    element('h2', '', t('Agent types & reporting hierarchy')),
     element(
       'p',
       'subtle',
-      'Reusable types specialize the eight managed execution seats. Reporting handoffs are durable and delivered on the manager’s next relevant assignment. Mandatory QA and merge gates remain independent.',
+      t(
+        'Reusable types specialize the eight managed execution seats. Reporting handoffs are durable and delivered on the manager’s next relevant assignment. Mandatory QA and merge gates remain independent.',
+      ),
     ),
   );
-  const button = element('button', 'button secondary', 'Edit agent types & hierarchy');
+  const button = element('button', 'button secondary', t('Edit agent types & hierarchy'));
   button.type = 'button';
   button.disabled = Object.keys(organization).length === 0;
   button.addEventListener('click', edit);
   section.append(button);
   if (button.disabled) {
     section.append(
-      element('p', 'subtle', 'Configure the factory in Project setup to establish its managed organization.'),
+      element('p', 'subtle', t('Configure the factory in Project setup to establish its managed organization.')),
     );
     return section;
   }
@@ -85,13 +88,13 @@ export function organizationPanel(state: Snapshot, edit: () => void): HTMLElemen
     const priority = Array.isArray(skills)
       ? skills.filter((skill: unknown) => typeof skill === 'string').join(' → ')
       : '';
+    const floor = t('Capability floor: {tier} · prioritized skills: {skills}', {
+      tier: text(profile, 'minimumTier'),
+      skills: priority === '' ? t('stage baseline only') : priority,
+    });
     card.append(
       element('h3', '', `${name} / ${text(profile, 'label')}`),
-      element(
-        'p',
-        'subtle',
-        `Capability floor: ${text(profile, 'minimumTier')} · prioritized skills: ${priority === '' ? 'stage baseline only' : priority}`,
-      ),
+      element('p', 'subtle', floor),
       element('p', '', text(profile, 'instructions').slice(0, EXCERPT)),
     );
     section.append(card);
@@ -104,7 +107,7 @@ export function organizationPanel(state: Snapshot, edit: () => void): HTMLElemen
       element('li', '', `${role} / ${text(member, 'type')} → ${manager === '' ? 'operator (root)' : manager}`),
     );
   }
-  section.append(element('h3', '', 'Reporting handoffs'), list);
+  section.append(element('h3', '', t('Reporting handoffs')), list);
   return section;
 }
 
@@ -120,9 +123,10 @@ export function organizationDialog(settings: Data): {
 } {
   return {
     description: {
-      title: 'Agent types & reporting hierarchy',
-      explanation:
+      title: t('Agent types & reporting hierarchy'),
+      explanation: t(
         'Pause managed work before saving. Edit types, prioritized skills, capability floors and member reporting links. Every seat must reference an existing type; cycles and unknown roles are rejected.',
+      ),
       initial: JSON.stringify(child(settings, 'organization'), null, 2),
     },
     action: { operation: 'factory_setup', input: (body) => ({ ...settings, organization: data(JSON.parse(body)) }) },
@@ -130,8 +134,9 @@ export function organizationDialog(settings: Data): {
 }
 
 /** Operator guidance for a rejected Project link; never echoes the entered value. */
-const invalidProjectUrl =
-  'Paste an existing https://github.com/users/OWNER/projects/NUMBER or /orgs/OWNER/projects/NUMBER URL.';
+const invalidProjectUrl = phrase(
+  'Paste an existing https://github.com/users/OWNER/projects/NUMBER or /orgs/OWNER/projects/NUMBER URL.',
+);
 
 /**
  * Convert explicit GitHub fields into a repository-scoped connection request.
@@ -144,7 +149,7 @@ const invalidProjectUrl =
  */
 export function githubConnectionInput(repository: string, projectUrl: string, statusFieldName: string): Data {
   if (!/^https:\/\/github\.com\//iv.test(projectUrl.trim())) {
-    throw new Error(invalidProjectUrl);
+    throw new Error(t(invalidProjectUrl));
   }
   const repositoryName = repository.trim();
   const field = statusFieldName.trim();
@@ -152,7 +157,7 @@ export function githubConnectionInput(repository: string, projectUrl: string, st
   try {
     url = new URL(projectUrl.trim());
   } catch {
-    throw new Error(invalidProjectUrl);
+    throw new Error(t(invalidProjectUrl));
   }
   const match = /^\/(?:orgs|users)\/(?<owner>[\w\-]+)\/projects\/(?<number>\d+)\/?$/v.exec(url.pathname);
   if (
@@ -162,12 +167,12 @@ export function githubConnectionInput(repository: string, projectUrl: string, st
     url.port !== '' ||
     [url.username, url.password, url.search, url.hash].some((value) => value !== '')
   ) {
-    throw new Error(invalidProjectUrl);
+    throw new Error(t(invalidProjectUrl));
   }
   const owner = match.groups?.['owner'] ?? '';
   const number = Number(match.groups?.['number']);
   if (field === '' || number < 1 || !Number.isSafeInteger(number) || !/^[\w\-.]+\/[\w\-.]+$/v.test(repositoryName)) {
-    throw new Error('Use owner/repository, a positive Project number and the exact existing workflow field name.');
+    throw new Error(t('Use owner/repository, a positive Project number and the exact existing workflow field name.'));
   }
   return { repository: repositoryName, owner, projectNumber: number, statusFieldName: field };
 }
@@ -179,9 +184,10 @@ export function githubConnectionInput(repository: string, projectUrl: string, st
  */
 export function githubConnectionDescription(): ReturnType<typeof organizationDialog>['description'] {
   return {
-    title: 'Connect GitHub Project',
-    explanation:
+    title: t('Connect GitHub Project'),
+    explanation: t(
       'Review the saved connection for this repository. This connects an existing Project; it does not create a board.',
+    ),
     initial: '',
   };
 }
@@ -216,18 +222,18 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
   const panel = element('section', 'connection-fields');
   panel.dataset['githubConnection'] = '';
   const inputs = [
-    ['Repository', 'github-repository', text(connection, 'repository'), 'Division4Studios/malt'],
+    [t('Repository'), 'github-repository', text(connection, 'repository'), 'Division4Studios/malt'],
     [
-      'GitHub Project URL',
+      t('GitHub Project URL'),
       'github-project-url',
       text(child(connection, 'project'), 'url'),
       'https://github.com/users/Division4Studios/projects/10',
     ],
     [
-      'Workflow status field',
+      t('Workflow status field'),
       'github-status-field',
-      displayText(text(child(connection, 'statusField'), 'name'), 'Status'),
-      'Status',
+      displayText(text(child(connection, 'statusField'), 'name'), t('Status')),
+      t('Status'),
     ],
   ].map(([labelText = '', id = '', value = '', placeholder = '']) => {
     const input = element('input');
@@ -246,7 +252,9 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
     element(
       'p',
       'subtle',
-      'Paste the Project link; its owner and number are derived automatically. Use Status to match the existing board. GitHub CLI verifies repository access, Project permission and all workflow options before saving. Saved views are not changed.',
+      t(
+        'Paste the Project link; its owner and number are derived automatically. Use Status to match the existing board. GitHub CLI verifies repository access, Project permission and all workflow options before saving. Saved views are not changed.',
+      ),
     ),
   );
   textarea.before(panel);
@@ -267,15 +275,20 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
  */
 export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizationDialog> {
   const defaults = {
+    delivery: 'local',
+    remote: 'malt-hub',
     testCommands: [{ file: 'npm', args: ['test'] }],
     endToEndCommands: [{ file: 'npm', args: ['run', 'test:e2e'] }],
     prepareCommands: [{ file: 'npm', args: ['ci', '--ignore-scripts'] }],
   };
   return {
     description: {
-      title: 'Configure factory policy',
-      explanation:
+      title: t('Configure factory policy'),
+      explanation: `${t(
         'Use this project’s actual commands and executable paths. Pause before updating an active factory. Authentication stays with the native CLI.',
+      )} ${t(
+        '"delivery": "local" keeps issues, pull requests and merges in a protected hub on this machine; use "github" with a connected Project instead. Set providers.copilot.enabled to add GitHub Copilot, and cloud.developers with cloud.environment to route developers to Codex Cloud.',
+      )}`,
       initial: JSON.stringify(Object.keys(settings).length === 0 ? defaults : settings, null, 2),
     },
     action: { operation: 'factory_setup', input: (body) => data(JSON.parse(body)) },
@@ -300,7 +313,7 @@ export function mountFactoryPolicyFields(body: HTMLTextAreaElement): ReturnType<
   input.required = true;
   const ceiling = settings['maxDiffLines'];
   input.value = String(typeof ceiling === 'number' ? ceiling : DEFAULT_PR_LINES);
-  const label = element('label', '', 'Maximum changed lines per PR');
+  const label = element('label', '', t('Maximum changed lines per PR'));
   label.htmlFor = input.id;
   panel.append(
     label,
@@ -308,18 +321,24 @@ export function mountFactoryPolicyFields(body: HTMLTextAreaElement): ReturnType<
     element(
       'p',
       'subtle',
-      'Planning target: 1–500 added/deleted lines, including tests and docs. Larger indivisible scopes require explicit lead justification and must fit this publication ceiling.',
+      t(
+        'Planning target: 1–500 added/deleted lines, including tests and docs. Larger indivisible scopes require explicit lead justification and must fit this publication ceiling.',
+      ),
     ),
-    element('h3', '', 'Required workflow gates'),
+    element('h3', '', t('Required workflow gates')),
     element(
       'p',
       '',
-      'Every factory ticket belongs to the connected Project. Backlog → reviewed Ready → Development → independent QA → verified merge. Duplicate consolidation requires a separate human decision.',
+      t(
+        'Every factory ticket belongs to the connected Project. Backlog → reviewed Ready → Development → independent QA → verified merge. Duplicate consolidation requires a separate human decision.',
+      ),
     ),
     element(
       'p',
       'subtle',
-      'Pause the factory before saving. The advanced policy below retains provider, resource and validation settings; no inferred credentials or model billing changes.',
+      t(
+        'Pause the factory before saving. The advanced policy below retains provider, resource and validation settings; no inferred credentials or model billing changes.',
+      ),
     ),
   );
   body.before(panel);
@@ -337,7 +356,7 @@ export function mountFactoryPolicyFields(body: HTMLTextAreaElement): ReturnType<
 export function factoryPolicyInput(body: string, lines: string): Data {
   const maxDiffLines = Number(lines);
   if (!Number.isSafeInteger(maxDiffLines) || maxDiffLines < 1) {
-    throw new Error('Maximum changed lines must be a positive safe integer.');
+    throw new Error(t('Maximum changed lines must be a positive safe integer.'));
   }
   return { ...data(JSON.parse(body)), maxDiffLines };
 }
