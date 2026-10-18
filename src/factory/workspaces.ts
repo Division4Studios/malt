@@ -69,6 +69,42 @@ export interface SourceSnapshot {
   readonly status: string;
 }
 
+/** Which workflow step and attempt produced a supervisor commit. */
+export interface CommitProvenance {
+  /** Workflow step id. */
+  readonly step: string;
+  /** Step kind, which chooses the commit subject. */
+  readonly kind: string;
+  /** Seat that made the change. */
+  readonly role: string;
+  /** Attempt id, for tracing the transcript. */
+  readonly jobId: string;
+}
+
+/** Commit subjects by the kind of step that produced the change. */
+const SUBJECTS: Readonly<Record<string, string>> = { adjudicate: 'Fix review findings for', document: 'Document' };
+
+/**
+ * Commit message arguments: a subject plus provenance trailers when known.
+ *
+ * @param task - Delivery being committed.
+ * @param provenance - Producing step and attempt, if known.
+ * @returns `-m` arguments for `git commit`.
+ */
+export function commitMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
+  const subject = `${SUBJECTS[provenance?.kind ?? ''] ?? 'Deliver'} #${String(task.issue)}: ${task.title}`;
+  if (provenance === null) {
+    return ['-m', subject];
+  }
+  const trailers = [
+    `X-MALT-Delivery: #${String(task.issue)}`,
+    `X-MALT-Step: ${provenance.step}`,
+    `X-MALT-Role: ${provenance.role}`,
+    `X-MALT-Attempt: ${provenance.jobId}`,
+  ];
+  return ['-m', subject, '-m', trailers.join('\n')];
+}
+
 /** Project-local worktree manager using shell-free Git commands. */
 export class WorkspaceManager {
   /** Workspace-local paths. */
@@ -287,12 +323,14 @@ export class WorkspaceManager {
    *
    * @param task - Original developer assignment with an owned worktree.
    * @param beforePush - Verify the refreshed source and commit its durable publication checkpoint.
+   * @param provenance - Workflow step, seat and attempt recorded as commit trailers.
    * @returns Current head/base and diff summary.
    * @throws {MeshError} For empty or oversized deliveries.
    */
   public async publish(
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
+    provenance: CommitProvenance | null = null,
   ): Promise<{ head: string; base: string; diff: string }> {
     this.assertDeliveryTask(task);
     const record = task;
@@ -307,7 +345,7 @@ export class WorkspaceManager {
     if (status !== '') {
       await this.git(['add', '--all'], directory);
       await this.assertPrivateStateUntracked(directory);
-      await this.git(['commit', '-m', `Deliver #${String(record.issue)}: ${record.title}`], directory);
+      await this.git(['commit', ...commitMessage(record, provenance)], directory);
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }

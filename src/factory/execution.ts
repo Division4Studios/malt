@@ -12,11 +12,13 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { featureWorkflow, findingsToRule, planFindings, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
 import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
 import { publicJobSchema } from './schema.ts';
+import { CODE_JOB_KINDS, JOB_PHASE, PLANNING_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
 import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
@@ -25,12 +27,13 @@ import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
-import type { FactoryJob, FactoryTask } from './schema.ts';
+import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
+import type { WorkflowStep } from './workflows.ts';
 /** Named recent evidence count bound. */
 const RECENT_EVIDENCE_COUNT = 20;
 
 /**
- * Stop reviewers whose exact source or assigned stage was invalidated, preserving developer edits.
+ * Stop reviewers whose exact source or assigned stage was invalidated, preserving code-editing steps.
  *
  * @param repository - Current project ledger.
  * @param running - Only the supervisor's owned cancellation handles.
@@ -43,7 +46,7 @@ export function cancelStaleAssignments(
     .jobs()
     .filter((candidate) => candidate.state === 'running' && candidate.taskId !== null);
   for (const job of candidates) {
-    if (job.taskId === null || job.kind === 'develop') {
+    if (job.taskId === null || CODE_JOB_KINDS.has(job.kind)) {
       continue;
     }
     const task = repository.task(job.taskId);
@@ -53,18 +56,7 @@ export function cancelStaleAssignments(
       }
       continue;
     }
-    const phases = {
-      review: 'review',
-      final: 'merge_ready',
-      verify: 'verifying',
-      plan: '',
-      refine: '',
-      develop: '',
-      learn: '',
-      skill: '',
-      triage: '',
-    } as const;
-    if (task.phase !== phases[job.kind] || task.head !== job.head || task.base !== job.base) {
+    if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
       running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
     }
   }
@@ -176,9 +168,10 @@ export async function executeJob(
   const recommendations = recommendationNotices(repository.store, record);
 
   const currentTask = task === null ? null : repository.task(task.id);
+  const view = promptView(repository, record, currentTask, feature);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: currentTask, feature, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, recommendations } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
     `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
@@ -243,7 +236,7 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
   const task = record.taskId === null ? null : context.repository.task(record.taskId);
   const { repository } = context;
   const controls = { signal };
-  if (task !== null && record.kind === 'develop') {
+  if (task !== null && CODE_JOB_KINDS.has(record.kind)) {
     const prepared = await context.workspaces.developer(task);
     const cwd = prepared.directory;
     repository.editTask(task.id, (current) => {
@@ -275,7 +268,7 @@ async function sourceReference(
   job: FactoryJob,
   task: FactoryTask | null,
 ): Promise<string | null> {
-  if (job.kind === 'review' || job.kind === 'final') {
+  if (['review', 'regress', 'final'].includes(job.kind)) {
     return task?.head ?? null;
   }
   return job.kind === 'triage' ? (task?.head ?? (await context.workspaces.base())) : await context.workspaces.base();
@@ -311,7 +304,7 @@ async function prepareSnapshot(context: FactoryContext, job: FactoryJob, signal:
     throw new MeshError('FACTORY_GATED', 'A reviewer snapshot must start clean.');
   }
   const checks = await runChecks(context, record, { cwd, stage: 'prepare', signal: controls.signal });
-  if (record.kind === 'review') {
+  if (record.kind === 'review' || record.kind === 'regress') {
     checks.push(...(await runChecks(context, record, { cwd, stage: 'test', signal: controls.signal })));
   } else if (record.kind === 'final' || record.kind === 'verify') {
     checks.push(...(await runChecks(context, record, { cwd, stage: 'end-to-end', signal: controls.signal })));
@@ -336,7 +329,7 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
     return pendingTriage(repository, record.featureId).find((item) => item.id === record.target) ?? null;
   }
   let evidence: unknown = null;
-  if (record.kind === 'plan' || record.kind === 'refine') {
+  if (PLANNING_JOB_KINDS.has(record.kind)) {
     evidence = {
       retainedWork: {
         objectives: repository
@@ -463,4 +456,55 @@ export async function retireSnapshot(context: FactoryContext, snapshot: Executed
   } catch {
     /* Cleanup must prove ownership and cleanliness; uncertain source is retained. */
   }
+}
+
+/**
+ * What one assignment's prompt may contain: the step it performs and only the
+ * delivery evidence that step may read. Frozen workflow copies stay out of the
+ * prompt; the step's own instructions are supplied separately.
+ *
+ * @param repository - Project ledger.
+ * @param job - Current attempt.
+ * @param task - Its delivery, if any.
+ * @param feature - Its objective, if any.
+ * @returns Prompt-safe task, objective, step and, for a fixer, the findings it must rule on.
+ */
+function promptView(
+  repository: FactoryContext['repository'],
+  job: FactoryJob,
+  task: FactoryTask | null,
+  feature: Feature | null,
+): {
+  task: FactoryTask | null;
+  feature: Feature | null;
+  step: WorkflowStep | null;
+  findings: { id: string; step: string; finding: string }[] | null;
+} {
+  const workflow = task === null ? featureWorkflow(feature) : taskWorkflow(task, repository.features());
+  const step = stepOf(workflow, job);
+  return {
+    task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined },
+    feature: feature === null ? null : { ...feature, workflow: undefined },
+    step: step ?? null,
+    findings: findingsFor(task, feature, step),
+  };
+}
+
+/**
+ * Findings a fixer or plan reviser must rule on, by id.
+ *
+ * @param task - Delivery, for a fixer.
+ * @param feature - Objective, for a plan revision.
+ * @param step - Step being prompted.
+ * @returns Findings to rule on, or `null` for other steps.
+ */
+function findingsFor(
+  task: FactoryTask | null,
+  feature: Feature | null,
+  step: WorkflowStep | undefined,
+): { id: string; step: string; finding: string }[] | null {
+  if (task !== null && step?.kind === 'adjudicate') {
+    return findingsToRule(task, taskWorkflow(task), step);
+  }
+  return feature !== null && step?.kind === 'plan_revise' ? planFindings(feature, featureWorkflow(feature)) : null;
 }
