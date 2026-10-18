@@ -83,6 +83,8 @@ const FILES = [
   'dist/settings-model.js',
   'dist/settings-ui.js',
   'dist/project-views.js',
+  'dist/roles-model.js',
+  'dist/roles-ui.js',
   'dist/delivery-ui.js',
   'dist/goal-model.js',
   'dist/checklist-dialog.js',
