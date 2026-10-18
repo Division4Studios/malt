@@ -3,6 +3,8 @@
  *
  * @file
  */
+import { automationsStatus } from './automations.ts';
+import { consoleView } from './console-view.ts';
 import { conversationWindow } from './conversations.ts';
 import { handoffFeed } from './handoff-feed.ts';
 import { policyBlocker } from './policy-blockers.ts';
@@ -31,6 +33,7 @@ export async function factoryStatus(
 ): Promise<unknown> {
   const settings = repository.config();
   const processUsage = await ownedProcessUsage(repository.jobs());
+  const queue = repository.objectiveQueue.snapshot();
   return {
     configured: settings !== null,
     active: repository.active(),
@@ -40,8 +43,11 @@ export async function factoryStatus(
     admission: telemetry.admission,
     processUsage,
     settings,
-    ...repository.objectiveQueue.snapshot(),
-    tasks: repository.tasks(),
+    ...queue,
+    // Frozen workflow copies stay server-side; the console projection describes each pipeline.
+    features: queue.features.map((feature) => ({ ...feature, workflow: undefined })),
+    tasks: repository.tasks().map((task) => ({ ...task, workflow: undefined })),
+    console: consoleView(repository),
     triage: triageStatus(repository),
     jobs: repository.jobs(),
     pendingEffects: repository.effects(),
@@ -51,6 +57,7 @@ export async function factoryStatus(
     handoffs: handoffFeed(repository.store, mesh),
     workflow: workflowState(repository),
     workflows: workflowLibrary(repository.store).status(),
+    automations: automationsStatus(repository.store),
     capacities: settings === null ? [] : PROVIDERS.map((provider) => repository.capacity(provider, settings, false)),
   };
 }

@@ -45,6 +45,8 @@ const factoryViewSchema = dashboardSchema.extend({
   processUsage: z.array(ownedUsageSchema).default([]),
   triage: z.array(triageRecordSchema).default([]),
   workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
+  /** Broker-computed board, pipelines and Inbox; rendered as data, never re-derived. */
+  console: z.record(z.unknown()).default({}),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -73,6 +75,12 @@ export const controlSchema = z
       'factory_cancel_job',
       'factory_capacity',
       'factory_prices',
+      'factory_hold',
+      'factory_archive',
+      'factory_schedule_save',
+      'factory_trigger_save',
+      'factory_automation_delete',
+      'factory_automation_run',
       'github_connect',
       'terminal_start',
       'terminal_close',

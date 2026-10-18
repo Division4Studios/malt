@@ -1,0 +1,718 @@
+/*
+ * Inbox, Board and delivery detail views. Reuses the console tokens from
+ * style.css; the tokens below are new semantics (step states) only. Every
+ * state color is paired with a glyph, text or pattern in the markup.
+ */
+:root {
+  --state-done: var(--green);
+  --state-running: #74c7ff;
+  --state-ready: var(--amber);
+  --state-needs: var(--red);
+  --state-waiting: var(--muted);
+  --card-gap: 12px;
+}
+
+/* ---------- shared ---------- */
+.console-count {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font: 11px/1.5 var(--font-terminal);
+  text-align: center;
+  vertical-align: middle;
+}
+.console-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #45352166;
+  color: var(--muted);
+  font: 10px/1.5 var(--font-terminal);
+  white-space: nowrap;
+}
+.console-tag.tag-waiting {
+  color: var(--amber);
+  border: 1px dashed var(--amber);
+  background: none;
+}
+.console-tag.severity {
+  font-weight: 700;
+  color: var(--bg);
+  background: var(--muted);
+}
+.console-tag.severity[data-severity='P0'] {
+  background: var(--red);
+}
+.console-tag.severity[data-severity='P1'] {
+  background: var(--amber);
+}
+.console-tag.severity[data-severity='P2'] {
+  background: var(--state-running);
+}
+.console-age {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.console-link {
+  font: 11px var(--font-terminal);
+}
+.console-empty {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  text-align: center;
+}
+.console-empty-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+.console-empty .subtle {
+  margin: 0;
+}
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font: 10px/1.5 var(--font-terminal);
+  white-space: nowrap;
+}
+.state-glyph {
+  font-weight: 700;
+}
+[data-state='done'] > .state-glyph,
+.state-badge[data-state='done'] {
+  color: var(--state-done);
+}
+.state-badge[data-state='running'] {
+  color: var(--state-running);
+}
+.state-badge[data-state='ready'] {
+  color: var(--state-ready);
+}
+.state-badge[data-state='needs_you'] {
+  color: var(--state-needs);
+}
+.state-badge[data-state='waiting'] {
+  color: var(--state-waiting);
+  border-style: dashed;
+}
+summary:focus-visible,
+select:focus-visible,
+.board-scroll:focus-visible,
+[tabindex='-1']:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+select {
+  background: #0a111d;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 10px 12px;
+  max-width: 100%;
+}
+
+/* ---------- step strip and chips ---------- */
+.step-strip-segments {
+  display: flex;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-segment {
+  flex: 1 1 0;
+  min-width: 6px;
+  height: 9px;
+  border-radius: 2px;
+  border: 1px solid var(--state-waiting);
+  background: none;
+}
+.step-segment[data-state='done'] {
+  background: var(--state-done);
+  border-color: var(--state-done);
+}
+.step-segment[data-state='running'] {
+  background: var(--state-running);
+  border-color: var(--state-running);
+  animation: console-pulse 1.4s ease-in-out infinite;
+}
+.step-segment[data-state='ready'] {
+  border: 1px dashed var(--state-ready);
+}
+.step-segment[data-state='needs_you'] {
+  border-color: var(--state-needs);
+  background: repeating-linear-gradient(135deg, var(--state-needs) 0 3px, transparent 3px 6px);
+}
+.step-strip-caption {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.step-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--state-waiting);
+  color: var(--muted);
+  font-size: 11px;
+}
+.step-chip[data-state='done'] {
+  border-color: var(--state-done);
+}
+.step-chip[data-state='done'] .state-glyph {
+  color: var(--state-done);
+}
+.step-chip[data-state='running'] {
+  border-color: var(--state-running);
+  color: var(--text);
+}
+.step-chip[data-state='running'] .state-glyph {
+  color: var(--state-running);
+}
+.step-chip[data-state='ready'] {
+  border: 1px dashed var(--state-ready);
+}
+.step-chip[data-state='needs_you'] {
+  border-color: var(--state-needs);
+  color: var(--text);
+}
+.step-chip[data-state='needs_you'] .state-glyph {
+  color: var(--state-needs);
+}
+@keyframes console-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-segment[data-state='running'] {
+    animation: none;
+  }
+}
+
+/* ---------- inbox ---------- */
+.inbox-view {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 20px;
+  align-items: start;
+}
+.inbox-lane-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.inbox-list,
+.kanban-cards,
+.pipeline-layers,
+.pipeline-steps,
+.step-findings {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--card-gap);
+}
+.inbox-item {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--state-needs);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 0;
+}
+.inbox-item[data-kind='skill'] {
+  border-left-color: var(--violet);
+}
+.inbox-answered {
+  border-left-color: var(--state-done);
+  opacity: 0.9;
+}
+.inbox-item-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inbox-item-title {
+  margin: 8px 0 4px;
+  overflow-wrap: anywhere;
+}
+.inbox-detail {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.inbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* ---------- board ---------- */
+.board-view {
+  min-width: 0;
+}
+.board-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 18px;
+  margin-bottom: 16px;
+}
+.board-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  min-width: 0;
+}
+.board-field-label {
+  color: var(--muted);
+}
+.board-query {
+  width: min(320px, 100%);
+  padding: 9px 12px;
+}
+.board-toggle {
+  flex-direction: row-reverse;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+.board-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--cyan);
+}
+.board-tabs {
+  display: none;
+}
+.board-scroll {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 1fr);
+  gap: 14px;
+  overflow-x: auto;
+  padding: 2px 2px 16px;
+  border-radius: 10px;
+}
+.kanban-column {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  min-width: 0;
+}
+.kanban-column[data-column='needs_you'] {
+  border-top: 3px solid var(--state-needs);
+}
+.kanban-column-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+}
+.kanban-column-description {
+  margin: 2px 0 14px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.kanban-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--card-gap);
+}
+.kanban-empty {
+  color: var(--muted);
+  font-size: 12px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+}
+.kanban-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 13px;
+  min-width: 0;
+}
+.kanban-card:hover {
+  border-color: var(--cyan);
+}
+.kanban-card:has(.card-open:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+.kanban-card p {
+  margin: 0;
+}
+.card-title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.card-open {
+  all: unset;
+  cursor: pointer;
+  color: var(--text);
+}
+.card-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+}
+.card-open:focus-visible {
+  outline: none;
+}
+.kanban-card a,
+.kanban-card .console-tag {
+  position: relative;
+  z-index: 1;
+}
+.card-kind,
+.card-workflow {
+  font: 10px/1.5 var(--font-terminal);
+  color: var(--muted);
+  letter-spacing: 0.4px;
+}
+.card-running {
+  font-size: 11px;
+  color: var(--state-running);
+}
+.card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.card-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.card-progress progress {
+  width: 90px;
+  accent-color: var(--state-done);
+}
+.card-error {
+  font-size: 11px;
+  color: var(--red);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+}
+
+/* ---------- delivery detail ---------- */
+.delivery-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.delivery-header {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.delivery-title {
+  font-size: 22px;
+  overflow-wrap: anywhere;
+}
+.delivery-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px 18px;
+  margin: 16px 0 0;
+}
+.delivery-fact dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.delivery-fact dd {
+  margin: 0;
+  font: 12px/1.5 var(--font-terminal);
+  overflow-wrap: anywhere;
+}
+.delivery-error {
+  margin-top: 16px;
+  border: 1px solid #6b2c3a;
+  border-left: 4px solid var(--red);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: #2a141c;
+}
+.delivery-error-label {
+  margin: 0 0 4px;
+  color: var(--red);
+  font-size: 11px;
+  font-weight: 600;
+}
+.delivery-error pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 12px/1.5 var(--font-terminal);
+}
+.delivery-section-title {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.pipeline-layers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+  counter-reset: none;
+}
+.pipeline-layer {
+  min-width: 0;
+}
+.pipeline-layer-label {
+  margin: 0 0 8px;
+  font: 10px/1.5 var(--font-terminal);
+  color: var(--muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.pipeline-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pipeline-step {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--state-waiting);
+  border-radius: 10px;
+  background: var(--raised);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.pipeline-step[data-state='done'] {
+  border-left-color: var(--state-done);
+}
+.pipeline-step[data-state='running'] {
+  border-left-color: var(--state-running);
+}
+.pipeline-step[data-state='ready'] {
+  border-left-style: dashed;
+  border-left-color: var(--state-ready);
+}
+.pipeline-step[data-state='needs_you'] {
+  border-left-color: var(--state-needs);
+}
+.pipeline-step-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.pipeline-step-title {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.step-result summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--cyan);
+}
+.step-result-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.step-result-body p {
+  margin: 0;
+}
+.step-summary {
+  font-size: 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.step-subheading {
+  margin: 4px 0 0;
+  font-size: 12px;
+}
+.step-findings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.step-findings li {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+.step-dispositions {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 11px;
+}
+.step-dispositions caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 4px;
+}
+.step-dispositions th,
+.step-dispositions td {
+  border: 1px solid var(--line);
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.approval-context {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 14px;
+  font-size: 12px;
+}
+.approval-context dt {
+  color: var(--muted);
+}
+.approval-context dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- narrow screens ---------- */
+@media (max-width: 900px) {
+  .inbox-view {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .board-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .board-tab {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--surface);
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+  .board-tab[aria-selected='true'] {
+    background: var(--raised);
+    border-color: var(--cyan);
+    color: var(--cyan);
+    font-weight: 600;
+  }
+  .board-scroll {
+    display: block;
+    overflow: visible;
+  }
+  .kanban-column[data-selected='false'] {
+    display: none;
+  }
+  .pipeline-layers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .delivery-header {
+    padding: 14px;
+  }
+}
+
+/* ---------- navigation badge ---------- */
+/* Outranks the rail's `.nav span` icon rule, which also hides icons on phones. */
+.nav .nav-count {
+  display: inline-block;
+  width: auto;
+  margin-left: 4px;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font: 600 11px/1.6 var(--font-terminal);
+  text-align: center;
+}
+
+/* ---------- holds, bulk actions and archive ---------- */
+.console-tag.tag-held {
+  color: var(--violet);
+  border: 1px solid var(--violet);
+  background: none;
+}
+.board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--card-gap);
+}
+.board-archived {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.board-archived summary {
+  cursor: pointer;
+  width: max-content;
+}
+.board-archived-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.board-archived-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.delivery-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
