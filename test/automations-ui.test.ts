@@ -195,3 +195,9 @@ await test('a newly issued secret is read once with its trigger, and examples qu
   assert.match(team.powershell, /'x-agentmesh-team' = 'o''brien'/v);
   assert.match(team.curl, /Authorization: Bearer malt_trg_x/v);
 });
+
+void test('a minute step that does not divide the hour is not described as a fixed interval', () => {
+  assert.notEqual(describeCron('*/40 * * * *').text, 'Every 40 minutes, every day.');
+  assert.ok(describeCron('*/40 * * * *').text.includes('40'));
+  assert.match(describeCron('*/15 * * * *').text, /15 minutes/v);
+});

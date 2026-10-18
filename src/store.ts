@@ -57,6 +57,7 @@ import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from '
 import {
   AGENT_STATES,
   FACTORY_OPERATIONS,
+  CAPABILITY_OPERATIONS,
   GITHUB_OPERATIONS,
   LEARNING_OPERATIONS,
   MeshError,
@@ -94,6 +95,7 @@ const NON_STORE_OPERATIONS = [
   ...FACTORY_OPERATIONS,
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,
+  ...CAPABILITY_OPERATIONS,
   'list_teams',
   'open_team',
   'register',
@@ -372,10 +374,8 @@ export class Store implements CoordinationHost {
     this.coordination = new Coordination(this);
     this.handlers = this.createHandlers();
     this.migrate(version);
-    log('info', 'storage', 'database_ready', {
-      schemaVersion: Number(SCHEMA_VERSION),
-      migrated: version !== SCHEMA_VERSION,
-    });
+    const wasMigrated = version !== SCHEMA_VERSION;
+    log('info', 'storage', 'database_ready', { schemaVersion: Number(SCHEMA_VERSION), migrated: wasMigrated });
   }
 
   /**

@@ -159,6 +159,32 @@ export function providerHealth(factory: Data, preflight: PreflightView | null, n
   });
 }
 
+/** Commit id characters shown for a source revision. */
+const COMMIT_SHOWN = 12;
+
+/**
+ * One source revision as Settings shows it.
+ *
+ * @param value - Reported revision, if any.
+ * @param missing - Text when nothing was reported.
+ * @returns Short commit with its origin and dirty state, or the missing text.
+ */
+function revisionText(value: unknown, missing: string): string {
+  const revision = asData(value);
+  const commit = revision === null ? '' : text(revision, 'commit');
+  if (revision === null || commit === '') {
+    return revision === null ? missing : t('unknown (not a Git checkout and no image revision)');
+  }
+  const short = commit.slice(0, COMMIT_SHOWN);
+  if (text(revision, 'origin') === 'image') {
+    return t('{commit} (container image)', { commit: short });
+  }
+  if (revision['isDirty'] === null || revision['isDirty'] === undefined) {
+    return t('{commit} (uncommitted changes unknown)', { commit: short });
+  }
+  return hasFlag(revision, 'isDirty') ? t('{commit} with uncommitted changes', { commit: short }) : short;
+}
+
 /**
  * Build and version rows.
  *
@@ -172,6 +198,8 @@ export function buildRows(versions: unknown, cacheKeys: readonly string[]): [str
   return [
     ['MALT', firstText(text(value, 'malt'), 'unknown')],
     [t('Broker'), firstText(text(value, 'broker'), t('not answering'))],
+    [t('Broker source'), revisionText(value['brokerRevision'], t('not reported'))],
+    [t('Console source'), revisionText(value['consoleRevision'], t('not reported'))],
     [t('Console Node.js'), firstText(text(value, 'node'), 'unknown')],
     [t('Console platform'), firstText(text(value, 'platform'), 'unknown')],
     [
