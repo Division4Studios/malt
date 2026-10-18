@@ -23,6 +23,7 @@ export const INBOX_KINDS = [
   'approval',
   'plan_approval',
   'question',
+  'checkpoint',
   'blocked_delivery',
   'blocked_objective',
   'skill',
@@ -687,14 +688,17 @@ export function readConsole(snapshot: unknown): ConsoleModel {
       .map((record) => parseInboxItem(record))
       .filter((entry) => entry !== null),
     archived: parseArchived(view['archived']),
-    answered: objects(inbox['answered']).map((record) => {
-      return {
-        id: text(record, 'id'),
-        title: text(record, 'title'),
-        note: text(record, 'note'),
-        at: number(record, 'at'),
-      };
-    }),
+    // Like every other Inbox entry, an answered decision without a stable id is skipped.
+    answered: objects(inbox['answered'])
+      .filter((record) => text(record, 'id') !== '')
+      .map((record) => {
+        return {
+          id: text(record, 'id'),
+          title: text(record, 'title'),
+          note: text(record, 'note'),
+          at: number(record, 'at'),
+        };
+      }),
   };
 }
 
@@ -834,6 +838,7 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
   rate_limit: phrase('hit a provider limit'),
   transient: 'failed',
   stalled: 'stalled',
+  held: phrase('was held at a checkpoint'),
   invalid_output: phrase('returned no usable result'),
   gate: phrase('waited on a gate'),
   cancelled: phrase('was interrupted'),

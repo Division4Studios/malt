@@ -61,6 +61,17 @@ declare module '*/web/dist/inbox-model.js' {
     open: readonly InboxItem[],
   ): { readonly fresh: readonly InboxItem[]; readonly seen: ReadonlySet<string> };
 
+  /** Message the service worker posts when a notification is clicked. */
+  export const OPEN_INBOX_MESSAGE: string;
+
+  /**
+   * Read a notification click relayed by the service worker.
+   *
+   * @param message - Untrusted message data.
+   * @returns Project to show, `null` for the selected one, or `undefined` for another message.
+   */
+  export function inboxRequest(message: unknown): string | null | undefined;
+
   /**
    * Notification text for one item.
    *

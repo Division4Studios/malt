@@ -87,7 +87,10 @@ export class ApprovalDialog {
     const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
-      this.element.close();
+      // A decision in flight finishes in this dialog; closing it now could attach its outcome to another.
+      if (!this.isSending) {
+        this.element.close();
+      }
     });
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, this.submit);
@@ -98,6 +101,11 @@ export class ApprovalDialog {
       void this.send();
     });
     this.element.append(form);
+    this.element.addEventListener('cancel', (event) => {
+      if (this.isSending) {
+        event.preventDefault();
+      }
+    });
     this.element.addEventListener('close', () => {
       this.target = null;
       this.closed(this.returnKey);
@@ -112,6 +120,9 @@ export class ApprovalDialog {
    * @param returnKey - Focus key of the opening control.
    */
   public open(target: ApprovalTarget, isApproval: boolean, returnKey: string): void {
+    if (this.isSending) {
+      return;
+    }
     if (!this.element.isConnected) {
       document.body.append(this.element);
     }
@@ -196,8 +207,12 @@ export class ApprovalDialog {
     this.status.textContent = t('Sending…');
     this.isSending = true;
     this.submit.disabled = true;
+    const sent = this.requestId;
     const outcome = await this.apply(built.input);
     this.isSending = false;
+    if (!this.isOpening(sent)) {
+      return;
+    }
     if (outcome === true) {
       this.element.close();
       return;
@@ -205,6 +220,16 @@ export class ApprovalDialog {
     this.status.textContent = '';
     this.submit.disabled = false;
     this.error.textContent = outcome;
+  }
+
+  /**
+   * Whether the dialog still shows the opening a request was sent from.
+   *
+   * @param requestId - Request id of the sent decision.
+   * @returns True when no other decision was opened since.
+   */
+  private isOpening(requestId: string): boolean {
+    return requestId === this.requestId;
   }
 
   /**

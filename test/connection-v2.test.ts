@@ -14,14 +14,14 @@ import test from 'node:test';
 import { z } from 'zod/v3';
 
 import { CAPABILITY_NAMES, capabilityState } from '../src/connector.ts';
-import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
+import { DELIVERY_STATUSES } from '../src/github.ts';
 import { MeshError, schemas } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 import { refreshReadme } from '../src/summary.ts';
 
-import { createCleanup, createProject } from './helpers.ts';
+import { OPERATOR, createCleanup, createProject, mechanicsGitHub } from './helpers.ts';
 
-import type { GitHubRunner } from '../src/github.ts';
+import type { ProjectGitHub, GitHubRunner } from '../src/github.ts';
 import type { TestContext } from 'node:test';
 
 process.env['AGENTMESH_LOG_LEVEL'] = 'silent';
@@ -55,8 +55,8 @@ for (const version of [1, 2]) {
     if (version === 1) {
       write(file, JSON.stringify(v1Record));
     } else {
-      const github = new ProjectGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
-      await github.execute('github_connect', { repository: 'Division4Studios/malt', ...selection });
+      const github = mechanicsGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
+      await github.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt', ...selection });
     }
     const before = read(file);
     refreshReadme(config, { agents: [], lead: null, revision: 1, unreadMessages: 0, pendingCheckIns: 0 });
@@ -152,7 +152,7 @@ function projectWithText(t: TestContext, content: string): { file: string; githu
   mkdir(directory);
   const file = path.join(directory, 'connection.json');
   write(file, content);
-  return { file, github: new ProjectGitHub(config, offline) };
+  return { file, github: mechanicsGitHub(config, offline) };
 }
 
 /**
@@ -215,7 +215,7 @@ function savedFile(directory: string): unknown {
 await test('a v1 record is read without loss and reports unverified capabilities', async (t) => {
   const { github, file } = projectWith(t, v1Record);
   const before = read(file);
-  const status = statusSchema.parse(await github.execute('github_status', {}));
+  const status = statusSchema.parse(await github.execute(OPERATOR, 'github_status', {}));
   assert.deepEqual(status.connection, v1Record);
   const view = status.connectionV2;
   assert.notEqual(view, null);
@@ -240,25 +240,25 @@ await test('an absent capability is unverified, not unsupported', () => {
 
 await test('connect writes v2 and keeps the legacy fields', async (t) => {
   const config = createProject(createCleanup(t));
-  const github = new ProjectGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
+  const github = mechanicsGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
   const result = z
     .object({ version: z.literal(1), repository: z.string(), statusField: z.object({ name: z.string() }) })
-    .parse(await github.execute('github_connect', { repository: 'Division4Studios/malt', ...selection }));
+    .parse(await github.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt', ...selection }));
   assert.equal(result.repository, 'Division4Studios/malt');
   assert.equal(result.statusField.name, 'Status');
   const saved = z
     .object({ version: z.literal(2), source: z.object({ repositoryId: z.string().nullable() }) })
     .parse(savedFile(config.directory));
   assert.equal(saved.source.repositoryId, 'R_node');
-  const status = statusSchema.parse(await github.execute('github_status', {}));
+  const status = statusSchema.parse(await github.execute(OPERATOR, 'github_status', {}));
   assert.notEqual(status.connectionV2?.source.verifiedAt, null);
 });
 
 await test('a missing repository node ID still loads, as unverified', async (t) => {
   const config = createProject(createCleanup(t));
-  const github = new ProjectGitHub(config, connectRunner('Division4Studios/malt', undefined));
-  await github.execute('github_connect', { repository: 'Division4Studios/malt', ...selection });
-  const status = statusSchema.parse(await github.execute('github_status', {}));
+  const github = mechanicsGitHub(config, connectRunner('Division4Studios/malt', undefined));
+  await github.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt', ...selection });
+  const status = statusSchema.parse(await github.execute(OPERATOR, 'github_status', {}));
   const { source, tracker } = requireView(status.connectionV2);
   assert.equal(source.repositoryId, null);
   assert.equal(source.verifiedAt, null);
@@ -284,23 +284,25 @@ await test('tracker and source sections are validated independently', async (t) 
     savedAt: VERIFIED_AT,
   };
   const ok = projectWith(t, { version: 2, tracker, source });
-  const status = statusSchema.parse(await ok.github.execute('github_status', {}));
+  const status = statusSchema.parse(await ok.github.execute(OPERATOR, 'github_status', {}));
   assert.equal(status.connectionV2?.source.repositoryId, null);
   const badSource = projectWith(t, { version: 2, tracker, source: { ...source, provider: 'gitlab' } });
-  await assert.rejects(badSource.github.execute('github_status', {}), /source section is damaged/v);
+  await assert.rejects(badSource.github.execute(OPERATOR, 'github_status', {}), /source section is damaged/v);
   const badTracker = projectWith(t, { version: 2, tracker: { ...tracker, projectId: '' }, source });
-  await assert.rejects(badTracker.github.execute('github_status', {}), /tracker section is damaged/v);
+  await assert.rejects(badTracker.github.execute(OPERATOR, 'github_status', {}), /tracker section is damaged/v);
 });
 
 await test('damaged or unknown-version files are rejected, not treated as disconnected', async (t) => {
-  await assert.rejects(projectWith(t, { version: 3 }).github.execute('github_status', {}), { code: 'INVALID_INPUT' });
-  await assert.rejects(projectWithText(t, '{not json').github.execute('github_status', {}));
+  await assert.rejects(projectWith(t, { version: 3 }).github.execute(OPERATOR, 'github_status', {}), {
+    code: 'INVALID_INPUT',
+  });
+  await assert.rejects(projectWithText(t, '{not json').github.execute(OPERATOR, 'github_status', {}));
 });
 
 await test('a repository renamed under the same node ID is not a connection switch', async (t) => {
   const config = createProject(createCleanup(t));
-  const original = new ProjectGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
-  await original.execute('github_connect', { repository: 'Division4Studios/malt', ...selection });
+  const original = mechanicsGitHub(config, connectRunner('Division4Studios/malt', 'R_node'));
+  await original.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt', ...selection });
   // A pending issue journal makes any connection change a hard error.
   const operations = path.join(config.directory, 'github', 'operations');
   mkdir(operations);
@@ -313,18 +315,23 @@ await test('a repository renamed under the same node ID is not a connection swit
     kind: 'delivery',
   };
   write(path.join(operations, `${request}.json`), JSON.stringify({ fingerprint: 'f', input, phase: 'creating' }));
-  const renamed = new ProjectGitHub(config, connectRunner('Division4Studios/malt-renamed', 'R_node'));
+  const renamed = mechanicsGitHub(config, connectRunner('Division4Studios/malt-renamed', 'R_node'));
   const result = z
     .object({ repository: z.string() })
-    .parse(await renamed.execute('github_connect', { repository: 'Division4Studios/malt-renamed', ...selection }));
+    .parse(
+      await renamed.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt-renamed', ...selection }),
+    );
   assert.equal(result.repository, 'Division4Studios/malt-renamed');
-  const other = new ProjectGitHub(config, connectRunner('Division4Studios/other', 'R_other'));
-  await assert.rejects(other.execute('github_connect', { repository: 'Division4Studios/other', ...selection }), {
-    code: 'GITHUB_OPERATION_PENDING',
-  });
-  const recreated = new ProjectGitHub(config, connectRunner('Division4Studios/malt-renamed', 'R_other'));
+  const other = mechanicsGitHub(config, connectRunner('Division4Studios/other', 'R_other'));
   await assert.rejects(
-    recreated.execute('github_connect', { repository: 'Division4Studios/malt-renamed', ...selection }),
+    other.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/other', ...selection }),
+    {
+      code: 'GITHUB_OPERATION_PENDING',
+    },
+  );
+  const recreated = mechanicsGitHub(config, connectRunner('Division4Studios/malt-renamed', 'R_other'));
+  await assert.rejects(
+    recreated.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt-renamed', ...selection }),
     {
       code: 'GITHUB_OPERATION_PENDING',
     },
@@ -382,8 +389,8 @@ for (const mode of ['legacy', 'stable']) {
       }
       return await connectRunner(args[0] === 'repo' ? (args[2] ?? repository) : repository, 'R_node')(args, payload);
     };
-    const original = new ProjectGitHub(config, runner);
-    await original.execute('github_connect', { repository, ...selection });
+    const original = mechanicsGitHub(config, runner);
+    await original.execute(OPERATOR, 'github_connect', { repository, ...selection });
     if (mode === 'legacy') {
       mkdir(operations);
       write(
@@ -391,18 +398,20 @@ for (const mode of ['legacy', 'stable']) {
         JSON.stringify({ fingerprint, input, phase: 'creating' }),
       );
     } else {
-      await assert.rejects(original.execute('github_create_issue', input), { code: 'GITHUB_UNAVAILABLE' });
+      await assert.rejects(original.execute(OPERATOR, 'github_create_issue', input), { code: 'GITHUB_UNAVAILABLE' });
     }
-    const renamed = new ProjectGitHub(config, runner);
-    await renamed.execute('github_connect', { repository: 'Division4Studios/malt-renamed', ...selection });
-    await renamed.execute('github_connect', { repository: 'Division4Studios/malt-again', ...selection });
-    const restarted = new ProjectGitHub(config, runner);
-    await assert.rejects(restarted.execute('github_create_issue', input), { code: 'GITHUB_OPERATION_PENDING' });
-    await restarted.execute('github_sync', {});
+    const renamed = mechanicsGitHub(config, runner);
+    await renamed.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt-renamed', ...selection });
+    await renamed.execute(OPERATOR, 'github_connect', { repository: 'Division4Studios/malt-again', ...selection });
+    const restarted = mechanicsGitHub(config, runner);
+    await assert.rejects(restarted.execute(OPERATOR, 'github_create_issue', input), {
+      code: 'GITHUB_OPERATION_PENDING',
+    });
+    await restarted.execute(OPERATOR, 'github_sync', {});
     const result = z.object({ phase: z.literal('complete'), issue: z.object({ number: z.number() }) });
-    assert.equal(result.parse(await restarted.execute('github_create_issue', input)).issue.number, 1);
-    assert.equal(result.parse(await restarted.execute('github_create_issue', input)).issue.number, 1);
-    await assert.rejects(restarted.execute('github_create_issue', { ...input, title: 'Changed' }), {
+    assert.equal(result.parse(await restarted.execute(OPERATOR, 'github_create_issue', input)).issue.number, 1);
+    assert.equal(result.parse(await restarted.execute(OPERATOR, 'github_create_issue', input)).issue.number, 1);
+    await assert.rejects(restarted.execute(OPERATOR, 'github_create_issue', { ...input, title: 'Changed' }), {
       code: 'INVALID_INPUT',
     });
     assert.equal(creations, mode === 'legacy' ? 0 : 1);

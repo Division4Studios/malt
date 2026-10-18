@@ -235,6 +235,7 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
     `2026-10-17T01:02:04.0000000Z token=${LEAKED}`,
     'fetch https://bot:hunter2@github.com/fixture/app.git',
     'Authorization: Bearer abc.def.ghi',
+    'authorization: Basic dXNlcjpwYXNzd29yZA== trailing',
     'mesh-secret-value appears here',
     'Unexpected token in JSON at position 4',
   ].join('\n');
@@ -244,7 +245,8 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
   assert.ok(!clean.includes(LEAKED));
   assert.doesNotMatch(clean, /hunter2|abc\.def\.ghi|mesh-secret-value/v);
   assert.match(clean, /https:\/\/\[REDACTED\]@github\.com/v);
-  assert.match(clean, /^Authorization: \[REDACTED\]/mv);
+  assert.match(clean, /^Authorization: \[REDACTED\]$/mv);
+  assert.match(clean, /^authorization: \[REDACTED\]$/mv, 'a non-Bearer credential is redacted whole');
   assert.match(clean, /^Running npm test$/mv);
   assert.match(clean, /Unexpected token in JSON/v, 'ordinary prose keeps its words');
 });
@@ -260,6 +262,12 @@ await test('excerpts keep the first error with context and the final lines, with
   assert.match(excerpt, /lines omitted/v);
   const huge = excerptLog(`${'x'.repeat(390)} error\n`.repeat(2000), 500);
   assert.ok(huge.length <= 500);
+  const verbose = Array.from({ length: 200 }, (_value, index) => `${String(index)} ${'v'.repeat(195)}`);
+  verbose[20] = 'src/app.ts(3,1): error TS2304: Cannot find name';
+  const bounded = excerptLog(verbose.join('\n'));
+  assert.ok(bounded.length <= REPAIR_FINDING_MAX);
+  assert.match(bounded, /error TS2304/v, 'the first error survives a verbose log');
+  assert.match(bounded, /^199 v+$/mv);
   const check = checkState(FAILED_CHECK);
   const finding = ciFinding(check, 'error everywhere\n'.repeat(5000), 'a'.repeat(40));
   assert.ok(finding.length <= REPAIR_FINDING_MAX);

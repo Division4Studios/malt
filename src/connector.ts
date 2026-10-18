@@ -1,13 +1,16 @@
 /**
  * Provider-neutral contracts that separate a work tracker from source control.
  * A connection record carries one section for each, with independent
- * verification state and a capability descriptor. Records hold no credentials.
+ * verification state and a capability descriptor. Records hold no credentials:
+ * each section may name a credential handle (see `credentials.ts`), never a value.
  *
  * @file
  */
 
 import { z } from 'zod/v3';
 
+import { verificationSchema } from './connection-state.ts';
+import { credentialHandleSchema, scopedHandle } from './credentials.ts';
 import { MeshError } from './protocol.ts';
 
 /** Preserve bounded legacy names without silently dropping resumable journals. */
@@ -60,6 +63,10 @@ export const trackerSchema = z.object({
   url: z.string().url(),
   workflowField: workflowFieldSchema,
   capabilities: capabilitiesSchema,
+  /** Where this section's credential lives; absent on records saved before handles. */
+  credential: credentialHandleSchema.optional(),
+  /** Latest verification; absent on records saved by a verified connect or before states existed. */
+  verification: verificationSchema.optional(),
   savedAt: z.string().datetime(),
   verifiedAt: z.string().datetime().nullable().default(null),
 });
@@ -74,6 +81,10 @@ export const sourceSchema = z.object({
     .max(REPOSITORY_ALIAS_MAX)
     .default([]),
   capabilities: capabilitiesSchema,
+  /** Where this section's credential lives; absent on records saved before handles. */
+  credential: credentialHandleSchema.optional(),
+  /** Latest verification; absent on records saved by a verified connect or before states existed. */
+  verification: verificationSchema.optional(),
   savedAt: z.string().datetime(),
   verifiedAt: z.string().datetime().nullable().default(null),
 });
@@ -209,6 +220,14 @@ export function parseConnection(raw: unknown): SavedConnection {
   const source = sourceSchema.safeParse(sections.source);
   if (!source.success) {
     throw new MeshError('INVALID_INPUT', 'The saved GitHub connection source section is damaged.');
+  }
+  for (const [section, value] of [
+    ['tracker', tracker.data],
+    ['source', source.data],
+  ] as const) {
+    if (value.credential !== undefined) {
+      scopedHandle({ section, provider: value.provider }, value.credential);
+    }
   }
   const v2 = connectionV2Schema.parse({ version: 2, tracker: tracker.data, source: source.data });
   return { legacy: flattenConnection(v2), v2 };

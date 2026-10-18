@@ -9,6 +9,7 @@ import { MeshError } from '../protocol.ts';
 
 import { decideApproval } from './approvals.ts';
 import * as automation from './automations.ts';
+import { decideCheckpoint } from './checkpoint-decisions.ts';
 import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { changeGates } from './gate-controls.ts';
 import { noteObjective, saveDefinition } from './objective-goals.ts';
@@ -24,6 +25,7 @@ import type { FactoryRepository } from './repository.ts';
 /** Operations this module handles. */
 type LedgerOperation =
   | 'factory_answer'
+  | 'factory_checkpoint_decide'
   | 'factory_gates'
   | 'factory_approve'
   | 'factory_attempts'
@@ -57,6 +59,7 @@ export function ledgerHandlers(
 ): Record<LedgerOperation, () => unknown> {
   return {
     factory_answer: () => answerQuestion(repository, input),
+    factory_checkpoint_decide: () => decideCheckpoint(repository, input),
     factory_gates: () => changeGates(repository, input),
     factory_approve: () => decideApproval(repository, input),
     factory_attempts: async () => telemetry.attempts(repository, mesh, input),

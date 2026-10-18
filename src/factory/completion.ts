@@ -14,6 +14,7 @@ import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { causeKey, causeLine } from './lesson-text.ts';
 import { MergeConflictError } from './merge-conflict.ts';
 import { MERGE_GATE_PENDING } from './merge-path.ts';
@@ -558,6 +559,7 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     updatedAt: context.repository.store.now(),
     workflow: automaticWorkflow(context.repository),
     approvals: [],
+    gates: objectiveGates(context.repository),
   });
 }
 

@@ -38,6 +38,8 @@ export const ownedLaunchSchema = z.object({
   cpuPercent: z.number(),
   processLimit: z.number().int().positive(),
   interactive: z.boolean().default(false),
+  /** Keep stdin open and forward the owner's stream, for a persistent non-PTY session. */
+  stream: z.boolean().default(false),
   moduleEnvironment: moduleEnvironmentSchema.optional(),
 });
 /** Validated descriptor. */
