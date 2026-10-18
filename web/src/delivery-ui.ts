@@ -9,6 +9,7 @@
  */
 import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromStep } from './approval-model.js';
+import { lifecycleControl } from './board-model.js';
 import { button, emptyState, externalLink, focusedKey, restoreFocus, stateBadge, tag } from './console-dom.js';
 import { EMPTY_CONSOLE, findingSeverity, layerGroups, readConsole, runningText, shortSha } from './console-model.js';
 import { element } from './worker-ui.js';
@@ -19,7 +20,7 @@ import type { ConsoleModel, Delivery, Step, StepResult } from './console-model.j
 
 /** Callbacks supplied by the console shell. */
 export interface DeliveryHooks {
-  /** Operator control sender (`createOperatorControl`); used for `factory_approve`. */
+  /** Operator control sender (`createOperatorControl`); used for approvals, holds and archiving. */
   readonly control: ControlSender;
   /** Return to the previous view. */
   readonly back: () => void;
@@ -71,6 +72,13 @@ function header(delivery: Delivery): HTMLElement {
   fact(facts, 'Base', shortSha(delivery.base));
   fact(facts, 'Pull request', delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, 'Open pull request'));
   fact(facts, 'Running now', runningText(delivery) ?? 'Nothing');
+  if (delivery.held !== null) {
+    fact(
+      facts,
+      'Held',
+      delivery.held.reason === '' ? 'No new attempt starts until you resume it.' : delivery.held.reason,
+    );
+  }
   if (delivery.waitingOn.length > 0) {
     fact(facts, 'Waiting on', delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
   }
@@ -168,6 +176,10 @@ class DeliveryView {
   private readonly dialog: ApprovalDialog;
   /** Opens the attempts view. */
   private readonly attempts: HTMLButtonElement;
+  /** Holds, resumes or archives the delivery shown. */
+  private readonly lifecycle: HTMLButtonElement;
+  /** Operator control path. */
+  private readonly control: ControlSender;
   /** Re-rendered content. */
   private readonly body = element('div', 'delivery-body');
   /** Result panels the operator expanded, by `taskId:stepId`. */
@@ -202,8 +214,18 @@ class DeliveryView {
         hooks.openSessions({ taskId: this.taskId });
       },
     });
+    this.control = hooks.control;
+    this.lifecycle = button('Hold', {
+      cssClass: 'button secondary',
+      key: 'lifecycle',
+      action: () => {
+        void this.applyLifecycle();
+      },
+    });
     const toolbar = element('div', 'delivery-toolbar');
-    toolbar.append(back, this.attempts);
+    const actions = element('div', 'delivery-toolbar-actions');
+    actions.append(this.lifecycle, this.attempts);
+    toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
   }
 
@@ -244,6 +266,8 @@ class DeliveryView {
     this.renderKey = key;
     const focused = focusedKey(this.root);
     this.attempts.disabled = delivery === undefined;
+    this.lifecycle.disabled = delivery === undefined;
+    this.lifecycle.textContent = delivery === undefined ? 'Hold' : lifecycleControl(delivery).label;
     if (delivery === undefined) {
       const empty = emptyState(
         'This delivery is not on the board',
@@ -271,6 +295,21 @@ class DeliveryView {
     const top = header(delivery);
     this.body.replaceChildren(top, pipeline);
     restoreFocus(this.root, focused, top.querySelector('h2'));
+  }
+
+  /** Hold, resume or archive the delivery shown, once; the next snapshot shows the result. */
+  private async applyLifecycle(): Promise<void> {
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    if (delivery === undefined || this.lifecycle.disabled) {
+      return;
+    }
+    const { operation, input } = lifecycleControl(delivery);
+    this.lifecycle.disabled = true;
+    try {
+      await this.control(operation, input);
+    } finally {
+      this.lifecycle.disabled = false;
+    }
   }
 
   /**
