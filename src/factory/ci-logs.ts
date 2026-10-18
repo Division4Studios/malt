@@ -54,9 +54,10 @@ const TOKENS: readonly RegExp[] = [
 ];
 /** URL credentials: the scheme survives, the user and password do not. */
 const URL_CREDENTIALS = /\b(?<scheme>[a-z][\d+\-.a-z]*:\/\/)[^\s\/:@]+:[^\s\/@]+@/giv;
+/** An authorization value: the label survives, the scheme and every credential after it do not. */
+const AUTHORIZATION = /\b(?<label>authorization["']?[:=] ?["']?)[^\n"']+/giv;
 /** A labelled secret value: the label survives, the value does not. */
-const LABELLED_SECRET =
-  /\b(?<label>(?:api[\-_]?key|authorization|password|secret|token)["']?\s*[:=]\s*["']?)[^\s"',]+/giv;
+const LABELLED_SECRET = /\b(?<label>(?:api[\-_]?key|password|secret|token)["']?\s*[:=]\s*["']?)[^\s"',]+/giv;
 /** A bearer credential: the scheme word survives, the credential does not. */
 const BEARER = /\b(?<label>bearer\s+)[^\s"',]+/giv;
 /** Replacement shown for redacted text, matching the literal-secret redactor. */
@@ -175,29 +176,63 @@ export function redactLog(text: string, secrets: readonly string[]): string {
   }
   return clean
     .replaceAll(URL_CREDENTIALS, (_match, scheme: string) => `${scheme}${REDACTED}@`)
+    .replaceAll(AUTHORIZATION, (_match, label: string) => `${label}${REDACTED}`)
     .replaceAll(BEARER, (_match, label: string) => `${label}${REDACTED}`)
     .replaceAll(LABELLED_SECRET, (_match, label: string) => `${label}${REDACTED}`);
+}
+
+/** The two parts of an excerpt, as line indexes. */
+interface KeptLines {
+  /** Index of the first error line, or -1. */
+  readonly first: number;
+  /** Lines around the first error that come before the tail. */
+  readonly window: readonly number[];
+  /** The final lines. */
+  readonly tail: readonly number[];
 }
 
 /**
  * Line indexes an excerpt keeps: a window around the first error and the final lines.
  *
  * @param lines - Log lines.
- * @returns Sorted indexes to keep.
+ * @returns Sorted indexes of each part; the window stops where the tail starts.
  */
-function keptLines(lines: readonly string[]): number[] {
-  const keep = new Set<number>();
+function keptLines(lines: readonly string[]): KeptLines {
+  const tailStart = Math.max(0, lines.length - TAIL_LINES);
+  const window: number[] = [];
   const first = lines.findIndex((line) => ERROR_LINE.test(line));
   if (first !== -1) {
-    const end = Math.min(lines.length, first + AFTER_ERROR);
+    const end = Math.min(tailStart, first + AFTER_ERROR);
     for (let index = Math.max(0, first - BEFORE_ERROR); index < end; index += 1) {
-      keep.add(index);
+      window.push(index);
     }
   }
-  for (let index = Math.max(0, lines.length - TAIL_LINES); index < lines.length; index += 1) {
-    keep.add(index);
+  return {
+    first,
+    window,
+    tail: Array.from({ length: lines.length - tailStart }, (_value, offset) => tailStart + offset),
+  };
+}
+
+/**
+ * Render kept lines, marking each elided range.
+ *
+ * @param lines - Log lines.
+ * @param indexes - Sorted indexes to render.
+ * @param previous - Index of the line rendered before these, or -1.
+ * @returns Rendered lines.
+ */
+function rendered(lines: readonly string[], indexes: readonly number[], previous: number): string[] {
+  const kept: string[] = [];
+  let last = previous;
+  for (const index of indexes) {
+    if (index !== last + 1) {
+      kept.push(`… ${String(index - last - 1)} lines omitted …`);
+    }
+    kept.push(lines[index] ?? '');
+    last = index;
   }
-  return [...keep].toSorted((left, right) => left - right);
+  return kept;
 }
 
 /**
@@ -212,17 +247,24 @@ export function excerptLog(text: string, limit = REPAIR_FINDING_MAX): string {
     .split('\n')
     .map((line) => (line.length > LINE_MAX ? `${line.slice(0, LINE_MAX)}…` : line))
     .filter((line) => line.trim() !== '');
-  const kept: string[] = [];
-  let previous = -1;
-  for (const index of keptLines(lines)) {
-    if (index !== previous + 1) {
-      kept.push(`… ${String(index - previous - 1)} lines omitted …`);
-    }
-    kept.push(lines[index] ?? '');
-    previous = index;
+  const { first, window, tail } = keptLines(lines);
+  const diagnostic = rendered(lines, window, -1).join('\n');
+  const ending = rendered(lines, tail, window.at(-1) ?? -1).join('\n');
+  const excerpt = diagnostic === '' ? ending : `${diagnostic}\n${ending}`;
+  if (excerpt.length <= limit) {
+    return excerpt;
   }
-  const excerpt = kept.join('\n');
-  return excerpt.length <= limit ? excerpt : `…${excerpt.slice(excerpt.length - limit + 1)}`;
+  // Over the bound, the window starts at the first error and keeps up to half the budget; the tail keeps its end.
+  const focused = rendered(
+    lines,
+    window.filter((index) => index >= first),
+    -1,
+  ).join('\n');
+  const share = Math.min(focused.length, Math.floor(limit / 2));
+  const start = share < focused.length ? `${focused.slice(0, share - 1)}…` : focused;
+  const room = limit - start.length - (start === '' ? 0 : 1);
+  const end = ending.length <= room ? ending : `…${ending.slice(ending.length - room + 1)}`;
+  return start === '' ? end : `${start}\n${end}`;
 }
 
 /**
