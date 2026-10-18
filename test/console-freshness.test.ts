@@ -8,7 +8,7 @@ import test from 'node:test';
 
 import { Freshness } from '../web/src/freshness.ts';
 
-await test('silent stream fallback is single-flight, bounded, and resets only on real observations', async (t) => {
+await test('silent stream fallback is single-flight, backs off, and resets only on real observations', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const freshness = new Freshness();
   freshness.observe();
@@ -28,8 +28,14 @@ await test('silent stream fallback is single-flight, bounded, and resets only on
     await freshness.recover(read);
   }
   assert.equal(reads, 5, 'Unreachable services must not trigger endless retries.');
-  freshness.observe();
+  t.mock.timers.tick(150_000);
+  await freshness.recover(read);
+  assert.equal(reads, 6, 'after five failures the console still checks every five minutes');
   t.mock.timers.tick(30_000);
   await freshness.recover(read);
   assert.equal(reads, 6);
+  freshness.observe();
+  t.mock.timers.tick(30_000);
+  await freshness.recover(read);
+  assert.equal(reads, 7);
 });
