@@ -18,6 +18,12 @@ export const ROUTING_REASON_MAX = 1000;
 export const PLAN_MAX = 100;
 /** Maximum focused instruction receipts per assignment. */
 export const MAX_INSTRUCTION_RECEIPTS = 20;
+/** Most rulings one fixer or plan revision records. */
+export const MAX_DISPOSITIONS = 200;
+/** Longest finding id a ruling names. */
+export const DISPOSITION_ID_MAX = 120;
+/** Longest ruling reason or evidence. */
+export const DISPOSITION_TEXT_MAX = 4000;
 
 /** Strict JSON Schema passed to both providers for their final result. */
 export const AGENT_OUTPUT_SCHEMA = {
@@ -30,15 +36,16 @@ export const AGENT_OUTPUT_SCHEMA = {
     findings: { type: 'array', items: { type: 'string' } },
     dispositions: {
       type: 'array',
+      maxItems: MAX_DISPOSITIONS,
       items: {
         type: 'object',
         additionalProperties: false,
         required: ['id', 'decision', 'reason', 'evidence'],
         properties: {
-          id: { type: 'string' },
+          id: { type: 'string', minLength: 1, maxLength: DISPOSITION_ID_MAX },
           decision: { type: 'string', enum: ['adopted', 'rejected', 'merged'] },
-          reason: { type: 'string' },
-          evidence: { type: 'string' },
+          reason: { type: 'string', minLength: 1, maxLength: DISPOSITION_TEXT_MAX },
+          evidence: { type: 'string', maxLength: DISPOSITION_TEXT_MAX },
         },
       },
     },

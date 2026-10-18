@@ -200,8 +200,9 @@ export function parseCron(expression: string): CronSpec {
     day: field(day, DAY_FIELD),
     month: field(month, MONTH_FIELD),
     weekday: weekdays,
-    isDayRestricted: day !== '*',
-    isWeekdayRestricted: weekday !== '*',
+    // As in classic cron, a field starting with `*` (including steps such as `*/2`) is unrestricted.
+    isDayRestricted: !day.startsWith('*'),
+    isWeekdayRestricted: !weekday.startsWith('*'),
   };
 }
 
@@ -322,6 +323,27 @@ function isRepeatedWallTime(spec: CronSpec, at: number, local: LocalTime, timeZo
 }
 
 /**
+ * The first instant of the next local day. Adding the minutes left today as
+ * elapsed time overshoots midnight when a daylight-saving change shortens the
+ * night, so the jump steps back to the new day's first instant when it can.
+ *
+ * @param at - Current candidate.
+ * @param local - Its local time.
+ * @param timeZone - IANA zone.
+ * @returns Next candidate, never past the next day's first matching minute.
+ */
+function nextLocalDay(at: number, local: LocalTime, timeZone: string): number {
+  const next = at + ((LAST_HOUR - local.hour) * HOUR_MINUTES + (HOUR_MINUTES - local.minute)) * MINUTE_MS;
+  const landed = localTime(next, timeZone);
+  const past = landed.hour * HOUR_MINUTES + landed.minute;
+  if (past === 0 || landed.day === local.day) {
+    return next;
+  }
+  const back = next - past * MINUTE_MS;
+  return localTime(back, timeZone).day === landed.day ? back : next;
+}
+
+/**
  * The first fire time strictly after an instant.
  *
  * @param spec - Schedule.
@@ -334,7 +356,7 @@ export function nextFire(spec: CronSpec, timeZone: string, after: number): numbe
   for (let steps = 0; steps < MAX_STEPS; steps += 1) {
     const local = localTime(at, timeZone);
     if (!spec.month.has(local.month) || !isDayMatch(spec, local)) {
-      at += ((LAST_HOUR - local.hour) * HOUR_MINUTES + (HOUR_MINUTES - local.minute)) * MINUTE_MS;
+      at = nextLocalDay(at, local, timeZone);
       continue;
     }
     const isMatch = isClockMatch(spec, local.hour * HOUR_MINUTES + local.minute);
