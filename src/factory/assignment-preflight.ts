@@ -7,7 +7,7 @@
  *
  * @file
  */
-import { existsSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import path from 'node:path';
 
 import { commandInvocation } from './commands.ts';
@@ -16,29 +16,52 @@ import { sealedHead } from './source-reader.ts';
 import type { FactoryContext } from './context.ts';
 import type { FactoryJob } from './schema.ts';
 
+/** Weight of one octal digit in a file mode. */
+const OCTAL = 8;
+/** Owner, group and other execute permission bits. */
+const EXECUTE_BITS = [OCTAL * OCTAL, OCTAL, 1];
+/** File modes carry permissions in their low nine bits. */
+const PERMISSION_RANGE = 0o1000;
 /** Executable suffixes Windows tries for a bare command name. */
 const WINDOWS_SUFFIXES = ['.exe', '.cmd', '.bat', '.com'];
+
+/**
+ * Whether a path is a file the operating system would run: on POSIX it needs execute permission.
+ *
+ * @param candidate - Absolute path.
+ * @returns True for an executable file.
+ */
+function isExecutable(candidate: string): boolean {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Checks a project-configured command path without running it.
+  const stats = statSync(candidate, { throwIfNoEntry: false });
+  if (stats?.isFile() !== true) {
+    return false;
+  }
+  const permissions = stats.mode % PERMISSION_RANGE;
+  return process.platform === 'win32' || EXECUTE_BITS.some((bit) => Math.floor(permissions / bit) % 2 === 1);
+}
 
 /**
  * Whether an executable can be found where the operating system would look for it.
  *
  * @param file - Configured command executable.
- * @param cwd - Directory the command runs in.
- * @returns True when the resolved executable exists.
+ * @param cwd - Directory the command runs in; relative PATH entries resolve against it.
+ * @returns True when the resolved executable exists and may run.
  */
 export function canStart(file: string, cwd: string): boolean {
   const resolved = commandInvocation(file, []).file;
   if (path.isAbsolute(resolved) || resolved.includes('/') || resolved.includes('\\')) {
-    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Checks a project-configured command path without running it.
-    return existsSync(path.resolve(cwd, resolved));
+    return isExecutable(path.resolve(cwd, resolved));
   }
-  const suffixes = process.platform === 'win32' ? ['', ...WINDOWS_SUFFIXES] : [''];
-  return (
-    (process.env['PATH'] ?? '')
-      .split(path.delimiter)
-      .filter((directory) => directory !== '')
-      // eslint-disable-next-line security/detect-non-literal-fs-filename -- PATH lookup of a project-configured command, without running it.
-      .some((directory) => suffixes.some((suffix) => existsSync(path.join(directory, `${resolved}${suffix}`))))
+  const isWindows = process.platform === 'win32';
+  const suffixes = isWindows ? ['', ...WINDOWS_SUFFIXES] : [''];
+  // An empty POSIX PATH entry is the current directory: the attempt checkout the command runs in.
+  const directories = (process.env['PATH'] ?? '')
+    .split(path.delimiter)
+    .filter((directory) => directory !== '' || !isWindows)
+    .map((directory) => path.resolve(cwd, directory));
+  return directories.some((directory) =>
+    suffixes.some((suffix) => isExecutable(path.join(directory, `${resolved}${suffix}`))),
   );
 }
 

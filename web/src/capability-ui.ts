@@ -64,6 +64,8 @@ class CapabilityView {
   private readonly history = element('ol', 'capability-history');
   /** Latest matrix. */
   private matrix: CapabilityMatrix | null = null;
+  /** Project the matrix and drafts belong to. */
+  private scope: string | null = null;
   /** Unsaved choices by capability. */
   private readonly drafts = new Map<string, PolicyDraft>();
   /** Save problems by capability. */
@@ -92,13 +94,27 @@ class CapabilityView {
     this.root.append(this.status, table, changes);
   }
 
-  /** Read the policy view again and redraw, keeping drafts and focus. */
+  /** Read the policy view again and redraw, keeping this project's drafts and focus. */
   public async refresh(): Promise<void> {
+    const project = this.hooks.project();
+    if (project !== this.scope) {
+      // Drafts and the matrix belong to one project; another project starts clean.
+      this.scope = project;
+      this.matrix = null;
+      this.drafts.clear();
+      this.errors.clear();
+    }
     try {
-      const route = scoped(this.hooks.project(), '/api/capabilities');
-      this.matrix = readCapabilities(await request(route));
+      const matrix = readCapabilities(await request(scoped(project, '/api/capabilities')));
+      if (project !== this.hooks.project()) {
+        return;
+      }
+      this.matrix = matrix;
       this.status.textContent = '';
     } catch (error) {
+      if (project !== this.hooks.project()) {
+        return;
+      }
       this.status.textContent = t('Capabilities could not be read: {error}', {
         error: error instanceof Error ? error.message : t('unknown error'),
       });
@@ -235,9 +251,22 @@ class CapabilityView {
       this.render();
       return;
     }
+    // The control path acts on the selected project, so a draft from another project is never sent.
+    const project = this.scope;
+    if (project !== this.hooks.project()) {
+      await this.refresh();
+      return;
+    }
     const { operation, input } = policySetInput(row.capability, draft);
-    if (await this.hooks.control(operation, input)) {
-      this.drafts.delete(row.capability);
+    const isSaved = await this.hooks.control(operation, input);
+    if (project !== this.scope) {
+      return;
+    }
+    if (isSaved) {
+      // A choice made while the save was in flight is newer; it stays a draft.
+      if (this.drafts.get(row.capability) === draft) {
+        this.drafts.delete(row.capability);
+      }
       await this.refresh();
       return;
     }

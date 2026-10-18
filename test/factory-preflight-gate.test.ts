@@ -6,7 +6,7 @@
  * @file
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -127,4 +127,31 @@ await test('executables are found by path or on PATH without running them', () =
   assert.equal(canStart('node', tmpdir()), true);
   assert.equal(canStart('malt-no-such-check', tmpdir()), false);
   assert.equal(canStart('./missing/tool', tmpdir()), false);
+});
+
+await test('a checkout-local PATH entry counts, and a file that cannot run does not', (t) => {
+  const checkout = mkdtempSync(path.join(tmpdir(), 'malt-preflight-path-'));
+  const saved = process.env['PATH'];
+  t.after(() => {
+    process.env['PATH'] = saved;
+    rmSync(checkout, { recursive: true, force: true });
+  });
+  const name = process.platform === 'win32' ? 'malt-local-check.cmd' : 'malt-local-check';
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The test's own temporary checkout.
+  mkdirSync(path.join(checkout, 'bin'));
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The test's own temporary checkout.
+  writeFileSync(path.join(checkout, 'bin', name), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+  process.env['PATH'] = 'bin';
+  assert.equal(canStart('malt-local-check', checkout), true, 'relative PATH entries resolve in the attempt checkout');
+  assert.equal(canStart('malt-local-check', tmpdir()), false);
+});
+
+await test('a script without execute permission cannot start', { skip: process.platform === 'win32' }, (t) => {
+  const checkout = mkdtempSync(path.join(tmpdir(), 'malt-preflight-mode-'));
+  t.after(() => {
+    rmSync(checkout, { recursive: true, force: true });
+  });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The test's own temporary checkout.
+  writeFileSync(path.join(checkout, 'plain.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+  assert.equal(canStart('./plain.sh', checkout), false);
 });
