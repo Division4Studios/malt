@@ -5,9 +5,14 @@
  * @file
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 
-import { NODES_MAX } from '../src/factory/transcript-builder.ts';
+import { readStreamLines } from '../src/factory/attempt-stream.ts';
+import { estimateCost } from '../src/factory/price-table.ts';
+import { NODES_MAX, TranscriptBuilder } from '../src/factory/transcript-builder.ts';
 import { normalizeLines } from '../src/factory/transcripts.ts';
 
 /**
@@ -276,4 +281,61 @@ void test('node counts and text sizes are bounded and truncation is reported', (
   assert.equal(first.truncated, true);
   assert.equal(first.text.length, 4000);
   assert.equal(parsed.digest.tools.total, 1, 'Metrics keep counting beyond the node cap.');
+});
+
+await test('oversized change events and long paths are bounded and marked truncated', () => {
+  const builder = new TranscriptBuilder(true);
+  builder.fileChange(
+    Array.from({ length: 501 }, (_, index) => ({ path: `src/file-${String(index)}.ts`, kind: 'update' })),
+  );
+  builder.touch(`deep/${'a'.repeat(5000)}.ts`);
+  const parsed = builder.finish(false);
+  assert.equal(parsed.nodes.at(0)?.truncated, true, 'a change event over the file cap says so');
+  assert.equal(parsed.filesTruncated, true);
+  assert.ok(
+    parsed.files.every((file) => file.path.length <= 4000),
+    'touched paths are clipped like other text',
+  );
+});
+
+await test('usage with an unknown cache component is never priced as zero', () => {
+  const price = { model: 'm', input: 1, cachedInput: 0.1, cacheWrite: 1.25, output: 4 };
+  const known = { input: 1_000_000, cacheRead: 0, cacheWrite: 0, output: 1_000_000, reasoning: null, total: 2_000_000 };
+  assert.equal(estimateCost(known, price), 5);
+  assert.equal(estimateCost({ ...known, cacheRead: null }, price), null);
+  assert.equal(estimateCost({ ...known, cacheWrite: null }, price), null);
+});
+
+await test('malformed known events count as unknown and failed patches change no files', () => {
+  const claude = normalizeLines(lines({ type: 'assistant' }, { type: 'rate_limit_event' }), 'claude', {
+    isCollecting: true,
+    isLive: false,
+  });
+  assert.equal(claude.digest.unknownEvents, 2);
+  const codex = normalizeLines(
+    lines({
+      type: 'item.completed',
+      item: { id: 'i1', type: 'file_change', status: 'failed', changes: [{ path: 'src/a.ts', kind: 'update' }] },
+    }),
+    'codex',
+    { isCollecting: true, isLive: false },
+  );
+  assert.deepEqual(codex.files, []);
+  assert.ok(codex.nodes.some((node) => node.label === 'Patch failed'));
+});
+
+await test('a stream cut inside an event never hands the fragment to the decoder', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'malt-stream-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const file = path.join(directory, 'stdout.log');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture file in this test's own temporary directory.
+  await writeFile(file, '{"type":"a"}\n{"type":"b"}\n{"type":"c","text":"cut off');
+  const seen: string[] = [];
+  const read = await readStreamLines({ file, size: 46, mtimeMs: 0 }, (line) => {
+    seen.push(line);
+  });
+  assert.equal(read.available, true);
+  assert.deepEqual(seen, ['{"type":"a"}', '{"type":"b"}']);
 });
