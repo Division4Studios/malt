@@ -474,6 +474,14 @@ export class QueueState {
    */
   public replace(target: HTMLElement, next: HTMLElement, project: string): void {
     const isSameProject = project === this.project;
+    if (target.firstElementChild === next && target.childElementCount === 1) {
+      // A stable view root is already mounted: reinserting it would drop the focus and selection inside it.
+      if (!isSameProject) {
+        this.details.clear();
+        this.project = project;
+      }
+      return;
+    }
     let focus = '';
     if (isSameProject) {
       for (const detail of target.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {

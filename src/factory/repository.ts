@@ -34,6 +34,7 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
 
 import type { Store } from '../store.ts';
@@ -625,7 +626,10 @@ export class FactoryRepository {
         live.some((candidate) => {
           return (
             candidate.role === record.role ||
-            (record.kind === 'develop' && candidate.taskId === record.taskId && candidate.kind === 'develop')
+            // Code-editing steps share the delivery's worktree, so at most one runs per delivery.
+            (CODE_JOB_KINDS.has(record.kind) &&
+              candidate.taskId === record.taskId &&
+              CODE_JOB_KINDS.has(candidate.kind))
           );
         })
       ) {
