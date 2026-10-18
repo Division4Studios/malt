@@ -881,6 +881,28 @@ await test('auto-merge is disarmed before a moved head is reworked', async (t) =
   assert.equal(context.repository.task(task.id).phase, 'development');
 });
 
+await test('auto-merge is disarmed as soon as any check fails, even while others still run', async (t) => {
+  const { context, pr } = await fixture(t);
+  const disarmed: number[] = [];
+  const watched: FactoryContext = {
+    ...context,
+    remote: {
+      ...context.remote,
+      disarm: async (number) => {
+        await delay(0);
+        disarmed.push(number);
+      },
+    },
+  };
+  pr.autoMergeRequest = { enabledAt: '2026-10-17T00:00:00Z' };
+  pr.statusCheckRollup = [
+    { name: 'docker', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { name: 'check (ubuntu-latest)', status: 'IN_PROGRESS', conclusion: null },
+  ];
+  await reconcile(watched);
+  assert.deepEqual(disarmed, [3]);
+});
+
 await test('a PR merged outside the factory at the recorded head is adopted and verified on main', async (t) => {
   const { context, task, pr } = await fixture(t);
   pr.state = 'MERGED';
