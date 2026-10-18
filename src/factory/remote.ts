@@ -14,6 +14,7 @@ import { MeshError } from '../protocol.ts';
 
 import { MAX_LOGGED_CHECKS, actionsJobId, githubTextRunner } from './ci-logs.ts';
 import { reconcileDependencies } from './dependencies.ts';
+import { chooseMergePath, readProtection } from './merge-path.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 
@@ -90,9 +91,22 @@ const prSchema = z.object({
     .optional(),
   mergeCommit: z.object({ oid: z.string() }).nullable(),
   statusCheckRollup: z.array(checkSchema).nullable(),
+  /** Set while GitHub auto-merge or the merge queue will merge this PR. */
+  autoMergeRequest: z.object({}).passthrough().nullable().optional(),
 });
 /** Exact current PR evidence used by merge gates. */
 export type PullRequest = z.output<typeof prSchema>;
+/** GitHub merge states that stop final testing, with what they mean. */
+const MERGE_STATE_BLOCKERS: Readonly<Record<string, string>> = {
+  DIRTY: 'The PR conflicts with its base branch and needs a merge-conflict repair.',
+  BEHIND: 'The PR branch is behind its base branch and is refreshed before final testing.',
+  UNKNOWN: 'GitHub is still computing whether the PR can merge.',
+};
+/** GitHub will merge the exact head later, or a person must act first; the reason says which. */
+export interface MergePending {
+  /** Precise waiting reason for the operator. */
+  readonly pending: string;
+}
 /** Current state of one delivery issue in the connected repository. */
 export interface IssueState {
   /** Native open/closed state. */
@@ -122,7 +136,9 @@ export interface DeliveryRemote {
   /** Inspect exact-head CI and branch state. */
   readonly inspect: (number: number) => Promise<PullRequest>;
   /** Merge without administrator bypass, fenced by expected head. */
-  readonly merge: (task: FactoryTask, config: FactoryConfig) => Promise<string>;
+  readonly merge: (task: FactoryTask, config: FactoryConfig) => Promise<string | MergePending>;
+  /** Turn off GitHub auto-merge for a PR before its delivery is reworked. */
+  readonly disarm?: (pr: number) => Promise<void>;
   /** Replay a durable remote effect idempotently. */
   readonly effect: (effect: FactoryEffect) => Promise<void>;
   /** Refresh externally visible MALT deliveries for reconciliation. */
@@ -371,20 +387,21 @@ export class GitHubDelivery implements DeliveryRemote {
         '--repo',
         connection.repository,
         '--json',
-        'number,url,headRefOid,baseRefOid,baseRefName,isDraft,state,mergeStateStatus,mergeCommit,statusCheckRollup,reviewDecision',
+        'number,url,headRefOid,baseRefOid,baseRefName,isDraft,state,mergeStateStatus,mergeCommit,statusCheckRollup,reviewDecision,autoMergeRequest',
       ]),
     );
   }
 
   /**
-   * Merge only an unchanged head, never with --admin or unchecked auto-merge.
+   * Merge only an unchanged head through the path the base branch's protection allows,
+   * never with --admin: merge now, arm auto-merge or the merge queue, or wait precisely.
    *
    * @param task - Exact-head reviewed delivery.
    * @param config - Current base branch, CI and protection gate policy.
-   * @returns GitHub-confirmed merge commit.
+   * @returns GitHub-confirmed merge commit, or why the merge is still pending.
    * @throws {MeshError} If the PR is absent, changed or not confirmed merged.
    */
-  public async merge(task: FactoryTask, config: FactoryConfig): Promise<string> {
+  public async merge(task: FactoryTask, config: FactoryConfig): Promise<string | MergePending> {
     const record = task;
     if (record.pr === null || record.head === null) {
       throw new MeshError('FACTORY_GATED', 'The delivery has no reviewed PR head.');
@@ -405,36 +422,19 @@ export class GitHubDelivery implements DeliveryRemote {
       throw new MeshError('FACTORY_GATED', blocker);
     }
     if (config.requireBranchProtection) {
-      const branch = z
-        .object({ protected: z.boolean() })
-        .parse(
-          await this.runner([
-            'api',
-            `repos/${connection.repository}/branches/${encodeURIComponent(config.baseBranch)}`,
-          ]),
-        );
-      if (!branch.protected) {
-        throw new MeshError(
-          'FACTORY_GATED',
-          'The target main branch is not protected. Enable supported GitHub branch protection before factory merge; local approvals cannot replace that gate.',
-        );
-      }
+      await this.assertProtected(connection.repository, config.baseBranch);
     }
-    await this.runner([
-      'pr',
-      'merge',
-      String(record.pr),
-      '--repo',
-      connection.repository,
-      '--squash',
-      '--match-head-commit',
-      record.head,
-    ]);
-    const result = await this.inspect(record.pr);
-    if (result.state !== 'MERGED' || result.mergeCommit === null) {
-      throw new MeshError('FACTORY_GATED', 'GitHub has not confirmed this exact PR was merged.');
-    }
-    return result.mergeCommit.oid;
+    return await this.followMergePath(current, record.head, connection.repository, config.baseBranch);
+  }
+
+  /**
+   * Turn off auto-merge so a reworked head is never merged unreviewed.
+   *
+   * @param pr - PR number.
+   */
+  public async disarm(pr: number): Promise<void> {
+    const connection = await this.connection();
+    await this.runner(['pr', 'merge', String(pr), '--repo', connection.repository, '--disable-auto']);
   }
 
   /**
@@ -604,6 +604,60 @@ export class GitHubDelivery implements DeliveryRemote {
   }
 
   /**
+   * Merge, arm auto-merge or the merge queue, or wait, as the base branch's protection allows.
+   *
+   * @param current - PR at the reviewed head, already past the readiness gate.
+   * @param head - Reviewed head; every merge call is fenced to it.
+   * @param repository - `owner/name`.
+   * @param base - Base branch.
+   * @returns GitHub-confirmed merge commit, or why the merge is still pending.
+   * @throws {MeshError} When GitHub does not confirm a direct merge.
+   */
+  private async followMergePath(
+    current: PullRequest,
+    head: string,
+    repository: string,
+    base: string,
+  ): Promise<string | MergePending> {
+    const path = chooseMergePath(current, await readProtection(this.runner, repository, base));
+    if (path.action === 'wait') {
+      return { pending: path.reason };
+    }
+    const merge = ['pr', 'merge', String(current.number), '--repo', repository, `--${path.method}`];
+    if (path.action !== 'merge') {
+      if (current.autoMergeRequest === null || current.autoMergeRequest === undefined) {
+        await this.runner([...merge, '--auto', '--match-head-commit', head]);
+      }
+      return { pending: path.reason };
+    }
+    await this.runner([...merge, '--match-head-commit', head]);
+    const result = await this.inspect(current.number);
+    if (result.state !== 'MERGED' || result.mergeCommit === null) {
+      throw new MeshError('FACTORY_GATED', 'GitHub has not confirmed this exact PR was merged.');
+    }
+    return result.mergeCommit.oid;
+  }
+
+  /**
+   * Refuse to merge into an unprotected base when the project requires protection.
+   *
+   * @param repository - `owner/name`.
+   * @param base - Base branch.
+   * @throws {MeshError} When the base branch is not protected.
+   */
+  private async assertProtected(repository: string, base: string): Promise<void> {
+    const branch = z
+      .object({ protected: z.boolean() })
+      .parse(await this.runner(['api', `repos/${repository}/branches/${encodeURIComponent(base)}`]));
+    if (!branch.protected) {
+      throw new MeshError(
+        'FACTORY_GATED',
+        'The target main branch is not protected. Enable supported GitHub branch protection before factory merge; local approvals cannot replace that gate.',
+      );
+    }
+  }
+
+  /**
    * Require the target workspace's saved connection.
    *
    * @returns Canonical repository and Project identity.
@@ -636,12 +690,16 @@ async function verifyRepositoryIdentity(runner: GitHubRunner, origin: string, re
 }
 
 /**
- * Explain mandatory CI/branch gates before launching a paid final review.
+ * Whether a reviewed PR is ready for final testing and merge. GitHub review
+ * approval and a `CLEAN` merge state are not required here: local QA cannot
+ * satisfy protected-branch reviews, so the merge step decides between merging,
+ * auto-merge, the merge queue and a precise wait. This gate still waits,
+ * unpaid, on anything that makes the reviewed source unmergeable or untested.
  *
- * @param pr - Actual GitHub snapshot.
- * @param task - Expected reviewed delivery.
- * @param config - Project-specific branch and required check policy.
- * @returns Gate reason, null when this snapshot is eligible for final testing.
+ * @param pr - Current PR state.
+ * @param task - Delivery at its reviewed head and base.
+ * @param config - Base branch and mandatory checks.
+ * @returns What blocks final testing, or null when it may proceed.
  */
 export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: FactoryConfig): string | null {
   if (
@@ -653,11 +711,12 @@ export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: Factory
   ) {
     return 'The PR is closed, draft, stale or targets another base.';
   }
-  if (pr.mergeStateStatus !== 'CLEAN') {
-    return 'GitHub branch protection, conflicts or required checks still block this PR.';
+  const state = MERGE_STATE_BLOCKERS[pr.mergeStateStatus];
+  if (state !== undefined) {
+    return state;
   }
-  if (pr.reviewDecision === 'REVIEW_REQUIRED' || pr.reviewDecision === 'CHANGES_REQUESTED') {
-    return 'GitHub requires authenticated review approval or resolution of requested changes. Local MALT QA reports do not satisfy protected-branch review rules.';
+  if (pr.reviewDecision === 'CHANGES_REQUESTED') {
+    return 'A GitHub reviewer requested changes. Resolve them before final testing.';
   }
   const checks = (pr.statusCheckRollup ?? []).map((check) => {
     return {
@@ -665,12 +724,16 @@ export function mergeBlocker(pr: PullRequest, task: FactoryTask, config: Factory
       state: check.conclusion ?? check.state ?? check.status ?? 'UNKNOWN',
     };
   });
-  if (
-    config.requiredChecks.some((name) => checks.every((check) => !(check.name === name && check.state === 'SUCCESS')))
-  ) {
-    return 'A configured mandatory CI check is missing or has not succeeded.';
+  const missing = config.requiredChecks.find((name) =>
+    checks.every((check) => !(check.name === name && check.state === 'SUCCESS')),
+  );
+  if (missing !== undefined) {
+    return `The configured mandatory check ${missing} is missing or has not succeeded.`;
   }
-  return checks.some((check) => !['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.state))
-    ? 'A GitHub check is still pending or failing.'
-    : null;
+  const unfinished = checks.find((check) => !['SUCCESS', 'SKIPPED', 'NEUTRAL'].includes(check.state));
+  if (unfinished === undefined) {
+    return null;
+  }
+  const label = unfinished.name === '' ? 'unnamed' : unfinished.name;
+  return `GitHub check ${label} is ${unfinished.state.toLowerCase()}.`;
 }
