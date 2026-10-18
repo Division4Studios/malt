@@ -62,6 +62,16 @@ export interface SpendUsage {
   readonly blocked: 'cap' | 'unpriced' | null;
 }
 
+/** An open objective or delivery without its own cap. */
+export interface SpendChoice {
+  /** Scope kind. */
+  readonly scope: 'objective' | 'delivery';
+  /** Objective or delivery id. */
+  readonly id: string;
+  /** Visible name. */
+  readonly label: string;
+}
+
 /** Caps, revision and spend. */
 export interface SpendStatus {
   /** Caps revision. */
@@ -70,6 +80,8 @@ export interface SpendStatus {
   readonly caps: SpendCaps;
   /** Spend rows, project first. */
   readonly usage: readonly SpendUsage[];
+  /** Uncapped open scopes the operator can cap, whether or not they have run. */
+  readonly choices: readonly SpendChoice[];
 }
 
 /** The editor's fields as typed. */
@@ -158,7 +170,29 @@ export function readSpend(summary: Data): SpendStatus {
             };
           })
       : [],
+    choices: readChoices(spend['choices']),
   };
+}
+
+/**
+ * Read the uncapped scopes the server offers.
+ *
+ * @param value - Untrusted list.
+ * @returns Valid choices.
+ */
+function readChoices(value: unknown): SpendChoice[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry): SpendChoice[] => {
+    const data = asData(entry);
+    const scope = data?.['scope'];
+    const id = data?.['id'];
+    const label = data?.['label'];
+    return typeof id === 'string' && typeof label === 'string' && (scope === 'objective' || scope === 'delivery')
+      ? [{ scope, id, label }]
+      : [];
+  });
 }
 
 /**
