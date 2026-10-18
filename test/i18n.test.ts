@@ -8,6 +8,7 @@ import { consoleMessages, moduleMessages, shellMessages } from '../scripts/i18n-
 import { ZH_CN, ZH_PARTS } from '../web/dist/catalog-zh.js';
 import {
   formatDateTime,
+  formatLocale,
   formatMessage,
   phrase,
   resolveLocale,
@@ -148,6 +149,11 @@ await test('plural messages pick the language’s form and fill every placeholde
     assert.equal(t(files, { files: 3, additions: 1, deletions: 2 }), '3 个文件已更改 · +1 −2');
     assert.equal(t('Instruct {role}', { role: 'qa-1' }), '向 qa-1 下达指令');
     assert.equal(t('Not a catalog message'), 'Not a catalog message', 'unknown text falls back to English');
+    assert.equal(
+      t('{count, plural, one {# untranslated file} other {# untranslated files}}', { count: 1 }),
+      '1 untranslated file',
+      'an English fallback uses English plural rules',
+    );
   } finally {
     useLocale('en');
   }
@@ -157,7 +163,9 @@ await test('plural messages pick the language’s form and fill every placeholde
 await test('dates format in the chosen language', () => {
   const at = Date.UTC(2026, 9, 17, 9, 30);
   const options: Intl.DateTimeFormatOptions = { timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric' };
-  assert.equal(formatDateTime(at, options), 'October 17, 2026');
+  // English keeps the host's English variant (en-GB writes 17 October 2026), so compare with that locale.
+  const english = new Intl.DateTimeFormat(formatLocale(), options);
+  assert.equal(formatDateTime(at, options), english.format(at));
   try {
     useLocale('zh-CN');
     assert.equal(formatDateTime(at, options), '2026年10月17日');
