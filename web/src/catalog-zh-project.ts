@@ -214,6 +214,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   Created: '已创建',
   Rotated: '已轮换',
   'Changed grants of': '更改了授权：',
+  'This value has line breaks, which this field cannot keep. Encode a multi-line key, such as with base64, and save that instead.':
+    '此值包含换行符，此字段无法保留。请先对多行密钥进行编码（例如 base64），再保存编码后的值。',
   'Show value while typing': '输入时显示值',
   'Injected under this environment variable name, such as STRIPE_TEST_KEY.':
     '以此环境变量名注入，例如 STRIPE_TEST_KEY。',

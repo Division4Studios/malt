@@ -198,15 +198,30 @@ export class LivenessMonitor {
   }
 
   /**
-   * Take one sample; a failed sample counts as no progress.
+   * Take one sample, bounded by the next checkpoint; a failed or late sample counts as no progress.
    *
-   * @returns What the sampler saw, or no progress when sampling failed.
+   * @returns What the sampler saw, or no progress when sampling failed or outlasted the checkpoint.
    */
   private async observation(): Promise<ProgressObservation> {
+    const none: ProgressObservation = { progress: null, awaiting: null };
+    // A sampler that hangs must never stop the checkpoint, and so the ceiling, from being enforced.
+    const budget = Math.max(0, this.current.nextCheckpointAt - this.options.now());
+    const cancels: (() => void)[] = [];
+    const deadline = new Promise<ProgressObservation>((resolve) => {
+      cancels.push(
+        this.timers(() => {
+          resolve(none);
+        }, budget),
+      );
+    });
     try {
-      return await this.options.sample();
+      return await Promise.race([this.options.sample(), deadline]);
     } catch {
-      return { progress: null, awaiting: null };
+      return none;
+    } finally {
+      for (const cancel of cancels) {
+        cancel();
+      }
     }
   }
 
