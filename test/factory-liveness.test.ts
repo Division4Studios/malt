@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
@@ -184,6 +185,44 @@ await test('the monitor extends productive work, records awaiting input and stop
   assert.equal(run3.delays.at(-1), -1, 'dispose cancels the pending wake-up');
   await run3.advance(30 * MINUTE, { progress: null, awaiting: null });
   assert.deepEqual(run3.stops, []);
+});
+
+await test('a sampler that never answers cannot hold off the checkpoint', async () => {
+  let now = 0;
+  const timers: { at: number; callback: () => void }[] = [];
+  const stops: string[] = [];
+  const records: JobLiveness[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => now,
+    sample: async () => Promise.withResolvers<ProgressObservation>().promise,
+    record: (liveness) => {
+      records.push(liveness);
+    },
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (callback, ms) => {
+      const timer = { at: now + ms, callback };
+      timers.push(timer);
+      return () => {
+        timers.splice(timers.indexOf(timer), 1);
+      };
+    },
+  });
+  monitor.start();
+  for (let step = 0; step < 50 && stops.length === 0 && timers.length > 0; step += 1) {
+    timers.sort((left, right) => right.at - left.at);
+    const next = timers.pop();
+    assert.ok(next !== undefined);
+    now = next.at;
+    next.callback();
+    await tick();
+  }
+  assert.deepEqual(stops, ['stalled 10 min']);
+  assert.equal(now, firstCheckpoint(0, POLICY));
+  assert.equal(records.at(-1)?.state, 'stalled');
 });
 
 /**
