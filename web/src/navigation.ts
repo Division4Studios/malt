@@ -7,10 +7,10 @@ import { phrase, translated } from './i18n.js';
 
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
-  mission: ['overview', 'activity'],
+  mission: ['overview', 'manager', 'activity'],
   inbox: ['inbox'],
   board: ['board', 'objective', 'automations', 'delivery', 'deliveries'],
-  workflow: ['workflow', 'team', 'workflows', 'roles'],
+  workflow: ['workflow', 'team', 'workflows', 'roles', 'pulls'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
   project: ['setup', 'settings', 'learning', 'secrets', 'onboarding'],
@@ -57,6 +57,7 @@ export function updateNavigation(view: string): void {
 /** View routes remain local UI state, not a competing delivery ledger. */
 export type View =
   | 'overview'
+  | 'manager'
   | 'inbox'
   | 'board'
   | 'automations'
@@ -68,6 +69,7 @@ export type View =
   | 'team'
   | 'workflow'
   | 'deliveries'
+  | 'pulls'
   | 'workers'
   | 'sessions'
   | 'costs'
@@ -82,6 +84,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
   overview: [
     phrase('Team operations.'),
     phrase('From intent to verified delivery. Every agent, every handoff, one local team.'),
+  ],
+  manager: [
+    phrase('Delivery manager.'),
+    phrase('One persistent session runs the mission with you. Every role reports here.'),
   ],
   inbox: [phrase('Inbox.'), phrase('Every decision waiting on you, oldest first, with what you already answered.')],
   board: [
@@ -104,6 +110,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
   workflow: [phrase('Workflow map.'), phrase('Real message traffic. Actual ticket stages. Conditional next handoffs.')],
   team: [phrase('Team constellation.'), phrase('Independent roles. Bounded sessions. Shared project memory.')],
   deliveries: [phrase('Pipeline list.'), phrase('Small scopes, independent reviews, verified outcomes.')],
+  pulls: [
+    phrase('Pull requests.'),
+    phrase('Local issues, reviewed diffs and protected merges. Nothing leaves this machine.'),
+  ],
   workers: [phrase('Worker workspaces.'), phrase('Real captured output and durable instructions, side by side.')],
   sessions: [
     phrase('Attempts and transcripts.'),

@@ -175,7 +175,13 @@ function teamRoot(home: MeshConfig, slug: string): string {
   if (!TEAM_SLUG_PATTERN.test(slug)) {
     throw new MeshError('UNKNOWN_TEAM', 'No such team.');
   }
-  return path.join(home.directory, TEAMS_DIRECTORY_NAME, slug);
+  // Containment holds even if the slug pattern is ever loosened.
+  const teams = path.resolve(home.directory, TEAMS_DIRECTORY_NAME);
+  const root = path.resolve(teams, slug);
+  if (!root.startsWith(`${teams}${path.sep}`)) {
+    throw new MeshError('UNKNOWN_TEAM', 'No such team.');
+  }
+  return root;
 }
 
 /**

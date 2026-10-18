@@ -92,3 +92,23 @@ void test('price rows require a model and four non-negative prices, without dupl
   assert.ok('error' in validatePrices([{ ...row, model: '' }]));
   assert.ok('error' in validatePrices([row, row]));
 });
+
+void test('stacked bar segments never overlap, even when raised to the minimum height', () => {
+  const { bars } = stackBars(
+    [
+      { day: '2026-10-01', totalUsd: 0.03, byRole: { 'qa-1': 0.01, 'qa-2': 0.01, 'developer-1': 0.01 } },
+      { day: '2026-10-02', totalUsd: 100, byRole: { 'developer-1': 100 } },
+    ],
+    100,
+    2,
+  );
+  const [small] = bars;
+  assert.ok(small !== undefined);
+  const ordered = small.segments.toSorted((left, right) => right.y - left.y);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const below = ordered[index - 1];
+    const above = ordered[index];
+    assert.ok(below !== undefined && above !== undefined);
+    assert.ok(above.y + above.height <= below.y, 'each segment ends at or above the one below it');
+  }
+});

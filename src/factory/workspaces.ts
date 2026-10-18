@@ -20,7 +20,7 @@ import { writeAtomic } from '../summary.ts';
 import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
 import { MergeConflictError } from './merge-conflict.ts';
-import { assertPublicationSize } from './publication-size.ts';
+import { assertPublicationSize, emptyPublicationReason, EmptyPublicationError } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -126,6 +126,22 @@ export function commitMessage(task: FactoryTask, provenance: CommitProvenance | 
     `X-MALT-Attempt: ${provenance.jobId}`,
   ];
   return ['-m', subject, '-m', trailers.join('\n')];
+}
+
+/**
+ * Message arguments for the merge that refreshes a delivery onto main: trailers
+ * when the publishing step is known, otherwise Git's default message.
+ *
+ * @param task - Delivery being refreshed.
+ * @param provenance - Publishing step and attempt, if known.
+ * @returns `-m` arguments for `git merge`, possibly none.
+ */
+export function mergeMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
+  if (provenance === null) {
+    return [];
+  }
+  const trailers = commitMessage(task, provenance).at(-1) ?? '';
+  return ['-m', `Refresh #${String(task.issue)} onto main: ${task.title}`, '-m', trailers];
 }
 
 /** Project-local worktree manager using shell-free Git commands. */
@@ -347,6 +363,7 @@ export class WorkspaceManager {
    * @param task - Original developer assignment with an owned worktree.
    * @param beforePush - Verify the refreshed source and commit its durable publication checkpoint.
    * @param provenance - Workflow step, seat and attempt recorded as commit trailers.
+   * @param onStep - Told when committing, refreshing main and measuring publication begin, for failure records.
    * @returns Current head/base and diff summary.
    * @throws {MeshError} For empty or oversized deliveries.
    */
@@ -354,6 +371,7 @@ export class WorkspaceManager {
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
     provenance: CommitProvenance | null = null,
+    onStep?: (step: 'commit' | 'refresh' | 'publish') => void,
   ): Promise<{ head: string; base: string; diff: string }> {
     this.assertDeliveryTask(task);
     const record = task;
@@ -364,7 +382,10 @@ export class WorkspaceManager {
     const base = await this.base();
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, previous, base);
+    onStep?.('commit');
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
+    // Measured from the base this delivery last built on, so work main absorbed since still counts as its own.
+    const ownCommitsBefore = await this.ownCommits(record.base ?? base, previous, directory);
     if (status !== '') {
       await this.assertResolved(directory);
       await this.git(['add', '--all'], directory);
@@ -373,8 +394,10 @@ export class WorkspaceManager {
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
-    await this.refreshForPublication(record, base, directory);
+    onStep?.('refresh');
+    await this.refreshForPublication(record, base, directory, provenance);
     await this.assertPrivateStateUntracked(directory);
+    onStep?.('publish');
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, head, base);
     const diff = await this.git(['diff', '--numstat', `${base}...${head}`], directory);
@@ -387,9 +410,9 @@ export class WorkspaceManager {
       }
     }
     if (entries.length === 0) {
-      throw new MeshError(
-        'FACTORY_GATED',
-        'The delivery diff is empty. Reconcile already-delivered work before implementation.',
+      const ownCommitsAfter = await this.ownCommits(base, head, directory);
+      throw new EmptyPublicationError(
+        emptyPublicationReason({ ownCommitsBefore, ownCommitsAfter, hadEdits: status !== '' }),
       );
     }
     await beforePush({ head, base });
@@ -604,6 +627,18 @@ export class WorkspaceManager {
   }
 
   /**
+   * Commits a branch head has that main does not.
+   *
+   * @param base - Fetched main.
+   * @param head - Branch commit.
+   * @param directory - Owned worktree.
+   * @returns Commit count.
+   */
+  private async ownCommits(base: string, head: string, directory: string): Promise<number> {
+    return Number(await this.git(['rev-list', '--count', `${base}..${head}`], directory));
+  }
+
+  /**
    * Reject commits outside this supervisor's delivery receipts or prior checkpoint.
    *
    * @param task - Durable delivery, never an agent-supplied checkpoint.
@@ -621,11 +656,17 @@ export class WorkspaceManager {
    * @param task - Owned delivery.
    * @param base - Verified fetched main.
    * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt publishing, recorded on the merge commit.
    * @throws {MergeConflictError} When main conflicts with the delivery.
    */
-  private async refreshForPublication(task: FactoryTask, base: string, directory: string): Promise<void> {
+  private async refreshForPublication(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null,
+  ): Promise<void> {
     try {
-      await this.mergeBase(task, base, directory);
+      await this.mergeBase(task, base, directory, provenance);
     } catch (error) {
       const files = await this.conflictedFiles(directory);
       if (files.length === 0) {
@@ -678,11 +719,17 @@ export class WorkspaceManager {
    * @param task - Owned delivery.
    * @param base - Verified fetched main.
    * @param directory - Owned developer checkout.
+   * @param provenance - Step and attempt the merge serves, recorded as trailers when known.
    * @throws {MeshError} If a concurrent source change prevents attributing the merge.
    */
-  private async mergeBase(task: FactoryTask, base: string, directory: string): Promise<void> {
+  private async mergeBase(
+    task: FactoryTask,
+    base: string,
+    directory: string,
+    provenance: CommitProvenance | null = null,
+  ): Promise<void> {
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
-    await this.git(['merge', '--no-edit', base], directory);
+    await this.git(['merge', '--no-edit', ...mergeMessage(task, provenance), base], directory);
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     if (head === previous || head === base) {
       return;

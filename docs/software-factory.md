@@ -165,6 +165,8 @@ New factory configurations default to a hard `maxDiffLines: 500` publication cei
 
 Cooperative attached MCP sessions use check-in/wait; managed factory jobs instead finish one bounded assignment and exit. The unpaid supervisor waits and starts the next eligible role. Subscription-only scheduling defaults to `budgetTokens: null`, so diagnostic token counts do not use API credits or block dispatch. Positive numeric caps remain optional policy; previously persisted numeric values stay in force until changed, with no saved-settings migration. Actual subscription quota stays unknown without supported telemetry; observed 100% usage and verified cooldowns prevent dispatch, and concurrency, CPU, memory and process ceilings remain enforced. Broker-wide concurrency admission and critical memory stops are documented in [Mission control](operator-console.md#resource-admission-and-cancellation).
 
+When a code-writing step's agent succeeds but the supervisor's own work afterwards fails, the job says exactly where. The steps are commit, main refresh, validation and publication. The failure is written to the job's private `failure.json` (readable in Workers & terminals) with the step, the agent's outcome, the typed publication reason and, for a failed Git or other command, its family and subcommand (such as `git push`), exit code or timeout, and a redacted stderr tail of at most 4,000 characters; the broker token, known provider and GitHub credentials, token shapes and credentials in URLs are redacted. The handoff reason names the step, for example "The agent finished, but the supervisor's validation step failed: …". A publication with nothing new names one of three reasons: `nothing_to_commit` (the agent changed no file and the branch has no commits of its own), `already_merged` (every branch commit is already on main) or `empty_diff` (the branch's commits change nothing against current main); `over_limit` is the size gate above. Public GitHub comments keep their public-safe text; stderr never leaves the job's private artifacts.
+
 Regression evidence covers the connected loop with real local Git/worktrees and validation commands, fixture inference/GitHub, ambiguous publication/creation recovery, independent QA rejection, native protected-review gates and retried parent closure. Windows tests execute actual owned-descendant cancellation and hard process-count ceilings. Durable instructions, restart recovery, advancing-main invalidation and post-merge repair with dirty-work preservation are covered. Docker smoke verifies the PWA control path and MCP persistence across recreation; native provider executables are included. Approved reusable learning can be exported idempotently to a separate source factory with human authorization and its own setup; no hot patch or implicit board creation occurs. A complete browser installation/offline/update/accessibility audit and complete live protected-board delivery remain unverified.
 
 ### Typed step outputs
@@ -174,6 +176,19 @@ Every typed step output carries `schemaVersion` (currently 1; records saved befo
 ### Brief revalidation for bound predecessors
 
 A plan is made against one version of main. When `briefRevalidation` is `true` in the factory policy (default `false`), a delivery with dependencies does not start implementation the moment its predecessors finish. The team lead first rechecks its brief on current main, using the small capability tier: evidence names each predecessor with its merge commit and merged summary, plus the source the plan was made against. A confirmed brief is recorded on the delivery, bound to the exact main the lead read and to the predecessor merges it judged, and implementation starts. A brief that no longer holds stops the delivery as blocked, with the lead's findings and proposed brief edits as its reason; the operator retries it unchanged (`factory_retry`) or replans its scope through an operator instruction. Each delivery is revalidated once per set of predecessor merges, deliveries without dependencies are never revalidated, and failed revalidation attempts follow the normal per-class retry backoff.
+
+### Protected-branch merge path
+
+Local QA approvals cannot satisfy GitHub's protected-branch review rules, so final testing does not wait on GitHub approval or a `CLEAN` merge state. It still waits, unpaid, on a closed, draft or stale PR, another base, conflicts, a branch behind its base, a merge state GitHub is still computing, requested changes, and failing or pending checks, each named in the gate reason. A delivery entering `merge_ready` carries a provisional gate reason until the reconcile pass has inspected its PR, so no final tester starts before that inspection.
+
+After the final check, the unpaid merge step reads the repository's merge settings, the effective rulesets for the base branch (`rules/branches/<base>`) and classic branch protection when the token may read it. It picks the first allowed method of squash, rebase and merge (no merge commits under linear history), then:
+
+- merges the exact reviewed head when nothing is pending;
+- enqueues it in the merge queue when the base branch uses one;
+- arms GitHub auto-merge when reviews or required checks are still pending and the repository allows auto-merge;
+- otherwise waits with a precise reason, such as "PR #12 is awaiting 1 approving review. Auto-merge is off for this repository, so a maintainer merges it once that is done, or enables auto-merge in the repository settings."
+
+While it waits, the delivery stays in `merging` with that reason and no paid run. When GitHub merges the PR, the next reconcile pass adopts the merge and verifies main. Every merge or auto-merge call carries `--match-head-commit` with the reviewed head and never `--admin`; MALT never changes protection. If the head or base moves, or a check fails, while auto-merge is armed, the supervisor turns auto-merge off before the delivery is reworked, so an unreviewed head is never merged.
 
 ### CI-failure and merge-conflict repair
 
@@ -191,7 +206,7 @@ The image includes Git, the official GitHub CLI and pinned native Codex/Claude e
 
 Old `.agentmesh` directories are moved as whole stopped stores into `.malt`, preserving credentials and SQLite history. Old centrally stored workspace teams relocate on the next workspace open. Migration refuses leftover WAL/SHM files or an existing destination instead of combining or dropping stores. Stop the old broker cleanly first; an unclean database may need recovery and checkpointing with the old broker before migration.
 
-An old Docker named volume is not mounted by the new Compose file. Preserve it, stop the old container, and explicitly copy its stopped `.agentmesh` directory into the new broker-home bind mount before starting this version. Keep that volume until migration and history are verified. Do not run old and new brokers against the same store. Docker `down --volumes` does not erase new host bind-mounted project data.
+An old Docker named volume is not mounted by the new Compose file. Preserve it, stop the old container, and explicitly copy its stopped `.agentmesh` directory into the new broker-home bind mount before starting this version ([exact steps](compatibility.md#moving-an-old-docker-named-volume-to-the-bind-mount)). Keep that volume until migration and history are verified. Do not run old and new brokers against the same store. Docker `down --volumes` does not erase new host bind-mounted project data.
 
 ## Managed agent permissions on Windows
 
