@@ -1,19 +1,49 @@
 /**
- * Draft editor for one workflow: workflow fields, inline browser checks, a live pipeline preview and the save flow. The
- * editor owns the draft; snapshot pushes never replace it. Typing only updates
- * the draft and derived views, so caret and scroll are never disturbed. Saves are always
+ * Draft editor for one workflow: workflow fields, a step list per section,
+ * inline browser checks, a live pipeline preview and the save flow. The
+ * editor owns the draft; snapshot pushes never replace it. Structural edits
+ * re-render one section and restore focus; typing only updates the draft and
+ * derived views, so caret and scroll are never disturbed. Saves are always
  * attempted and server problems are listed verbatim.
  *
  * @file
  */
 import { element } from './worker-ui.js';
 import { draftProblems, isStaleRevision, splitProblems } from './workflow-checks.js';
-import { button, isConfirmed, field, focusKey, keyed } from './workflow-dom.js';
-import { DESCRIPTION_MAX, KEY_MAX, TITLE_MAX, isSameDefinition, saveRequest } from './workflow-model.js';
+import {
+  button,
+  isConfirmed,
+  field,
+  focusKey,
+  focusSelector,
+  keyed,
+  rememberFocus,
+  restoreFocus,
+  select,
+} from './workflow-dom.js';
+import {
+  DESCRIPTION_MAX,
+  KEY_MAX,
+  MAX_STEPS,
+  TITLE_MAX,
+  addStep,
+  deriveKey,
+  moveStep,
+  removeStep,
+  renameStep,
+  isSameDefinition,
+  saveRequest,
+  kindOptions,
+  stepIds,
+  updateStep,
+  withKind,
+} from './workflow-model.js';
 import { pipelinePreview, countLabel } from './workflow-preview.js';
+import { stepEditor } from './workflow-step-editor.js';
 
 import type { Problem } from './workflow-checks.js';
-import type { DraftOrigin, DraftWorkflow, Library } from './workflow-model.js';
+import type { DraftOrigin, DraftStep, DraftWorkflow, Library, SectionName } from './workflow-model.js';
+import type { StepAction } from './workflow-step-editor.js';
 
 /** Outcome of one control, with the failure text the console reported. */
 export interface ControlResult {
@@ -36,6 +66,12 @@ export interface EditorHooks {
   /** Replace the draft with the latest saved revision of this id. */
   readonly loadLatest: (id: string) => void;
 }
+
+/** Section headings in the editor. */
+const SECTION_HEADINGS: Readonly<Record<SectionName, string>> = {
+  planning: 'Planning steps',
+  delivery: 'Delivery steps',
+};
 
 /** One workflow draft editor; create once and reuse for every draft. */
 export class WorkflowEditor {
@@ -69,6 +105,8 @@ export class WorkflowEditor {
   private initial: DraftWorkflow = this.draft;
   /** Where the draft came from. */
   private origin: DraftOrigin = { id: '', revision: null };
+  /** Section step containers. */
+  private readonly sections = new Map<SectionName, HTMLElement>();
   /** A save is in flight. */
   private isSaving = false;
 
@@ -165,7 +203,7 @@ export class WorkflowEditor {
     this.clearFailure();
     this.drift.hidden = true;
     this.element.hidden = false;
-    this.form.replaceChildren(this.workflowFields());
+    this.form.replaceChildren(this.workflowFields(), this.sectionBlock('planning'), this.sectionBlock('delivery'));
     this.refresh();
     this.heading.focus();
   }
@@ -174,6 +212,7 @@ export class WorkflowEditor {
   public close(): void {
     this.element.hidden = true;
     this.form.replaceChildren();
+    this.sections.clear();
   }
 
   /** React to a new library: id collisions and revisions saved under the open draft. */
@@ -237,6 +276,278 @@ export class WorkflowEditor {
     const wrapper = element('div');
     wrapper.append(problems, grid);
     return wrapper;
+  }
+
+  /**
+   * One section: heading, section problems, steps and the add control.
+   *
+   * @param section - Section to build.
+   * @returns Section element.
+   */
+  private sectionBlock(section: SectionName): HTMLElement {
+    const node = element('section', 'wf-editor-section');
+    const heading = element('h3', '', SECTION_HEADINGS[section]);
+    const problems = element('ul', 'wf-problems');
+    problems.dataset['problemsFor'] = `section:${section}`;
+    problems.hidden = true;
+    const steps = element('div', 'wf-step-list');
+    this.sections.set(section, steps);
+    node.append(heading, problems, steps);
+    this.renderSteps(section);
+    return node;
+  }
+
+  /**
+   * Re-render one section's steps and add control, keeping focus.
+   *
+   * @param section - Section to re-render.
+   * @param focus - Focus key to move to afterwards, instead of restoring.
+   */
+  private renderSteps(section: SectionName, focus = ''): void {
+    const container = this.sections.get(section);
+    if (container === undefined) {
+      return;
+    }
+    const mark = rememberFocus(container);
+    const steps = this.draft[section];
+    const forms = steps.map((_step, index) => {
+      return stepEditor({
+        section,
+        steps,
+        index,
+        act: (uid, action) => {
+          this.act(section, uid, action);
+        },
+      });
+    });
+    const empty =
+      section === 'planning' ? 'No planning steps: each objective is delivered as a single delivery.' : 'No steps yet.';
+    container.replaceChildren(...(forms.length === 0 ? [element('p', 'wf-hint', empty)] : forms), this.addRow(section));
+    if (focus !== '') {
+      focusKey(container, focus, true);
+    }
+    if (!container.contains(document.activeElement)) {
+      restoreFocus(container, mark);
+    }
+    // A move to either end disables the button that was used, so focus its enabled sibling instead.
+    const used = mark === null ? null : container.querySelector(focusSelector(mark.key));
+    if (!container.contains(document.activeElement) && used instanceof HTMLButtonElement && used.disabled) {
+      used.parentElement?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+    }
+    this.refresh();
+  }
+
+  /**
+   * Kind picker and add button for one section.
+   *
+   * @param section - Planning or delivery, where steps are added.
+   * @returns Kind picker and add control.
+   */
+  private addRow(section: SectionName): HTMLElement {
+    const choice = select(
+      kindOptions(section),
+      section === 'planning' ? 'specify' : 'review',
+      `${section}:add-kind`,
+      () => {
+        // The kind is read when the step is added.
+      },
+    );
+    const isFull = this.draft[section].length >= MAX_STEPS[section];
+    const add = button(
+      'Add step',
+      () => {
+        const result = addStep(this.draft, section, choice.value);
+        this.apply(result.draft);
+        this.renderSteps(section, `${result.uid}:title`);
+      },
+      { focusKey: `${section}:add` },
+    );
+    add.disabled = isFull;
+    const row = element('div', 'wf-add-row');
+    row.append(
+      field(
+        `Kind of ${section} step to add`,
+        choice,
+        isFull ? `This section is full (${String(MAX_STEPS[section])} steps).` : '',
+      ),
+      add,
+    );
+    return row;
+  }
+
+  /**
+   * Apply one step intent.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param uid - Step identity.
+   * @param action - Intent from the step form.
+   */
+  private act(section: SectionName, uid: string, action: StepAction): void {
+    const step = this.draft[section].find((candidate) => candidate.uid === uid);
+    if (step === undefined) {
+      return;
+    }
+    switch (action.type) {
+      case 'text': {
+        this.patchText(section, step, action.field, action.value);
+        break;
+      }
+      case 'rename': {
+        this.rename(section, step, action.value.trim());
+        break;
+      }
+      case 'derive': {
+        this.derive(section, step);
+        break;
+      }
+      case 'kind': {
+        this.replaceStep(section, withKind(step, action.value));
+        this.renderSteps(section);
+        break;
+      }
+      case 'provider': {
+        this.apply(updateStep(this.draft, section, uid, { provider: action.value }));
+        break;
+      }
+      case 'flag': {
+        this.apply(updateStep(this.draft, section, uid, { ...flagPatch(action.field, action.value) }));
+        break;
+      }
+      case 'role': {
+        const roles = action.value ? [...step.roles, action.role] : step.roles.filter((role) => role !== action.role);
+        this.apply(updateStep(this.draft, section, uid, { roles: [...new Set(roles)] }));
+        break;
+      }
+      case 'reference': {
+        this.toggleReference(section, step, action);
+        break;
+      }
+      case 'inputs-mode': {
+        this.apply(updateStep(this.draft, section, uid, { inputs: action.isExplicit ? [...step.after] : null }));
+        this.renderSteps(section);
+        break;
+      }
+      case 'move': {
+        this.apply(moveStep(this.draft, section, uid, action.offset));
+        this.renderSteps(section);
+        break;
+      }
+      case 'remove': {
+        this.remove(section, step);
+        break;
+      }
+    }
+  }
+
+  /**
+   * Replace one step object.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Replacement with the same uid.
+   */
+  private replaceStep(section: SectionName, step: DraftStep): void {
+    const steps = this.draft[section].map((candidate) => (candidate.uid === step.uid ? step : candidate));
+    this.apply(section === 'planning' ? { ...this.draft, planning: steps } : { ...this.draft, delivery: steps });
+  }
+
+  /**
+   * Store a typed text field; titles also update labels that name the step.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Step being edited.
+   * @param name - Field name.
+   * @param value - New text.
+   */
+  private patchText(
+    section: SectionName,
+    step: DraftStep,
+    name: 'title' | 'profile' | 'instructions',
+    value: string,
+  ): void {
+    this.replaceStep(section, { ...step, [name]: value });
+    if (name === 'title') {
+      for (const node of this.form.querySelectorAll(`[data-title-of="${CSS.escape(step.uid)}"]`)) {
+        node.textContent = value;
+      }
+    }
+  }
+
+  /**
+   * Rename a step unless another step already uses the id; the id field always shows the result.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Step being renamed.
+   * @param id - Requested id.
+   */
+  private rename(section: SectionName, step: DraftStep, id: string): void {
+    const taken = stepIds(this.draft);
+    taken.delete(step.id);
+    const key = `${step.uid}:id`;
+    const input = this.form.querySelector(focusSelector(key));
+    const isTaken = taken.has(id);
+    if (input instanceof HTMLInputElement) {
+      input.value = isTaken ? step.id : id;
+    }
+    if (isTaken) {
+      this.status.textContent = `Step id “${id}” is already used by another step, so “${step.id}” was kept. Ids must be unique.`;
+      return;
+    }
+    this.apply(renameStep(this.draft, section, step.uid, id));
+    for (const node of this.form.querySelectorAll(`[data-id-of="${CSS.escape(step.uid)}"]`)) {
+      node.textContent = id;
+    }
+  }
+
+  /**
+   * Derive a unique id from the step title.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Step to rename.
+   */
+  private derive(section: SectionName, step: DraftStep): void {
+    const taken = stepIds(this.draft);
+    taken.delete(step.id);
+    const id = deriveKey(step.title, taken, step.kind.replaceAll('_', '-'));
+    this.rename(section, step, id);
+    this.status.textContent = `Step id set to “${id}”.`;
+  }
+
+  /**
+   * Add or remove one `after` or `inputs` reference, keeping section order.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Step being edited.
+   * @param action - Reference intent.
+   */
+  private toggleReference(
+    section: SectionName,
+    step: DraftStep,
+    action: Extract<StepAction, { type: 'reference' }>,
+  ): void {
+    const steps = this.draft[section];
+    const id = steps.find((candidate) => candidate.uid === action.targetUid)?.id ?? action.id;
+    const current = action.field === 'after' ? step.after : (step.inputs ?? []);
+    const chosen = new Set(action.value ? [...current, id] : current.filter((value) => value !== id));
+    const ordered = steps.map((candidate) => candidate.id).filter((value) => chosen.has(value));
+    const rest = [...chosen].filter((value) => !ordered.includes(value));
+    const next = [...ordered, ...rest];
+    this.apply(
+      updateStep(this.draft, section, step.uid, action.field === 'after' ? { after: next } : { inputs: next }),
+    );
+  }
+
+  /**
+   * Remove a step and move focus to its neighbour or the add control.
+   *
+   * @param section - Planning or delivery, where the step lives.
+   * @param step - Step to remove.
+   */
+  private remove(section: SectionName, step: DraftStep): void {
+    const index = this.draft[section].indexOf(step);
+    this.apply(removeStep(this.draft, section, step.uid));
+    const neighbour = this.draft[section][Math.min(index, this.draft[section].length - 1)];
+    this.renderSteps(section, neighbour === undefined ? `${section}:add-kind` : `${neighbour.uid}:remove`);
+    this.status.textContent = `Removed “${step.title}”.`;
   }
 
   /**
@@ -370,5 +681,26 @@ export class WorkflowEditor {
 
     this.close();
     this.hooks.closed();
+  }
+}
+
+/**
+ * A single-flag patch.
+ *
+ * @param name - Which boolean setting to change.
+ * @param isOn - Whether the setting is enabled.
+ * @returns Partial step holding just that setting.
+ */
+function flagPatch(name: 'blind' | 'gate' | 'optional', isOn: boolean): Partial<Pick<DraftStep, typeof name>> {
+  switch (name) {
+    case 'blind': {
+      return { blind: isOn };
+    }
+    case 'gate': {
+      return { gate: isOn };
+    }
+    case 'optional': {
+      return { optional: isOn };
+    }
   }
 }
