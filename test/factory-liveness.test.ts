@@ -12,6 +12,7 @@ import { test } from 'node:test';
 
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
 import { checkpointDecision, firstCheckpoint, LivenessMonitor } from '../src/factory/liveness.ts';
+import { ProgressSink } from '../src/factory/progress-signals.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 
 import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
@@ -215,3 +216,13 @@ function jobFields(fields: Partial<FactoryJob>): Record<string, unknown> {
     ...fields,
   };
 }
+
+await test('separate patches to one file each count as progress; a repeated item counts once', () => {
+  const sink = new ProgressSink();
+  const change = [{ path: 'src/a.ts', kind: 'update' }];
+  sink.fileChange(change, 'item_1');
+  sink.fileChange(change, 'item_2');
+  sink.fileChange(change, 'item_2');
+  assert.equal(sink.meaningful, 2);
+  assert.equal(sink.lastSignal, 'edit src/a.ts');
+});

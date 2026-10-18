@@ -100,14 +100,16 @@ export class ProgressSink implements TranscriptSink {
   }
 
   /**
-   * Count a provider-reported file change.
+   * Count a provider-reported file change. The provider item identity keeps
+   * consecutive patches to the same file distinct.
    *
    * @param changes - Changed paths.
+   * @param id - Provider item identity.
    */
-  public fileChange(changes: readonly { path: string; kind: string }[]): void {
+  public fileChange(changes: readonly { path: string; kind: string }[], id: string): void {
     const first = changes[0];
     if (first !== undefined) {
-      this.count(`edit ${first.path}`, `edit\0${JSON.stringify(changes)}`);
+      this.count(`edit ${first.path}`, `edit\0${id}\0${JSON.stringify(changes)}`);
     }
   }
 
