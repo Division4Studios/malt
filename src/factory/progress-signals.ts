@@ -124,14 +124,16 @@ export class ProgressSink implements TranscriptSink {
   }
 
   /**
-   * Count a provider-reported file change.
+   * Count a provider-reported file change. Separate patches to the same paths
+   * count separately when the provider names them.
    *
    * @param changes - Changed paths.
+   * @param id - Provider item identity, when known.
    */
-  public fileChange(changes: readonly { path: string; kind: string }[]): void {
+  public fileChange(changes: readonly { path: string; kind: string }[], id = ''): void {
     const first = changes[0];
     if (first !== undefined) {
-      this.count(`edit ${first.path}`, `edit\0${JSON.stringify(changes)}`);
+      this.count(`edit ${first.path}`, `edit\0${id}\0${JSON.stringify(changes)}`);
     }
   }
 
@@ -481,7 +483,9 @@ export class ProgressSampler {
     }
     this.checkInCount = recorded.count;
     const progress = signals.at(-1) ?? null;
-    if (progress !== null) {
+    // Stream events clear a wait in order as they are decoded, so a wait that followed them stays; only
+    // progress seen outside the stream (edits, commits, check-ins) shows an older wait is over.
+    if (progress !== null && this.sink.meaningful === before) {
       this.sink.resume();
     }
     return { progress: progress === null ? null : label(progress), awaiting: this.sink.awaiting };

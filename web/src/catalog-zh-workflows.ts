@@ -70,6 +70,9 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
   'A type named {name} already exists.': '名为 {name} 的类型已存在。',
   'Saved organization.': '已保存组织。',
   'Configure the factory in Project setup first.': '请先在项目设置中配置工厂。',
+  'Wait until the organization is saved, then apply this edit again.': '请等组织保存完成后再应用此编辑。',
+  'The saved organization changed while this dialog was open. Close it and edit the saved type.':
+    '此对话框打开期间，已保存的组织发生了变化。请关闭它并编辑已保存的类型。',
   'The saved organization changed since you started editing. Discard your draft to load it.':
     '自你开始编辑后，已保存的组织已发生变化。请放弃草稿以加载最新版本。',
   'Unsaved changes.': '有未保存的更改。',
@@ -175,6 +178,7 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
   'preferred provider': '首选提供方',
   'its ancestors': '其所有前序步骤',
   'instructions changed': '指令已更改',
+  'position: {from} → {to}': '位置：{from} → {to}',
   'name: {name} → {name2}': '名称：{name} → {name2}',
   'description changed': '描述已更改',
   'No objective or delivery runs it.': '没有目标或交付项在运行它。',
@@ -324,4 +328,6 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
     '新目标现在使用“{name}”。运行中的目标不受影响。',
   'The default was not changed. The console notice explains why.': '默认值未更改。控制台提示说明了原因。',
   'The default was not changed: {error}': '默认值未更改：{error}',
+  'This draft was opened in another project. Switch back to that project to save it.':
+    '此草稿是在另一个项目中打开的。请切换回该项目再保存。',
 };
