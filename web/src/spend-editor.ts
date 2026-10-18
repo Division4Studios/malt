@@ -8,6 +8,7 @@
  * @file
  */
 import { records, text } from './api.js';
+import { t } from './i18n.js';
 import { NEAR_SHARE, NO_CAP, capProgress, capsInput, overrideText, readSpend } from './spend-model.js';
 import { element } from './worker-ui.js';
 
@@ -68,7 +69,7 @@ function usageRow(row: SpendUsage, override: string): HTMLTableRowElement {
     input.dataset['id'] = row.id;
     input.value = override;
     input.placeholder = 'default';
-    input.setAttribute('aria-label', `Cap override for ${row.label}, or ${NO_CAP}`);
+    input.setAttribute('aria-label', t('Cap override for {label}, or {noCap}', { label: row.label, noCap: NO_CAP }));
     action.append(input);
   }
   node.append(action);
@@ -107,35 +108,35 @@ export class SpendEditor {
     this.saved = saved;
     this.status.setAttribute('aria-live', 'polite');
     const table = element('table', 'cost-table spend-table');
-    table.append(element('caption', '', 'Spend against caps'));
+    table.append(element('caption', '', t('Spend against caps')));
     const head = element('tr');
-    head.append(element('th', '', 'Scope'), element('th', '', 'Spend'), element('th', '', 'Override (USD)'));
+    head.append(element('th', '', t('Scope')), element('th', '', t('Spend')), element('th', '', t('Override (USD)')));
     table.append(head, this.body);
-    const policy = element('label', 'sessions-filter', 'Unpriced attempts');
+    const policy = element('label', 'sessions-filter', t('Unpriced attempts'));
     const select = element('select');
     select.name = 'unpriced';
     select.append(
-      new Option('Ignore (token caps still apply)', 'ignore'),
-      new Option('Block capped scopes until priced', 'block'),
+      new Option(t('Ignore (token caps still apply)'), 'ignore'),
+      new Option(t('Block capped scopes until priced'), 'block'),
     );
     policy.append(select);
     const settings = element('div', 'sessions-filters');
     settings.append(
-      field('Project cap (USD)', 'project', 'no cap'),
-      field('Window (days)', 'windowDays', '30'),
-      field('Each objective (USD)', 'objectiveDefault', 'no cap'),
-      field('Each delivery (USD)', 'deliveryDefault', 'no cap'),
+      field(t('Project cap (USD)'), 'project', t('no cap')),
+      field(t('Window (days)'), 'windowDays', '30'),
+      field(t('Each objective (USD)'), 'objectiveDefault', t('no cap')),
+      field(t('Each delivery (USD)'), 'deliveryDefault', t('no cap')),
       policy,
     );
     this.scope.name = 'newScope';
-    this.scope.setAttribute('aria-label', 'Objective or delivery to cap');
+    this.scope.setAttribute('aria-label', t('Objective or delivery to cap'));
     this.amount.name = 'newAmount';
     this.amount.inputMode = 'decimal';
-    this.amount.placeholder = `USD or ${NO_CAP}`;
-    this.amount.setAttribute('aria-label', 'Cap for the chosen objective or delivery');
+    this.amount.placeholder = t('USD or {noCap}', { noCap: NO_CAP });
+    this.amount.setAttribute('aria-label', t('Cap for the chosen objective or delivery'));
     const adder = element('div', 'sessions-filters');
-    adder.append(element('span', 'subtle', 'Cap one objective or delivery:'), this.scope, this.amount);
-    const save = element('button', 'button primary', 'Save caps');
+    adder.append(element('span', 'subtle', t('Cap one objective or delivery:')), this.scope, this.amount);
+    const save = element('button', 'button primary', t('Save caps'));
     save.type = 'submit';
     const actions = element('div', 'dialog-actions');
     actions.append(save);
@@ -143,7 +144,9 @@ export class SpendEditor {
       element(
         'p',
         'subtle',
-        'A reached cap stops new attempts on its scope; running attempts finish. Raise or lift a cap to resume at once. Spend comes from provider-reported costs and your prices; unpriced attempts are never counted as free.',
+        t(
+          'A reached cap stops new attempts on its scope; running attempts finish. Raise or lift a cap to resume at once. Spend comes from provider-reported costs and your prices; unpriced attempts are never counted as free.',
+        ),
       ),
       settings,
       table,
@@ -194,7 +197,7 @@ export class SpendEditor {
       ...records(summary['byDelivery']).map((group) => ['delivery', group] as const),
     ].filter(([, group]) => text(group, 'key') !== NONE && !capped.has(text(group, 'key')));
     this.scope.replaceChildren(
-      new Option('Choose…', ''),
+      new Option(t('Choose…'), ''),
       ...choices.map(([scope, group]) => {
         return new Option(
           `${scope === 'objective' ? 'Objective' : 'Delivery'}: ${text(group, 'label')}`,
@@ -245,10 +248,12 @@ export class SpendEditor {
     const outcome = await this.send('factory_spend_caps', result.input);
     if (outcome === true) {
       this.isDirty = false;
-      this.status.textContent = 'Caps saved.';
+      this.status.textContent = t('Caps saved.');
       this.saved();
     } else {
-      this.status.textContent = 'Caps were not saved. If another tab changed them, reload and apply your edits again.';
+      this.status.textContent = t(
+        'Caps were not saved. If another tab changed them, reload and apply your edits again.',
+      );
     }
   }
 }
