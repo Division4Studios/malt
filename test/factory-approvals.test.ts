@@ -5,7 +5,9 @@ import { test } from 'node:test';
 
 import { decideApproval } from '../src/factory/approvals.ts';
 import { briefPlan } from '../src/factory/briefs.ts';
+import { MERGE_GATE_PENDING } from '../src/factory/merge-path.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
+import { awaitingApproval, taskWorkflow } from '../src/factory/pipeline.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
 import { builtinWorkflows, workflowDigest, workflowLibrary, workflowSchema } from '../src/factory/workflows.ts';
@@ -117,9 +119,24 @@ await test('an approval binds the reviewed head and moves the delivery to merge 
   assert.deepEqual(decideApproval(repository, decision), { result: 'repeated' });
   const stored = repository.task(task.id);
   assert.equal(stored.phase, 'merge_ready');
+  assert.equal(stored.error, MERGE_GATE_PENDING, 'no final tester before the unpaid GitHub gate inspection');
   assert.deepEqual(
     stored.approvals.map((entry) => [entry.stepId, entry.head]),
     [['sign-off', 'h']],
+  );
+  // The same head re-reviewed on a new base: the earlier sign-off named the old base.
+  const rebased = repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      phase: 'review',
+      base: 'b2',
+      reviews: current.reviews.map((review) => ({ ...review, base: 'b2' })),
+    };
+  });
+  assert.deepEqual(
+    awaitingApproval(rebased, taskWorkflow(rebased, [])).map((step) => step.id),
+    ['sign-off'],
+    'an approval for the old base no longer counts',
   );
 });
 
@@ -138,14 +155,16 @@ await test('a rejection needs a reason and returns the delivery to its developer
     },
     (error: unknown) => error instanceof MeshError && error.code === 'INVALID_INPUT',
   );
-  decideApproval(repository, {
+  const rejection = {
     requestId: randomUUID(),
     taskId: task.id,
     stepId: 'sign-off',
     head: 'h',
     approve: false,
     note: 'Rename the setting',
-  });
+  };
+  assert.deepEqual(decideApproval(repository, rejection), { result: 'rejected' });
+  assert.deepEqual(decideApproval(repository, rejection), { result: 'repeated' }, 'a retried rejection reports itself');
   const stored = repository.task(task.id);
   assert.equal(stored.phase, 'development');
   assert.deepEqual(stored.reviews, []);
@@ -158,6 +177,17 @@ await test('objectives freeze the chosen workflow; planning-free workflows provi
     objective: '# Settings: dark mode\n\n## Acceptance\n- Toggle persists',
     workflowId: 'quick',
   });
+  assert.throws(
+    () => {
+      return queueObjective(repository, {
+        objective: '# Settings: dark mode\n\n## Acceptance\n- Toggle persists',
+        workflowId: 'full-assurance',
+        requestId: brief.featureId,
+      });
+    },
+    (error: unknown) => error instanceof MeshError && error.code === 'INVALID_INPUT',
+    'a retry with another workflow is not the same request',
+  );
   const quick = repository.features().find((feature) => feature.id === brief.featureId);
   assert.ok(quick !== undefined);
   assert.equal(quick.phase, 'provisioning');
@@ -181,6 +211,24 @@ await test('objectives freeze the chosen workflow; planning-free workflows provi
   const stored = repository.features().find((feature) => feature.id === defaulted.featureId);
   assert.ok(stored !== undefined);
   assert.equal(stored.workflow?.id, 'team-sign-off');
+  const frozen = stored.workflow.revision;
+  const library = workflowLibrary(repository.store);
+  library.save({
+    workflow: { ...signOff, id: 'team-sign-off', name: 'Renamed sign-off' },
+    expectedRevision: frozen,
+  });
+  const kept = repository.features().find((feature) => feature.id === defaulted.featureId);
+  assert.ok(kept !== undefined);
+  const keptWorkflow = kept.workflow;
+  assert.ok(keptWorkflow !== undefined);
+  assert.equal(keptWorkflow.revision, frozen, 'a queued objective keeps the revision it froze');
+  assert.equal(keptWorkflow.workflow.name, signOff.name);
+  assert.deepEqual(
+    queueObjective(repository, { objective: 'Uses the project default', requestId: defaulted.featureId }),
+    {
+      featureId: defaulted.featureId,
+    },
+  );
 });
 
 await test('briefs become one delivery with acceptance from the Acceptance section', () => {

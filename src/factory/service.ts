@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import * as automation from './automations.ts';
+import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -32,7 +33,9 @@ import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
 import { ledgerHandlers } from './ledger-handlers.ts';
 import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
+import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
+import { ManagerService, managerHandlers } from './manager-controls.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { checkDefinition } from './objective-goals.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -42,14 +45,12 @@ import { policySetupBlocker } from './policy-blockers.ts';
 import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
-import { runAgent } from './providers.ts';
 import { askQuestion, isAwaitingAnswer, didAskOperator } from './questions.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
 import { retryBlocked } from './recovery.ts';
-import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
   ResourceSampler,
@@ -59,7 +60,7 @@ import {
   hasCriticalMemoryPressure,
 } from './resources.ts';
 import { classifySettlement } from './retry-policy.ts';
-import { isManagedToolDenied, roleHandlers } from './role-handlers.ts';
+import { roleHandlers } from './role-handlers.ts';
 import { jobIntents } from './scheduler.ts';
 import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
@@ -104,6 +105,8 @@ export interface FactoryOptions {
   readonly resources?: ResourceProbe;
   /** In-process native terminal substitutes, unavailable to browser/MCP callers. */
   readonly terminals?: TerminalOptions;
+  /** Fixture manager provider and clock; never exposed to browser or MCP callers. */
+  readonly manager?: Omit<ConstructorParameters<typeof ManagerService>[2], 'home'>;
 }
 /** One cancellable pipeline owned by this supervisor. */
 interface Running {
@@ -133,6 +136,8 @@ export class FactoryService {
   public readonly repository: FactoryRepository;
   /** Operator sessions share this supervisor's admission and lifecycle controls. */
   public readonly terminals: TerminalService;
+  /** Persistent delivery manager (#211); independent of factory pause. */
+  public readonly manager: ManagerService;
   /** Dependencies selected at construction. */
   private readonly options: FactoryOptions;
   /** Project scope. */
@@ -193,6 +198,7 @@ export class FactoryService {
       pool: LOCAL_JOBS,
       resources: () => this.sampler.latest,
     });
+    this.manager = new ManagerService(mesh, this.repository, { ...options.manager, home: options.home });
   }
 
   /**
@@ -217,11 +223,11 @@ export class FactoryService {
       repository: this.repository,
       settings,
       providerVersions: this.options.agent === undefined ? {} : 'fixture',
-      remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
+      remote: this.options.remote ?? deliveryFor(this.mesh, settings, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
-      agent: this.options.agent ?? (async (request) => runAgent(request, processes)),
+      agent: this.options.agent ?? defaultAgent(processes),
     };
     return this.context;
   }
@@ -338,6 +344,7 @@ export class FactoryService {
     }
     this.quota.cancel();
     await this.terminals.closeAll(shouldPause ? 'factory paused' : 'broker shutdown', !shouldPause);
+    await (shouldPause ? Promise.resolve() : this.manager.close());
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
     if (this.driving !== null) {
       await this.driving;
@@ -345,27 +352,6 @@ export class FactoryService {
     this.repository.release(this.owner);
     this.hasLease = false;
     this.connected = false;
-  }
-
-  /**
-   * Fire a loopback webhook trigger presented with its own secret.
-   *
-   * @param call - Trigger id, presented secret, optional idempotency key and payload text.
-   * @returns The objective filed or matched by key.
-   */
-  public fireTrigger(call: Parameters<typeof automation.fireTrigger>[1]): { featureId: string } {
-    return automation.fireTrigger(this.repository, call);
-  }
-
-  /**
-   * Whether a managed seat's live attempt has a role policy that removed this tool.
-   *
-   * @param actor - Authenticated managed identity (`factory-<seat>`).
-   * @param operation - Requested operation.
-   * @returns True when the call must be refused.
-   */
-  public isToolDenied(actor: string, operation: string): boolean {
-    return isManagedToolDenied(this.repository, actor, operation);
   }
 
   /**
@@ -397,8 +383,10 @@ export class FactoryService {
       factory_status: async () => this.status(),
       factory_preflight: async () => preflight(this.repository.config(), this.mesh),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
-      factory_setup: () => this.controlSetup(parsed),
-      factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
+      factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
+      ...managerHandlers(this.manager, parsed),
+      factory_setup: async () => this.controlSetup(parsed),
+      factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -434,7 +422,7 @@ export class FactoryService {
         repository: this.repository,
         directory: this.mesh.directory,
         learning: this.learning,
-        setup: (settings) => this.controlSetup(settings),
+        setup: async (settings) => this.controlSetup(settings),
         input,
       }),
     };
@@ -769,10 +757,12 @@ export class FactoryService {
    * @returns Durable control result.
    * @throws {MeshError} When setup, role or task gates reject the request.
    */
-  private controlSetup(parsed: unknown): unknown {
+  private async controlSetup(parsed: unknown): Promise<unknown> {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
+    // A rejected local hub remote must leave saved settings unchanged.
+    await prepareDelivery(this.mesh, parsed, this.options.remote !== undefined);
     this.context = null;
     this.connected = false;
     this.error = null;
