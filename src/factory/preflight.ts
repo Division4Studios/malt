@@ -45,7 +45,11 @@ export async function preflight(
     project: mesh.root,
     skipPorts: true,
     ...(settings !== null && {
-      executables: { claude: settings.providers.claude.executable, codex: settings.providers.codex.executable },
+      executables: {
+        claude: settings.providers.claude.executable,
+        codex: settings.providers.codex.executable,
+        copilot: settings.providers.copilot.executable,
+      },
     }),
     ...(probes !== undefined && { probes }),
   });

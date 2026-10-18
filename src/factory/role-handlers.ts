@@ -11,6 +11,8 @@ import { roleSchemas } from './role-schema.ts';
 import { deleteSecret, saveSecret } from './vault.ts';
 
 import type { ProjectLearning } from '../learning.ts';
+import type { ManagedToolGate } from '../managed-tools.ts';
+import type { Store } from '../store.ts';
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { ROLE_OPERATIONS } from './role-schema.ts';
@@ -65,4 +67,18 @@ export function isManagedToolDenied(repository: FactoryRepository, actor: string
     .jobs()
     .find((candidate) => candidate.state === 'running' && `factory-${candidate.role}` === actor);
   return job !== undefined && isToolDenied(actor, job.routing?.organization?.tools, operation);
+}
+
+/**
+ * The broker's managed-tool gate for one project.
+ *
+ * @param store - Project store that authenticates bridge identities.
+ * @param repository - Project ledger holding live attempts and their role policies.
+ * @returns Identity lookup and role-policy check.
+ */
+export function managedToolGate(store: Store, repository: FactoryRepository): ManagedToolGate {
+  return {
+    actor: (presented) => store.execute('whoami', {}, store.authenticate(presented)),
+    isToolDenied: (actor, name) => isManagedToolDenied(repository, actor, name),
+  };
 }

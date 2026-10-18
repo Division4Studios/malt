@@ -16,6 +16,9 @@ import type { ControlSender } from './approval-dialog.js';
 import type { BoardGroups } from './board-model.js';
 import type { ConsoleModel } from './console-model.js';
 
+/** Most deliveries one hold request may name (the broker's limit). */
+const HOLD_BATCH = 200;
+
 /** The bulk action bar and archived list under the board filters. */
 export class BoardActions {
   /** Stable root. */
@@ -128,8 +131,19 @@ export class BoardActions {
       confirm: t(isHold ? 'Hold' : 'Resume'),
       cancel: t('Cancel'),
     });
-    if (isSure) {
-      await this.control('factory_hold', { taskIds, hold: isHold });
+    if (!isSure) {
+      return;
+    }
+    // The broker accepts a bounded list per request, so a large selection is sent in batches.
+    for (let start = 0; start < taskIds.length; start += HOLD_BATCH) {
+      // eslint-disable-next-line no-await-in-loop -- Batches are applied in order; a failed one stops the rest.
+      const isApplied = await this.control('factory_hold', {
+        taskIds: taskIds.slice(start, start + HOLD_BATCH),
+        hold: isHold,
+      });
+      if (!isApplied) {
+        return;
+      }
     }
   }
 
