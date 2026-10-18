@@ -11,6 +11,9 @@ import type { Snapshot, Data } from './api.js';
 import type { OperatorEdit } from './recovery-ui.js';
 import type { EditorDescription } from './worker-ui.js';
 
+/** GitHub's default name for a Project's workflow field. */
+const DEFAULT_STATUS_FIELD = 'Status';
+
 /** Bound instruction excerpts; the editor retains full validated text. */
 const EXCERPT = 400;
 /** Default publication limit for a newly configured project. */
@@ -232,8 +235,9 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
     [
       t('Workflow status field'),
       'github-status-field',
-      displayText(text(child(connection, 'statusField'), 'name'), t('Status')),
-      t('Status'),
+      // A field name GitHub matches exactly, not display text: it stays untranslated.
+      displayText(text(child(connection, 'statusField'), 'name'), DEFAULT_STATUS_FIELD),
+      DEFAULT_STATUS_FIELD,
     ],
   ].map(([labelText = '', id = '', value = '', placeholder = '']) => {
     const input = element('input');

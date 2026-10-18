@@ -416,7 +416,9 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const node = element('article', 'ticket');
   const phase = text(task, 'phase');
   const issue = number(task, 'issue');
-  const owner = firstText(text(task, 'developer'), t('unassigned'));
+  // The raw seat routes instructions; only the label is translated.
+  const developer = text(task, 'developer');
+  const owner = firstText(developer, t('unassigned'));
   const attempts = numericText(task, 'attempts');
   node.append(
     link(issueUrl(state, issue), `#${String(issue)} · parent #${numericText(task, 'parentIssue')}`),
@@ -447,7 +449,7 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const controls = element('div', 'ticket-actions');
   controls.append(
     button(t('Instruct owner'), () => {
-      actions.instruct(owner === 'unassigned' ? 'team-lead' : owner, text(task, 'id'), false);
+      actions.instruct(firstText(developer, 'team-lead'), text(task, 'id'), false);
     }),
     button(t('Change scope'), () => {
       actions.instruct('team-lead', text(task, 'id'), true);

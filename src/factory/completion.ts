@@ -14,6 +14,7 @@ import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
+import { objectiveGates } from './gate-controls.ts';
 import { MergeConflictError } from './merge-conflict.ts';
 import { automaticWorkflow } from './objectives.ts';
 import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
@@ -534,6 +535,7 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     updatedAt: context.repository.store.now(),
     workflow: automaticWorkflow(context.repository),
     approvals: [],
+    gates: objectiveGates(context.repository),
   });
 }
 

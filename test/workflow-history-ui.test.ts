@@ -92,6 +92,17 @@ await test('two revisions compare step by step in plain words', () => {
     ],
   );
   assert.deepEqual(diffRevisions(current.workflow, current.workflow), { workflow: [], steps: [] });
+  // Swapping two steps without changing their fields is still a change.
+  const [first, second, ...rest] = current.workflow.delivery;
+  assert.ok(first !== undefined && second !== undefined);
+  const swapped = { ...current.workflow, delivery: [second, first, ...rest] };
+  assert.deepEqual(
+    diffRevisions(current.workflow, swapped).steps.map((change) => [change.id, change.details]),
+    [
+      [second.id, ['position: 2 → 1']],
+      [first.id, ['position: 1 → 2']],
+    ],
+  );
 });
 
 await test('usage reads as one sentence', () => {
