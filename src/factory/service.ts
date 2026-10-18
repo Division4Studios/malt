@@ -4,12 +4,13 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 
 import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { decideApproval } from './approvals.ts';
+import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -22,6 +23,7 @@ import {
   latestLearningFeedback,
   refundUnpaidAttempt,
 } from './controls.ts';
+import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { admittedAssignment } from './dispatch-admission.ts';
 import { enqueueDelivery } from './enqueue.ts';
 import { cancelStaleAssignments, executeJob, retireSnapshot } from './execution.ts';
@@ -29,6 +31,7 @@ import { settlementEvidence } from './handoffs.ts';
 import { heartbeat } from './heartbeat.ts';
 import { applyInstructionRequest } from './instruction-requests.ts';
 import { IssueGuard } from './issue-guard.ts';
+import { attemptRecord } from './job-records.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { reorderObjective } from './objective-order.ts';
@@ -60,9 +63,11 @@ import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
 import { factoryStatus } from './status.ts';
+import * as telemetry from './telemetry-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
+import { chooseDefaultWorkflow, saveWorkflow } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -330,6 +335,16 @@ export class FactoryService {
   }
 
   /**
+   * Fire a loopback webhook trigger presented with its own secret.
+   *
+   * @param call - Trigger id, presented secret, optional idempotency key and payload text.
+   * @returns The objective filed or matched by key.
+   */
+  public fireTrigger(call: Parameters<typeof automation.fireTrigger>[1]): { featureId: string } {
+    return automation.fireTrigger(this.repository, call);
+  }
+
+  /**
    * Execute validated human/designated-lead factory controls.
    *
    * @param operation - Project factory operation.
@@ -383,6 +398,19 @@ export class FactoryService {
         return this.status();
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
+      factory_workflow_save: () => saveWorkflow(this.repository, input),
+      factory_workflow_default: () => chooseDefaultWorkflow(this.repository, input),
+      factory_approve: () => decideApproval(this.repository, input),
+      factory_attempts: async () => telemetry.attempts(this.repository, this.mesh, input),
+      factory_transcript: async () => telemetry.transcript(this.repository, this.mesh, input),
+      factory_costs: async () => telemetry.costs(this.repository, this.mesh, input),
+      factory_prices: () => telemetry.prices(this.repository, input),
+      factory_hold: () => holdDeliveries(this.repository, input),
+      factory_archive: () => archiveDeliveries(this.repository, input),
+      factory_schedule_save: () => automation.saveSchedule(this.repository, input),
+      factory_trigger_save: () => automation.saveTrigger(this.repository, input),
+      factory_automation_delete: () => automation.deleteAutomation(this.repository, input),
+      factory_automation_run: () => automation.runAutomation(this.repository, input),
     };
     return await handlers[operation]();
   }
@@ -444,6 +472,7 @@ export class FactoryService {
     if (!canDispatch(this.repository, this.stopped)) {
       return;
     }
+    automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
     const scheduling = {
       feedbackAt: latestLearningFeedback(this.repository),
@@ -504,26 +533,8 @@ export class FactoryService {
     if (admitted === null) {
       return;
     }
-    const { provider, routing } = admitted;
-    const id = randomUUID();
-    const now = this.repository.store.now();
-    const job: FactoryJob = {
-      ...intent,
-      target: intent.target ?? null,
-      id,
-      provider,
-      routing,
-      token: randomUUID(),
-      state: 'running',
-      startedAt: now,
-      finishedAt: null,
-      expiresAt: now + LEASE_MS,
-      reservation: context.settings.providers[provider].reservationTokens,
-      usageTokens: null,
-      pid: null,
-      summary: null,
-      artifact: path.join(this.mesh.directory, 'factory', 'jobs', id),
-    };
+    const job = attemptRecord(context, intent, admitted);
+    const { id } = job;
     if (!this.repository.claim(job, context.settings)) {
       return;
     }

@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { featureWorkflow, planningApprovals } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
@@ -62,6 +63,12 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     attempts: 0,
     version: 0,
     error: null,
+    approvals: [],
+    implementation: null,
+    stepResults: [],
+    hold: null,
+    archive: null,
+    workflow: context.repository.features().find((feature) => feature.id === featureId)?.workflow,
     updatedAt: context.repository.store.now(),
   };
 }
@@ -72,7 +79,13 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
  * @param context - Project-scoped GitHub and task ledger.
  */
 async function provision(context: FactoryContext): Promise<void> {
-  const candidates1 = context.repository.features().filter((candidate) => candidate.phase === 'provisioning');
+  // An objective waiting for a planning approval keeps its plan unprovisioned.
+  const candidates1 = context.repository
+    .features()
+    .filter(
+      (candidate) =>
+        candidate.phase === 'provisioning' && planningApprovals(candidate, featureWorkflow(candidate)).length === 0,
+    );
   for (const feature of candidates1) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Features are provisioned sequentially with durable remote checkpoints.
@@ -115,6 +128,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         error: null,
         createdAt: now,
         updatedAt: now,
+        approvals: [],
       };
       context.repository.saveFeature(feature);
     }

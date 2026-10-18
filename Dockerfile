@@ -53,6 +53,7 @@ RUN npm install --global --ignore-scripts @openai/codex@${CODEX_VERSION} \
 
 COPY src ./src
 COPY resources/factory-skills ./resources/factory-skills
+COPY resources/workflows ./resources/workflows
 COPY web ./web
 COPY --from=web-build /app/web/dist ./web/dist
 
