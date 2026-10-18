@@ -691,6 +691,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
   factory_reconcile_github:
     'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
+  factory_worktrees_adopt:
+    'Human operator only, while paused: hand ownership of .malt/worktrees to the environment this broker runs in, after stopping the other host or Docker supervisor. The previous owner is recorded.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   factory_workflow_save:

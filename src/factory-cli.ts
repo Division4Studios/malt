@@ -31,6 +31,7 @@ export const FACTORY_COMMANDS = [
   'factory-cancel-job',
   'factory-capacity',
   'factory-reconcile-github',
+  'factory-worktrees-adopt',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -53,6 +54,7 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-cancel-job': 'factory_cancel_job',
   'factory-capacity': 'factory_capacity',
   'factory-reconcile-github': 'factory_reconcile_github',
+  'factory-worktrees-adopt': 'factory_worktrees_adopt',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([

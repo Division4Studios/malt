@@ -66,6 +66,7 @@ Usage: node src/cli.ts <command> [options]
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
+  factory-worktrees-adopt      Hand .malt/worktrees to this host or container (paused)
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
