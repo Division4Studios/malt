@@ -397,6 +397,10 @@ await test(
       'mesh_learning_propose_skill',
       'mesh_github_create_issue',
       'mesh_factory_export_maintenance',
+      'mesh_factory_attempts',
+      'mesh_factory_transcript',
+      'mesh_factory_costs',
+      'mesh_factory_prices',
     ]) {
       assert.ok(!names.has(name), name);
     }
