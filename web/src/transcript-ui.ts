@@ -7,7 +7,7 @@
  * @file
  */
 import { child, data, hasFlag, number, records, scoped, text } from './api.js';
-import { phrase, t } from './i18n.js';
+import { keepLiteral, phrase, t } from './i18n.js';
 import { formatCost, formatDuration, formatTokens } from './telemetry-format.js';
 import { element } from './worker-ui.js';
 
@@ -114,6 +114,16 @@ function fileChangeNode(node: Data): HTMLElement {
  * @returns Safe DOM for the node.
  */
 export function transcriptNode(node: Data): HTMLElement {
+  return keepLiteral(transcriptBody(node));
+}
+
+/**
+ * Build one transcript node's element.
+ *
+ * @param node - Untrusted transcript node.
+ * @returns Rendered node.
+ */
+function transcriptBody(node: Data): HTMLElement {
   const kind = text(node, 'kind');
   const isTruncated = hasFlag(node, 'truncated');
   let rendered: HTMLElement;
