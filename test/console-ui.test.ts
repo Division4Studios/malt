@@ -9,7 +9,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { approvalInput, isPending, targetFromItem, targetFromStep } from '../web/dist/approval-model.js';
-import { groupBoard, parsePrefs, tabTarget, workflowChoices } from '../web/dist/board-model.js';
+import {
+  bulkTargets,
+  groupBoard,
+  lifecycleControl,
+  parsePrefs,
+  tabTarget,
+  workflowChoices,
+} from '../web/dist/board-model.js';
 import {
   excerpt,
   findingSeverity,
@@ -322,4 +329,35 @@ void test('approval requests bind the right owner, head and note', () => {
   const fromStep = targetFromStep({ ...delivery, head: 'newer' }, security, model.open);
   assert.equal(fromStep.head, HEAD, 'the Inbox item head wins over the current delivery head');
   assert.equal(targetFromStep({ ...delivery, head: 'newer' }, security, []).head, 'newer');
+});
+
+await test('lifecycle controls hold, resume and archive exactly the deliveries shown', () => {
+  const model = readConsole(snapshotFixture());
+  const [open, finished] = model.deliveries;
+  assert.ok(open !== undefined && finished !== undefined);
+  assert.deepEqual(lifecycleControl(open), {
+    label: 'Hold',
+    operation: 'factory_hold',
+    input: { taskIds: [TASK], hold: true },
+  });
+  assert.equal(lifecycleControl({ ...open, held: { at: 1, reason: 'Freeze' } }).label, 'Resume');
+  assert.deepEqual(lifecycleControl(finished).input, { taskIds: [DONE_TASK], archive: true });
+  const shown = groupBoard(model, { query: '', workflow: '', showDone: true });
+  assert.deepEqual(bulkTargets(shown), { hold: [TASK], resume: [] }, 'Finished deliveries are never held.');
+  assert.deepEqual(bulkTargets(groupBoard(model, { query: 'no such card', workflow: '', showDone: true })), {
+    hold: [],
+    resume: [],
+  });
+  const held = readConsole({
+    factory: {
+      console: {
+        deliveries: [
+          { taskId: TASK, issue: 1, title: 'x', column: 'ready', phase: 'ready', held: { at: 2, reason: 'r' } },
+        ],
+        archived: { total: 3, recent: [{ taskId: DONE_TASK, issue: 9, title: 'Old' }, { issue: 2 }] },
+      },
+    },
+  });
+  assert.deepEqual(held.deliveries[0]?.held, { at: 2, reason: 'r' });
+  assert.deepEqual(held.archived, { total: 3, recent: [{ taskId: DONE_TASK, issue: 9, title: 'Old' }] });
 });

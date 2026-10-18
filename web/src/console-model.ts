@@ -117,8 +117,22 @@ export interface Delivery {
   readonly attempts: number;
   /** Blocker or last error. */
   readonly error: string | null;
+  /** Operator hold: no new attempt starts while set. */
+  readonly held: { readonly at: number; readonly reason: string } | null;
+  /** Whether the operator kept it on the board after it finished. */
+  readonly isKept: boolean;
   /** Last change time. */
   readonly updatedAt: number;
+}
+
+/** A finished delivery archived off the board, which the operator can restore. */
+export interface ArchivedDelivery {
+  /** Delivery id. */
+  readonly taskId: string;
+  /** Tracker issue number. */
+  readonly issue: number;
+  /** Title. */
+  readonly title: string;
 }
 
 /** An objective being planned. */
@@ -189,10 +203,18 @@ export interface ConsoleModel {
   readonly open: readonly InboxItem[];
   /** Answered decisions, newest first. */
   readonly answered: readonly AnsweredItem[];
+  /** Archived deliveries: the total and the latest few. */
+  readonly archived: { readonly total: number; readonly recent: readonly ArchivedDelivery[] };
 }
 
 /** Projection used when the snapshot carries none. */
-export const EMPTY_CONSOLE: ConsoleModel = { deliveries: [], objectives: [], open: [], answered: [] };
+export const EMPTY_CONSOLE: ConsoleModel = {
+  deliveries: [],
+  objectives: [],
+  open: [],
+  answered: [],
+  archived: { total: 0, recent: [] },
+};
 
 /** Milliseconds per minute. */
 const MINUTE_MS = 60_000;
@@ -392,8 +414,35 @@ function parseDelivery(record: Data): Delivery | null {
       : [],
     attempts: number(record, 'attempts'),
     error: nullableText(record, 'error'),
+    held: parseHold(record['held']),
+    isKept: record['isKept'] === true,
     updatedAt: number(record, 'updatedAt'),
   };
+}
+
+/**
+ * Validate an operator hold.
+ *
+ * @param value - Untrusted hold record.
+ * @returns Hold time and reason, or `null` when the delivery is not held.
+ */
+function parseHold(value: unknown): Delivery['held'] {
+  const hold = asData(value);
+  return hold === null ? null : { at: number(hold, 'at'), reason: text(hold, 'reason') };
+}
+
+/**
+ * Validate the archived summary.
+ *
+ * @param value - Untrusted archived record.
+ * @returns Total and the restorable recent deliveries.
+ */
+function parseArchived(value: unknown): ConsoleModel['archived'] {
+  const archived = asData(value) ?? {};
+  const recent = objects(archived['recent'])
+    .map((record) => ({ taskId: text(record, 'taskId'), issue: number(record, 'issue'), title: text(record, 'title') }))
+    .filter((entry) => entry.taskId !== '');
+  return { total: number(archived, 'total'), recent };
 }
 
 /**
@@ -470,6 +519,7 @@ export function readConsole(snapshot: unknown): ConsoleModel {
     open: objects(inbox['open'])
       .map((record) => parseInboxItem(record))
       .filter((entry) => entry !== null),
+    archived: parseArchived(view['archived']),
     answered: objects(inbox['answered']).map((record) => {
       return {
         id: text(record, 'id'),
