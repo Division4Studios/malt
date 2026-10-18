@@ -23,6 +23,7 @@ import { DEFAULT_WORKFLOW_ID, workflowLibrarySchema } from '../factory/workflows
 import { ProjectLearning } from '../learning.ts';
 import { packageVersion } from '../package-info.ts';
 import { MeshError } from '../protocol.ts';
+import { SOURCE_REVISION } from '../source-revision.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { DiffPatch, DiffSummary } from '../factory/diff-schema.ts';
@@ -33,11 +34,23 @@ import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/teleme
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
+import type { SourceRevision } from '../source-revision.ts';
 
 /** How long the broker health probe may take. */
 const HEALTH_MS = 2000;
 /** The broker's unauthenticated health answer. */
-const healthSchema = z.object({ ok: z.literal(true), version: z.string() });
+const healthSchema = z.object({
+  ok: z.literal(true),
+  version: z.string(),
+  /** Absent from brokers started before revisions were reported. */
+  revision: z
+    .object({
+      commit: z.string().nullable(),
+      isDirty: z.boolean().nullable(),
+      origin: z.enum(['image', 'checkout', 'unknown']),
+    })
+    .optional(),
+});
 /** Versions the Settings view shows. */
 export interface ConsoleVersions {
   /** MALT package version the console runs. */
@@ -48,6 +61,10 @@ export interface ConsoleVersions {
   readonly platform: string;
   /** Broker version, or `null` when its health endpoint does not answer. */
   readonly broker: string | null;
+  /** Source the broker was started from; `null` when it does not answer or predates revision reports. */
+  readonly brokerRevision: SourceRevision | null;
+  /** Source this console process was started from. */
+  readonly consoleRevision: SourceRevision;
 }
 
 /** Public team routing metadata. */
@@ -62,6 +79,8 @@ const automationRecordsSchema = z.array(z.record(z.unknown()));
 const secretRecordsSchema = z.array(z.record(z.unknown()));
 /** Broker address local scripts POST webhook triggers to. */
 const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
+/** One identity's unread backlog. */
+const unreadSchema = z.object({ name: z.string(), role: z.string(), runtime: z.string(), unread: z.number() }).strict();
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   orderRevision: z.number().int().nonnegative(),
@@ -72,12 +91,16 @@ const factoryViewSchema = dashboardSchema.extend({
   workflow: z.record(z.unknown()).default({}),
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
+  /** Admission evidence the Local machine panel explains; the browser reads it field by field. */
+  admission: z.record(z.unknown()).nullable().default(null),
   triage: z.array(triageRecordSchema).default([]),
   workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
   /** Broker-computed board, pipelines and Inbox; rendered as data, never re-derived. */
   console: z.record(z.unknown()).default({}),
   /** Schedules and triggers without secrets; the browser validates each record it shows. */
   automations: automationRecordsSchema.default([]),
+  /** Identities with unread messages, largest backlog first. */
+  unread: z.array(unreadSchema).default([]),
   /** Broker address local scripts call to fire a trigger. */
   triggerEndpoint: triggerEndpointSchema.nullable().default(null),
   /** Roles editor choices; the browser validates what it shows. */
@@ -110,10 +133,12 @@ export const controlSchema = z
       'factory_workflow_default',
       'factory_approve',
       'factory_answer',
+      'factory_checkpoint_decide',
       'factory_gates',
       'factory_step_overrides',
       'factory_cancel_job',
       'factory_capacity',
+      'capability_policy_set',
       'factory_prices',
       'factory_hold',
       'factory_archive',
@@ -127,7 +152,8 @@ export const controlSchema = z
       'factory_roles_save',
       'factory_secret_save',
       'factory_secret_delete',
-      'capability_policy_set',
+      'factory_local',
+      'factory_manager',
       'github_connect',
       'terminal_start',
       'terminal_close',
@@ -137,6 +163,39 @@ export const controlSchema = z
     input: z.unknown(),
   })
   .strict();
+
+/**
+ * Read the local delivery ledger summary when the project uses local delivery.
+ *
+ * @param config - Selected project.
+ * @returns Summary, or null for GitHub delivery or an unconfigured factory.
+ */
+async function localSummary(config: MeshConfig): Promise<unknown> {
+  try {
+    return await rpc(config, 'factory_local', { action: 'summary' });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the manager's live status and the mission brief for the console.
+ *
+ * @param config - Selected project.
+ * @returns Status and brief, or null before the factory is configured.
+ */
+async function managerSummary(config: MeshConfig): Promise<unknown> {
+  try {
+    const [status, brief] = await Promise.all([
+      rpc(config, 'factory_manager', { action: 'status' }),
+      rpc(config, 'factory_brief', {}),
+    ]);
+    return { status, brief };
+  } catch {
+    return null;
+  }
+}
+
 /** One project gateway proxies the existing broker without another scheduler. */
 export class ProjectGateway {
   /** Colocated operator-only decisions cannot be serialized into agent RPC authority. */
@@ -244,12 +303,14 @@ export class ProjectGateway {
    */
   public async snapshot(id: string, afterEvent?: number): Promise<unknown> {
     const config = this.config(id);
-    const [factory, events, agents, github, learning] = await Promise.all([
+    const [factory, events, agents, github, learning, local, manager] = await Promise.all([
       rpc(config, 'factory_status', {}),
       rpc(config, 'events', { after: afterEvent ?? 0, limit: 50, recent: afterEvent === undefined }),
       rpc(config, 'list_agents', {}),
       rpc(config, 'github_status', {}),
       rpc(config, 'learning_status', {}),
+      localSummary(config),
+      managerSummary(config),
     ]);
     return {
       project: { id, name: config.name, root: config.workspace ?? config.root },
@@ -258,8 +319,41 @@ export class ProjectGateway {
       agents,
       github,
       learning,
+      local,
+      manager,
       observedAt: Date.now(),
     };
+  }
+
+  /**
+   * Read one local pull request with its gate evidence and bounded diff.
+   *
+   * @param id - Explicit project selection.
+   * @param number - Local pull-request number.
+   * @returns Pull request, evidence and diff.
+   */
+
+  /**
+   * Read one page of the manager conversation.
+   *
+   * @param id - Explicit project selection.
+   * @param after - Exclusive sequence cursor.
+   * @param limit - Requested page size; the broker enforces its bound.
+   * @returns Entries and the latest sequence.
+   */
+  public async managerHistory(id: string, after: number, limit: number): Promise<unknown> {
+    return rpc(this.config(id), 'factory_manager', { action: 'history', after, limit });
+  }
+
+  /**
+   * Read one local pull request with its gate evidence and bounded diff.
+   *
+   * @param id - Explicit project selection.
+   * @param number - Local pull-request number.
+   * @returns Pull request, evidence and diff.
+   */
+  public async localPull(id: string, number: number): Promise<unknown> {
+    return rpc(this.config(id), 'factory_local', { action: 'pull', number });
   }
 
   /**
@@ -306,14 +400,21 @@ export class ProjectGateway {
    */
   public async versions(id: string): Promise<ConsoleVersions> {
     const config = this.config(id);
-    let broker: string | null;
+    let health: z.output<typeof healthSchema> | null;
     try {
       const response = await fetch(new URL('/health', config.url), { signal: AbortSignal.timeout(HEALTH_MS) });
-      broker = healthSchema.parse(await response.json()).version;
+      health = healthSchema.parse(await response.json());
     } catch {
-      broker = null;
+      health = null;
     }
-    return { malt: packageVersion(), node: process.versions.node, platform: process.platform, broker };
+    return {
+      malt: packageVersion(),
+      node: process.versions.node,
+      platform: process.platform,
+      broker: health?.version ?? null,
+      brokerRevision: health?.revision ?? null,
+      consoleRevision: SOURCE_REVISION,
+    };
   }
 
   /**

@@ -4,7 +4,7 @@
  * @file
  */
 
-import { records, text } from './api.js';
+import { number, records, text } from './api.js';
 import { t } from './i18n.js';
 
 import type { Data, Snapshot } from './api.js';
@@ -169,6 +169,7 @@ const WORKER_FILES = [
   'prepare-evidence.json',
   'test-evidence.json',
   'end-to-end-evidence.json',
+  'failure.json',
 ] as const;
 /** A set accepts untrusted select values without an unsafe union assertion. */
 const allowedFiles = new Set<string>(WORKER_FILES);
@@ -219,7 +220,8 @@ export function handoffBadge(state: Snapshot, role: string, shouldRead = false):
 }
 
 /**
- * Attach a genuine unread handoff count to a logical role card.
+ * Attach a genuine unread handoff count, and the role identity's unread message
+ * backlog, to a logical role card.
  *
  * @param node - Current role card.
  * @param state - Actual project job history.
@@ -230,6 +232,14 @@ export function appendHandoffBadge(node: HTMLElement, state: Snapshot, role: str
   if (badge !== null) {
     node.append(badge);
   }
+  const backlog = records(state.factory['unread']).find((entry) => text(entry, 'name') === `factory-${role}`);
+  if (backlog === undefined) {
+    return;
+  }
+  const count = number(backlog, 'unread');
+  node.append(
+    element('p', 'subtle', t('{count, plural, one {# unread message} other {# unread messages}}', { count })),
+  );
 }
 /** ResizeObserver tracks genuine native CSS handle changes without a polling timer. */
 const paneObserver =
