@@ -238,17 +238,13 @@ export class FactoryService {
    * @returns Dashboard and MCP state.
    */
   public async status(): Promise<unknown> {
-    return factoryStatus(
-      this.repository,
-      this.mesh,
-      {
-        connected: this.connected,
-        error: this.error ?? this.issueGuard.waitingReason(this.repository),
-        resources: this.sampler.latest,
-        admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
-      },
-      this.learning,
-    );
+    const live = {
+      connected: this.connected,
+      error: this.error ?? this.issueGuard.waitingReason(this.repository),
+      resources: this.sampler.latest,
+      admission: admissionEvidence(this.repository, LOCAL_JOBS, this.sampler.latest, this.running),
+    };
+    return factoryStatus(this.repository, this.mesh, live, this.learning);
   }
 
   /** Resume durable requested operation after broker restart. */
