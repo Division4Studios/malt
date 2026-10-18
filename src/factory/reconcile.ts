@@ -13,9 +13,13 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
+import { logObjective } from './objective-log.ts';
+import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
+import { didHandleFailedChecks } from './repairs.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
@@ -24,6 +28,19 @@ import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
 import type { ReadyIssue } from './scheduler.ts';
 import type { FactoryTask, Feature } from './schema.ts';
+
+/** Commit id characters shown in progress log entries. */
+const SHORT_SHA = 12;
+
+/**
+ * Abbreviate a commit id for a progress log entry.
+ *
+ * @param sha - Full commit id.
+ * @returns Its first characters.
+ */
+function shortSha(sha: string): string {
+  return sha.slice(0, SHORT_SHA);
+}
 
 /**
  * Build one ledger task from a GitHub atomic issue.
@@ -34,6 +51,7 @@ import type { FactoryTask, Feature } from './schema.ts';
  * @returns Initial dependency-ready task state.
  */
 export function deliveryTask(context: FactoryContext, issue: ReadyIssue, featureId: string | null): FactoryTask {
+  const feature = context.repository.features().find((candidate) => candidate.id === featureId);
   return {
     id: randomUUID(),
     featureId,
@@ -62,6 +80,16 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
     attempts: 0,
     version: 0,
     error: null,
+    approvals: [],
+    implementation: null,
+    stepResults: [],
+    hold: null,
+    archive: null,
+    repairs: [],
+    revalidation: null,
+    workflow: feature?.workflow,
+    ...(feature?.gates !== undefined && { gates: { merge: feature.gates.merge } }),
+    ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
     updatedAt: context.repository.store.now(),
   };
 }
@@ -72,7 +100,12 @@ export function deliveryTask(context: FactoryContext, issue: ReadyIssue, feature
  * @param context - Project-scoped GitHub and task ledger.
  */
 async function provision(context: FactoryContext): Promise<void> {
-  const candidates1 = context.repository.features().filter((candidate) => candidate.phase === 'provisioning');
+  // An objective waiting for a planning approval keeps its plan unprovisioned.
+  const candidates1 = context.repository
+    .features()
+    .filter(
+      (candidate) => candidate.phase === 'provisioning' && isPlanningComplete(candidate, featureWorkflow(candidate)),
+    );
   for (const feature of candidates1) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Features are provisioned sequentially with durable remote checkpoints.
@@ -115,6 +148,7 @@ async function importReady(context: FactoryContext): Promise<void> {
         error: null,
         createdAt: now,
         updatedAt: now,
+        approvals: [],
       };
       context.repository.saveFeature(feature);
     }
@@ -199,6 +233,9 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
     return;
   }
+  if (await didHandleFailedChecks(context, record, pr)) {
+    return;
+  }
   if (record.phase === 'merge_ready') {
     const gateReason = mergeBlocker(pr, record, context.settings);
     if (gateReason !== record.error) {
@@ -206,9 +243,20 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     }
     return;
   }
-  if (record.phase !== 'merging') {
-    return;
+  if (record.phase === 'merging') {
+    await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Merge an approved delivery once its gates pass on the exact reviewed source.
+ *
+ * @param context - Actual GitHub and main state.
+ * @param task - Delivery whose final check approved it.
+ * @param pr - Current PR state at the recorded head and base.
+ */
+async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<void> {
+  const record = task;
   if (!hasApprovals(record) || !hasFinalApproval(record)) {
     refreshRequired(context, record, 'Final approval is stale.');
     return;
@@ -240,6 +288,11 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
           ? null
           : 'Merge was already sent before scope replacement; verify its actual merged-main commit.',
     };
+  });
+  logObjective(context.repository.store, record.featureId, {
+    kind: 'delivery',
+    actor: 'supervisor',
+    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(merge)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged PR #${String(record.pr)} at ${merge}. Refresh main in every remaining developer worktree before submission. Final merged-main testing is next.`,
@@ -275,6 +328,11 @@ async function closeVerified(context: FactoryContext, task: FactoryTask): Promis
   }
   await context.workspaces.contains(record.merge, base);
   context.repository.editTask(record.id, (current) => ({ ...current, phase: 'done', error: null }));
+  logObjective(context.repository.store, record.featureId, {
+    kind: 'delivery',
+    actor: 'supervisor',
+    body: `#${String(record.issue)} ${record.title} verified on main ${shortSha(base)} and done.`,
+  });
   await context.learning.execute(
     'learning_record',
     {
@@ -376,7 +434,9 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       tasks.some((task) => task.phase !== 'done') ||
       // Children closed without delivery never justify closing the parent as completed; the operator decides.
       tasks.some((task) => task.verifiedMain?.undelivered === true) ||
-      context.repository.effects().some((effect) => tasks.some((task) => task.issue === effect.issue))
+      context.repository.effects().some((effect) => tasks.some((task) => task.issue === effect.issue)) ||
+      // Delivered work completes the objective only once its definition of done is met or waived.
+      !isDefinitionMet(feature)
     ) {
       continue;
     }
@@ -420,6 +480,13 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       phase: 'done',
       error: null,
       updatedAt: context.repository.store.now(),
+    });
+    const { met, total } = definitionProgress(feature);
+    const criteria = total === 0 ? '' : `, ${String(met)} of ${String(total)} done criteria met`;
+    logObjective(context.repository.store, feature.id, {
+      kind: 'objective',
+      actor: 'supervisor',
+      body: `Objective complete: every delivery verified and closed${criteria}.`,
     });
     context.repository.notify(
       `Feature #${String(parent)} is delivered: all atomic child issues were independently reviewed, merged, verified on main and closed.`,
@@ -644,6 +711,11 @@ function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullReques
       merge: pr.mergeCommit?.oid ?? null,
       error: null,
     };
+  });
+  logObjective(context.repository.store, record.featureId, {
+    kind: 'delivery',
+    actor: 'supervisor',
+    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(pr.mergeCommit.oid)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged #${String(record.pr)} into ${context.settings.baseBranch}. Every developer must refresh main before its next submission.`,

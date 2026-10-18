@@ -10,33 +10,27 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
+import { completeFixStage } from './fix-stage.ts';
+import { MergeConflictError } from './merge-conflict.ts';
+import { automaticWorkflow } from './objectives.ts';
+import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
+import { completePlanning } from './planning-stage.ts';
 import { PublicationSizeError } from './publication-size.ts';
+import { attemptBudget } from './repair-schema.ts';
+import { recordConflict } from './repairs.ts';
+import { completeRevalidation } from './revalidation.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
+import { CODE_JOB_KINDS, JOB_PHASE, isPlanningKind } from './seats.ts';
 import { completeTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
 
-/**
- * Persist a deterministic outbox effect tied to a particular delivery revision.
- *
- * @param context - Workspace ledger.
- * @param task - Current delivery revision.
- * @param value - Public finding or completion evidence.
- */
-function queueComment(context: FactoryContext, task: FactoryTask, value: string): void {
-  context.repository.enqueueEffect({
-    id: `${task.id}:${String(task.version)}:comment`,
-    kind: 'comment',
-    issue: task.issue,
-    value,
-    attempts: 0,
-    retryAt: 0,
-    error: null,
-  });
-}
+/** Steps completed by the fix-stage module. */
+const FIX_STAGE_KINDS: ReadonlySet<string> = new Set(['adjudicate', 'document', 'regress']);
 
 /**
  * Publish validated developer completion without claiming merged acceptance.
@@ -105,7 +99,7 @@ export async function rejectDelivery(
   finding: string,
 ): Promise<FactoryTask> {
   const wasMerged = task.merge !== null;
-  const isExhausted = task.attempts >= context.settings.maxAttempts;
+  const isExhausted = task.attempts >= attemptBudget(task, context.settings);
   const returned = context.repository.editTask(task.id, (current) => {
     return {
       ...current,
@@ -180,12 +174,16 @@ async function applyOutcome(
     completeTriage(context.repository, record, result);
     return;
   }
-  if (record.kind === 'plan' || record.kind === 'refine') {
-    completePlan(context, record, result);
+  if (isPlanningKind(record.kind)) {
+    completePlanning(context, record, result);
     return;
   }
   if (record.kind === 'learn') {
     completeLearning(context, result);
+    return;
+  }
+  if (record.kind === 'revalidate') {
+    completeRevalidation(context, record, result);
     return;
   }
   if (record.kind === 'skill') {
@@ -205,7 +203,7 @@ async function applyOutcome(
  */
 async function applyDelivery(
   context: FactoryContext,
-  job: FactoryJob & { kind: 'develop' | 'review' | 'final' | 'verify' },
+  job: FactoryJob & { kind: 'develop' | 'review' | 'adjudicate' | 'document' | 'regress' | 'final' | 'verify' },
   evidence: { result: AgentResult; execution: ExecutedJob; signal: AbortSignal },
 ): Promise<void> {
   const record = job;
@@ -214,24 +212,14 @@ async function applyDelivery(
     throw new MeshError('FACTORY_GATED', 'A delivery record must name its task.');
   }
   const task = context.repository.task(record.taskId);
-  const stages = {
-    develop: 'development',
-    review: 'review',
-    final: 'merge_ready',
-    verify: 'verifying',
-    plan: '',
-    refine: '',
-    learn: '',
-    skill: '',
-    triage: '',
-  } as const;
-  if (task.phase !== stages[record.kind]) {
+  if (!isCurrentStage(task, record)) {
     return;
   }
-  if (record.kind !== 'develop' && (task.head !== record.head || task.base !== record.base)) {
+  if (FIX_STAGE_KINDS.has(record.kind)) {
+    await completeFixStage(context, record, task, { result, signal });
     return;
   }
-  if (result.outcome !== 'success') {
+  if (result.outcome !== 'success' && !isRuledByFixer(context, record, task, result)) {
     await rejectDelivery(context, task, [result.summary, ...result.findings].join('\n'));
     return;
   }
@@ -252,45 +240,13 @@ async function applyDelivery(
       completeVerification(context, record, task, { execution, result });
       break;
     }
+    case 'adjudicate':
+    case 'document':
+    case 'regress': {
+      // Completed by the fix-stage module above.
+      break;
+    }
   }
-}
-
-/**
- * Save product-owner refinement or the independent lead's atomic plan.
- *
- * @param context - Project ledger.
- * @param job - Product or lead role.
- * @param result - Reviewed plan or precise scope blocker.
- * @throws {Error} For invalid project state or failed execution.
- */
-function completePlan(context: FactoryContext, job: FactoryJob, result: AgentResult): void {
-  const record = job;
-  const feature = context.repository.features().find((candidate) => candidate.id === record.featureId);
-  if (feature === undefined) {
-    throw new MeshError('NOT_FOUND', 'The product request no longer exists.');
-  }
-  if (feature.scopeReplacement !== undefined) {
-    return;
-  }
-  if (result.outcome !== 'success') {
-    context.repository.saveFeature({
-      ...feature,
-      phase: 'blocked',
-      error: [result.summary, ...result.findings].join('\n'),
-      updatedAt: context.repository.store.now(),
-    });
-    context.repository.notify(`Product owner / lead clarification required: ${result.summary}`);
-    return;
-  }
-  validatePlan(result);
-  context.repository.saveFeature({
-    ...feature,
-    phase: record.kind === 'plan' ? 'refining' : 'provisioning',
-    productPlan: record.kind === 'plan' ? result : feature.productPlan,
-    plan: record.kind === 'refine' ? result : feature.plan,
-    error: null,
-    updatedAt: context.repository.store.now(),
-  });
 }
 
 /**
@@ -314,35 +270,54 @@ async function completeDevelopment(
   }
   const { worktree } = record;
   try {
-    await context.workspaces.publish(record, async (source) => {
-      signal.throwIfAborted();
-      const snapshot = await context.workspaces.snapshot(worktree);
-      await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
-      await context.workspaces.assertUnchanged(snapshot);
-      signal.throwIfAborted();
-      const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
-      if (claim?.state !== 'running' || claim.token !== job.token) {
-        throw new MeshError('FACTORY_GATED', 'The developer claim expired before publication.');
-      }
-      context.repository.store.transaction(() => {
-        context.repository.editTask(record.id, (current) => {
-          if (current.phase !== 'development' || current.version !== record.version || current.developer !== job.role) {
-            throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
-          }
-          return {
-            ...current,
-            phase: 'publishing',
-            head: source.head,
-            base: source.base,
-            reviews: [],
-            finalReview: null,
-            error: null,
-          };
+    await context.workspaces.publish(
+      record,
+      async (source) => {
+        signal.throwIfAborted();
+        const snapshot = await context.workspaces.snapshot(worktree);
+        await runChecks(context, job, { cwd: worktree, stage: 'test', signal });
+        await context.workspaces.assertUnchanged(snapshot);
+        signal.throwIfAborted();
+        const claim = context.repository.jobs().find((candidate) => candidate.id === job.id);
+        if (claim?.state !== 'running' || claim.token !== job.token) {
+          throw new MeshError('FACTORY_GATED', 'The developer claim expired before publication.');
+        }
+        context.repository.store.transaction(() => {
+          context.repository.editTask(record.id, (current) => {
+            if (
+              current.phase !== 'development' ||
+              current.version !== record.version ||
+              current.developer !== job.role
+            ) {
+              throw new MeshError('FACTORY_GATED', 'The delivery changed or stopped before publication.');
+            }
+            return {
+              ...current,
+              phase: 'publishing',
+              head: source.head,
+              base: source.base,
+              reviews: [],
+              implementation: { head: source.head, base: source.base, at: context.repository.store.now() },
+              finalReview: null,
+              error: null,
+            };
+          });
+          queueDevelopmentComment(context, record.id, job.role, evidence.summary);
         });
-        queueDevelopmentComment(context, record.id, job.role, evidence.summary);
-      });
-    });
+      },
+      { step: job.step ?? 'implement', kind: 'implement', role: job.role, jobId: job.id },
+    );
   } catch (error) {
+    if (error instanceof MergeConflictError) {
+      signal.throwIfAborted();
+      await recordConflict(context, record, {
+        files: error.files,
+        head: error.head,
+        base: error.base,
+        directory: worktree,
+      });
+      return;
+    }
     if (!(error instanceof PublicationSizeError)) {
       throw error;
     }
@@ -369,48 +344,88 @@ async function completeDevelopment(
 }
 
 /**
- * Accept only the current immutable head/base from an independent QA role.
+ * Accept only the current immutable head/base from an independent review step.
  *
  * @param context - Current task and GitHub evidence.
- * @param job - Independent QA claim.
+ * @param job - Independent review claim.
  * @param task - Delivery at completion time.
  * @param result - Successful adversarial review.
  */
 function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): void {
   const record = task;
+  const workflow = taskWorkflow(record, context.repository.features());
+  const step = reviewStepOf(workflow, job);
   if (
+    step === undefined ||
     record.phase !== 'review' ||
     record.head !== job.head ||
     record.base !== job.base ||
-    record.pr === null ||
-    (job.role !== 'qa-1' && job.role !== 'qa-2')
+    record.pr === null
   ) {
     return;
   }
   const { role } = job;
+  const outcome: 'success' | 'changes_requested' = result.outcome === 'success' ? 'success' : 'changes_requested';
   const reviewed = context.repository.editTask(record.id, (current) => {
     const updated = {
       ...current,
       reviews: [
-        ...current.reviews.filter((review) => review.role !== role),
+        ...current.reviews.filter((review) => !isReviewOf(review, step)),
         {
           role,
+          stepId: step.id,
           head: job.head ?? '',
           base: job.base ?? '',
-          outcome: 'success' as const,
+          outcome,
           summary: result.summary,
+          findings: result.findings,
           jobId: job.id,
         },
       ],
       error: null,
     };
-    return { ...updated, phase: hasApprovals(updated) ? 'merge_ready' : 'review' };
+    return { ...updated, phase: hasApprovals(updated, workflow) ? 'merge_ready' : 'review' };
   });
+  const verdict = outcome === 'success' ? 'approved' : 'reported findings for the fixer on';
   queueComment(
     context,
     reviewed,
-    `${role} approved head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
+    `${step.title} (${role}) ${verdict} head ${job.head ?? ''} against base ${job.base ?? ''}.\n\n${result.summary}`,
   );
+}
+
+/**
+ * Whether an attempt's result still applies: the delivery is in its stage and,
+ * for read-only steps, still at the exact source the attempt judged. Code-writing
+ * steps refresh main into their worktree, so their recorded base may lag.
+ *
+ * @param task - Delivery now.
+ * @param job - Completed attempt.
+ * @returns True when the result may be applied.
+ */
+function isCurrentStage(task: FactoryTask, job: FactoryJob): boolean {
+  return (
+    task.phase === JOB_PHASE[job.kind] &&
+    (CODE_JOB_KINDS.has(job.kind) || (task.head === job.head && task.base === job.base))
+  );
+}
+
+/**
+ * Whether a review requesting changes goes to a fixer rather than back to the developer.
+ *
+ * @param context - Project ledger.
+ * @param job - Completed attempt.
+ * @param task - Its delivery.
+ * @param result - Structured result.
+ * @returns True when a downstream adjudicate step rules on this review's findings.
+ */
+function isRuledByFixer(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): boolean {
+  if (job.kind !== 'review' || result.outcome !== 'changes_requested') {
+    return false;
+  }
+  const workflow = taskWorkflow(task, context.repository.features());
+  const step = reviewStepOf(workflow, job);
+  return step !== undefined && isAdjudicated(workflow, step);
 }
 
 /**
@@ -425,13 +440,13 @@ function completeReview(context: FactoryContext, job: FactoryJob, task: FactoryT
 function completeFinal(context: FactoryContext, job: FactoryJob, task: FactoryTask, result: AgentResult): void {
   const record = task;
   if (
-    !hasApprovals(record) ||
+    !hasApprovals(record, taskWorkflow(record, context.repository.features())) ||
     record.head !== job.head ||
     record.base !== job.base ||
     record.head === null ||
     record.base === null
   ) {
-    throw new MeshError('FACTORY_GATED', 'The final approval no longer covers two current independent QA approvals.');
+    throw new MeshError('FACTORY_GATED', 'The final approval no longer covers every current review and approval.');
   }
   context.repository.editTask(record.id, (current) => {
     return {
@@ -517,6 +532,8 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     error: null,
     createdAt: context.repository.store.now(),
     updatedAt: context.repository.store.now(),
+    workflow: automaticWorkflow(context.repository),
+    approvals: [],
   });
 }
 

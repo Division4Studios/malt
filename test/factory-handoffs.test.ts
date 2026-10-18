@@ -368,7 +368,7 @@ for (const mode of ['timeout', 'operator'] as const) {
     assert.equal(
       report.reason?.text,
       mode === 'timeout'
-        ? 'Assignment exceeded its 5000 ms timeout.'
+        ? 'Assignment stopped at its checkpoint: stalled 1 min.'
         : 'Operator cancelled this attempt; explicit retry required.',
     );
   });

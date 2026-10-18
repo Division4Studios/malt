@@ -8,29 +8,67 @@
 import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
+import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
+import { cloudPolicySchema } from './cloud-schema.ts';
 import {
-  roleChoiceOutput,
+  archiveMarkSchema,
+  DELIVERY_CONTROL_OPERATIONS,
+  deliveryControlSchemas,
+  holdSchema,
+} from './delivery-control-schema.ts';
+import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
+import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
+import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import { localControlSchema } from './local-schema.ts';
+import { MANAGER_FACTORY_OPERATIONS, managerOperationSchemas, managerPolicySchema } from './manager-schema.ts';
+import {
   modelChoiceSchema,
   modelPolicySchema,
   modelPolicyUpdateSchema,
   modelSelectionSchema,
   reviewedRecommendationSchema,
 } from './model-policy.ts';
+import {
+  doneItemSchema,
+  DONE_ITEMS_MAX,
+  OBJECTIVE_GOAL_OPERATIONS,
+  objectiveGoalSchemas,
+} from './objective-goal-schema.ts';
 import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
+import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
+import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
+import { revalidationSchema } from './revalidation-schema.ts';
+import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
+import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
+import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
+import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
+import {
+  approvalSchema,
+  approveRequestSchema,
+  defaultWorkflowRequestSchema,
+  workflowHistoryRequestSchema,
+  frozenWorkflowSchema,
+  saveWorkflowRequestSchema,
+  stepResultSchema,
+  planningResultSchema,
+  planOutputSchema,
+  dispositionsSchema,
+} from './workflow-schema.ts';
+
+export { AGENT_OUTPUT_SCHEMA } from './agent-output.ts';
+export { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 
 /** Bound operator triage context independently of model transcripts. */
 const TRIAGE_NOTE_MAX = 4000;
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
-/** Extra reviewed project skills attached to one stage. */
-const MAX_ASSIGNMENT_SKILLS = 4;
-/** Bound the lead's per-role routing explanation. */
-const ROUTING_REASON_MAX = 1000;
 /** Absolute operator-selected workspace path bound. */
 const WORKSPACE_MAX = 4096;
 /** Maximum explicitly configured descendants in a Windows managed process job. */
@@ -42,25 +80,10 @@ const DEFAULT_JOB_CPU = 50;
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
-/** Roles have independent process slots even when they use the same provider. */
-export const FACTORY_ROLES = [
-  'product-owner',
-  'team-lead',
-  'developer-1',
-  'developer-2',
-  'qa-1',
-  'qa-2',
-  'final-tester',
-  'learning-steward',
-] as const;
-/** Provider CLI families supported by the managed runtime. */
-export const PROVIDERS = ['codex', 'claude'] as const;
 /** Longest descriptive task text. */
 const TEXT_MAX = 32_000;
 /** Longest public title. */
 const TITLE_MAX = 200;
-/** Largest atomic plan accepted at once. */
-const PLAN_MAX = 100;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -85,10 +108,10 @@ const FREE_MEMORY_MB = 1024;
 const CPU_PERCENT = 85;
 /** Default verified rate-limit cooldown. */
 export const COOLDOWN_MS = 300_000;
+/** Recent rejection request ids kept per delivery or objective for idempotent retries. */
+export const REJECTED_REQUESTS_MAX = 20;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
-/** A safe internal key, used in branch and artifact names. */
-export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
 const assignmentProfilesSchema = z
   .array(
@@ -158,8 +181,14 @@ export const factoryConfigSchema = z
   .object({
     version: z.literal(1).default(1),
     modelPolicy: modelPolicySchema.optional(),
-    organization: organizationSchema(FACTORY_ROLES),
+    organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
+    /** Gates new objectives freeze unless they override them. */
+    defaultGates: gatesSchema.default({}),
+    /** Recheck a dependent delivery's brief against its merged predecessors before it starts. */
+    briefRevalidation: z.boolean().default(false),
     requireBranchProtection: z.boolean().default(true),
+    /** GitHub delivery, or the project-private local hub and ledger with no hosted service. */
+    delivery: z.enum(['github', 'local']).default('github'),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
     remote: keySchema.default('origin'),
@@ -177,20 +206,21 @@ export const factoryConfigSchema = z
       .object({
         codex: providerSchema.default({ executable: 'codex' }),
         claude: providerSchema.default({ executable: 'claude' }),
+        copilot: providerSchema.default({ executable: 'copilot', enabled: false }),
       })
-      .default({ codex: { executable: 'codex' }, claude: { executable: 'claude' } }),
+      // Each provider field supplies its own default executable and enablement.
+      .default({}),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
+    /** Repair rounds per delivery for failed CI and merge conflicts. */
+    repair: repairPolicySchema.default({}),
     maxFiles: z.number().int().positive().default(MAX_FILES),
     maxDiffLines: z.number().int().positive().default(MAX_LINES),
+    /** Checkpoint interval: progress extends an assignment, a stall or the ceiling stops it. */
     jobTimeoutMs: z.number().int().positive().default(JOB_TIMEOUT_MS),
+    liveness: livenessSettingsSchema.optional(),
     reconcileMs: z.number().int().positive().default(RECONCILE_MS),
     learningMs: z.number().int().positive().default(LEARNING_MS),
-    assignmentSkills: z
-      .record(
-        z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
-        z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS),
-      )
-      .default({}),
+    assignmentSkills: z.record(z.enum(JOB_KINDS), z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS)).default({}),
     resources: z
       .object({
         maxActiveJobs: z.number().int().min(1).max(FACTORY_ROLES.length).default(2),
@@ -203,6 +233,10 @@ export const factoryConfigSchema = z
       })
       .default({}),
     terminals: terminalPolicySchema.default({}),
+    /** Developer assignments routed to Codex Cloud on the operator's subscription. */
+    cloud: cloudPolicySchema.default({}),
+    /** Persistent delivery manager session (#211); off until the operator starts it. */
+    manager: managerPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
@@ -240,8 +274,6 @@ const instructionReceiptSchema = z
   .refine((receipt) => !receipt.applied || receipt.acknowledged, {
     message: 'Applied instructions require explicit acknowledgement.',
   });
-/** Maximum focused instruction receipts per assignment. */
-const MAX_INSTRUCTION_RECEIPTS = 20;
 /** A provider's structured result; irrelevant fields must be empty arrays. */
 export const resultSchema = z
   .object({
@@ -251,6 +283,7 @@ export const resultSchema = z
     deliveries: z.array(deliverySchema).max(PLAN_MAX),
     skillActions: z.array(skillActionSchema).default([]),
     instructionReceipts: z.array(instructionReceiptSchema).max(MAX_INSTRUCTION_RECEIPTS).default([]),
+    dispositions: dispositionsSchema.optional(),
   })
   .strict();
 /** Validated managed agent output. */
@@ -269,17 +302,35 @@ export const featureSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** Absent for objectives saved before workflows existed; they run the original pipeline. */
+  workflow: frozenWorkflowSchema.optional(),
+  approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
+  /** Gates frozen when the objective was filed; absent on older objectives, which have none. */
+  gates: gatesSchema.optional(),
+  /** When the plan step last produced a plan; plan reviews must postdate it. */
+  planAt: z.number().nullable().optional(),
+  planningResults: z.array(planningResultSchema).optional(),
+  /** Operator step overrides, copied onto each delivery when it is provisioned. */
+  stepOverrides: stepOverridesSchema.optional(),
+  /** Typed specification and plan outputs with the source each was planned against, oldest first. */
+  planOutputs: z.array(planOutputSchema).optional(),
+  /** Operator-owned definition of done; agents propose or check items only with evidence. */
+  definitionOfDone: z.array(doneItemSchema).max(DONE_ITEMS_MAX).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
-/** Exact-head independent QA evidence. */
+/** Exact-head independent review evidence; `stepId` is absent on results saved before workflows. */
 export const reviewSchema = z.object({
-  role: z.enum(['qa-1', 'qa-2']),
+  role: z.enum(FACTORY_ROLES),
+  stepId: keySchema.optional(),
   head: z.string(),
   base: z.string(),
   outcome: z.enum(['success', 'changes_requested', 'blocked']),
   summary: textSchema,
   jobId: z.string().uuid(),
+  findings: z.array(textSchema).optional(),
 });
 /** Exact source and size measured after successful delivery validation. */
 const publicationSizeSchema = z.object({
@@ -343,6 +394,30 @@ export const taskSchema = z.object({
     })
     .nullable()
     .default(null),
+  approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
+  /** Source published by the implementation step; fixes and regressions build on it. */
+  implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
+  stepResults: z.array(stepResultSchema).default([]),
+  /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
+  workflow: frozenWorkflowSchema.optional(),
+  /** Merge gate frozen when the delivery was provisioned, or changed for it by the operator. */
+  gates: deliveryGatesSchema.optional(),
+  /** Step overrides frozen from its objective at provisioning, or changed for it by the operator. */
+  stepOverrides: stepOverridesSchema.optional(),
+  /** Operator hold: no new attempt starts while set. */
+  hold: holdSchema.nullable().default(null),
+  /** The lead's verdict on this brief after its predecessors merged, when revalidated. */
+  revalidation: revalidationSchema.nullable().default(null),
+  /** CI-failure and merge-conflict repair rounds, oldest first. */
+  repairs: z.array(repairRoundSchema).default([]),
+  /** Failed regression rounds since the implementation it counts from, for the fix-round cap. */
+  regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
+  /** Last operator retry; repair rounds before it no longer count toward the caps. */
+  repairsResetAt: z.number().optional(),
+  /** Operator archive choice; absent means finished deliveries archive automatically. */
+  archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -366,7 +441,7 @@ export const jobSchema = z.object({
       organization: frozenOrganizationSchema.optional(),
     })
     .optional(),
-  kind: z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
+  kind: z.enum(JOB_KINDS),
   taskId: z.string().uuid().nullable(),
   featureId: z.string().uuid().nullable(),
   target: z.string().uuid().nullable().default(null),
@@ -382,6 +457,12 @@ export const jobSchema = z.object({
   base: z.string().nullable(),
   summary: z.string().nullable(),
   artifact: z.string(),
+  /** Workflow step this attempt performs; `null` for attempts saved before workflows. */
+  step: keySchema.nullable().default(null),
+  /** Checkpoint liveness; absent on attempts saved before liveness. */
+  liveness: jobLivenessSchema.optional(),
+  /** Why a finished attempt did not succeed, which spaces its retries. */
+  failureClass: failureClassSchema.optional(),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
@@ -447,9 +528,21 @@ export const factorySchemas = {
   factory_setup: factoryConfigSchema,
   factory_model_policy: modelPolicyUpdateSchema,
   factory_status: z.object({}).strict(),
+  factory_preflight: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
-  factory_request: z.object({ objective: textSchema, requestId: z.string().uuid().optional() }).strict(),
+  factory_request: z
+    .object({
+      objective: textSchema,
+      requestId: z.string().uuid().optional(),
+      workflowId: keySchema.optional(),
+      gates: gateOverrideSchema.optional(),
+      stepOverrides: stepOverridesSchema.optional(),
+    })
+    .strict(),
+  factory_gates: gatesControlSchema,
+  factory_step_overrides: stepOverridesControlSchema,
+  factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
     .object({
@@ -512,6 +605,19 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_local: localControlSchema,
+  factory_workflow_save: saveWorkflowRequestSchema,
+  factory_workflow_default: defaultWorkflowRequestSchema,
+  factory_workflow_history: workflowHistoryRequestSchema,
+  ...telemetrySchemas,
+  ...diffSchemas,
+  ...deliveryControlSchemas,
+  ...automationSchemas,
+  ...questionSchemas,
+  ...spendSchemas,
+  ...objectiveGoalSchemas,
+  ...roleSchemas,
+  ...managerOperationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -528,6 +634,7 @@ export const FACTORY_OPERATIONS = [
   'factory_skill_decide',
   'factory_setup',
   'factory_status',
+  'factory_preflight',
   'factory_start',
   'factory_pause',
   'factory_request',
@@ -540,77 +647,21 @@ export const FACTORY_OPERATIONS = [
   'factory_capacity',
   'factory_cancel_job',
   'factory_instruct',
+  'factory_workflow_save',
+  'factory_workflow_default',
+  'factory_workflow_history',
+  'factory_approve',
+  ...TELEMETRY_OPERATIONS,
+  ...DIFF_OPERATIONS,
+  ...DELIVERY_CONTROL_OPERATIONS,
+  ...AUTOMATION_OPERATIONS,
+  ...QUESTION_OPERATIONS,
+  'factory_gates',
+  'factory_step_overrides',
+  ...SPEND_OPERATIONS,
+  ...OBJECTIVE_GOAL_OPERATIONS,
+  ...ROLE_OPERATIONS,
+  'factory_local',
+  ...MANAGER_FACTORY_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
-/** Strict JSON Schema passed to both providers for their final result. */
-export const AGENT_OUTPUT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['outcome', 'summary', 'findings', 'deliveries', 'skillActions', 'instructionReceipts'],
-  properties: {
-    outcome: { type: 'string', enum: ['success', 'changes_requested', 'blocked'] },
-    summary: { type: 'string' },
-    findings: { type: 'array', items: { type: 'string' } },
-    instructionReceipts: {
-      type: 'array',
-      maxItems: MAX_INSTRUCTION_RECEIPTS,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['id', 'acknowledged', 'applied', 'evidence'],
-        properties: {
-          id: { type: 'string' },
-          acknowledged: { type: 'boolean' },
-          applied: { type: 'boolean' },
-          evidence: { type: 'string' },
-        },
-      },
-    },
-    skillActions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'revision', 'state', 'reason'],
-        properties: {
-          name: { type: 'string' },
-          revision: { type: 'string' },
-          state: { type: 'string', enum: ['active', 'archived'] },
-          reason: { type: 'string' },
-        },
-      },
-    },
-    deliveries: {
-      type: 'array',
-      maxItems: PLAN_MAX,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'key',
-          'title',
-          'description',
-          'acceptanceCriteria',
-          'dependencies',
-          'capabilityTier',
-          'assignmentProfiles',
-          'skills',
-        ],
-        properties: {
-          key: { type: 'string' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          acceptanceCriteria: { type: 'array', items: { type: 'string' } },
-          dependencies: { type: 'array', items: { type: 'string' } },
-          capabilityTier: { type: ['string', 'null'], enum: ['small', 'standard', 'advanced', null] },
-          assignmentProfiles: {
-            type: 'array',
-            maxItems: FACTORY_ROLES.length,
-            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
-          },
-          skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
-        },
-      },
-    },
-  },
-};

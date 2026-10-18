@@ -37,6 +37,15 @@ function isSameSecret(left: string, right: string): boolean {
 }
 
 /**
+ * A random pairing code held only in memory.
+ *
+ * @returns Hex pairing code.
+ */
+function memoryCode(): string {
+  return randomBytes(PAIR_BYTES).toString('hex');
+}
+
+/**
  * Key server-side session state by digest so memory never holds a usable cookie.
  *
  * @param secret - Session secret presented in, or issued to, a browser cookie.
@@ -48,8 +57,6 @@ function sessionKey(secret: string): string {
 
 /** Authenticated loopback-only control boundary. */
 export class OperatorSessions {
-  /** Displayed only in the owning CLI, never in a browser URL. */
-  public readonly pairingCode = randomBytes(PAIR_BYTES).toString('hex');
   /** Trusted server origin established after binding. */
   public origin = '';
   /** Expiry by session digest; the secret itself exists only in the HttpOnly cookie. */
@@ -58,6 +65,27 @@ export class OperatorSessions {
   private attempts = 0;
   /** Current rate window. */
   private windowAt = 0;
+  /** Reads the current pairing code; a persisted source honours rotation without a restart. */
+  private readonly code: () => string;
+
+  /**
+   * Create the session boundary.
+   *
+   * @param code - Current pairing code source; defaults to one random code kept in memory.
+   */
+  public constructor(code?: () => string) {
+    const fixed = memoryCode();
+    this.code = code ?? ((): string => fixed);
+  }
+
+  /**
+   * The current code, displayed only by the owning CLI and never in a browser URL.
+   *
+   * @returns Code a browser must present to pair.
+   */
+  public get pairingCode(): string {
+    return this.code();
+  }
 
   /**
    * Validate host, origin and Fetch Metadata before any control request.
@@ -107,7 +135,7 @@ export class OperatorSessions {
       this.attempts = 0;
     }
     this.attempts += 1;
-    if (this.attempts > ATTEMPT_LIMIT || !isSameSecret(code, this.pairingCode)) {
+    if (this.attempts > ATTEMPT_LIMIT || !this.matches(code)) {
       return false;
     }
     for (const [expiredKey, expires] of this.sessions) {
@@ -156,6 +184,22 @@ export class OperatorSessions {
       .find((part) => part.startsWith(prefix))
       ?.slice(prefix.length);
     return (secret ?? '').length > 0 ? secret : undefined;
+  }
+
+  /**
+   * Compare a presented code with the current one; an unreadable code source fails closed.
+   *
+   * @param presented - Code entered by the operator.
+   * @returns Whether it matches.
+   */
+  private matches(presented: string): boolean {
+    let expected: string;
+    try {
+      expected = this.code();
+    } catch {
+      return false;
+    }
+    return isSameSecret(presented, expected);
   }
 
   /**
