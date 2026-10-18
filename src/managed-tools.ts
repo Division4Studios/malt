@@ -75,6 +75,9 @@ export function managedTools(name: string | undefined): ReadonlySet<ToolOperatio
 
       break;
     }
+    // QA seats may be configured to run the final check or main verification; the broker authorizes by step kind.
+    case 'factory-qa-1':
+    case 'factory-qa-2':
     case 'factory-final-tester':
     case 'factory-plan-reviewer':
     case 'factory-regression-verifier': {

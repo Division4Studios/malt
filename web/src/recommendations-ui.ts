@@ -142,6 +142,7 @@ class RecommendationsView implements RecommendationsHandle {
       throw new Error(t('The recommendation list could not be read.'));
     }
     const items = [...first.items];
+    const revisions = [first.contentRevision];
     let last = first;
     for (let index = 0; index < Math.min(this.extraPages, MAX_PAGES) && last.nextCursor !== null; index += 1) {
       // eslint-disable-next-line no-await-in-loop -- Each page starts after the previous page's cursor.
@@ -150,9 +151,11 @@ class RecommendationsView implements RecommendationsHandle {
         throw new Error(t('The recommendation list could not be read.'));
       }
       items.push(...next.items);
+      revisions.push(next.contentRevision);
       last = next;
     }
-    return { ...last, items };
+    // Every loaded page's revision keys the redraw, so a change on an earlier page is never hidden.
+    return { ...last, items, contentRevision: revisions.join(' ') };
   }
 
   /**
@@ -166,13 +169,16 @@ class RecommendationsView implements RecommendationsHandle {
     if (this.selected === null || !item.isUnread) {
       return;
     }
+    const started = this.generation;
     let failure = '';
     try {
       await this.hooks.markRead(item.id, item.revision);
     } catch (error) {
       failure = error instanceof Error ? error.message : t('The read receipt could not be saved.');
     }
-    await this.refresh(failure);
+    if (started === this.generation) {
+      await this.refresh(failure);
+    }
   }
 
   /** Rebuild the pane when its key changed, keeping focus on the same row. */

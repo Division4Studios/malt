@@ -74,7 +74,14 @@ export function retryView(
   if (latest?.failureClass === undefined) {
     return null;
   }
-  const scope = { kind: latest.kind, taskId: task.id, featureId: task.featureId, head: task.head, step: latest.step };
+  const scope = {
+    kind: latest.kind,
+    taskId: task.id,
+    featureId: task.featureId,
+    head: task.head,
+    step: latest.step,
+    since: task.repairsResetAt,
+  };
   const state = retryState(jobs, scope, timing.reconcileMs);
   return state !== null && (state.retryAt === null || state.retryAt > timing.now) ? state : null;
 }

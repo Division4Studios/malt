@@ -278,7 +278,7 @@ await test('a permission failure fails the record, and a retry finishes it witho
   await assert.rejects(retryRecommendation(context, { id, revision }), { code: 'FACTORY_GATED' });
 });
 
-await test('a retry before any ticket changed revalidates every observed issue first', async (t) => {
+await test('a retry before any ticket changed re-reads every observed issue and resumes without re-planning', async (t) => {
   const defer = createCleanup(t);
   const store = new Store(createProject(defer));
   defer(() => {
@@ -292,8 +292,13 @@ await test('a retry before any ticket changed revalidates every observed issue f
   assert.equal(repository.recommendations.get(id)?.state, 'failed');
   tickets.deny = null;
   tickets.revisions.set(2, 'c'.repeat(64));
-  assert.deepEqual(await retryRecommendation(context, { id, revision }), { state: 'approved' });
-  await drive(context, tickets);
-  assert.equal(repository.recommendations.get(id)?.state, 'stale', 'the edited ticket is not changed');
+  await assert.rejects(retryRecommendation(context, { id, revision }), { code: 'FACTORY_GATED' });
+  assert.equal(repository.recommendations.get(id)?.state, 'failed', 'the edited ticket is not changed');
   assert.equal(tickets.comments.size + tickets.closed.size, 0);
+  tickets.revisions.delete(2);
+  // Straight back to applying: the start's own local graph changes are not revalidated as staleness.
+  assert.deepEqual(await retryRecommendation(context, { id, revision }), { state: 'applying' });
+  await drive(context, tickets);
+  assert.equal(repository.recommendations.get(id)?.state, 'completed');
+  assert.deepEqual(tickets.closed.keys().toArray(), [2]);
 });

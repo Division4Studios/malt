@@ -56,6 +56,8 @@ export class ProjectViews {
   private polled = { project: '', at: 0 };
   /** Projects whose first snapshot already had the chance to open onboarding. */
   private readonly offered = new Set<string>();
+  /** Project whose routes the shown view last loaded; a new one reloads them. */
+  private loadedFor: string | null = null;
   /** Project selection and routing from the shell. */
   private readonly hooks: ProjectViewHooks;
 
@@ -136,14 +138,21 @@ export class ProjectViews {
   }
 
   /**
-   * Give both views the latest pushed state.
+   * Give both views the latest pushed state. The selected project's first
+   * snapshot also loads the shown view's routes, since a direct link or a
+   * project switch shows a view without navigating to it.
    *
    * @param snapshot - Validated live snapshot.
+   * @param view - Route currently shown.
    */
-  public update(snapshot: unknown): void {
+  public update(snapshot: unknown, view: string): void {
     this.onboarding.update(snapshot);
     this.settings.update(snapshot);
     const project = this.hooks.project();
+    if (project !== this.loadedFor) {
+      this.loadedFor = project;
+      this.shown(view);
+    }
     if (project !== this.polled.project) {
       this.recommendations.reset();
     } else if (Date.now() - this.polled.at < RECOMMENDATION_POLL_MS) {
@@ -211,7 +220,7 @@ export class ProjectViews {
 
   /**
    * Whether a project's first snapshot should open onboarding instead of the
-   * overview; when it should, the guide's checks start loading.
+   * overview.
    *
    * @param observed - First validated state of the project.
    * @param observed.factory - Factory projection.
@@ -224,10 +233,7 @@ export class ProjectViews {
       return false;
     }
     this.offered.add(projectId);
-    const shouldOffer = isOnboardingNeeded(observed) && !isDismissed(projectId) && projectId === this.hooks.project();
-    if (shouldOffer) {
-      this.shown('onboarding');
-    }
-    return shouldOffer;
+    // The guide's checks load with the project's first render, once the view is switched.
+    return isOnboardingNeeded(observed) && !isDismissed(projectId) && projectId === this.hooks.project();
   }
 }
