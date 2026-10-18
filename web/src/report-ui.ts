@@ -4,7 +4,7 @@
  * @file
  */
 import { child, displayText, records, text } from './api.js';
-import { formatDateTime, t } from './i18n.js';
+import { formatDateTime, keepLiteral, t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data, Snapshot } from './api.js';
@@ -41,7 +41,7 @@ export function renderReport(
   value: string,
   boundedNotice = t('Report preview bounded. Full evidence remains in the worker artifacts.'),
 ): HTMLElement {
-  const body = element('div', 'evidence-markdown');
+  const body = keepLiteral(element('div', 'evidence-markdown'));
   const lines = value.slice(0, REPORT_LIMIT).split('\n');
   let state: ReportState = { code: null, list: null };
   for (const line of lines.slice(0, LINE_LIMIT)) {

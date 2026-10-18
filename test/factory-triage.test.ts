@@ -722,6 +722,43 @@ await test('a parent whose child closed without delivery is never closed as comp
   assert.equal(repository.features().find((candidate) => candidate.id === feature.id)?.phase, 'active');
 });
 
+await test('a checklist item added while GitHub is read keeps the parent open', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  const feature = featureSchema.parse({
+    id: randomUUID(),
+    objective: 'Existing feature #2',
+    phase: 'active',
+    productPlan: null,
+    plan: null,
+    parentIssue: 2,
+    error: null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  repository.saveFeature(feature);
+  repository.editTask(task.id, (current) => ({ ...current, featureId: feature.id, phase: 'done' }));
+  const item = { id: randomUUID(), text: 'Docs updated', state: 'open', by: null, at: 2, evidence: null } as const;
+  const parentComplete = t.mock.method(context.remote, 'parentComplete', async () => {
+    repository.saveFeature({ ...feature, definitionOfDone: [item], updatedAt: 2 });
+    return delay(0, true);
+  });
+  for (const effect of repository.effects()) {
+    repository.settleEffect(effect, null);
+  }
+  await closeParents(context);
+  assert.equal(parentComplete.mock.callCount(), 1);
+  assert.ok(
+    repository.effects().every((effect) => effect.issue !== 2),
+    'No status or close effect targets the parent.',
+  );
+  const kept = repository.features().find((candidate) => candidate.id === feature.id);
+  assert.equal(kept?.phase, 'active');
+  assert.equal(kept.definitionOfDone?.length, 1, 'The concurrent checklist edit is kept.');
+});
+
 await test('adopt_delivered rejects open issues, running assignments and every agent including the lead', async (t) => {
   const context = fixture(t);
   const { repository } = context;

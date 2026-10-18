@@ -10,6 +10,7 @@ import { z } from 'zod/v3';
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
 import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
+import { cloudPolicySchema } from './cloud-schema.ts';
 import {
   archiveMarkSchema,
   DELIVERY_CONTROL_OPERATIONS,
@@ -18,7 +19,16 @@ import {
 } from './delivery-control-schema.ts';
 import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
-import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import {
+  CHECKPOINT_OPERATIONS,
+  checkpointSchema,
+  checkpointSchemas,
+  failureClassSchema,
+  jobLivenessSchema,
+  livenessSettingsSchema,
+} from './liveness-schema.ts';
+import { localControlSchema } from './local-schema.ts';
+import { MANAGER_FACTORY_OPERATIONS, managerOperationSchemas, managerPolicySchema } from './manager-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -36,7 +46,7 @@ import { queueControlSchema } from './objective-queue-schema.ts';
 import { organizationSchema, frozenOrganizationSchema } from './organization.ts';
 import { QUESTION_OPERATIONS, questionSchemas } from './question-schema.ts';
 import { subscriptionWindowsSchema } from './quota-windows.ts';
-import { recommendationReadSchemas } from './recommendation-read-schema.ts';
+import { recommendationReadSchemas, recommendationRetrySchema } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
 import { revalidationSchema } from './revalidation-schema.ts';
@@ -105,6 +115,8 @@ const FREE_MEMORY_MB = 1024;
 const CPU_PERCENT = 85;
 /** Default verified rate-limit cooldown. */
 export const COOLDOWN_MS = 300_000;
+/** Recent rejection request ids kept per delivery or objective for idempotent retries. */
+export const REJECTED_REQUESTS_MAX = 20;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
@@ -182,6 +194,8 @@ export const factoryConfigSchema = z
     /** Recheck a dependent delivery's brief against its merged predecessors before it starts. */
     briefRevalidation: z.boolean().default(false),
     requireBranchProtection: z.boolean().default(true),
+    /** GitHub delivery, or the project-private local hub and ledger with no hosted service. */
+    delivery: z.enum(['github', 'local']).default('github'),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
     remote: keySchema.default('origin'),
@@ -199,8 +213,10 @@ export const factoryConfigSchema = z
       .object({
         codex: providerSchema.default({ executable: 'codex' }),
         claude: providerSchema.default({ executable: 'claude' }),
+        copilot: providerSchema.default({ executable: 'copilot', enabled: false }),
       })
-      .default({ codex: { executable: 'codex' }, claude: { executable: 'claude' } }),
+      // Each provider field supplies its own default executable and enablement.
+      .default({}),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
     /** Repair rounds per delivery for failed CI and merge conflicts. */
     repair: repairPolicySchema.default({}),
@@ -224,6 +240,10 @@ export const factoryConfigSchema = z
       })
       .default({}),
     terminals: terminalPolicySchema.default({}),
+    /** Developer assignments routed to Codex Cloud on the operator's subscription. */
+    cloud: cloudPolicySchema.default({}),
+    /** Persistent delivery manager session (#211); off until the operator starts it. */
+    manager: managerPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
@@ -281,6 +301,10 @@ export const featureSchema = z.object({
   id: z.string().uuid(),
   scopeReplacement: z.string().uuid().optional(),
   scopeCleanup: z.object({ at: z.number(), note: z.string() }).optional(),
+  /** Parked by a connector capability denial at a policy revision; restores `phase`. */
+  capabilityBlock: z
+    .object({ phase: z.enum(['provisioning', 'active']), revision: z.number().int().nonnegative() })
+    .optional(),
   objective: textSchema,
   phase: z.enum(['queued', 'refining', 'provisioning', 'active', 'done', 'blocked']),
   productPlan: resultSchema.nullable(),
@@ -292,6 +316,8 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Gates frozen when the objective was filed; absent on older objectives, which have none. */
   gates: gatesSchema.optional(),
   /** When the plan step last produced a plan; plan reviews must postdate it. */
@@ -326,6 +352,13 @@ const publicationSizeSchema = z.object({
 });
 /** Durable delivery and PR lifecycle. */
 export const taskSchema = z.object({
+  /** Parked by a connector capability denial at a policy revision; restores `phase`. */
+  capabilityBlock: z
+    .object({
+      phase: z.enum(['ready', 'development', 'publishing', 'review', 'merge_ready', 'merging', 'verifying', 'closing']),
+      revision: z.number().int().nonnegative(),
+    })
+    .optional(),
   publicationGate: publicationSizeSchema.optional(),
   sizeApproval: publicationSizeSchema.extend({ reason: z.string().min(1), at: z.number() }).optional(),
   id: z.string().uuid(),
@@ -380,6 +413,8 @@ export const taskSchema = z.object({
     .nullable()
     .default(null),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Source published by the implementation step; fixes and regressions build on it. */
   implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
   stepResults: z.array(stepResultSchema).default([]),
@@ -395,7 +430,9 @@ export const taskSchema = z.object({
   revalidation: revalidationSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
   repairs: z.array(repairRoundSchema).default([]),
-  /** Last operator retry; repair rounds before it no longer count toward the caps. */
+  /** Failed regression rounds since the implementation it counts from, for the fix-round cap. */
+  regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
+  /** Last operator retry; repair rounds and failed attempts before it no longer count toward the caps. */
   repairsResetAt: z.number().optional(),
   /** Reviewed source the supervisor last merged advanced main into; reviews then cover only that merge. */
   refreshedFrom: z.object({ head: z.string(), base: z.string(), at: z.number() }).optional(),
@@ -446,6 +483,8 @@ export const jobSchema = z.object({
   liveness: jobLivenessSchema.optional(),
   /** Why a finished attempt did not succeed, which spaces its retries. */
   failureClass: failureClassSchema.optional(),
+  /** Operator decision a held or ceiling-stopped productive attempt asked for. */
+  checkpoint: checkpointSchema.optional(),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
@@ -485,6 +524,7 @@ export type SkillRequest = z.output<typeof skillRequestSchema>;
 export const factorySchemas = {
   factory_recommendation_propose: z.object({ key: keySchema, proposal: recommendationBodySchema }).strict(),
   ...recommendationReadSchemas,
+  factory_recommendation_retry: recommendationRetrySchema,
   factory_progress: z.object({ key: keySchema, body: z.string().min(1).max(TEXT_MAX) }).strict(),
   factory_read_source: z
     .object({
@@ -588,6 +628,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_local: localControlSchema,
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
   factory_workflow_history: workflowHistoryRequestSchema,
@@ -596,9 +637,11 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...checkpointSchemas,
   ...spendSchemas,
   ...objectiveGoalSchemas,
   ...roleSchemas,
+  ...managerOperationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -608,6 +651,7 @@ export const FACTORY_OPERATIONS = [
   'factory_recommendation_propose',
   'factory_recommendations',
   'factory_recommendation_read',
+  'factory_recommendation_retry',
   'factory_model_policy',
   'factory_progress',
   'factory_read_source',
@@ -637,10 +681,13 @@ export const FACTORY_OPERATIONS = [
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
+  ...CHECKPOINT_OPERATIONS,
   'factory_gates',
   'factory_step_overrides',
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
   ...ROLE_OPERATIONS,
+  'factory_local',
+  ...MANAGER_FACTORY_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
