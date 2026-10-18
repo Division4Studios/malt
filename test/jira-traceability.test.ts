@@ -21,6 +21,8 @@ interface CommentSite {
   readonly comments: { id: string; body: unknown }[];
   /** Comment posts whose response is lost after Jira saved the comment. */
   dropNext: number;
+  /** Comments Jira returns per page. */
+  pageSize: number;
   /** Fields the issue reports. */
   fields: Record<string, unknown>;
   /** Transport. */
@@ -36,6 +38,7 @@ function commentSite(): CommentSite {
   const site: CommentSite = {
     comments: [],
     dropNext: 0,
+    pageSize: 50,
     fields: {
       summary: 'Export',
       status: { id: '3', name: 'In Progress', statusCategory: { key: 'indeterminate' } },
@@ -44,7 +47,7 @@ function commentSite(): CommentSite {
     },
     fetch: async (raw, init) => {
       await Promise.resolve();
-      const { pathname } = new URL(raw);
+      const { pathname, searchParams } = new URL(raw);
       let body: unknown = { id: '1', key: 'PROJ-1', fields: site.fields };
       if (pathname === '/rest/api/3/issue/PROJ-1/comment' && init.method === 'POST') {
         const comment = {
@@ -58,7 +61,9 @@ function commentSite(): CommentSite {
         }
         body = { id: comment.id };
       } else if (pathname === '/rest/api/3/issue/PROJ-1/comment') {
-        body = { comments: site.comments.toReversed() };
+        const startAt = Number(searchParams.get('startAt') ?? '0');
+        const newest = site.comments.toReversed();
+        body = { comments: newest.slice(startAt, startAt + site.pageSize), total: newest.length };
       }
       const text = JSON.stringify(body);
       return {
@@ -102,9 +107,20 @@ await test('an evidence comment is posted once, even after a lost response', asy
   const lost = { ...input, requestId: 'merged-PROJ-1-def' };
   await assert.rejects(commentEvidenceOnce(write, ledger, lost), /Could not reach Jira/v);
   assert.equal(site.comments.length, 2, 'Jira saved the comment although the response was lost');
+  for (let index = 0; index < 5; index += 1) {
+    site.comments.push({ id: `newer-${String(index)}`, body: 'someone else' });
+  }
+  site.pageSize = 2;
   const recovered = await commentEvidenceOnce(write, ledger, lost);
-  assert.equal(recovered.id, '2');
-  assert.equal(site.comments.length, 2, 'the retry found it instead of posting again');
+  assert.equal(recovered.id, '2', 'the marker is found on a later page');
+  assert.equal(site.comments.length, 7, 'the retry found it instead of posting again');
+  const held = { ...input, requestId: 'held-PROJ-1' };
+  const [winner, overlapping] = await Promise.allSettled([
+    commentEvidenceOnce(write, ledger, held),
+    commentEvidenceOnce(write, ledger, held),
+  ]);
+  assert.equal(winner.status, 'fulfilled');
+  assert.equal(overlapping.status, 'rejected', 'an overlapping attempt is refused instead of posting again');
 });
 
 await test('an issue is re-read before a job and not worked once done, resolved or reassigned', async () => {

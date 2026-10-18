@@ -97,6 +97,13 @@ await test('missing permissions degrade the result and are listed with their adm
   assert.equal(failedRead.state, 'degraded', 'a failed read is never verified');
 });
 
+await test('a permission Jira did not confirm is missing, so a partial answer is never verified', () => {
+  const result = projectResult(BASE, { issueTypes: TYPES, held: { BROWSE_PROJECTS: true }, problems: [] }, NOW);
+  assert.equal(result.state, 'degraded');
+  assert.equal(result.verifiedAt, null);
+  assert.equal(result.missing.length, JIRA_PERMISSION_NAMES.length - 1);
+});
+
 await test('without Browse Projects nothing is readable, so setup is required and capabilities stay unverified', () => {
   const result = projectResult(BASE, { issueTypes: TYPES, held: holding('BROWSE_PROJECTS'), problems: [] }, NOW);
   assert.equal(result.state, 'external_setup_required');

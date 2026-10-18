@@ -15,11 +15,13 @@ import path from 'node:path';
 import { z } from 'zod/v3';
 
 import { readJsonFile, writeIfAbsent } from '../config.ts';
+import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { JiraRequestError, jiraGet } from './client.ts';
 import { requestIdSchema } from './creation.ts';
 import { intakeIssue, searchIssueSchema, unworkableReason } from './intake.ts';
+import { withRequestLock } from './request-lock.ts';
 import { commentOnJiraIssue } from './writes.ts';
 
 import type { JiraIssueKey, JiraTransport } from './client.ts';
@@ -29,8 +31,10 @@ import type { JiraWriteContext } from './writes.ts';
 
 /** Fields read for the source-of-truth check. */
 const STATE_FIELDS = 'summary,status,assignee,resolution';
-/** Recent comments read while reconciling one. */
+/** Comments read per page while reconciling one. */
 const COMMENT_PAGE = 50;
+/** Pages read before reconciliation gives up rather than risk posting twice. */
+const COMMENT_PAGES = 40;
 
 /** What a traceability comment reports. */
 export type Evidence =
@@ -43,7 +47,7 @@ const journalSchema = z.object({ marker: z.string(), commentId: z.string().nulla
 /** One comment. */
 const commentSchema = z.object({ id: z.string(), body: z.unknown() });
 /** `GET /rest/api/3/issue/{key}/comment` answer. */
-const commentsSchema = z.object({ comments: z.array(commentSchema) });
+const commentsSchema = z.object({ comments: z.array(commentSchema), total: z.number().int().nonnegative() });
 
 /** Commit IDs shown in comments. */
 const SHORT_SHA = 12;
@@ -85,6 +89,40 @@ function hasMarker(body: unknown, marker: string): boolean {
 }
 
 /**
+ * The ID of the comment carrying a marker, reading every page of the issue's comments.
+ *
+ * @param context - Transport.
+ * @param issueKey - Issue whose comments are read.
+ * @param marker - Marker line.
+ * @returns The comment ID, or `null` when no comment carries it.
+ * @throws {MeshError} FACTORY_GATED when there are too many comments to read in full.
+ */
+async function findComment(context: JiraWriteContext, issueKey: JiraIssueKey, marker: string): Promise<string | null> {
+  let startAt = 0;
+  for (let page = 0; page < COMMENT_PAGES; page += 1) {
+    // eslint-disable-next-line no-await-in-loop -- Pages are read in order until the marker or the end.
+    const raw = await jiraGet(context.transport, `/rest/api/3/issue/${issueKey}/comment`, {
+      orderBy: '-created',
+      startAt: String(startAt),
+      maxResults: String(COMMENT_PAGE),
+    });
+    const answer = commentsSchema.parse(raw);
+    const found = answer.comments.find((comment) => hasMarker(comment.body, marker));
+    if (found !== undefined) {
+      return found.id;
+    }
+    startAt += answer.comments.length;
+    if (answer.comments.length === 0 || startAt >= answer.total) {
+      return null;
+    }
+  }
+  throw new MeshError(
+    'FACTORY_GATED',
+    `Too many comments on ${issueKey} to confirm whether ${marker} was posted; settle it by hand before retrying.`,
+  );
+}
+
+/**
  * Post an evidence comment once per request ID.
  *
  * @param context - Transport, capability gate and caller.
@@ -98,30 +136,47 @@ function hasMarker(body: unknown, marker: string): boolean {
  */
 export async function commentEvidenceOnce(
   context: JiraWriteContext,
-  ledger: Pick<CreationLedger, 'directory' | 'projectId'>,
+  ledger: Pick<CreationLedger, 'directory' | 'projectId' | 'now'>,
   input: { readonly requestId: string; readonly issueKey: JiraIssueKey; readonly evidence: Evidence },
 ): Promise<{ id: string }> {
   const requestId = requestIdSchema.parse(input.requestId);
-  const file = path.join(ledger.directory, 'jira', 'comments', `${requestId}.json`);
-  const marker = `MALT evidence ${ledger.projectId}:${requestId}`;
+  const directory = path.join(ledger.directory, 'jira', 'comments');
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own private state directory.
-  mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  // One owner at a time covers reconciliation, posting and the journal update together.
+  return withRequestLock(path.join(directory, `${requestId}.lock`), ledger.now(), async () => {
+    const marker = `MALT evidence ${ledger.projectId}:${requestId}`;
+    return commentLocked(context, path.join(directory, `${requestId}.json`), { ...input, marker });
+  });
+}
+
+/**
+ * Reconcile or post one evidence comment while holding its lock.
+ *
+ * @param context - Transport, capability gate and caller.
+ * @param file - The comment's journal.
+ * @param input - Issue, evidence and marker.
+ * @param input.issueKey - Issue to comment on.
+ * @param input.evidence - What to report.
+ * @param input.marker - Marker line.
+ * @returns The comment's ID.
+ */
+async function commentLocked(
+  context: JiraWriteContext,
+  file: string,
+  input: { readonly issueKey: JiraIssueKey; readonly evidence: Evidence; readonly marker: string },
+): Promise<{ id: string }> {
+  const { marker } = input;
   const isFresh = writeIfAbsent(file, `${JSON.stringify({ marker, commentId: null }, null, 2)}\n`) === 'created';
   const journal = journalSchema.parse(readJsonFile(file));
   if (journal.commentId !== null) {
     return { id: journal.commentId };
   }
   if (!isFresh) {
-    const recent = commentsSchema.parse(
-      await jiraGet(context.transport, `/rest/api/3/issue/${input.issueKey}/comment`, {
-        orderBy: '-created',
-        maxResults: String(COMMENT_PAGE),
-      }),
-    );
-    const found = recent.comments.find((comment) => hasMarker(comment.body, marker));
-    if (found !== undefined) {
-      writeAtomic(file, `${JSON.stringify({ marker, commentId: found.id }, null, 2)}\n`);
-      return { id: found.id };
+    const found = await findComment(context, input.issueKey, marker);
+    if (found !== null) {
+      writeAtomic(file, `${JSON.stringify({ marker, commentId: found }, null, 2)}\n`);
+      return { id: found };
     }
   }
   const posted = await commentOnJiraIssue(context, input.issueKey, `${evidenceText(input.evidence)}\n${marker}`);

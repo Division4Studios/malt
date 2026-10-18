@@ -111,10 +111,18 @@ await test('intake reads are bounded and say when they stopped early', async () 
     { issues: [issue('1', 'PROJ-1'), issue('2', 'PROJ-2')], nextPageToken: 'a' },
     { issues: [issue('3', 'PROJ-3')], nextPageToken: 'b' },
   );
-  const read = await searchIntake(fixture.transport, 'project = PROJ', 2);
+  const read = await searchIntake(fixture.transport, 'project = PROJ', { limit: 2 });
   assert.equal(read.issues.length, 2);
   assert.equal(read.isTruncated, true);
+  assert.equal(read.next, 'a');
   assert.equal(fixture.queries.length, 1, 'no page is read past the bound');
+  const rest = await searchIntake(fixture.transport, 'project = PROJ', { limit: 2, cursor: read.next });
+  assert.deepEqual(
+    rest.issues.map(({ key }) => key),
+    ['PROJ-3'],
+    'resuming reads the issues after the bound instead of starting again',
+  );
+  assert.equal(fixture.queries[1]?.get('nextPageToken'), 'a');
 });
 
 await test('a rate limit keeps the pages already read and reports Retry-After', async () => {
@@ -126,6 +134,7 @@ await test('a rate limit keeps the pages already read and reports Retry-After', 
   );
   assert.equal(read.isTruncated, true);
   assert.equal(read.retryAfterSeconds, 45);
+  assert.equal(read.next, 'a', 'the refused page is read again after the wait');
   await assert.rejects(searchIntake(pages({ status: 401 }).transport, 'project = PROJ'), /rejected the credential/v);
   await assert.rejects(searchIntake(pages().transport, ' '.repeat(3)), /String must contain at least 1/v);
 });
