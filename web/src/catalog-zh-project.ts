@@ -291,7 +291,6 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   Completed: '已完成',
   Rejected: '已拒绝',
   Stale: '已过期',
-  Failed: '失败',
   'Duplicate tickets': '重复工单',
   'Related tickets': '相关工单',
   'Consolidate tickets': '合并工单',
