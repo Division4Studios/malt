@@ -15,17 +15,21 @@ import type { FieldContext } from '../src/github-project-fields.ts';
 import type { GitHubRunner } from '../src/github.ts';
 import type { TestContext } from 'node:test';
 
+/** One requested single-select option. */
+const optionInputSchema = z.object({ name: z.string() });
 /** Mutation input fields the fake reads. */
-const inputSchema = z.object({ fieldId: z.string(), name: z.string() }).partial();
-/** Mutation variables. */
-const variablesSchema = z.object({ input: inputSchema.default({}) });
+const inputSchema = z
+  .object({ fieldId: z.string(), name: z.string(), singleSelectOptions: z.array(optionInputSchema) })
+  .partial();
+/** Mutation variables, or a query's node ID. */
+const variablesSchema = z.object({ input: inputSchema.default({}), id: z.string().optional() });
 /** GraphQL request body. */
 const requestSchema = z.object({ query: z.string(), variables: variablesSchema.default({ input: {} }) });
 
 /** A fake Project with fields. */
 class FakeFields {
   /** Fields by ID. */
-  public readonly fields = new Map<string, { id: string; name: string }>([
+  public readonly fields = new Map<string, { id: string; name: string; options?: { id: string; name: string }[] }>([
     ['F_1', { id: 'F_1', name: 'MALT Status' }],
     ['F_2', { id: 'F_2', name: 'Estimate' }],
   ]);
@@ -48,7 +52,13 @@ class FakeFields {
     await delay(0);
     const { query, variables } = requestSchema.parse(input);
     if (!query.startsWith('mutation')) {
-      return { data: { node: { fields: { nodes: this.fields.values().toArray() } } } };
+      return {
+        data: {
+          node: query.includes('fields(first')
+            ? { fields: { nodes: this.fields.values().toArray() } }
+            : (this.fields.get(variables.id ?? '') ?? null),
+        },
+      };
     }
     const target = variables.input.fieldId ?? '';
     if (query.includes('deleteProjectV2Field')) {
@@ -58,7 +68,12 @@ class FakeFields {
     }
     if (query.includes('updateProjectV2Field')) {
       this.mutations.push(`change ${target}`);
-      const changed = { id: target, name: variables.input.name ?? '' };
+      const requested = variables.input.singleSelectOptions;
+      const options = requested?.map((option, index) => {
+        const id = `O_${String(index)}`;
+        return { id, name: option.name };
+      });
+      const changed = { id: target, name: variables.input.name ?? '', ...(options !== undefined && { options }) };
       this.fields.set(target, changed);
       return { data: { updateProjectV2Field: { projectV2Field: changed } } };
     }
@@ -128,6 +143,31 @@ await test('a field create whose response was lost yields exactly one field', as
   await assert.rejects(manageField(context, create), { code: 'GITHUB_UNAVAILABLE' });
   assert.equal((await manageField(context, create)).field?.name, 'Risk');
   assert.deepEqual(project.mutations, ['create']);
+});
+
+await test('a completed delete replays, and a retried option change is performed until it shows', async (t) => {
+  const { context, project } = fixture(t);
+  const remove = { requestId: 'e', action: 'delete' as const, fieldId: 'F_2', name: 'Estimate' };
+  assert.deepEqual(await manageField(context, remove), { action: 'delete', field: null });
+  assert.deepEqual(await manageField(context, remove), { action: 'delete', field: null }, 'the retry replays');
+  project.fields.set('F_3', { id: 'F_3', name: 'Size', options: [{ id: 'O_0', name: 'S' }] });
+  const resize = { requestId: 'f', action: 'change' as const, fieldId: 'F_3', name: 'Size', options: ['S', 'M'] };
+  // The first update fails before GitHub applies it.
+  let isDown = true;
+  const flaky: typeof context.runner = async (args, input) => {
+    if (isDown && JSON.stringify(input ?? {}).includes('updateProjectV2Field')) {
+      isDown = false;
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Network unreachable.');
+    }
+    return await project.run(args, input);
+  };
+  await assert.rejects(manageField({ ...context, runner: flaky }, resize), { code: 'GITHUB_UNAVAILABLE' });
+  await manageField({ ...context, runner: flaky }, resize);
+  assert.deepEqual(
+    project.fields.get('F_3')?.options?.map((option) => option.name),
+    ['S', 'M'],
+    'the unchanged field is not adopted as the change',
+  );
 });
 
 await test('create, change and delete are gated by separate capabilities', () => {

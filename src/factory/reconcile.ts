@@ -14,7 +14,7 @@ import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
-import { failedChecks } from './ci-logs.ts';
+import { hasFailedCheck } from './ci-logs.ts';
 import { deliveryTask } from './delivery-task.ts';
 import { didAdoptExternalMerge } from './external-merge.ts';
 import { objectiveGates } from './gate-controls.ts';
@@ -216,8 +216,9 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
  */
 async function didHandleMovedSource(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<boolean> {
   const isSourceMoved = pr.headRefOid !== task.head || pr.baseRefOid !== task.base;
-  if (isAutoMergeArmed(pr) && (isSourceMoved || (failedChecks(pr.statusCheckRollup) ?? []).length > 0)) {
-    // A reworked or refreshed head must never be merged by an earlier auto-merge request.
+  // A reworked or refreshed head, or one with any failed check even while others still run, must never be
+  // merged by an earlier auto-merge request: optional checks pending would not stop GitHub.
+  if (isAutoMergeArmed(pr) && (isSourceMoved || hasFailedCheck(pr.statusCheckRollup))) {
     await context.remote.disarm?.(pr.number);
   }
   if (!isSourceMoved) {

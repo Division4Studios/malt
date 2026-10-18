@@ -152,6 +152,8 @@ export class WorkspaceManager {
   private readonly config: FactoryConfig;
   /** Ownership ledger location. */
   private readonly ledger: string;
+  /** The last base fetch; fetches of one ref run one at a time, since concurrent ones fail on its lock. */
+  private fetching: Promise<undefined> = Promise.resolve(undefined);
 
   /**
    * Prepare repository operations without touching the primary checkout.
@@ -218,12 +220,17 @@ export class WorkspaceManager {
     if (this.config.baseBranch.startsWith('malt/terminal/')) {
       throw new MeshError('FACTORY_GATED', 'A terminal scratch branch cannot be a delivery base.');
     }
-    await this.git([
-      'fetch',
-      this.config.remote,
-      `+refs/heads/${this.config.baseBranch}:refs/remotes/${this.config.remote}/${this.config.baseBranch}`,
-    ]);
-    return this.git(['rev-parse', `refs/remotes/${this.config.remote}/${this.config.baseBranch}`]);
+    const { remote, baseBranch } = this.config;
+    const previous = this.fetching;
+    const turn = Promise.withResolvers<undefined>();
+    this.fetching = turn.promise;
+    try {
+      await previous;
+      await this.git(['fetch', remote, `+refs/heads/${baseBranch}:refs/remotes/${remote}/${baseBranch}`]);
+    } finally {
+      turn.resolve(undefined);
+    }
+    return this.git(['rev-parse', `refs/remotes/${remote}/${baseBranch}`]);
   }
 
   /**

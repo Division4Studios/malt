@@ -597,10 +597,6 @@ async function inspectApi(
       json(response, HTTP.ok, await gateway.recommendations(query.project, query.input));
       return;
     }
-    case '/api/capabilities': {
-      json(response, HTTP.ok, await gateway.capabilities(project));
-      return;
-    }
     case '/api/skill': {
       json(response, HTTP.ok, await gateway.skillProposal(project, url.searchParams.get('requestId') ?? ''));
       return;

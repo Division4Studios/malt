@@ -97,8 +97,24 @@ function reconciled(
     return named(input.name) === undefined ? { action: 'delete', label: null } : undefined;
   }
   const target = named(input.action === 'edit' ? (input.rename ?? input.name) : input.name);
-  const isEdited = input.action === 'create' || input.rename === undefined || named(input.name) === undefined;
-  return target !== undefined && isEdited ? { action: input.action, label: target } : undefined;
+  const isRenamed = input.action === 'create' || input.rename === undefined || named(input.name) === undefined;
+  // A retried edit counts as done only when the label already carries every requested attribute.
+  return target !== undefined && isRenamed && hasAttributes(target, input)
+    ? { action: input.action, label: target }
+    : undefined;
+}
+
+/**
+ * Whether a label already has the requested color and description.
+ *
+ * @param label - Remote label.
+ * @param input - Requested change.
+ * @returns True when every requested attribute matches.
+ */
+function hasAttributes(label: Label, input: OperationInput<'github_label_manage'>): boolean {
+  const isColor = input.color === undefined || input.color.toLowerCase() === label.color.toLowerCase();
+  const isDescription = input.description === undefined || input.description === (label.description ?? '');
+  return isColor && isDescription;
 }
 
 /**
@@ -134,7 +150,9 @@ export async function manageLabel(
           );
     return { action: input.action, label: labelSchema.parse(label) };
   };
-  return runIntent(path.join(context.directory, 'intents', 'labels'), input.requestId, input, {
+  // The intent names its repository, so a retry after the workspace switched repositories is refused.
+  const intent = { ...input, repository: context.repository };
+  return runIntent(path.join(context.directory, 'intents', 'labels'), input.requestId, intent, {
     reconcile: async () => reconciled(await listLabels(context), input),
     perform,
     result: changeSchema,

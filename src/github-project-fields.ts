@@ -12,7 +12,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
-import { runIntent } from './connector-intents.ts';
+import { hasIntent, runIntent } from './connector-intents.ts';
 import { dataOf, readGraphQL } from './github-read.ts';
 import { MeshError, parseInput } from './protocol.ts';
 
@@ -37,6 +37,8 @@ const fieldSchema = z.object({
 const fieldPageSchema = z.object({ nodes: z.array(fieldSchema) });
 /** `node.fields`. */
 const projectFieldsSchema = z.object({ node: z.object({ fields: fieldPageSchema }) });
+/** `node` as one field, with its options when it is single-select. */
+const fieldNodeSchema = z.object({ node: fieldSchema.nullable() });
 /** A field as reported after a change. */
 const changedFieldSchema = z.object({ id: z.string(), name: z.string() });
 /** Result of a field change. */
@@ -93,16 +95,68 @@ export async function listFields(context: FieldContext): Promise<z.output<typeof
  * @throws {MeshError} CAPABILITY_DENIED for the connected Status field; INVALID_INPUT for an unknown ID.
  */
 async function assertTarget(context: FieldContext, input: FieldInput, fieldId: string): Promise<void> {
+  assertUnprotected(context, input, fieldId);
+  const fields = await listFields(context);
+  if (fields.every((field) => field.id !== fieldId)) {
+    throw new MeshError('INVALID_INPUT', `No field ${fieldId} exists on the connected Project.`);
+  }
+}
+
+/**
+ * Refuse a change to the connected Status field.
+ *
+ * @param context - Connected Project.
+ * @param input - Requested change.
+ * @param fieldId - Exact field it names.
+ * @throws {MeshError} CAPABILITY_DENIED for the connected Status field.
+ */
+function assertUnprotected(context: FieldContext, input: FieldInput, fieldId: string): void {
   if (fieldId === context.workflowFieldId) {
     throw new MeshError(
       'CAPABILITY_DENIED',
       `The connected Status field cannot be ${input.action === 'delete' ? 'deleted' : 'changed'} here; delivery depends on it and its options.`,
     );
   }
-  const fields = await listFields(context);
-  if (fields.every((field) => field.id !== fieldId)) {
-    throw new MeshError('INVALID_INPUT', `No field ${fieldId} exists on the connected Project.`);
+}
+
+/**
+ * Read one field by its exact ID, with its option names when it is single-select.
+ *
+ * @param context - Connected Project.
+ * @param fieldId - Exact field ID.
+ * @returns The field, or null when it no longer exists.
+ * @throws {MeshError} GITHUB_UNAVAILABLE when it cannot be read; an unread field is never taken as changed.
+ */
+async function currentField(
+  context: FieldContext,
+  fieldId: string,
+): Promise<{ id: string; name: string; options: string[] | null } | null> {
+  const result = await readGraphQL(
+    context.runner,
+    'query($id: ID!) { node(id: $id) { ... on ProjectV2FieldCommon { id name } ... on ProjectV2SingleSelectField { options { id name } } } }',
+    { id: fieldId },
+  );
+  const data = dataOf(result, fieldNodeSchema);
+  if (data === null) {
+    throw new MeshError('GITHUB_UNAVAILABLE', 'The Project field could not be read; retry the same requestId.');
   }
+  const { node } = data;
+  return node?.id === undefined || node.name === undefined
+    ? null
+    : { id: node.id, name: node.name, options: node.options?.map((option) => option.name) ?? null };
+}
+
+/**
+ * Whether a field already carries every requested property of a change.
+ *
+ * @param field - Remote field.
+ * @param input - Requested change.
+ * @returns True when the name and, if given, the options match.
+ */
+function isChanged(field: { name: string; options: string[] | null }, input: FieldInput): boolean {
+  const isNamed = field.name === input.name;
+  const { options } = input;
+  return isNamed && (options === undefined || JSON.stringify(field.options) === JSON.stringify(options));
 }
 
 /**
@@ -157,20 +211,33 @@ async function mutate(context: FieldContext, input: FieldInput): Promise<FieldRe
  * @throws {MeshError} INVALID_INPUT when a change or delete names no exact field ID.
  */
 export async function manageField(context: FieldContext, input: FieldInput): Promise<FieldResult> {
+  const directory = path.join(context.directory, 'intents', 'fields');
+  const { fieldId } = input;
   if (input.action !== 'create') {
-    if (input.fieldId === undefined) {
+    if (fieldId === undefined) {
       throw new MeshError('INVALID_INPUT', `A field ${input.action} needs the exact fieldId.`);
     }
-    await assertTarget(context, input, input.fieldId);
+    assertUnprotected(context, input, fieldId);
+    // Existence is checked before the first attempt only: a retried delete finds no field and must reach its intent.
+    if (!hasIntent(directory, input.requestId)) {
+      await assertTarget(context, input, fieldId);
+    }
   }
-  return runIntent(path.join(context.directory, 'intents', 'fields'), input.requestId, input, {
+  return runIntent(directory, input.requestId, input, {
     reconcile: async () => {
-      const fields = await listFields(context);
-      if (input.action === 'delete') {
-        return fields.some((field) => field.id === input.fieldId) ? undefined : { action: 'delete', field: null };
+      if (input.action === 'create') {
+        const fields = await listFields(context);
+        const found = fields.find((candidate) => candidate.name === input.name);
+        return found === undefined ? undefined : { action: 'create', field: found };
       }
-      const found = fields.find((field) => field.name === input.name);
-      return found === undefined ? undefined : { action: input.action, field: found };
+      const field = await currentField(context, fieldId ?? '');
+      if (input.action === 'delete') {
+        return field === null ? { action: 'delete', field: null } : undefined;
+      }
+      // A change counts as done only on the exact field, with every requested property.
+      return field !== null && isChanged(field, input)
+        ? { action: 'change', field: { id: field.id, name: field.name } }
+        : undefined;
     },
     perform: async () => mutate(context, input),
     result: resultSchema,

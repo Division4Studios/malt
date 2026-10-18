@@ -82,6 +82,8 @@ const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-skill-decide',
   'github-connect',
   'github-section-save',
+  'mcp-binding-propose',
+  'mcp-binding-approve',
   'capability-set',
   'factory-setup',
   'factory-retry',

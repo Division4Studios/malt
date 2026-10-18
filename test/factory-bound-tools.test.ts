@@ -8,6 +8,7 @@ import test from 'node:test';
 import { z } from 'zod/v3';
 
 import { bindingHash, bindingSchema } from '../src/connector-bindings.ts';
+import { boundCredentialValues, launchBindings } from '../src/factory/bound-tools.ts';
 import { agentLaunch } from '../src/factory/providers.ts';
 import { routeAssignment } from '../src/factory/routing.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
@@ -132,4 +133,20 @@ await test('an approval of another revision grants nothing at launch', (t) => {
   assert.ok(!developer.servers.includes('tracker'));
   const codex = agentLaunch(job(mesh, 'developer-1', 'codex'), { mesh, home: mesh.root, settings: plainSettings });
   assert.ok(codex.args.every((argument) => !argument.startsWith('mcp_servers.tracker')));
+});
+
+await test('a full-access launch with a bound server keeps its allowed-tool limit, and redacts the handle', (t) => {
+  const mesh = createProject(createCleanup(t));
+  saveBinding(mesh, bindingHash(binding));
+  const claude = { ...plainSettings.providers.claude, developerAccess: 'full-access' as const };
+  const settings = { ...plainSettings, providers: { ...plainSettings.providers, claude } };
+  const { args } = agentLaunch(job(mesh, 'developer-1', 'claude'), { mesh, home: mesh.root, settings });
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk', 'bypass mode would ignore --allowedTools');
+  const handle = ['tracker', 'handle', 'value'].join('-');
+  process.env['TRACKER_HANDLE'] = handle;
+  t.after(() => {
+    delete process.env['TRACKER_HANDLE'];
+  });
+  const bindings = launchBindings(mesh.directory, job(mesh, 'developer-1', 'claude'));
+  assert.deepEqual(boundCredentialValues(bindings), [handle], 'its value joins the redaction set');
 });
