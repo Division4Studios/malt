@@ -13,7 +13,7 @@ import { t } from './i18n.js';
 import type { Data } from './api.js';
 
 /** Provider families a step may prefer. */
-export const PROVIDER_CHOICES = ['codex', 'claude'] as const;
+export const PROVIDER_CHOICES = ['codex', 'claude', 'copilot'] as const;
 
 /** One step override as the broker stores it. */
 export interface StepOverride {
