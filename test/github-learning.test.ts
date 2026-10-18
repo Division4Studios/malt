@@ -16,17 +16,18 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod/v3';
 
 import { startBroker } from '../src/broker.ts';
-import { AgentClient, openTeamConfig } from '../src/client.ts';
+import { CapabilityPolicyStore } from '../src/capability-policy.ts';
+import { AgentClient, openTeamConfig, rpc } from '../src/client.ts';
 import { provisionedIssues, retainProvisionedIssues } from '../src/factory/provisioning-identity.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { featureSchema, taskSchema, factoryConfigSchema } from '../src/factory/schema.ts';
-import { ProjectGitHub, DELIVERY_STATUSES } from '../src/github.ts';
+import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { MeshError } from '../src/protocol.ts';
 import { Store } from '../src/store.ts';
 
-import { brokerUrl, createCleanup, createProject, updateConfig } from './helpers.ts';
+import { OPERATOR, brokerUrl, createCleanup, createProject, mechanicsGitHub, updateConfig } from './helpers.ts';
 
 import type { GitHubRunner } from '../src/github.ts';
 
@@ -270,12 +271,12 @@ await test('GitHub can reuse a named existing workflow field and refuses a missi
   const remote = new FakeGitHub();
   remote.hasField = true;
   remote.statusFieldName = 'Status';
-  const github = new ProjectGitHub(config, remote.run);
+  const github = mechanicsGitHub(config, remote.run);
   const selected = z
     .object({ statusField: z.object({ name: z.string() }) })
-    .parse(await github.execute('github_connect', { ...connection, statusFieldName: 'Status' }));
+    .parse(await github.execute(OPERATOR, 'github_connect', { ...connection, statusFieldName: 'Status' }));
   assert.equal(selected.statusField.name, 'Status');
-  await assert.rejects(github.execute('github_connect', { ...connection, statusFieldName: 'Missing' }), {
+  await assert.rejects(github.execute(OPERATOR, 'github_connect', { ...connection, statusFieldName: 'Missing' }), {
     code: 'INVALID_INPUT',
   });
 });
@@ -285,8 +286,8 @@ await test('factory reconnect preserves the selected Status field and accepts on
   const remote = new FakeGitHub();
   remote.hasField = true;
   remote.statusFieldName = 'Status';
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', { ...connection, statusFieldName: 'Status' });
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', { ...connection, statusFieldName: 'Status' });
   const runner: GitHubRunner = async (args, input) => {
     if (args.includes('id,nameWithOwner')) {
       return { id: args[2]?.includes('different') === true ? 'R_other' : 'R_same', nameWithOwner: 'example/app' };
@@ -298,7 +299,7 @@ await test('factory reconnect preserves the selected Status field and accepts on
   const statusField = z.object({ name: z.string() });
   const savedConnection = z.object({ statusField });
   const status = z.object({ connection: savedConnection });
-  const saved = status.parse(await github.execute('github_status', {}));
+  const saved = status.parse(await github.execute(OPERATOR, 'github_status', {}));
   assert.equal(saved.connection.statusField.name, 'Status');
   await assert.rejects(adapter.verify('https://github.com/example/different.git'), { code: 'WRONG_PROJECT' });
   await assert.rejects(adapter.verify('https://github.com.attacker.invalid/example/app.git'), {
@@ -309,28 +310,55 @@ await test('factory reconnect preserves the selected Status field and accepts on
 await test('GitHub connection is explicit, project-local and preserves existing fields', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await assert.rejects(github.execute('github_connect', { repository: 'example/app' }), { code: 'INVALID_INPUT' });
-  assert.deepEqual(z.object({ connected: z.boolean() }).parse(await github.execute('github_status', {})), {
+  const github = mechanicsGitHub(config, remote.run);
+  await assert.rejects(github.execute(OPERATOR, 'github_connect', { repository: 'example/app' }), {
+    code: 'INVALID_INPUT',
+  });
+  assert.deepEqual(z.object({ connected: z.boolean() }).parse(await github.execute(OPERATOR, 'github_status', {})), {
     connected: false,
   });
-  await github.execute('github_connect', connection);
+  await github.execute(OPERATOR, 'github_connect', connection);
   assert.ok(remote.hasField);
   const saved = readFileSync(path.join(config.directory, 'github', 'connection.json'), 'utf8');
   assert.ok(saved.includes('example/app'));
   assert.ok(!saved.includes(config.token));
   const snapshot = z
     .object({ complete: z.boolean(), totalCount: z.number() })
-    .parse(await github.execute('github_sync', { limit: 1 }));
+    .parse(await github.execute(OPERATOR, 'github_sync', { limit: 1 }));
   assert.equal(snapshot.complete, false);
   assert.equal(snapshot.totalCount, 2);
 });
 
-await test('the actual merge adapter rechecks native protected reviews and advancing base before expected-head merge', async (t) => {
+/**
+ * Answer the merge adapter's protection reads for a fixture repository.
+ *
+ * @param route - GitHub API route.
+ * @param state - Fixture protection.
+ * @param state.isProtected - Whether the base branch is protected (one required review).
+ * @param state.isAutoMergeAllowed - Repository auto-merge setting.
+ * @returns API response.
+ * @throws {Error} For classic protection on an unprotected branch, as GitHub answers 404.
+ */
+function protectionRoute(route: string, state: { isProtected: boolean; isAutoMergeAllowed: boolean }): unknown {
+  if (route.endsWith('/protection')) {
+    if (!state.isProtected) {
+      throw new Error('HTTP 404: Branch not protected');
+    }
+    return { required_pull_request_reviews: { required_approving_review_count: 1 } };
+  }
+  if (route.includes('/rules/branches/')) {
+    return [];
+  }
+  return route.includes('/branches/')
+    ? { protected: state.isProtected }
+    : { allow_auto_merge: state.isAutoMergeAllowed };
+}
+
+await test('the actual merge adapter waits precisely or arms auto-merge for protected reviews, and rechecks the base before an expected-head merge', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   const head = 'a'.repeat(40);
   const base = 'b'.repeat(40);
   const merge = 'c'.repeat(40);
@@ -374,12 +402,19 @@ await test('the actual merge adapter rechecks native protected reviews and advan
     error: null,
     updatedAt: 1,
   });
-  const state = { decision: 'REVIEW_REQUIRED', base, isMerged: false, isProtected: false };
+  const state = {
+    decision: 'REVIEW_REQUIRED',
+    base,
+    isMerged: false,
+    isProtected: true,
+    isAutoMergeAllowed: false,
+    isArmed: false,
+  };
   const mutations: string[][] = [];
   const runner: GitHubRunner = async (args) => {
     await delay(0);
-    if (args[0] === 'api' && args[1]?.includes('/branches/') === true) {
-      return { protected: state.isProtected };
+    if (args[0] === 'api') {
+      return protectionRoute(args[1] ?? '', state);
     }
     if (args[0] === 'pr' && args[1] === 'view') {
       return {
@@ -390,32 +425,55 @@ await test('the actual merge adapter rechecks native protected reviews and advan
         baseRefName: 'main',
         isDraft: false,
         state: state.isMerged ? 'MERGED' : 'OPEN',
-        mergeStateStatus: 'CLEAN',
+        mergeStateStatus: state.decision === 'APPROVED' ? 'CLEAN' : 'BLOCKED',
         mergeCommit: state.isMerged ? { oid: merge } : null,
         statusCheckRollup: [],
         reviewDecision: state.decision,
+        autoMergeRequest: state.isArmed ? { enabledAt: '2026-10-17T00:00:00Z' } : null,
       };
     }
     mutations.push([...args]);
-    state.isMerged = true;
+    if (args.includes('--auto')) {
+      state.isArmed = true;
+    } else {
+      state.isMerged = true;
+    }
     return {};
   };
   const adapter = new GitHubDelivery(config, github, runner);
-  await assert.rejects(adapter.merge(task, settings), /authenticated review approval/v);
+  const handoff = await adapter.merge(task, settings);
+  assert.ok(typeof handoff !== 'string');
+  assert.match(handoff.pending, /^PR #3 is awaiting 1 approving review\. Auto-merge is off/v);
+  assert.equal(mutations.length, 0, 'a missing approval is a precise wait, never a merge attempt');
+  state.isAutoMergeAllowed = true;
+  const armed = await adapter.merge(task, settings);
+  assert.ok(typeof armed !== 'string');
+  assert.match(armed.pending, /Auto-merge is armed, awaiting 1 approving review/v);
+  assert.equal(mutations.length, 1);
+  const enable = mutations[0];
+  assert.ok(enable !== undefined);
+  assert.deepEqual(enable.slice(-4), ['--squash', '--auto', '--match-head-commit', head]);
+  await adapter.merge(task, settings);
+  assert.equal(mutations.length, 1, 'an armed request is not re-armed');
   state.decision = 'APPROVED';
+  state.isArmed = false;
   state.base = merge;
   await assert.rejects(adapter.merge(task, settings), /stale/v);
-  assert.equal(mutations.length, 0);
+  assert.equal(mutations.length, 1);
   state.base = base;
+  state.isProtected = false;
   await assert.rejects(adapter.merge(task, settings), /not protected/v);
-  assert.equal(mutations.length, 0);
+  assert.equal(mutations.length, 1);
   state.isProtected = true;
   assert.equal(await adapter.merge(task, settings), merge);
-  assert.equal(mutations.length, 1);
-  const operation = mutations[0];
+  assert.equal(mutations.length, 2);
+  const operation = mutations[1];
   assert.ok(operation !== undefined);
   assert.equal(operation.includes('--admin'), false);
+  assert.equal(operation.includes('--auto'), false);
   assert.equal(operation[operation.indexOf('--match-head-commit') + 1], head);
+  await adapter.disarm(3);
+  assert.deepEqual(mutations[2]?.slice(-1), ['--disable-auto']);
   state.isMerged = false;
   state.isProtected = false;
   const localPolicy = { ...settings, requireBranchProtection: false };
@@ -424,16 +482,17 @@ await test('the actual merge adapter rechecks native protected reviews and advan
   await assert.rejects(adapter.inspect(3), z.ZodError);
   state.decision = '';
   assert.equal((await adapter.inspect(3)).reviewDecision, null);
+  state.decision = 'APPROVED';
   assert.equal(await adapter.merge(task, localPolicy), merge);
-  assert.equal(mutations.length, 2, 'An explicit local-gate policy may merge without changing GitHub protection.');
+  assert.equal(mutations.length, 4, 'An explicit local-gate policy may merge without changing GitHub protection.');
 });
 
 await test('the actual factory delivery adapter provisions a valid native feature and reconciles atomic children', async (t) => {
   const defer = createCleanup(t);
   const config = createProject(defer);
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   const adapter = new GitHubDelivery(config, github, remote.run);
   const plan = {
     outcome: 'success',
@@ -500,12 +559,88 @@ await test('the actual factory delivery adapter provisions a valid native featur
   assert.equal(remote.creations, 3, 'Reconciliation must not provision duplicate native issues.');
 });
 
+await test('a human connection lets the supervisor verify, provision and transition; revocations deny it with no remote call', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const remote = new FakeGitHub();
+  let calls = 0;
+  const counted: GitHubRunner = async (args, input) => {
+    calls += 1;
+    return remote.run(args, input);
+  };
+  const store = new Store(config);
+  defer(() => {
+    store.close();
+  });
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, counted, policy);
+  // A fresh project's first connection is human-only and agents cannot grant themselves anything.
+  await assert.rejects(github.execute({ kind: 'supervisor', role: 'team-lead' }, 'github_connect', connection), {
+    code: 'CAPABILITY_DENIED',
+  });
+  assert.equal(calls, 0);
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const adapter = new GitHubDelivery(config, github, counted);
+  await adapter.verify('https://github.com/example/app.git');
+  const plan = {
+    outcome: 'success',
+    summary: 'One slice.',
+    findings: [],
+    deliveries: [
+      {
+        key: 'only',
+        title: 'Only slice',
+        description: 'One observable result.',
+        acceptanceCriteria: ['The result is observable.'],
+        dependencies: [],
+      },
+    ],
+  };
+  const scoped = featureSchema.parse({
+    id: randomUUID(),
+    objective: 'Deliver one scoped outcome.',
+    phase: 'provisioning',
+    productPlan: plan,
+    plan,
+    parentIssue: null,
+    error: null,
+    createdAt: 1,
+    updatedAt: 1,
+  });
+  const [mapping] = await adapter.provision(scoped);
+  assert.ok(mapping !== undefined);
+  const status = {
+    id: 'status',
+    kind: 'status',
+    issue: mapping.issue,
+    value: 'Development',
+    attempts: 0,
+    retryAt: 0,
+    error: null,
+  } as const;
+  await adapter.effect(status);
+
+  policy.set(OPERATOR, 'transition', { mode: 'human-only', roles: [] });
+  const before = calls;
+  await assert.rejects(adapter.effect(status), {
+    code: 'CAPABILITY_DENIED',
+    message: /transition is human-only.*supervisor for team-lead/v,
+  });
+  assert.equal(calls, before, 'the denied supervisor effect made no remote call');
+  policy.set(OPERATOR, 'project-connect', { mode: 'human-only', roles: [] });
+  await assert.rejects(adapter.verify('https://github.com/example/app.git'), {
+    code: 'CAPABILITY_DENIED',
+    message: /project-connect is human-only.*supervisor for team-lead/v,
+  });
+  assert.equal(calls, before, 'the denied re-verification made no remote call');
+});
+
 await test('feature parents and atomic children are retryable and linked natively', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
-  const parent = journalResultSchema.parse(await github.execute('github_create_issue', feature));
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
+  const parent = journalResultSchema.parse(await github.execute(OPERATOR, 'github_create_issue', feature));
   const childInput = {
     ...feature,
     requestId: 'child-1',
@@ -513,50 +648,61 @@ await test('feature parents and atomic children are retryable and linked nativel
     parent: parent.issue.number,
     title: 'One atomic delivery',
   };
-  const child = journalResultSchema.parse(await github.execute('github_create_issue', childInput));
+  const child = journalResultSchema.parse(await github.execute(OPERATOR, 'github_create_issue', childInput));
   assert.equal(child.phase, 'complete');
   assert.deepEqual(remote.children.get(String(parent.issue.number)), [child.issue.id]);
-  const restarted = new ProjectGitHub(config, remote.run);
-  await github.execute('github_set_status', { issue: child.issue.number, status: 'Development' });
+  const restarted = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_set_status', { issue: child.issue.number, status: 'Development' });
   remote.shouldFailAttachment = true;
-  await assert.rejects(restarted.execute('github_create_issue', childInput), { code: 'GITHUB_UNAVAILABLE' });
-  assert.deepEqual(journalResultSchema.parse(await restarted.execute('github_create_issue', childInput)), child);
+  await assert.rejects(restarted.execute(OPERATOR, 'github_create_issue', childInput), { code: 'GITHUB_UNAVAILABLE' });
+  assert.deepEqual(
+    journalResultSchema.parse(await restarted.execute(OPERATOR, 'github_create_issue', childInput)),
+    child,
+  );
   assert.equal(remote.lastStatus?.['o'], 'option-2', 'Reattachment must preserve the current workflow state.');
   assert.equal(remote.creations, 2);
-  await assert.rejects(restarted.execute('github_create_issue', { ...feature, title: 'changed' }), {
+  await assert.rejects(restarted.execute(OPERATOR, 'github_create_issue', { ...feature, title: 'changed' }), {
     code: 'INVALID_INPUT',
   });
-  await assert.rejects(github.execute('github_create_issue', { ...feature, kind: 'delivery', requestId: 'orphan' }), {
-    code: 'INVALID_INPUT',
-  });
-  await github.execute('github_set_status', { issue: child.issue.number, status: 'Development' });
+  await assert.rejects(
+    github.execute(OPERATOR, 'github_create_issue', { ...feature, kind: 'delivery', requestId: 'orphan' }),
+    {
+      code: 'INVALID_INPUT',
+    },
+  );
+  await github.execute(OPERATOR, 'github_set_status', { issue: child.issue.number, status: 'Development' });
   assert.equal(remote.lastStatus['o'], 'option-2');
 });
 
 await test('lost issue-creation responses are reconciled before retry, without duplicate tickets', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   remote.shouldLoseCreationResponse = true;
-  await assert.rejects(github.execute('github_create_issue', feature), { code: 'GITHUB_UNAVAILABLE' });
-  const restarted = new ProjectGitHub(config, remote.run);
-  await assert.rejects(restarted.execute('github_create_issue', feature), { code: 'GITHUB_OPERATION_PENDING' });
+  await assert.rejects(github.execute(OPERATOR, 'github_create_issue', feature), { code: 'GITHUB_UNAVAILABLE' });
+  const restarted = mechanicsGitHub(config, remote.run);
+  await assert.rejects(restarted.execute(OPERATOR, 'github_create_issue', feature), {
+    code: 'GITHUB_OPERATION_PENDING',
+  });
   assert.equal(remote.creations, 1);
-  await restarted.execute('github_sync', {});
-  assert.equal(journalResultSchema.parse(await restarted.execute('github_create_issue', feature)).phase, 'complete');
+  await restarted.execute(OPERATOR, 'github_sync', {});
+  assert.equal(
+    journalResultSchema.parse(await restarted.execute(OPERATOR, 'github_create_issue', feature)).phase,
+    'complete',
+  );
   assert.equal(remote.creations, 1);
 });
 
 await test('board attachment resumes from saved issue progress after a broker restart', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   remote.shouldFailAttachment = true;
-  await assert.rejects(github.execute('github_create_issue', feature), { code: 'GITHUB_UNAVAILABLE' });
-  const restarted = new ProjectGitHub(config, remote.run);
-  await restarted.execute('github_create_issue', feature);
+  await assert.rejects(github.execute(OPERATOR, 'github_create_issue', feature), { code: 'GITHUB_UNAVAILABLE' });
+  const restarted = mechanicsGitHub(config, remote.run);
+  await restarted.execute(OPERATOR, 'github_create_issue', feature);
   assert.equal(remote.creations, 1);
 });
 
@@ -697,6 +843,12 @@ await test('MCP clients keep GitHub and learning state isolated and only the lea
   await other.connect();
   defer(async () => other.close());
   await assert.rejects(worker.call('github_connect', connection), { code: 'NOT_ORCHESTRATOR' });
+  // A fresh workspace keeps connection human-only until a human grants it.
+  await assert.rejects(lead.call('github_connect', connection), { code: 'CAPABILITY_DENIED' });
+  await rpc(alpha, 'capability_policy_set', {
+    capability: 'project-connect',
+    policy: { mode: 'approved-agent-roles', roles: ['team-lead'] },
+  });
   await lead.call('github_connect', connection);
   assert.equal(z.object({ connected: z.boolean() }).parse(await other.call('github_status', {})).connected, false);
   await worker.call('learning_record', {
@@ -721,8 +873,8 @@ await test('MCP clients keep GitHub and learning state isolated and only the lea
 await test('the issue-state read is limited to the connected repository issues endpoint', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   const calls: string[][] = [];
   let response: unknown = {};
   const runner: GitHubRunner = async (args, input) => {
@@ -773,7 +925,7 @@ await test('the issue-state read is limited to the connected repository issues e
 await test('the issue-state read is refused for an unconnected workspace', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
+  const github = mechanicsGitHub(config, remote.run);
   let isCalled = false;
   const runner: GitHubRunner = async () => {
     isCalled = true;
@@ -788,8 +940,8 @@ await test('the issue-state read is refused for an unconnected workspace', async
 await test('issue close effects leave an already-closed issue and its recorded reason untouched', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   remote.issues.push(
     {
       id: 201,
@@ -830,8 +982,8 @@ await test('issue close effects leave an already-closed issue and its recorded r
 await test('delivery adapter reads failed Actions job logs by job id and skips other CI links', async (t) => {
   const config = createProject(createCleanup(t));
   const remote = new FakeGitHub();
-  const github = new ProjectGitHub(config, remote.run);
-  await github.execute('github_connect', connection);
+  const github = mechanicsGitHub(config, remote.run);
+  await github.execute(OPERATOR, 'github_connect', connection);
   const calls: string[][] = [];
   const adapter = new GitHubDelivery(config, github, remote.run, async (args) => {
     calls.push([...args]);
