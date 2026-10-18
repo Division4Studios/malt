@@ -153,6 +153,16 @@ export function failedChecks(rollup: readonly RawCheck[] | null): CheckState[] |
 }
 
 /**
+ * Whether any check already failed, whether or not others are still running.
+ *
+ * @param rollup - Current check rollup.
+ * @returns True when at least one check failed.
+ */
+export function hasFailedCheck(rollup: readonly RawCheck[] | null): boolean {
+  return (rollup ?? []).some((check) => checkState(check).state === 'failed');
+}
+
+/**
  * The GitHub Actions job id in a check run's details link.
  *
  * @param url - Check run link.
