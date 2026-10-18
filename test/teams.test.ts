@@ -226,7 +226,7 @@ await test('schema 2 databases migrate to schema 3 with durable identities', (t)
   });
   assert.equal(store.agent(agent.id).lifetime, 'durable');
   const version = selectOne(store.db, valueRowSchema, "SELECT value FROM metadata WHERE key = 'schema_version'");
-  assert.equal(version?.value, '3');
+  assert.equal(version?.value, '4');
 });
 
 await test('workspace creation uses the project deadline while ordinary RPC remains short', async (t) => {
