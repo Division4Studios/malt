@@ -376,3 +376,39 @@ await test('the merge approval takes no overrides; a delivery blocked before any
   });
   assert.deepEqual(saved.overrides, [{ stepId: 'implement', provider: 'claude' }]);
 });
+
+await test('two code-editing steps of one delivery never run at once', (t) => {
+  const context = fixture(t);
+  const { featureId } = queueObjective(context.repository, { objective: 'Exclusive worktree', workflowId: 'quick' });
+  const task = provision(context, featureId);
+  const attempt = (role: string, kind: 'adjudicate' | 'document'): ReturnType<typeof jobSchema.parse> => {
+    return jobSchema.parse({
+      role,
+      kind,
+      taskId: task.id,
+      featureId,
+      head: null,
+      base: null,
+      step: kind,
+      target: null,
+      id: randomUUID(),
+      provider: 'claude',
+      token: randomUUID(),
+      state: 'running',
+      startedAt: 1,
+      finishedAt: null,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      reservation: 0,
+      usageTokens: null,
+      pid: null,
+      summary: null,
+      artifact: path.join(context.mesh.directory, 'factory', 'jobs', randomUUID()),
+    });
+  };
+  assert.equal(context.repository.claim(attempt('qa-1', 'adjudicate'), context.settings), true);
+  assert.equal(
+    context.repository.claim(attempt('librarian', 'document'), context.settings),
+    false,
+    'They share the delivery worktree.',
+  );
+});

@@ -15,7 +15,7 @@ import { REJECTED_REQUESTS_MAX, factorySchemas } from './schema.ts';
 
 import type { FactoryRepository } from './repository.ts';
 import type { Feature } from './schema.ts';
-import type { WorkflowStep } from './workflows.ts';
+import type { Workflow, WorkflowStep } from './workflows.ts';
 import type { z } from 'zod/v3';
 
 /** What a decision did. */
@@ -155,6 +155,34 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
 }
 
 /**
+ * Whether a planning step comes before any plan step: no plan step is among
+ * its predecessors, transitively.
+ *
+ * @param workflow - Objective workflow.
+ * @param step - Decided step.
+ * @returns True for specification-stage steps.
+ */
+function isBeforePlan(workflow: Workflow, step: WorkflowStep): boolean {
+  const steps = new Map(workflow.planning.map((candidate) => [candidate.id, candidate]));
+  const pending = [step];
+  const seen = new Set<string>();
+  for (let current = pending.pop(); current !== undefined; current = pending.pop()) {
+    if (current.kind === 'plan') {
+      return false;
+    }
+    for (const id of current.after) {
+      const previous = steps.get(id);
+      if (previous === undefined || seen.has(id)) {
+        continue;
+      }
+      seen.add(id);
+      pending.push(previous);
+    }
+  }
+  return true;
+}
+
+/**
  * Decide a planning approval before deliveries are created.
  *
  * @param repository - Project ledger, inside a transaction.
@@ -170,7 +198,8 @@ function decidePlanning(repository: FactoryRepository, decision: Decision): Deci
   if (isDecided(feature, decision.requestId)) {
     return { result: 'repeated' };
   }
-  const step = waitingStep(planningApprovals(feature, featureWorkflow(feature)), decision.stepId);
+  const workflow = featureWorkflow(feature);
+  const step = waitingStep(planningApprovals(feature, workflow), decision.stepId);
   const now = repository.store.now();
   const updated: Feature = decision.approve
     ? {
@@ -185,6 +214,8 @@ function decidePlanning(repository: FactoryRepository, decision: Decision): Deci
         ...feature,
         phase: 'refining',
         plan: null,
+        // Rejecting specification-stage work (its gate, or an approval before any plan) revises the specification.
+        ...(isBeforePlan(workflow, step) && { productPlan: null }),
         approvals: [],
         rejectedRequests: rejected(feature, decision.requestId),
         error: `Plan rejected at "${step.title}": ${decision.note}`,
