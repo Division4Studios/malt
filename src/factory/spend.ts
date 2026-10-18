@@ -28,7 +28,7 @@ import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryTask, Feature } from './schema.ts';
-import type { SpendCaps, SpendScope, SpendStatus, SpendUsage } from './spend-schema.ts';
+import type { SpendCaps, SpendChoice, SpendScope, SpendStatus, SpendUsage } from './spend-schema.ts';
 
 /** Settled attempts priced per refresh, bounding stream reads in one tick. */
 const REFRESH_BATCH = 20;
@@ -38,6 +38,8 @@ const READ_BATCH = 16;
 const DAY_MS = 86_400_000;
 /** Notices remembered; older keys are pruned. */
 const NOTICES_MAX = 500;
+/** Most uncapped scopes offered to the cap picker. */
+const CHOICES_MAX = 500;
 
 /** Stored caps row. */
 const capsRowSchema = z.object({ revision: z.number().int().nonnegative(), data: z.string() });
@@ -492,22 +494,31 @@ export function spendStatus(repository: FactoryRepository): SpendStatus {
   const policy = caps.unpriced;
   const spent = ledger(store, caps);
   const { features, tasks } = openScopes(repository);
+  const choices: SpendChoice[] = [];
   const objectives = features.flatMap((feature) => {
     const cap = capFor(caps.objectives, caps.objectiveDefault, feature.id);
     const label = feature.objective.split('\n', 1)[0]?.slice(0, OBJECTIVE_MAX) ?? '';
     const totals = spent.byFeature.get(feature.id) ?? NOTHING;
-    return cap === null ? [] : [usageRow({ scope: 'objective', id: feature.id, label }, totals, { cap, policy })];
+    if (cap === null) {
+      choices.push({ scope: 'objective', id: feature.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'objective', id: feature.id, label }, totals, { cap, policy })];
   });
   const deliveries = tasks.flatMap((task) => {
     const cap = capFor(caps.deliveries, caps.deliveryDefault, task.id);
     const label = `#${String(task.issue)} ${task.title}`;
     const totals = spent.byTask.get(task.id) ?? NOTHING;
-    return cap === null ? [] : [usageRow({ scope: 'delivery', id: task.id, label }, totals, { cap, policy })];
+    if (cap === null) {
+      choices.push({ scope: 'delivery', id: task.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'delivery', id: task.id, label }, totals, { cap, policy })];
   });
   const project = usageRow(
     { scope: 'project', id: '', label: `Project, last ${String(caps.windowDays)} days` },
     spent.project,
     { cap: caps.project, policy },
   );
-  return { revision, caps, usage: [project, ...objectives, ...deliveries] };
+  return { revision, caps, usage: [project, ...objectives, ...deliveries], choices: choices.slice(0, CHOICES_MAX) };
 }

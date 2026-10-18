@@ -268,11 +268,22 @@ await test('a reached delivery cap stops new attempts until the operator raises 
       [other.id, 0, 1, null],
     ],
   );
+  assert.deepEqual(
+    status.choices.filter((choice) => choice.scope === 'delivery'),
+    [],
+    'Capped deliveries are not offered again.',
+  );
 
   saveCaps(repository, { caps: { deliveryDefault: 1, deliveries: { [spent.id]: 2 } }, expectedRevision: 1 });
   assert.equal(spendGate(repository).block({ taskId: spent.id, featureId: null }), null, 'Raising the cap resumes it.');
   saveCaps(repository, { caps: { project: 1, windowDays: 7 }, expectedRevision: 2 });
   assert.equal(spendGate(repository).block({ taskId: null, featureId: null })?.scope, 'project');
+  const offered = spendStatus(repository).choices.filter((choice) => choice.scope === 'delivery');
+  assert.deepEqual(
+    offered.map((choice) => choice.id).toSorted((left, right) => left.localeCompare(right)),
+    [spent.id, other.id].toSorted((left, right) => left.localeCompare(right)),
+    'Uncapped deliveries can be capped, including one that has not run.',
+  );
 });
 
 await test('unpriced attempts block a capped scope only under the block policy, and prices re-estimate', async (t) => {
