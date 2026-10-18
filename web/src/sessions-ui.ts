@@ -7,7 +7,7 @@
  * @file
  */
 import { child, data, number, records, request, scoped, text } from './api.js';
-import { formatTime, t } from './i18n.js';
+import { formatTime, locale, t } from './i18n.js';
 import {
   ATTEMPT_KINDS,
   browserTimeZone,
@@ -367,7 +367,8 @@ class SessionsView {
 
   /** Render day groups, keeping focus on the same attempt when possible. */
   private render(): void {
-    const key = JSON.stringify([this.rows, [...this.expanded]]);
+    // Row labels combine translated words with data, so a language change must rebuild them.
+    const key = JSON.stringify([this.rows, [...this.expanded], locale()]);
     this.more.hidden = this.nextCursor === null;
     if (key === this.renderKey) {
       return;
