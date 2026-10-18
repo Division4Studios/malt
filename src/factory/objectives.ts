@@ -7,10 +7,27 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { briefPlan } from './briefs.ts';
 import { MAX_OBJECTIVES } from './objective-queue-schema.ts';
+import { unsupportedSteps } from './pipeline.ts';
 import { factorySchemas } from './schema.ts';
+import { DEFAULT_WORKFLOW_ID, workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
+import type { FrozenWorkflow } from './workflows.ts';
+
+/**
+ * Workflow for objectives the factory creates itself: the project default when
+ * it can run, otherwise the built-in pipeline, so automatic work never stalls.
+ *
+ * @param repository - Selected project.
+ * @returns Frozen runnable workflow.
+ */
+export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow {
+  const library = workflowLibrary(repository.store);
+  const preferred = library.freeze();
+  return unsupportedSteps(preferred.workflow).length === 0 ? preferred : library.freeze(DEFAULT_WORKFLOW_ID);
+}
 
 /**
  * Persist a product objective once, rejecting changed retry intent.
@@ -21,8 +38,18 @@ import type { FactoryRepository } from './repository.ts';
  * @throws {MeshError} If the same request ID denotes a different objective.
  */
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
-  const { objective, requestId } = factorySchemas.factory_request.parse(input);
+  const { objective, requestId, workflowId = null } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
+  const workflow = workflowLibrary(repository.store).freeze(workflowId);
+  const unsupported = unsupportedSteps(workflow.workflow);
+  if (unsupported.length > 0) {
+    throw new MeshError(
+      'FACTORY_GATED',
+      `Workflow "${workflow.workflow.name}" uses steps this version cannot run yet: ${unsupported.join(', ')}.`,
+    );
+  }
+  // Without planning steps the brief itself is the one delivery, ready to provision.
+  const isBrief = workflow.workflow.planning.length === 0;
   return repository.store.transaction(() => {
     const features = repository.features();
     const prior = features.find((feature) => feature.id === id);
@@ -45,13 +72,14 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
     repository.saveFeature({
       id,
       objective,
-      phase: 'queued',
+      phase: isBrief ? 'provisioning' : 'queued',
       productPlan: null,
-      plan: null,
+      plan: isBrief ? briefPlan(objective) : null,
       parentIssue: null,
       error: null,
       createdAt: now,
       updatedAt: now,
+      workflow,
       approvals: [],
     });
     repository.notify(`Product objective queued: ${objective}`);
