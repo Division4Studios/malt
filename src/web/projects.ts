@@ -12,6 +12,7 @@ import { objectiveQueueSchema } from '../factory/objective-queue-schema.ts';
 import { ownedUsageSchema } from '../factory/process-usage.ts';
 import { effectSchema, factoryConfigSchema, skillRequestSchema } from '../factory/schema.ts';
 import { baselineSkill } from '../factory/skills.ts';
+import { attemptPageSchema, costSummarySchema, transcriptPageSchema } from '../factory/telemetry-schema.ts';
 import { terminalPageSchema } from '../factory/terminal-reads.ts';
 import { isTerminalOperation } from '../factory/terminal-schema.ts';
 import { terminalSessionSchema } from '../factory/terminal-sessions.ts';
@@ -21,6 +22,7 @@ import { MeshError } from '../protocol.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { RecommendationOperator } from '../factory/recommendation-decisions.ts';
+import type { AttemptPage, CostSummary, TranscriptPage } from '../factory/telemetry-schema.ts';
 import type { TerminalPage } from '../factory/terminal-reads.ts';
 import type { TerminalOperator, TerminalOperation } from '../factory/terminal-schema.ts';
 import type { Operation } from '../protocol.ts';
@@ -43,6 +45,8 @@ const factoryViewSchema = dashboardSchema.extend({
   processUsage: z.array(ownedUsageSchema).default([]),
   triage: z.array(triageRecordSchema).default([]),
   workflows: workflowLibrarySchema.default({ defaultId: DEFAULT_WORKFLOW_ID, items: [] }),
+  /** Broker-computed board, pipelines and Inbox; rendered as data, never re-derived. */
+  console: z.record(z.unknown()).default({}),
 });
 /** A backward event page; it never carries the forward stream cursor. */
 const historyPageSchema = z
@@ -70,6 +74,13 @@ export const controlSchema = z
       'factory_approve',
       'factory_cancel_job',
       'factory_capacity',
+      'factory_prices',
+      'factory_hold',
+      'factory_archive',
+      'factory_schedule_save',
+      'factory_trigger_save',
+      'factory_automation_delete',
+      'factory_automation_run',
       'github_connect',
       'terminal_start',
       'terminal_close',
@@ -216,6 +227,39 @@ export class ProjectGateway {
     const config = this.config(id);
     const page = historyPageSchema.parse(await rpc(config, 'events', { before, limit }));
     return { project: id, ...page };
+  }
+
+  /**
+   * List recorded attempts with metrics through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Filters already parsed from the route; the broker revalidates them.
+   * @returns Validated attempt page.
+   */
+  public async attempts(id: string, query: unknown): Promise<AttemptPage> {
+    return attemptPageSchema.parse(await rpc(this.config(id), 'factory_attempts', query));
+  }
+
+  /**
+   * Read one transcript page through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Job, cursor and page size parsed from the route.
+   * @returns Validated transcript page.
+   */
+  public async transcript(id: string, query: unknown): Promise<TranscriptPage> {
+    return transcriptPageSchema.parse(await rpc(this.config(id), 'factory_transcript', query));
+  }
+
+  /**
+   * Summarize local costs through the broker's read-only operation.
+   *
+   * @param id - Explicit project selection.
+   * @param query - Window and time zone parsed from the route.
+   * @returns Validated cost summary.
+   */
+  public async costs(id: string, query: unknown): Promise<CostSummary> {
+    return costSummarySchema.parse(await rpc(this.config(id), 'factory_costs', query));
   }
 
   /**
