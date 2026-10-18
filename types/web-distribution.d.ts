@@ -198,6 +198,12 @@ declare module '*/web/dist/console-model.js' {
     readonly prUrl: string | null;
     /** Blocking dependency issues. */
     readonly waitingOn: readonly number[];
+    /** Ledger phase. */
+    readonly phase: string;
+    /** Operator hold. */
+    readonly held: { readonly at: number; readonly reason: string } | null;
+    /** Kept on the board after finishing. */
+    readonly isKept: boolean;
   }
   /** Validated open Inbox item. */
   export interface InboxItem {
@@ -229,6 +235,11 @@ declare module '*/web/dist/console-model.js' {
     }[];
     /** Open decisions. */
     readonly open: readonly InboxItem[];
+    /** Archived total and the latest restorable deliveries. */
+    readonly archived: {
+      readonly total: number;
+      readonly recent: readonly { readonly taskId: string; readonly issue: number; readonly title: string }[];
+    };
     /** Answered decisions. */
     readonly answered: readonly {
       readonly id: string;
@@ -314,4 +325,486 @@ declare module '*/web/dist/console-model.js' {
    * @returns Role and step title, or null.
    */
   export function runningText(delivery: Delivery): string | null;
+}
+
+declare module '*/web/dist/board-model.js' {
+  /** Validated console projection, as returned by `readConsole`. */
+  interface ConsoleModel {
+    /** Deliveries. */
+    readonly deliveries: readonly unknown[];
+    /** Objectives. */
+    readonly objectives: readonly unknown[];
+  }
+
+  /** Board filters plus the selected narrow-screen tab. */
+  interface Prefs {
+    /** Text filter. */
+    readonly query: string;
+    /** Workflow filter. */
+    readonly workflow: string;
+    /** Show finished cards. */
+    readonly showDone: boolean;
+    /** Selected tab. */
+    readonly tab: string;
+  }
+
+  /**
+   * Group cards into columns.
+   *
+   * @param model - Console projection.
+   * @param filter - Filters.
+   * @returns Cards per column and hidden finished count.
+   */
+  export function groupBoard(
+    model: ConsoleModel,
+    filter: Omit<Prefs, 'tab'>,
+  ): { columns: Record<string, { type: string; key: string }[]>; hiddenDone: number };
+
+  /**
+   * List workflows on the board.
+   *
+   * @param model - Console projection.
+   * @returns Unique workflows by name.
+   */
+  export function workflowChoices(model: ConsoleModel): { id: string; name: string }[];
+
+  /**
+   * Restore saved preferences.
+   *
+   * @param raw - Stored text.
+   * @returns Valid preferences.
+   */
+  export function parsePrefs(raw: string | null): Prefs;
+
+  /**
+   * Move between tabs.
+   *
+   * @param current - Index of the focused tab.
+   * @param key - `KeyboardEvent.key` value.
+   * @param count - Number of tabs in the list.
+   * @returns Index to select, or null when the key does not navigate.
+   */
+  export function tabTarget(current: number, key: string, count: number): number | null;
+
+  /**
+   * The lifecycle control a delivery offers.
+   *
+   * @param delivery - Delivery on the board.
+   * @returns Label, operation and request input.
+   */
+  export function lifecycleControl(delivery: {
+    readonly taskId: string;
+    readonly phase: string;
+    readonly held: { readonly at: number; readonly reason: string } | null;
+  }): { label: string; operation: string; input: Record<string, unknown> };
+
+  /**
+   * Deliveries a bulk action applies to among the cards shown.
+   *
+   * @param groups - Cards currently shown.
+   * @returns Unfinished deliveries to hold and held ones to resume.
+   */
+  export function bulkTargets(groups: { columns: Record<string, readonly unknown[]>; hiddenDone: number }): {
+    hold: string[];
+    resume: string[];
+  };
+}
+
+declare module '*/web/dist/approval-model.js' {
+  /** Delivery fields an approval reads. */
+  interface Delivery {
+    /** Delivery id. */
+    readonly taskId: string;
+    /** Issue number. */
+    readonly issue: number;
+    /** Title. */
+    readonly title: string;
+    /** Current head. */
+    readonly head: string | null;
+  }
+  /** Step fields an approval reads. */
+  interface Step {
+    /** Step id. */
+    readonly id: string;
+    /** Title. */
+    readonly title: string;
+  }
+  /** Inbox item fields an approval reads. */
+  interface InboxItem {
+    /** Item id. */
+    readonly id: string;
+    /** Decision kind. */
+    readonly kind: string;
+    /** Headline. */
+    readonly title: string;
+    /** Delivery concerned. */
+    readonly taskId: string | null;
+    /** Objective concerned. */
+    readonly featureId: string | null;
+    /** Step to decide. */
+    readonly stepId: string | null;
+    /** Bound head. */
+    readonly head: string | null;
+  }
+
+  /** What an approval decides. */
+  export interface ApprovalTarget {
+    /** Delivery step or objective plan. */
+    readonly scope: 'delivery' | 'objective';
+    /** Delivery or objective id. */
+    readonly id: string;
+    /** Step decided. */
+    readonly stepId: string;
+    /** Bound head. */
+    readonly head: string | null;
+    /** Step title. */
+    readonly stepTitle: string;
+    /** Subject. */
+    readonly subject: string;
+  }
+
+  /**
+   * Describe an Inbox approval.
+   *
+   * @param item - Decision waiting on the operator.
+   * @returns What it decides, or null for non-approvals.
+   */
+  export function targetFromItem(item: InboxItem): ApprovalTarget | null;
+
+  /**
+   * Describe a delivery step approval.
+   *
+   * @param delivery - Card that owns the step.
+   * @param step - Step waiting on the human.
+   * @param open - Open Inbox items carrying the bound head.
+   * @returns What the decision binds.
+   */
+  export function targetFromStep(delivery: Delivery, step: Step, open: readonly InboxItem[]): ApprovalTarget;
+
+  /**
+   * Whether a target is still open.
+   *
+   * @param target - Decision shown in an open dialog.
+   * @param open - Current open Inbox items.
+   * @returns Whether a matching approval still waits.
+   */
+  export function isPending(target: ApprovalTarget, open: readonly InboxItem[]): boolean;
+
+  /**
+   * Build the `factory_approve` input.
+   *
+   * @param target - What is decided.
+   * @param decision - Choice, note and idempotency key.
+   * @returns Input to send, or an explanation why it cannot be sent.
+   */
+  export function approvalInput(
+    target: ApprovalTarget,
+    decision: { requestId: string; approve: boolean; note: string },
+  ): { input: Record<string, unknown> } | { error: string };
+}
+
+declare module '*/web/dist/workflow-model.js' {
+  /** Planning or delivery. */
+  export type SectionName = 'planning' | 'delivery';
+  /** One editable step; `uid` is browser-only. */
+  export interface DraftStep {
+    /** Browser-only stable identity. */
+    readonly uid: string;
+    /** Step key. */
+    readonly id: string;
+    /** Step kind. */
+    readonly kind: string;
+    /** Public label. */
+    readonly title: string;
+    /** Seats that may take the step. */
+    readonly roles: readonly string[];
+    /** Profile key, or empty. */
+    readonly profile: string;
+    /** Earlier steps it waits for. */
+    readonly after: readonly string[];
+    /** Explicit readable outputs, or null for everything it runs after. */
+    readonly inputs: readonly string[] | null;
+    /** Blind review. */
+    readonly blind: boolean;
+    /** Human approval after success. */
+    readonly gate: boolean;
+    /** Skippable per delivery. */
+    readonly optional: boolean;
+    /** Preferred provider, or empty. */
+    readonly provider: string;
+    /** Extra guidance. */
+    readonly instructions: string;
+  }
+  /** One editable workflow. */
+  export interface DraftWorkflow {
+    /** Workflow key. */
+    readonly id: string;
+    /** Display name. */
+    readonly name: string;
+    /** Plain description. */
+    readonly description: string;
+    /** Planning steps. */
+    readonly planning: readonly DraftStep[];
+    /** Delivery steps. */
+    readonly delivery: readonly DraftStep[];
+  }
+  /** One decoded library entry. */
+  export interface LibraryItem {
+    /** Workflow key. */
+    readonly id: string;
+    /** Revision digest. */
+    readonly revision: string;
+    /** Origin of the definition. */
+    readonly source: 'builtin' | 'project';
+    /** Whether new objectives use it. */
+    readonly isDefault: boolean;
+    /** Last project save, or null. */
+    readonly updatedAt: number | null;
+    /** Definition at this revision. */
+    readonly workflow: DraftWorkflow;
+  }
+  /** The decoded library. */
+  export interface Library {
+    /** Default workflow id. */
+    readonly defaultId: string;
+    /** Every usable workflow. */
+    readonly items: readonly LibraryItem[];
+  }
+  /** Where a draft came from. */
+  export interface DraftOrigin {
+    /** Opened workflow id, or empty. */
+    readonly id: string;
+    /** Opened revision, or null. */
+    readonly revision: string | null;
+  }
+  /** Planning kinds in menu order. */
+  export const PLANNING_KINDS: readonly string[];
+  /** Delivery kinds in menu order. */
+  export const DELIVERY_KINDS: readonly string[];
+  /** Every seat a step may name. */
+  export const SEATS: readonly string[];
+  /** Provider families. */
+  export const PROVIDERS: readonly string[];
+  /** Longest valid key. */
+  export const KEY_MAX: number;
+
+  /**
+   * Whether a value is a valid key.
+   *
+   * @param value - Candidate key.
+   * @returns True when the server accepts it.
+   */
+  export function isKey(value: string): boolean;
+
+  /**
+   * First free key with numeric suffixes.
+   *
+   * @param base - Preferred key.
+   * @param taken - Keys in use.
+   * @returns Unused key.
+   */
+  export function uniqueKey(base: string, taken: ReadonlySet<string>): string;
+
+  /**
+   * Derive a unique key from a title.
+   *
+   * @param title - Free text.
+   * @param taken - Keys in use.
+   * @param fallback - Key used when the title has no letters or digits.
+   * @returns Unused valid key.
+   */
+  export function deriveKey(title: string, taken: ReadonlySet<string>, fallback?: string): string;
+
+  /**
+   * Decode a workflow definition.
+   *
+   * @param value - Untrusted record.
+   * @returns Editable draft.
+   */
+  export function decodeWorkflow(value: Record<string, unknown>): DraftWorkflow;
+
+  /**
+   * Decode the library from a snapshot.
+   *
+   * @param snapshot - Untrusted snapshot.
+   * @returns Library, empty when unavailable.
+   */
+  export function parseLibrary(snapshot: unknown): Library;
+
+  /**
+   * Execution layer per step id.
+   *
+   * @param steps - One section in order.
+   * @returns One-based layers.
+   */
+  export function stepLayers(steps: readonly { id: string; after: readonly string[] }[]): Map<string, number>;
+
+  /**
+   * Steps grouped by layer.
+   *
+   * @param steps - One section in order.
+   * @returns Layers in order.
+   */
+  export function layerGroups<T extends { id: string; after: readonly string[] }>(steps: readonly T[]): T[][];
+
+  /**
+   * Change a step's kind and clear unsupported settings.
+   *
+   * @param step - Current step.
+   * @param kind - New kind.
+   * @returns Normalized step.
+   */
+  export function withKind(step: DraftStep, kind: string): DraftStep;
+
+  /**
+   * Rename a step and its references.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @param id - New id.
+   * @returns Updated draft.
+   */
+  export function renameStep(draft: DraftWorkflow, section: SectionName, uid: string, id: string): DraftWorkflow;
+
+  /**
+   * Insert a step with defaults.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where to add it.
+   * @param kind - Kind to add.
+   * @returns Updated draft and the new uid.
+   */
+  export function addStep(
+    draft: DraftWorkflow,
+    section: SectionName,
+    kind: string,
+  ): { draft: DraftWorkflow; uid: string };
+
+  /**
+   * Remove a step and reconnect its successors.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @returns Updated draft.
+   */
+  export function removeStep(draft: DraftWorkflow, section: SectionName, uid: string): DraftWorkflow;
+
+  /**
+   * Move a step by one place.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @param offset - Direction.
+   * @returns Updated draft.
+   */
+  export function moveStep(draft: DraftWorkflow, section: SectionName, uid: string, offset: -1 | 1): DraftWorkflow;
+
+  /**
+   * Open a library entry as a draft.
+   *
+   * @param item - Library entry.
+   * @param library - Whole library.
+   * @returns Draft and origin.
+   */
+  export function draftFrom(item: LibraryItem, library: Library): { draft: DraftWorkflow; origin: DraftOrigin };
+
+  /**
+   * Unique copy id and name.
+   *
+   * @param workflow - Workflow being copied.
+   * @param library - Whole library.
+   * @returns Unused id and name.
+   */
+  export function copyNames(
+    workflow: { readonly id: string; readonly name: string },
+    library: Library,
+  ): { id: string; name: string };
+
+  /**
+   * Minimal valid new workflow.
+   *
+   * @param library - Whole library.
+   * @returns Draft and origin.
+   */
+  export function blankDraft(library: Library): { draft: DraftWorkflow; origin: DraftOrigin };
+
+  /**
+   * Wire form of a draft.
+   *
+   * @param draft - Workflow being edited.
+   * @returns Plain definition.
+   */
+  export function wireWorkflow(draft: DraftWorkflow): Record<string, unknown>;
+
+  /**
+   * Save request body.
+   *
+   * @param draft - Workflow being edited.
+   * @param origin - Where it came from.
+   * @returns Request input.
+   */
+  export function saveRequest(
+    draft: DraftWorkflow,
+    origin: DraftOrigin,
+  ): { workflow: Record<string, unknown>; expectedRevision: string | null };
+
+  /**
+   * Default request body.
+   *
+   * @param workflowId - Workflow to make the default.
+   * @returns Request input.
+   */
+  export function defaultRequest(workflowId: string): { workflowId: string };
+
+  /**
+   * Whether two drafts define the same workflow.
+   *
+   * @param left - First draft.
+   * @param right - Second draft.
+   * @returns True when equal on the wire.
+   */
+  export function isSameDefinition(left: DraftWorkflow, right: DraftWorkflow): boolean;
+}
+
+declare module '*/web/dist/workflow-checks.js' {
+  import type { DraftOrigin, DraftWorkflow, Library, SectionName } from '*/web/dist/workflow-model.js';
+
+  /** One problem and where to show it. */
+  export interface Problem {
+    /** Section, or null for workflow fields. */
+    readonly section: SectionName | null;
+    /** Offending step, or null. */
+    readonly uid: string | null;
+    /** Plain explanation. */
+    readonly message: string;
+  }
+
+  /**
+   * Browser-side problems in a draft.
+   *
+   * @param draft - Workflow being edited.
+   * @param library - Whole library.
+   * @param origin - Where the draft came from.
+   * @returns Problems with locations.
+   */
+  export function draftProblems(draft: DraftWorkflow, library: Library, origin: DraftOrigin): Problem[];
+
+  /**
+   * Split a joined server error.
+   *
+   * @param message - Server text.
+   * @returns One item per problem.
+   */
+  export function splitProblems(message: string): string[];
+
+  /**
+   * Whether a server error is a stale-revision refusal.
+   *
+   * @param message - Server text.
+   * @returns True when stale.
+   */
+  export function isStaleRevision(message: string): boolean;
 }
