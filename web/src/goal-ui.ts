@@ -21,7 +21,7 @@ import {
   readGoals,
   readLogPage,
 } from './goal-model.js';
-import { t } from './i18n.js';
+import { keepLiteral, t } from './i18n.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -133,7 +133,7 @@ function logItem(entry: LogEntry, now: number): HTMLLIElement {
   const head = element('div', 'inbox-item-head');
   head.append(tag(LOG_LABELS[entry.kind] ?? entry.kind, `log-${entry.kind}`), element('span', 'subtle', entry.actor));
   head.append(ageStamp(entry.at, now));
-  node.append(head, element('p', 'inbox-detail', entry.body));
+  node.append(head, keepLiteral(element('p', 'inbox-detail', entry.body)));
   return node;
 }
 
