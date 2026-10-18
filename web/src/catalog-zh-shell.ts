@@ -311,6 +311,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.':
     '未保存。请查看控制台消息；你的草稿已保留。出现修订冲突后请刷新并重新打开。',
   '{unread} unread handoffs': '{unread} 条未读交接',
+  '{count, plural, one {# unread message} other {# unread messages}}': '{count} 条未读消息',
   'Pane height': '窗格高度',
   '{role} pane height': '{role} 窗格高度',
   '{role} operator instruction receipts': '{role} 的操作员指令回执',
