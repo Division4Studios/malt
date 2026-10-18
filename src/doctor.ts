@@ -95,13 +95,22 @@ export interface DoctorInput {
 }
 
 /** Display names of the provider CLIs. */
-const PROVIDER_NAMES: Readonly<Record<Provider, string>> = { claude: 'Claude Code', codex: 'Codex' };
+const PROVIDER_NAMES: Readonly<Record<Provider, string>> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  copilot: 'GitHub Copilot CLI',
+};
 /** How each provider logs in with its subscription. */
-const LOGIN_COMMANDS: Readonly<Record<Provider, string>> = { claude: 'claude auth login', codex: 'codex login' };
+const LOGIN_COMMANDS: Readonly<Record<Provider, string>> = {
+  claude: 'claude auth login',
+  codex: 'codex login',
+  copilot: 'copilot, then /login',
+};
 /** Where each provider CLI is installed from. */
 const INSTALL_HINTS: Readonly<Record<Provider, string>> = {
   claude: 'Install Claude Code (npm install -g @anthropic-ai/claude-code)',
   codex: 'Install Codex (npm install -g @openai/codex)',
+  copilot: 'Install the GitHub Copilot CLI (npm install -g @github/copilot)',
 };
 
 /**
@@ -418,7 +427,7 @@ async function writableCheck(probes: DoctorProbes, project: string): Promise<Doc
 export async function runDoctor(input: DoctorInput): Promise<DoctorReport> {
   const probes: DoctorProbes = { ...DEFAULT_PROBES, ...input.probes };
   const cwd = probes.exists(input.project) ? input.project : process.cwd();
-  const executables = input.executables ?? { claude: 'claude', codex: 'codex' };
+  const executables = input.executables ?? { claude: 'claude', codex: 'codex', copilot: 'copilot' };
   const providers = ['claude', 'codex'] as const;
   const diagnoses = await Promise.all(
     providers.map(async (provider) => await diagnoseProvider(provider, executables[provider], cwd, probes.run)),
