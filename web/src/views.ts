@@ -45,6 +45,10 @@ export const ROLES = [
   'qa-2',
   'final-tester',
   'learning-steward',
+  'plan-reviewer',
+  'fixer',
+  'librarian',
+  'regression-verifier',
 ] as const;
 /** Operator actions are routed by the controller, never run by a view. */
 export interface Actions {
@@ -344,7 +348,8 @@ export function overviewView(state: Snapshot, actions: Actions, isConnected = tr
   const left = element('div');
   const team = element('div', 'panel-body');
   team.append(teamView(state, actions, false));
-  left.append(panel(t('Your autonomous team'), t('08 LOGICAL ROLES'), team));
+  const roleCount = t('{count} LOGICAL ROLES', { count: String(ROLES.length).padStart(2, '0') });
+  left.append(panel(t('Your autonomous team'), roleCount, team));
   const queue = objectiveQueue(records(state.factory['features']), actions, child(state.factory, 'objectiveQueue'));
   left.append(
     panel(t('Product queue'), t('{unfinished} UNFINISHED OBJECTIVES', { unfinished: queue.unfinished }), queue.body),

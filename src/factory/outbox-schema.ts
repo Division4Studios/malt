@@ -10,6 +10,8 @@ export const effectSchema = z.object({
   attempts: z.number().int().nonnegative(),
   retryAt: z.number(),
   error: z.string().nullable(),
+  /** Policy revision at which a capability denial parked this effect. */
+  capabilityRevision: z.number().int().nonnegative().optional(),
 });
 /** One outbox entry. */
 export type FactoryEffect = z.output<typeof effectSchema>;
