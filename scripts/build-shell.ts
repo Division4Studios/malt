@@ -96,6 +96,7 @@ const FILES = [
   'dist/settings-ui.js',
   'dist/project-views.js',
   'dist/roles-model.js',
+  'dist/roles-dom.js',
   'dist/roles-ui.js',
   'dist/secrets-model.js',
   'dist/secrets-ui.js',

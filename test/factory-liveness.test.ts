@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { test } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 
 import { run } from '../src/database.ts';
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
@@ -448,6 +449,39 @@ await test('the sampler sees edits, commits, check-ins and decoded tool completi
   assert.equal((await sampler.sample()).progress, 'tool Read');
   append(path.join(artifact, 'stdout.log'), '{"type":"assistant","message":{"content":[]}}\n'.repeat(20));
   assert.equal((await sampler.sample()).progress, null, 'log growth alone is not progress');
+  const asked = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't2', name: 'Grep', input: { pattern: 'two' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't2', content: 'a.txt' }] } },
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't3', name: 'AskUserQuestion', input: { question: 'Which?' } }] },
+    },
+  ];
+  append(path.join(artifact, 'stdout.log'), `${asked.map((event) => JSON.stringify(event)).join('\n')}\n`);
+  const sampled = await sampler.sample();
+  assert.equal(sampled.progress, 'tool Grep');
+  assert.notEqual(sampled.awaiting, null, 'a wait after progress in the same sample is kept');
+});
+
+/**
+ * A completed Codex patch event.
+ *
+ * @param id - Item identity.
+ * @returns Stream event.
+ */
+function patch(id: string): unknown {
+  return {
+    type: 'item.completed',
+    item: { id, type: 'file_change', status: 'completed', changes: [{ path: 'a.ts', kind: 'update' }] },
+  };
+}
+
+await test('separate Codex patches to the same file each count as progress', () => {
+  assert.equal(decodeAll(codexLine, [patch('p1'), patch('p2')]).meaningful, 2);
+  assert.equal(decodeAll(codexLine, [patch('p1'), patch('p1')]).meaningful, 1, 'a replayed patch counts once');
 });
 
 await test('failures are classified and retried with per-class backoff and caps', () => {
@@ -467,6 +501,13 @@ await test('failures are classified and retried with per-class backoff and caps'
   assert.equal(classifyAttempt({ ...base, state: 'interrupted', stopReason: 'stalled 30 min' }), 'stalled');
   assert.equal(classifyAttempt({ ...base, state: 'interrupted', isStopping: true }), 'cancelled');
   assert.equal(classifyAttempt({ ...base, state: 'failed', isResultMissing: true }), 'invalid_output');
+  const missing = {
+    ...base,
+    state: 'failed' as const,
+    isResultMissing: true,
+    error: new MeshError('FACTORY_GATED', 'No.'),
+  };
+  assert.equal(classifyAttempt(missing), 'invalid_output', 'a paid turn without a result is not an unpaid gate');
   assert.equal(classifyAttempt({ ...base, state: 'failed', reason: 'spawn ENOENT' }), 'transient');
 
   const taskId = randomUUID();
@@ -526,6 +567,7 @@ await test('failures are classified and retried with per-class backoff and caps'
     'exhausted retries stay stopped',
   );
   assert.ok(!isBackingOff(stalled, { ...scope, head: 'h2' }, timing), 'a new head resets retries');
+  assert.ok(!isBackingOff(stalled, { ...scope, since: 3 }, timing), 'an operator retry starts the count afresh');
   assert.ok(!isBackingOff([...stalled, attempt(3, undefined, 'succeeded')], scope, timing), 'a success resets retries');
   const gates = Array.from({ length: 10 }, (_, index) => attempt(index, 'gate'));
   assert.equal(
@@ -536,4 +578,130 @@ await test('failures are classified and retried with per-class backoff and caps'
   assert.ok(!isBackingOff([attempt(0, 'cancelled')], scope, timing), 'cancelled work retries as soon as it resumes');
   const mixed = [attempt(0, 'stalled'), attempt(1, 'stalled'), attempt(2, 'transient')];
   assert.equal(retryState(mixed, scope, timing.reconcileMs)?.failures, 1, 'a different class starts a new count');
+});
+
+/**
+ * A sample that never settles.
+ *
+ * @returns A promise that stays pending.
+ */
+async function hungSample(): Promise<ProgressObservation> {
+  return await new Promise<ProgressObservation>(() => {
+    // Never settles, like an unresponsive sampler.
+  });
+}
+
+/** Ignore a record or a cancellation. */
+function ignore(): void {
+  // Nothing to observe in this test.
+}
+
+await test('a hung sampler cannot stop the hard ceiling from being enforced', async () => {
+  let clock = 0;
+  const wakeUps: (() => void)[] = [];
+  const stops: string[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => clock,
+    sample: hungSample,
+    record: ignore,
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (wake) => {
+      wakeUps.push(wake);
+      return ignore;
+    },
+  });
+  monitor.start();
+  clock = POLICY.maxMs + MINUTE;
+  const checking = monitor.check();
+  for (const wake of wakeUps.splice(0)) {
+    wake();
+  }
+  await checking;
+  assert.deepEqual(stops, ['hard ceiling']);
+});
+
+await test('a wait raised after progress in one poll survives out-of-band progress', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  // The repository creates the factory tables.
+  const { store } = new FactoryRepository(new Store(mesh));
+  defer(() => {
+    store.close();
+  });
+  const job = jobSchema.parse(jobFields({ artifact: mesh.directory }));
+  run(store.db, 'INSERT INTO factory_jobs VALUES(?,?,?,?)', job.id, job.role, job.state, JSON.stringify(job));
+  const sampler = new ProgressSampler({
+    store,
+    jobId: job.id,
+    provider: 'claude',
+    artifact: mesh.directory,
+    worktree: () => null,
+  });
+  const events = [
+    {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls' } }] },
+    },
+    { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } },
+    { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: {} }] } },
+  ];
+  const log = events.map((event) => `${JSON.stringify(event)}\n`);
+  write(path.join(mesh.directory, 'stdout.log'), log.join(''));
+  run(store.db, 'INSERT INTO factory_progress VALUES(?,?,?)', job.id, 'tests-pass', '{}');
+  const observed = await sampler.sample();
+  assert.notEqual(observed.progress, null);
+  assert.equal(observed.awaiting, 'Question through AskUserQuestion');
+  assert.equal((await sampler.sample()).awaiting, 'Question through AskUserQuestion', 'later idle polls keep the wait');
+});
+
+await test('a sampler that never answers cannot hold off the checkpoint', async () => {
+  let now = 0;
+  const timers: { at: number; callback: () => void }[] = [];
+  const stops: string[] = [];
+  const records: JobLiveness[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => now,
+    sample: async () => Promise.withResolvers<ProgressObservation>().promise,
+    record: (liveness) => {
+      records.push(liveness);
+    },
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (callback, ms) => {
+      const timer = { at: now + ms, callback };
+      timers.push(timer);
+      return () => {
+        timers.splice(timers.indexOf(timer), 1);
+      };
+    },
+  });
+  monitor.start();
+  for (let step = 0; step < 50 && stops.length === 0 && timers.length > 0; step += 1) {
+    timers.sort((left, right) => right.at - left.at);
+    const next = timers.pop();
+    assert.ok(next !== undefined);
+    now = next.at;
+    next.callback();
+    await tick();
+  }
+  assert.deepEqual(stops, ['stalled 10 min']);
+  assert.equal(now, firstCheckpoint(0, POLICY));
+  assert.equal(records.at(-1)?.state, 'stalled');
+});
+
+await test('separate patches to one file each count as progress; a repeated item counts once', () => {
+  const sink = new ProgressSink();
+  const change = [{ path: 'src/a.ts', kind: 'update' }];
+  sink.fileChange(change, 'item_1');
+  sink.fileChange(change, 'item_2');
+  sink.fileChange(change, 'item_2');
+  assert.equal(sink.meaningful, 2);
+  assert.equal(sink.lastSignal, 'edit src/a.ts');
 });
