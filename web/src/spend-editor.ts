@@ -163,6 +163,12 @@ export class SpendEditor {
     });
   }
 
+  /** Forget any draft, as when another project is selected; the next load replaces the fields. */
+  public reset(): void {
+    this.loaded = null;
+    this.isDirty = false;
+  }
+
   /**
    * Show the saved caps unless the operator is editing the same revision.
    *

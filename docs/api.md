@@ -108,32 +108,33 @@ Wait results wrap that snapshot as `state`, with `reason`, inbox pagination fiel
 
 ## Common error codes
 
-| Code                            | Meaning / recovery                                          |
-| ------------------------------- | ----------------------------------------------------------- |
-| `IDLE_NOT_APPROVED`             | Submit/inspect a check-in and wait for explicit approval.   |
-| `UNREAD_MESSAGES`               | Process and acknowledge the inbox before checking in.       |
-| `NOT_ORCHESTRATOR`              | Only the stored lead can decide or list check-ins.          |
-| `NOT_A_WORKER`                  | Lead/observer attempted a worker-only check-in.             |
-| `STALE_CHECKIN`                 | Request was decided or invalidated; fetch current requests. |
-| `INSTRUCTIONS_REQUIRED`         | A work decision needs nonblank instructions.                |
-| `WAIT_ALREADY_ACTIVE`           | Another wait is already open for this identity.             |
-| `INVALID_REVISION`              | Cursor exceeds the current revision; inspect work status.   |
-| `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                  |
-| `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.  |
-| `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.   |
-| `NOT_JOINED`                    | The session has not called `mesh_join`; join when asked.    |
-| `ALREADY_JOINED`                | The session already takes part in another way; start anew.  |
-| `LEAD_ACTIVE`                   | The team has a live lead; join as a worker or use the CLI.  |
-| `NO_WORKSPACE`                  | No workspace folder; pass `--workspace` or set an env var.  |
-| `AGENT_LEFT`                    | The recipient's session ended; it can never read messages.  |
-| `UNKNOWN_TEAM`                  | The team header names no team on this broker.               |
-| `AGENT_ACTIVE`                  | Another bridge holds the same name's live lease.            |
-| `IDENTITY_CONFLICT`             | Name exists with a different identity secret.               |
-| `UNAUTHORIZED_AGENT`            | Secret/session mismatch, including a replaced session.      |
-| `UNAUTHORIZED`, `WRONG_PROJECT` | Project authentication or routing mismatch.                 |
-| `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP. |
-| `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                      |
-| `TOOL_DENIED`                   | The live attempt's role policy removed this tool.           |
+| Code                            | Meaning / recovery                                                                                  |
+| ------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `IDLE_NOT_APPROVED`             | Submit/inspect a check-in and wait for explicit approval.                                           |
+| `UNREAD_MESSAGES`               | Process and acknowledge the inbox before checking in.                                               |
+| `NOT_ORCHESTRATOR`              | Only the stored lead can decide or list check-ins.                                                  |
+| `NOT_A_WORKER`                  | Lead/observer attempted a worker-only check-in.                                                     |
+| `STALE_CHECKIN`                 | Request was decided or invalidated; fetch current requests.                                         |
+| `INSTRUCTIONS_REQUIRED`         | A work decision needs nonblank instructions.                                                        |
+| `WAIT_ALREADY_ACTIVE`           | Another wait is already open for this identity.                                                     |
+| `INVALID_REVISION`              | Cursor exceeds the current revision; inspect work status.                                           |
+| `WAIT_CANCELLED`                | Host/client cancelled a wait or operation.                                                          |
+| `BROKER_STOPPING`               | Broker is shutting down; reconnect and issue another wait.                                          |
+| `BROKER_UNAVAILABLE`            | Transport failed; check service health and configuration.                                           |
+| `NOT_JOINED`                    | The session has not called `mesh_join`; join when asked.                                            |
+| `ALREADY_JOINED`                | The session already takes part in another way; start anew.                                          |
+| `LEAD_ACTIVE`                   | The team has a live lead; join as a worker or use the CLI.                                          |
+| `NO_WORKSPACE`                  | No workspace folder; pass `--workspace` or set an env var.                                          |
+| `AGENT_LEFT`                    | The recipient's session ended; it can never read messages.                                          |
+| `UNKNOWN_TEAM`                  | The team header names no team on this broker.                                                       |
+| `AGENT_ACTIVE`                  | Another bridge holds the same name's live lease.                                                    |
+| `IDENTITY_CONFLICT`             | Name exists with a different identity secret.                                                       |
+| `UNAUTHORIZED_AGENT`            | Secret/session mismatch, including a replaced session.                                              |
+| `UNAUTHORIZED`, `WRONG_PROJECT` | Project authentication or routing mismatch.                                                         |
+| `HUMAN_CONTROL_REQUIRED`        | Lead replacement is exposed through the human CLI, not MCP.                                         |
+| `CAPABILITY_DENIED`             | Project capability policy forbids this connector call; a human can change it with `capability-set`. |
+| `INVALID_INPUT`, `NOT_FOUND`    | Validate arguments and referenced IDs.                                                              |
+| `TOOL_DENIED`                   | The live attempt's role policy removed this tool.                                                   |
 
 ## Managed factory controls
 
@@ -191,18 +192,22 @@ See [current capabilities](current-status.md) before integrating a planned opera
 
 Factory state is separate from cooperative check-in state. Project-authenticated CLI/PWA controls use the broker's durable supervisor; a designated cooperative lead may coordinate permitted controls. Human skill decisions reject all agent credentials. Managed role bridges expose only read/communication tools, plus research/proposal tools for the learning steward; they do not offer check-in/wait, scheduler mutations, ticket creation or skill activation.
 
-| RPC operation                    | Input                                                                                           | Behavior                                                                                                               |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}` | Requires paused/drained work; validates resource/provider/standards policy.                                            |
-| `factory_request`                | `{objective,requestId?}`                                                                        | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.      |
-| `factory_start`, `factory_pause` | `{}`                                                                                            | Resume unpaid scheduling or drain owned processes and preserve edits.                                                  |
-| `factory_status`                 | `{}`                                                                                            | Logical roles, actual attempts, tasks, features, capacity, effects, instructions, skills and read-only `admission`.    |
-| `factory_preflight`              | `{}`                                                                                            | Operator or lead: the doctor checks that apply inside the broker, as `{ok, checks}`. No inference or project changes.  |
-| `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                        | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.              |
-| `factory_cancel_job`             | `{jobId}`                                                                                       | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                    |
-| `factory_retry`                  | `{taskId? ,featureId?}`                                                                         | Retry a selected blocked delivery or planning request.                                                                 |
-| `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                         | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.               |
-| `factory_skill_decide`           | `{requestId,approve,reason}`                                                                    | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters. |
+| RPC operation                    | Input                                                                                                      | Behavior                                                                                                                                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `factory_setup`                  | Strict settings with nonempty `testCommands` and `endToEndCommands`; commands are `{file,args}`            | Requires paused/drained work; validates resource/provider/standards policy.                                                                                                                              |
+| `factory_request`                | `{objective,requestId?}`                                                                                   | Queues PO/lead planning. Stable UUIDs deduplicate retries and fence changed scope; no implicit board or dispatch.                                                                                        |
+| `factory_start`, `factory_pause` | `{}`                                                                                                       | Resume unpaid scheduling or drain owned processes and preserve edits.                                                                                                                                    |
+| `factory_status`                 | `{}`                                                                                                       | Logical roles, actual attempts, tasks, features, capacity, effects, instructions, skills and read-only `admission`.                                                                                      |
+| `factory_preflight`              | `{}`                                                                                                       | Operator or lead: the doctor checks that apply inside the broker, as `{ok, checks}`. No inference or project changes.                                                                                    |
+| `factory_instruct`               | `{role,body,taskId?,replan?,requestId?}`                                                                   | Durable role/task guidance; stable request IDs deduplicate retries; scope changes queue PO/lead planning.                                                                                                |
+| `factory_cancel_job`             | `{jobId}`                                                                                                  | Cancels only a live attempt owned by this supervisor; stale requests cannot regress completed work.                                                                                                      |
+| `factory_retry`                  | `{taskId? ,featureId?}`                                                                                    | Retry a selected blocked delivery or planning request.                                                                                                                                                   |
+| `factory_capacity`               | `{provider,usedPercent,resetAt,source}`                                                                    | Operator-supplied verified quota evidence; reset must be in the future. Scheduling budgets are distinct.                                                                                                 |
+| `factory_skill_decide`           | `{requestId,approve,reason}`                                                                               | Human-only exact-revision activation/retirement decision after independent lead review; rationale is 1–200 characters.                                                                                   |
+| `factory_local`                  | `{action, number?, requestId?, kind?, title?, description?, acceptanceCriteria?, parent?, status?, body?}` | Local delivery only: `summary`, `issue`, `pull` (gate evidence and bounded diff), `create_issue`, `set_status`, `comment`, `sync` (fast-forward the clean operator checkout). The manager cannot `sync`. |
+| `factory_manager`                | `{action, text?, decisionId?, after?, limit?}`                                                             | Human operator only. `status`, `start`, `stop`, `send` (queued until the manager is free), `answer` an open decision, `history` page by sequence cursor. Nothing is resent after a failure.              |
+| `factory_brief`                  | `{}`                                                                                                       | Mission brief: objectives, open deliveries (stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag, next action) and every decision waiting on the operator.          |
+| `factory_manager_ask`            | `{question, options?, evidence}`                                                                           | Live delivery manager only: records a decision for the operator; the answer arrives as a manager message.                                                                                                |
 
 `factory_reorder_objective {featureId, beforeFeatureId?, afterFeatureId?, expectedRevision, requestId?}`
 requires exactly one anchor. Only the operator, designated project lead or authenticated web
@@ -274,7 +279,7 @@ Each settled attempt's cost (provider reported, or estimated from the price tabl
 
 `factory_preflight` runs, inside the broker, the [`doctor`](../README.md#start-natively) checks that matter where managed jobs run: Node.js against `engines`, Git, each provider CLI's presence and subscription login (using the saved provider executables), GitHub CLI authentication and a writable `.malt`. Ports are skipped because the broker is already listening. The result is `{ok, checks: [{id, label, status, detail, fix}]}` with `status` `pass`, `fail` or `fix-it` and one `fix` line for anything that did not pass; `ok` is false when a check failed. Provider checks spend no inference and return no account details. Managed role bridges do not expose it.
 
-The paired console reads it as `GET /api/preflight?project=<id>`, and reads `GET /api/version?project=<id>` for `{malt, node, platform, broker}`: the MALT package version and runtime of the console process, and the broker's `/health` version, or `null` when the broker does not answer. Both use the usual pairing session and origin checks.
+The paired console reads it as `GET /api/preflight?project=<id>`, and reads `GET /api/version?project=<id>` for `{malt, node, platform, broker, brokerRevision, consoleRevision}`: the MALT package version, runtime and source revision of the console process, and the broker's `/health` version and revision, or `null` when the broker does not answer. Both use the usual pairing session and origin checks.
 
 ### Roles and secrets
 
@@ -312,7 +317,7 @@ Headers carry `Authorization: Bearer <project token>` and `X-AgentMesh-Project: 
 
 Operations mostly match tool names without `mesh_`. Additional internal operations are register, heartbeat, disconnect, events and set_lead. `register` accepts `ephemeral: true` for a session identity, which `disconnect` then ends; a session registering with role `lead` claims the orchestrator role in the same transaction. Two operations exist only on the home project and need only its token: `open_team` (`workspace`: an absolute path or `file:` URI) returns `team`, `name`, `workspace`, `projectId` and `token`, creating the team on first use; `list_teams` returns each team's slug, name and folder. Project-authenticated CLI readers can request aggregate status/roster/events without agent credentials. Project-authenticated `set_lead` is the human control path and rejects agent credentials. Local administrators can read the project secret; this is not a security boundary against a hostile OS user.
 
-`GET /health` is unauthenticated and returns service health/version only. Errors contain a stable code and message, not a traceback or credential dump.
+`GET /health` is unauthenticated and returns `{ok, version, revision}`: service health, the package version and the source commit the broker was started from (see [compatibility](compatibility.md)). Errors contain a stable code and message, not a traceback or credential dump.
 
 ## Event history pages
 
@@ -357,6 +362,12 @@ Operator-only `adopt_delivered` requires a nonempty explanation and accepts an o
 `factory_recover` action `retire` (operator only) marks a `queued` or `active` objective `done` when its parent issue is re-read as closed, every non-superseded delivery is `done` and no assignment owns it or its deliveries. It is ledger only: GitHub issues are never closed or edited. `expectedUpdatedAt` fences the revision and request IDs replay as for other recoveries.
 
 `factory_reconcile_github({apply?,limit?})` (operator only; CLI `factory-reconcile-github [--apply]`) reads every unfinished, unowned delivery's issue (and, for a recorded PR without a merge, the PR's merge commit) plus each eligible objective's parent issue. It returns `{applied,proposals,outcomes,unresolved,remaining}`. Each proposal names its `operation` (`factory_triage` or `factory_recover`), `issue`, `closedAs` and an exact `input` with current `expectedVersion`/`expectedUpdatedAt` and a request ID derived from that revision, so it can be saved as a decision file. Deliveries already in `closing` with recorded proof are left to unpaid reconciliation. A dry run (the default) writes nothing. `apply: true` applies at most `limit` (default 20, maximum 100) proposals in order, adoptions before retirements, through the same fenced operations; repeat until `remaining` is 0. Agents, including the lead, are rejected for all three controls.
+
+## Connector capability policy
+
+`capability_policy_status({})` returns `{connected, provider, capabilities, history, historyTruncated}` for the addressed project only. Each of the fifteen `capabilities` entries is `{capability, mode, roles, support, providerCapabilities}`. `mode` and `roles` are the stored policy. `support` is reported separately from the policy: it comes from the saved tracker's capability descriptor (`supported`, `unsupported` or `unverified`). It is `unverified` when no descriptor entry describes the operation or no connection is saved. `providerCapabilities` lists the descriptor entries behind it. `history` holds the newest 100 audit entries in commit order. The read makes no remote call. Authenticated agents may read it.
+
+`capability_policy_set({capability, policy})` applies one human edit, where `policy` is `{mode, roles}`, and returns the updated view. The principal is the project-token operator. Any call carrying agent credentials fails with `HUMAN_CONTROL_REQUIRED` before the store is touched, whatever role the agent holds. Unknown capabilities, modes or roles, and roles outside `approved-agent-roles`, fail with `INVALID_INPUT`. Each edit appends history and a `CAPABILITY_POLICY_CHANGED` event. Neither operation is an MCP tool. The console reads the view at `GET /api/capabilities?project=<id>` and edits through `/api/control` with `{operation: "capability_policy_set", input}`. The CLI offers `capability-status` and `capability-set --file FILE`. See [capability policy](capability-policy.md).
 
 ## Operator handoff feed
 

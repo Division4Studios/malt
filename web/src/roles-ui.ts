@@ -710,7 +710,7 @@ class RolesView implements ConsoleViewHandle {
       const row = element('tr');
       const type = element('select');
       type.dataset['focusKey'] = `role-member-type-${member.role}`;
-      type.setAttribute('aria-label', `${member.role} type`);
+      type.setAttribute('aria-label', t('{role} type', { role: member.role }));
       fillSelect(
         type,
         types.map((candidate) => [candidate.name, candidate.label] as const),

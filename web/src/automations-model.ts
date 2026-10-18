@@ -487,7 +487,8 @@ function evenStep(values: readonly number[], size: number): number | null {
   }
   const step = second - first;
   const isEven = values.every((value, index) => value === index * step);
-  return isEven && values.length === Math.ceil(size / step) ? step : null;
+  // Only a step that divides the field repeats at a fixed interval across the wrap (e.g. not */40).
+  return isEven && size % step === 0 && values.length === size / step ? step : null;
 }
 
 /**

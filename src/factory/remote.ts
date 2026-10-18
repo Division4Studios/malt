@@ -8,6 +8,7 @@
 
 import { z } from 'zod/v3';
 
+import { SUPERVISOR_PRINCIPAL } from '../capability-policy.ts';
 import { githubRunner } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -245,7 +246,7 @@ export class GitHubDelivery implements DeliveryRemote {
     if (normalized !== `https://github.com/${connection.repository}`.toLowerCase()) {
       await verifyRepositoryIdentity(this.runner, normalized, connection.repository);
     }
-    await this.github.execute('github_connect', {
+    await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_connect', {
       repository: connection.repository,
       owner: connection.owner,
       projectNumber: connection.project.number,
@@ -271,7 +272,7 @@ export class GitHubDelivery implements DeliveryRemote {
     }
     const source = checkpoint === undefined ? null : this.issueRepositoryId();
     const parentResult = z.object({ issue: z.object({ number: z.number() }) }).parse(
-      await this.github.execute('github_create_issue', {
+      await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_create_issue', {
         requestId: `record-${record.id}`,
         kind: 'feature',
         title: record.objective.slice(0, ISSUE_TITLE_LIMIT),
@@ -288,7 +289,7 @@ export class GitHubDelivery implements DeliveryRemote {
 
       const created = z.object({ issue: z.object({ number: z.number() }) }).parse(
         // eslint-disable-next-line no-await-in-loop -- Persist each deterministic native child before advancing its dependent provisioning sequence.
-        await this.github.execute('github_create_issue', {
+        await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_create_issue', {
           requestId,
           kind: 'delivery',
           parent: parentResult.issue.number,
@@ -457,7 +458,10 @@ export class GitHubDelivery implements DeliveryRemote {
     const record = effect;
     const connection = await this.connection();
     if (record.kind === 'status') {
-      await this.github.execute('github_set_status', { issue: record.issue, status: record.value });
+      await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_set_status', {
+        issue: record.issue,
+        status: record.value,
+      });
       return;
     }
     if (record.kind === 'close_pr') {
@@ -507,7 +511,7 @@ export class GitHubDelivery implements DeliveryRemote {
   public async readyIssues(): Promise<ReadyIssue[]> {
     const snapshot = z
       .object({ items: z.array(z.unknown()), complete: z.boolean() })
-      .parse(await this.github.execute('github_sync', { limit: 1000, cached: true }));
+      .parse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_sync', { limit: 1000, cached: true }));
     const connection = await this.connection();
     const itemSchema = z
       .object({
@@ -617,7 +621,7 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns Canonical repository and Project identity.
    */
   private async connection(): Promise<z.output<typeof connectionSchema>['connection']> {
-    return connectionSchema.parse(await this.github.execute('github_status', {})).connection;
+    return connectionSchema.parse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {})).connection;
   }
 }
 
