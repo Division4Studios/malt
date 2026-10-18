@@ -9,12 +9,14 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { setImmediate as tick } from 'node:timers/promises';
 
 import { livenessPolicy } from '../src/factory/liveness-schema.ts';
-import { checkpointDecision, firstCheckpoint } from '../src/factory/liveness.ts';
+import { LivenessMonitor, checkpointDecision, firstCheckpoint } from '../src/factory/liveness.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 
-import type { LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { JobLiveness, LivenessPolicy } from '../src/factory/liveness-schema.ts';
+import type { ProgressObservation } from '../src/factory/liveness.ts';
 import type { FactoryJob } from '../src/factory/schema.ts';
 
 /** One minute. */
@@ -84,6 +86,44 @@ await test('saved configurations parse unchanged and idle work still stops at th
   const legacy = jobSchema.parse(jobFields({}));
   assert.equal(legacy.liveness, undefined);
   assert.equal(legacy.failureClass, undefined);
+});
+
+await test('a sampler that never answers cannot hold off the checkpoint', async () => {
+  let now = 0;
+  const timers: { at: number; callback: () => void }[] = [];
+  const stops: string[] = [];
+  const records: JobLiveness[] = [];
+  const monitor = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => now,
+    sample: async () => Promise.withResolvers<ProgressObservation>().promise,
+    record: (liveness) => {
+      records.push(liveness);
+    },
+    stop: (reason) => {
+      stops.push(reason);
+    },
+    timers: (callback, ms) => {
+      const timer = { at: now + ms, callback };
+      timers.push(timer);
+      return () => {
+        timers.splice(timers.indexOf(timer), 1);
+      };
+    },
+  });
+  monitor.start();
+  for (let step = 0; step < 50 && stops.length === 0 && timers.length > 0; step += 1) {
+    timers.sort((left, right) => right.at - left.at);
+    const next = timers.pop();
+    assert.ok(next !== undefined);
+    now = next.at;
+    next.callback();
+    await tick();
+  }
+  assert.deepEqual(stops, ['stalled 10 min']);
+  assert.equal(now, firstCheckpoint(0, POLICY));
+  assert.equal(records.at(-1)?.state, 'stalled');
 });
 
 /**
