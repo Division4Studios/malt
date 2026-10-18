@@ -186,6 +186,15 @@ export class ProjectViews {
   }
 
   /**
+   * One element builder per owned view, for the shell's route table.
+   *
+   * @returns Builders keyed by view.
+   */
+  public builders(): Record<ProjectView, () => HTMLElement> {
+    return { settings: () => this.settings.element, onboarding: () => this.onboarding.element };
+  }
+
+  /**
    * Load a view's routes when it is shown.
    *
    * @param view - Route just selected.

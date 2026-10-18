@@ -25,6 +25,7 @@
  * @file
  */
 
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
@@ -50,9 +51,13 @@ Usage: node src/cli.ts <command> [options]
   ui --port 4318              Serve the installable local PWA; prints a pairing code
   ui --with-broker             Own broker and console together; enables native terminals
   pairing-code [--rotate]      Show (or re-issue) the persisted console pairing code
+  backup --dir DIR             Snapshot .malt (databases via VACUUM INTO) into a new folder
+  restore --dir DIR            Restore a backup with the broker stopped; .malt is moved aside
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  capability-status            Show connector capability policies, support and history
+  capability-set --file FILE   Change one connector capability policy (human only)
   factory-setup --file FILE    Configure target factory validation and resource policies
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch
@@ -65,6 +70,9 @@ Usage: node src/cli.ts <command> [options]
   factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
+  factory-manager --body TEXT  Message the persistent delivery manager
+  factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
+  factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
@@ -98,6 +106,8 @@ Docker: docker compose up -d --build
 /** Every command the CLI accepts. */
 const COMMANDS = [
   'doctor',
+  'backup',
+  'restore',
   'pairing-code',
   'ui',
   ...FACTORY_COMMANDS,
@@ -118,7 +128,10 @@ const COMMANDS = [
 type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
-type TeamCommand = Exclude<Command, 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'start' | 'teams' | 'ui'>;
+type TeamCommand = Exclude<
+  Command,
+  'backup' | 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'restore' | 'start' | 'teams' | 'ui'
+>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
@@ -165,6 +178,8 @@ interface CliOptions {
   readonly json?: boolean | undefined;
   /** `--rotate`: re-issue the console pairing code. */
   readonly rotate?: boolean | undefined;
+  /** `--dir`: backup folder to write or restore from. */
+  readonly dir?: string | undefined;
 }
 
 /**
@@ -334,6 +349,53 @@ async function runMessaging(
 }
 
 /**
+ * Whether a command works on project files without a broker connection.
+ *
+ * @param command - Validated CLI command.
+ * @returns True for `doctor`, `backup` and `restore`.
+ */
+function isProjectFileCommand(command: Command): command is 'backup' | 'doctor' | 'restore' {
+  return ['backup', 'doctor', 'restore'].includes(command);
+}
+
+/**
+ * Run a command that works on project files without a broker connection.
+ *
+ * @param command - `doctor`, `backup` or `restore`.
+ * @param options - Parsed options.
+ */
+async function runProjectFileCommand(command: 'backup' | 'doctor' | 'restore', options: CliOptions): Promise<void> {
+  if (command !== 'doctor') {
+    print(await runBackupCommand(command, options));
+  } else if (!(await isDoctorPassing(options))) {
+    process.exitCode = 1;
+  }
+}
+
+/**
+ * Back up or restore the project's `.malt` folder.
+ *
+ * @param command - `backup` or `restore`.
+ * @param options - Parsed options; `--dir` names the backup folder.
+ * @returns The backup manifest, or where the previous `.malt` was moved.
+ * @throws {Error} When `--dir` is missing.
+ */
+async function runBackupCommand(command: 'backup' | 'restore', options: CliOptions): Promise<unknown> {
+  if (options.dir === undefined) {
+    throw new Error(`${command} needs --dir DIR.`);
+  }
+  const { backupProject, isBrokerRunning, restoreProject } = await import('./backup.ts');
+  if (command === 'backup') {
+    return await backupProject(loadConfig(options.project), options.dir);
+  }
+  const project = path.resolve(options.project ?? '.');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The operator names their own project folder.
+  const config = existsSync(path.join(project, STATE_DIRECTORY_NAME, 'config.json')) ? loadConfig(project) : null;
+  const isRunning = config !== null && (await isBrokerRunning(config));
+  return { movedAside: await restoreProject(project, options.dir, { isRunning, now: Date.now() }) };
+}
+
+/**
  * Dispatch a validated command.
  *
  * @param command - The command to run.
@@ -341,10 +403,8 @@ async function runMessaging(
  */
 async function run(command: Command, options: CliOptions): Promise<void> {
   const record = options;
-  if (command === 'doctor') {
-    if (!(await isDoctorPassing(record))) {
-      process.exitCode = 1;
-    }
+  if (isProjectFileCommand(command)) {
+    await runProjectFileCommand(command, record);
     return;
   }
   // Only `init` and `start` may create a project; see loadConfig.
@@ -553,6 +613,7 @@ async function main(): Promise<void> {
       apply: { type: 'boolean' },
       json: { type: 'boolean' },
       rotate: { type: 'boolean' },
+      dir: { type: 'string' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -591,5 +652,5 @@ try {
  * @returns Whether it addresses one workspace team.
  */
 function isTeamCommand(value: Command): value is TeamCommand {
-  return !['doctor', 'init', 'start', 'mcp', 'pairing-code', 'teams', 'ui'].includes(value);
+  return !['backup', 'doctor', 'init', 'start', 'mcp', 'pairing-code', 'restore', 'teams', 'ui'].includes(value);
 }

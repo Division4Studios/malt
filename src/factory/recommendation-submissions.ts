@@ -9,6 +9,7 @@ import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
 import { credentialValues } from './authentication.ts';
+import { retryRecommendation } from './recommendation-execution.ts';
 import { recommendationAddress } from './recommendation-read-schema.ts';
 import { factorySchemas, recommendationBodySchema } from './schema.ts';
 import { managedSourceJob } from './source-reader.ts';
@@ -43,11 +44,18 @@ export function recommendationHandlers(
   repository: FactoryRepository,
   input: unknown,
   actorId: string | null,
-): Record<'factory_recommendation_propose' | 'factory_recommendations' | 'factory_recommendation_read', () => unknown> {
+): Record<
+  | 'factory_recommendation_propose'
+  | 'factory_recommendations'
+  | 'factory_recommendation_read'
+  | 'factory_recommendation_retry',
+  () => unknown
+> {
   return {
     factory_recommendation_propose: () => submitRecommendation(configured(), input, actorId),
     factory_recommendations: () => repository.recommendations.inspect(input),
     factory_recommendation_read: () => repository.recommendations.readReceipt(input),
+    factory_recommendation_retry: async () => retryRecommendation(configured(), input),
   };
 }
 
