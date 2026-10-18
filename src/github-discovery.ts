@@ -22,12 +22,18 @@ import type { GitHubRunner } from './github-runner.ts';
 const REPOSITORY_LIMIT = 50;
 /** Projects listed for the chosen owner. */
 const PROJECT_LIMIT = 50;
-/** Repository permissions that can create issues and pull requests. */
+/** Repository permissions that can push, label, milestone and open pull requests. */
 const WRITERS: ReadonlySet<string> = new Set(['WRITE', 'MAINTAIN', 'ADMIN']);
+/** Repository permissions that can open issues: GitHub lets read access create them. */
+const ISSUE_CREATORS: ReadonlySet<string> = new Set(['READ', 'TRIAGE', ...WRITERS]);
 /** Fields read from a Project. */
 const FIELD_LIMIT = 50;
 /** Repository fields read for selection and capability checks. */
-const REPOSITORY_FIELDS = 'id nameWithOwner url viewerPermission hasIssuesEnabled';
+const REPOSITORY_FIELDS = 'id nameWithOwner url viewerPermission hasIssuesEnabled isArchived';
+/** Project fields read for selection. */
+const PROJECT_FIELDS = 'id number title url closed viewerCanUpdate';
+/** Single-select field fields read from a Project. */
+const SELECT_FIELDS = '... on ProjectV2SingleSelectField { id name options { id name } }';
 
 /** Discovery steps, each failing on its own. */
 export type DiscoveryStep = 'auth' | 'repository' | 'owner' | 'project' | 'field' | 'capability';
@@ -42,6 +48,10 @@ export interface DiscoveryInput {
   readonly owner?: string | undefined;
   /** Project number to inspect. */
   readonly projectNumber?: number | undefined;
+  /** Stable node ID of a saved Project, read directly so it need not be among the listed ones. */
+  readonly projectId?: string | undefined;
+  /** Saved field IDs to read even when the Project has more fields than one page lists. */
+  readonly fieldIds?: readonly string[] | undefined;
 }
 
 /** A repository the viewer can reach. */
@@ -51,6 +61,7 @@ const repositorySchema = z.object({
   url: z.string().url(),
   viewerPermission: z.string().nullable(),
   hasIssuesEnabled: z.boolean().optional(),
+  isArchived: z.boolean().optional(),
 });
 /** A Project v2 of the owner. */
 const projectSchema = z.object({
@@ -83,6 +94,12 @@ const repositoryByNameSchema = z.object({ repository: repositorySchema.nullable(
 const projectPageSchema = z.object({ nodes: z.array(projectSchema) });
 /** `repositoryOwner.projectsV2`. */
 const ownerProjectsSchema = z.object({ repositoryOwner: z.object({ projectsV2: projectPageSchema }).nullable() });
+/** `node` as a Project. */
+const projectNodeSchema = z.object({ node: projectSchema.nullable() });
+/** `repositoryOwner.projectV2(number)`. */
+const ownerProjectSchema = z.object({ repositoryOwner: z.object({ projectV2: projectSchema.nullable() }).nullable() });
+/** `node` as a single-select field. */
+const fieldNodeSchema = z.object({ node: fieldSchema.nullable() });
 /** Field connection page. */
 const fieldPageSchema = z.object({ nodes: z.array(fieldSchema) });
 /** `node.fields`. */
@@ -214,8 +231,12 @@ async function probeCapabilities(
 ): Promise<Capabilities> {
   const capabilities = unverifiedCapabilities();
   if (repository !== null) {
-    const canWrite = WRITERS.has(repository.viewerPermission ?? '');
-    capabilities.issue_create = canWrite && repository.hasIssuesEnabled !== false ? 'supported' : 'unsupported';
+    // An archived repository is read-only whatever access the viewer retains.
+    const isOpen = repository.isArchived !== true;
+    const permission = repository.viewerPermission ?? '';
+    const canWrite = isOpen && WRITERS.has(permission);
+    const canOpenIssues = isOpen && ISSUE_CREATORS.has(permission) && repository.hasIssuesEnabled !== false;
+    capabilities.issue_create = canOpenIssues ? 'supported' : 'unsupported';
     for (const [name, selection] of REPOSITORY_PROBES) {
       // eslint-disable-next-line no-await-in-loop -- Probes run one at a time so a rate-limited account is not burst.
       const result = await readGraphQL(
@@ -245,16 +266,18 @@ async function probeCapabilities(
  * @param runner - GitHub CLI seam.
  * @param project - Verified Project.
  * @param errors - Receives a field-step failure.
+ * @param wanted - Saved field IDs read even beyond the first page.
  * @returns Fields with options; other field types are skipped.
  */
 async function projectFields(
   runner: GitHubRunner,
   project: DiscoveredProject,
   errors: DiscoveryError[],
+  wanted: readonly string[] = [],
 ): Promise<DiscoveredField[]> {
   const result = await readGraphQL(
     runner,
-    `query($id: ID!) { node(id: $id) { ... on ProjectV2 { fields(first: ${String(FIELD_LIMIT)}) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }`,
+    `query($id: ID!) { node(id: $id) { ... on ProjectV2 { fields(first: ${String(FIELD_LIMIT)}) { nodes { ${SELECT_FIELDS} } } } } }`,
     { id: project.id },
   );
   const data = dataOf(result, projectFieldsSchema);
@@ -263,12 +286,79 @@ async function projectFields(
     return [];
   }
   const fields: DiscoveredField[] = [];
-  for (const field of data.node.fields.nodes) {
-    if (field.id !== undefined && field.name !== undefined) {
-      fields.push({ id: field.id, name: field.name, options: field.options ?? [] });
+  const pages = [data.node.fields.nodes, await savedFields(runner, data.node.fields.nodes, wanted)];
+  for (const page of pages) {
+    for (const field of page) {
+      if (field.id !== undefined && field.name !== undefined) {
+        fields.push({ id: field.id, name: field.name, options: field.options ?? [] });
+      }
     }
   }
   return fields;
+}
+
+/**
+ * Read saved fields the first page did not list, by their stable IDs.
+ *
+ * @param runner - GitHub CLI seam.
+ * @param listed - Fields the first page returned.
+ * @param wanted - Saved field IDs.
+ * @returns The missing saved fields that still exist.
+ */
+async function savedFields(
+  runner: GitHubRunner,
+  listed: readonly z.output<typeof fieldSchema>[],
+  wanted: readonly string[],
+): Promise<z.output<typeof fieldSchema>[]> {
+  const missing = wanted.filter((id) => listed.every((field) => field.id !== id));
+  const found: z.output<typeof fieldSchema>[] = [];
+  for (const id of missing) {
+    // eslint-disable-next-line no-await-in-loop -- At most the few saved fields, read one at a time.
+    const result = await readGraphQL(runner, `query($id: ID!) { node(id: $id) { ${SELECT_FIELDS} } }`, { id });
+    const field = dataOf(result, fieldNodeSchema)?.node;
+    if (field !== null && field !== undefined) {
+      found.push(field);
+    }
+  }
+  return found;
+}
+
+/**
+ * Read the selected Project when the listed page does not include it: by its
+ * saved node ID, else by number, so an owner's older Projects stay selectable.
+ *
+ * @param runner - GitHub CLI seam.
+ * @param owner - Owner login.
+ * @param input - Selection.
+ * @returns The Project, or null when it is not readable.
+ */
+async function unlistedProject(
+  runner: GitHubRunner,
+  owner: string,
+  input: DiscoveryInput,
+): Promise<DiscoveredProject | null> {
+  if (input.projectId !== undefined) {
+    const byId = await readGraphQL(
+      runner,
+      `query($id: ID!) { node(id: $id) { ... on ProjectV2 { ${PROJECT_FIELDS} } } }`,
+      {
+        id: input.projectId,
+      },
+    );
+    const project = dataOf(byId, projectNodeSchema)?.node ?? null;
+    if (project !== null) {
+      return project;
+    }
+  }
+  if (input.projectNumber === undefined) {
+    return null;
+  }
+  const byNumber = await readGraphQL(
+    runner,
+    `query($login: String!, $number: Int!) { repositoryOwner(login: $login) { ... on ProjectV2Owner { projectV2(number: $number) { ${PROJECT_FIELDS} } } } }`,
+    { login: owner, number: input.projectNumber },
+  );
+  return dataOf(byNumber, ownerProjectSchema)?.repositoryOwner?.projectV2 ?? null;
 }
 
 /**
@@ -286,7 +376,7 @@ async function ownerProjects(
 ): Promise<DiscoveredProject[]> {
   const result = await readGraphQL(
     runner,
-    `query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner { projectsV2(first: ${String(PROJECT_LIMIT)}, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { id number title url closed viewerCanUpdate } } } } }`,
+    `query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner { projectsV2(first: ${String(PROJECT_LIMIT)}, orderBy: { field: UPDATED_AT, direction: DESC }) { nodes { ${PROJECT_FIELDS} } } } } }`,
     { login: owner },
   );
   const projects = dataOf(result, ownerProjectsSchema)?.repositoryOwner?.projectsV2.nodes;
@@ -321,6 +411,35 @@ async function viewerRepositories(runner: GitHubRunner, errors: DiscoveryError[]
     return [];
   }
   return repositories;
+}
+
+/**
+ * The selected Project: from the listed page, else read directly.
+ *
+ * @param runner - GitHub CLI seam.
+ * @param selection - Owner, its listed Projects and the selection.
+ * @param selection.owner - Owner login.
+ * @param selection.projects - Listed Projects.
+ * @param selection.input - Selection so far.
+ * @param errors - Receives a project-step failure.
+ * @returns The Project, or null when none is selected or it is not readable.
+ */
+async function selectedProject(
+  runner: GitHubRunner,
+  selection: { owner: string; projects: readonly DiscoveredProject[]; input: DiscoveryInput },
+  errors: DiscoveryError[],
+): Promise<DiscoveredProject | null> {
+  const { owner, projects, input } = selection;
+  const listed = projects.find((candidate) => candidate.number === input.projectNumber) ?? null;
+  const isSelected = input.projectNumber !== undefined || input.projectId !== undefined;
+  const project = listed ?? (isSelected ? await unlistedProject(runner, owner, input) : null);
+  if (project === null && input.projectNumber !== undefined) {
+    errors.push({
+      step: 'project',
+      message: `Project ${String(input.projectNumber)} of ${owner} was not found; it may be deleted or unreadable by this account.`,
+    });
+  }
+  return project;
 }
 
 /**
@@ -368,14 +487,8 @@ export async function discoverGitHub(
   const named = repository?.nameWithOwner ?? input.repository;
   const owner = input.owner ?? (named === undefined ? login : repositoryParts(named).owner);
   const projects = await ownerProjects(runner, owner, errors);
-  const project = projects.find((candidate) => candidate.number === input.projectNumber) ?? null;
-  if (project === null && input.projectNumber !== undefined) {
-    errors.push({
-      step: 'project',
-      message: `Project ${String(input.projectNumber)} of ${owner} was not found; it may be deleted or unreadable by this account.`,
-    });
-  }
-  const fields = project === null ? [] : await projectFields(runner, project, errors);
+  const project = await selectedProject(runner, { owner, projects, input }, errors);
+  const fields = project === null ? [] : await projectFields(runner, project, errors, input.fieldIds);
   const capabilities = await probeCapabilities(runner, repository, project);
   return { verifiedAt: now(), login, repositories, repository, owner, projects, project, fields, capabilities, errors };
 }

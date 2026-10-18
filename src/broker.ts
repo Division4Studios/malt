@@ -111,8 +111,17 @@ const HTTP_OK = 200;
 /** Mutations requiring the current workspace's designated lead. */
 const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
   'github_connect',
+  'github_section_save',
+  'github_verify',
   'github_create_issue',
   'github_set_status',
+  'github_label_apply',
+  'github_label_manage',
+  'github_milestone_assign',
+  'github_milestone_manage',
+  'github_view_create',
+  'github_view_manage',
+  'github_field_manage',
   'learning_set_skill_state',
 ]);
 
