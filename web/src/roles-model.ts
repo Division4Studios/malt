@@ -68,6 +68,8 @@ export interface TypeDraft {
   readonly effort: string | null;
   /** How the tool list applies. */
   readonly toolMode: 'deny' | 'allow';
+  /** Deny rules saved beside an allow list; the editor keeps them unchanged. */
+  readonly keptDeny: readonly string[];
   /** Tools the mode lists. */
   readonly tools: readonly string[];
   /** Local MCP servers. */
@@ -206,6 +208,7 @@ function typeDraft(name: string, record: Data): TypeDraft {
     effort: optionalText(model, 'effort'),
     toolMode: allow.length > 0 ? 'allow' : 'deny',
     tools: allow.length > 0 ? allow : strings(tools?.['deny']),
+    keptDeny: allow.length > 0 ? strings(tools?.['deny']) : [],
     servers: objects(record['mcpServers']).map((server) => {
       return {
         name: textOf(server, 'name'),
@@ -362,6 +365,7 @@ export function blankType(name: string): TypeDraft {
     effort: null,
     toolMode: 'deny',
     tools: [],
+    keptDeny: [],
     servers: [],
     canAsk: false,
   };
@@ -537,10 +541,29 @@ function savedType(type: TypeDraft): Data {
     minimumTier: type.minimumTier,
     provider: type.provider,
     model: type.modelId === null ? null : { entryId: type.modelId, effort: type.effort },
-    tools: type.toolMode === 'allow' ? { allow: type.tools, deny: [] } : { allow: [], deny: type.tools },
+    // Deny rules kept beside an allow list still apply, and still apply when the operator switches to a deny list.
+    tools:
+      type.toolMode === 'allow'
+        ? { allow: type.tools, deny: type.keptDeny }
+        : { allow: [], deny: union(type.tools, type.keptDeny) },
     mcpServers: type.servers.map((server) => ({ name: server.name, command: server.command, args: server.args })),
     permissions: type.canAsk ? ['inbox.ask'] : [],
   };
+}
+
+/**
+ * Both lists' entries once, in order.
+ *
+ * @param first - Entries kept first.
+ * @param second - Entries added after them.
+ * @returns Distinct entries.
+ */
+function union(first: readonly string[], second: readonly string[]): string[] {
+  const all = new Set(first);
+  for (const entry of second) {
+    all.add(entry);
+  }
+  return [...all];
 }
 
 /**

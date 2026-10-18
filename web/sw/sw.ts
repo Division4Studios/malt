@@ -84,6 +84,7 @@ const SHELL = [
   '/settings-ui.js',
   '/project-views.js',
   '/roles-model.js',
+  '/roles-dom.js',
   '/roles-ui.js',
   '/secrets-model.js',
   '/secrets-ui.js',
