@@ -9,6 +9,7 @@ import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
 import {
   archiveMarkSchema,
   DELIVERY_CONTROL_OPERATIONS,
@@ -533,6 +534,7 @@ export const factorySchemas = {
   factory_workflow_default: defaultWorkflowRequestSchema,
   ...telemetrySchemas,
   ...deliveryControlSchemas,
+  ...automationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -566,5 +568,6 @@ export const FACTORY_OPERATIONS = [
   'factory_approve',
   ...TELEMETRY_OPERATIONS,
   ...DELIVERY_CONTROL_OPERATIONS,
+  ...AUTOMATION_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
