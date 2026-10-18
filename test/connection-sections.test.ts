@@ -61,7 +61,11 @@ await test('the first save needs both sections; later saves change one and keep 
   assert.equal(moved.tracker.projectId, 'PVT_5');
   assert.deepEqual(moved.source, verified.source, 'the source section is untouched');
   const renamed = savedSections(verified, { source: { repository: 'example/renamed', repositoryId: 'R_1' } }, NOW);
-  assert.deepEqual(renamed.source.repositoryAliases, ['example/old'], 'the same node keeps its aliases');
+  assert.deepEqual(
+    renamed.source.repositoryAliases,
+    ['example/old', verified.source.repository],
+    'the same node keeps its aliases and its previous name',
+  );
   const other = savedSections(verified, { source: { repository: 'example/other', repositoryId: 'R_2' } }, NOW);
   assert.deepEqual(other.source.repositoryAliases, []);
 });
