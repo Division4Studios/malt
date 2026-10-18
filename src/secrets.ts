@@ -33,7 +33,12 @@ export class SecretRedactor {
    * @param secrets - Credentials already owned by the coordinating backend.
    */
   public constructor(secrets: readonly string[]) {
-    this.secrets = secrets.filter((secret) => secret !== '').toSorted((left, right) => right.length - left.length);
+    // Structured output (provider JSON streams, final messages) carries a value with a newline, quote or
+    // backslash in its JSON-escaped form, so that form is redacted too.
+    const forms = secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1)]);
+    this.secrets = [...new Set(forms)]
+      .filter((secret) => secret !== '')
+      .toSorted((left, right) => right.length - left.length);
   }
 
   /**

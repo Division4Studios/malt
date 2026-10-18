@@ -12,6 +12,7 @@ import { t } from './i18n.js';
 import {
   ANY_PROVIDER,
   PROVIDER_CHOICES,
+  KEPT_SEATS,
   SEAT_PROFILE,
   initialChoice,
   overrideSummary,
@@ -139,6 +140,9 @@ export class StepOverrideFields {
       t('Seat'),
       [
         ['', t('Workflow: {setting}', { setting: step.roles.join(', ') })],
+        ...(choice.role === KEPT_SEATS
+          ? [[KEPT_SEATS, t('Seats: {seats}', { seats: (choice.seats ?? []).join(', ') })] as const]
+          : []),
         ...options.seats.map((name) => [name, name] as const),
       ],
       choice.role,
@@ -170,6 +174,7 @@ export class StepOverrideFields {
           stepId: step.id,
           include: include.checked,
           role: seat.select.value,
+          seats: choice.seats ?? [],
           profile: profile.select.value,
           provider: provider.select.value,
         };
