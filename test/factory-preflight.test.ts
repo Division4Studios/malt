@@ -48,6 +48,7 @@ await test('the broker-side preflight skips ports and checks the configured exec
     providers: {
       claude: { ...policySettings.providers.claude, executable: '/opt/claude' },
       codex: { ...policySettings.providers.codex, executable: '/opt/codex' },
+      copilot: policySettings.providers.copilot,
     },
   };
   const seen: string[] = [];

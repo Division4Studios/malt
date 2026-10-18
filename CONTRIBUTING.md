@@ -12,7 +12,7 @@ Dependencies name real prerequisites. Independent slices can merge separately. K
 
 ## Local development
 
-Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex/Claude subscriptions and GitHub credentials are not required for fixture tests.
+Use Node.js **24.15.0 or later within the supported 24.x line**, npm, Git and an available native shell. Docker is required only for container verification; real Codex, Claude Code or Copilot subscriptions and GitHub credentials are not required for fixture tests.
 
 ```sh
 npm ci --ignore-scripts
@@ -55,8 +55,9 @@ Review covers the current source and base. A change to either can invalidate ear
 1. Branch from current main and implement the agreed scope in an isolated checkout/worktree.
 2. Include meaningful failure-path and regression coverage. Update affected guides and API contracts.
 3. Run `npm run check`; explain the exact checks, platform, fixtures and any unverified external boundary.
-4. Check `git diff --check`, the complete staged diff and secret-scan results. Never include `.malt`, `.mlt`, provider homes, `.env`, credentials or private logs.
-5. Open a focused PR using the template. Link its issue, prerequisites, acceptance criteria and any size exception. Refresh current main and obtain fresh independent review when source or base changes.
+4. Use a Conventional Commit pull request title (`feat:`, `fix:`, `docs:`, a `(security)` or `(deps)` scope, …): `CHANGELOG.md` is generated from squash-merge subjects by `node scripts/changelog.ts`, and the `skip-changelog` label leaves a pull request out. Do not edit `CHANGELOG.md` by hand.
+5. Check `git diff --check`, the complete staged diff and secret-scan results. Never include `.malt`, `.mlt`, provider homes, `.env`, credentials or private logs.
+6. Open a focused PR using the template. Link its issue, prerequisites, acceptance criteria and any size exception. Refresh current main and obtain fresh independent review when source or base changes.
 
 Maintainers require passing quality/security gates, resolved conversations and authenticated GitHub reviews under repository protection. AI-authored changes have the same requirements. The [documented solo-maintainer exception](docs/github-controls.md) currently requires zero authenticated GitHub approvals; the intended two-reviewer/code-owner policy resumes when trusted collaborators join. Independent factory QA and final verification remain separate gates. Reviewers reproduce and report findings; the responsible author repairs them. Do not use administrator bypass or represent model comments as protected-branch approvals.
 

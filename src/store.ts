@@ -54,6 +54,7 @@ import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from '
 import {
   AGENT_STATES,
   FACTORY_OPERATIONS,
+  CAPABILITY_OPERATIONS,
   GITHUB_OPERATIONS,
   LEARNING_OPERATIONS,
   MeshError,
@@ -91,6 +92,7 @@ const NON_STORE_OPERATIONS = [
   ...FACTORY_OPERATIONS,
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,
+  ...CAPABILITY_OPERATIONS,
   'list_teams',
   'open_team',
   'register',

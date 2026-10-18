@@ -80,9 +80,11 @@ export function button(
  * @returns `<time>` element with the absolute time as its tooltip.
  */
 export function ageStamp(since: number, now: number): HTMLTimeElement {
-  const node = element('time', 'console-age', relativeAge(since, now));
-  if (since > 0) {
-    const date = new Date(since);
+  const date = new Date(since);
+  // Untrusted snapshots can carry finite numbers outside the Date range; those show as unknown.
+  const isValid = since > 0 && !Number.isNaN(date.getTime());
+  const node = element('time', 'console-age', relativeAge(isValid ? since : 0, now));
+  if (isValid) {
     node.dateTime = date.toISOString();
     node.title = formatDateTime(date);
     node.dataset['since'] = String(since);

@@ -135,8 +135,8 @@ const codexCommandSchema = z.object({
 });
 /** One Codex file change. */
 const changeSchema = z.object({ path: z.string(), kind: z.string() });
-/** Codex workspace patch. */
-const codexFileChangeSchema = z.object({ changes: z.array(changeSchema) });
+/** Codex workspace patch; a failed patch changed nothing. */
+const codexFileChangeSchema = z.object({ changes: z.array(changeSchema), status: z.string().optional() });
 /** Codex MCP tool call. */
 const codexMcpSchema = z.object({
   server: z.string(),
@@ -268,7 +268,11 @@ function claudeToolResult(builder: TranscriptSink, block: unknown): void {
  */
 function claudeMessage(builder: TranscriptSink, event: Envelope): void {
   const message = claudeMessageSchema.safeParse(event);
-  if (!message.success || typeof message.data.message.content === 'string') {
+  if (!message.success) {
+    builder.countUnknown();
+    return;
+  }
+  if (typeof message.data.message.content === 'string') {
     return;
   }
   const isAssistant = event.type === 'assistant';
@@ -343,7 +347,11 @@ function claudeResult(builder: TranscriptSink, event: Envelope): void {
  */
 function claudeRate(builder: TranscriptSink, event: Envelope): void {
   const rate = claudeRateSchema.safeParse(event);
-  if (!rate.success || rate.data.rate_limit_info.status === 'allowed') {
+  if (!rate.success) {
+    builder.countUnknown();
+    return;
+  }
+  if (rate.data.rate_limit_info.status === 'allowed') {
     return;
   }
   const { status } = rate.data.rate_limit_info;
@@ -479,6 +487,8 @@ function codexCompleted(builder: TranscriptSink, item: Item): void {
     builder.text('assistant', 'Assistant', text.data.text);
   } else if (item.type === 'reasoning' && text.success) {
     builder.text('thinking', 'Thinking', text.data.text);
+  } else if (item.type === 'file_change' && changes.success && changes.data.status === 'failed') {
+    builder.text('status', 'Patch failed', 'The provider could not apply a patch; no files changed.', 'warning');
   } else if (item.type === 'file_change' && changes.success) {
     builder.fileChange(changes.data.changes);
   } else if (item.type === 'todo_list' && todo.success) {
