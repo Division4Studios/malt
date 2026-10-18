@@ -13,6 +13,7 @@ import { z } from 'zod/v3';
 import { selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
+import { MERGE_GATE_STEP } from './gate-schema.ts';
 import { isStepSatisfied, legacyWorkflow, withGates } from './pipeline.ts';
 import { stepOverridesControlSchema } from './step-override-schema.ts';
 import { overrideProblems } from './step-overrides.ts';
@@ -85,7 +86,12 @@ function assertChange(
   started: ReadonlySet<string>,
   changed: readonly string[],
 ): void {
-  const problems = overrideProblems(workflow, overrides);
+  // The merge approval is added after overrides apply, so an override naming it would discard the whole list.
+  const isGateNamed = overrides.some((override) => override.stepId === MERGE_GATE_STEP);
+  const problems = [
+    ...overrideProblems(workflow, overrides),
+    ...(isGateNamed ? ['The merge approval has no settings to override; turn the merge gate on or off instead.'] : []),
+  ];
   if (problems.length > 0) {
     throw new MeshError('INVALID_INPUT', problems.join(' '));
   }
@@ -124,8 +130,9 @@ export function startedDeliverySteps(
   return new Set(
     workflow.delivery
       .filter((step) => {
+        // A delivery can be blocked (its issue closed) before any attempt, so the phase alone is no evidence.
         return step.kind === 'implement'
-          ? task.phase !== 'ready'
+          ? task.attempts > 0 || task.head !== null || attempted.has(attemptKey(task.id, task.featureId, step.id))
           : task.approvals.some((approval) => approval.stepId === step.id) ||
               task.stepResults.some((result) => result.stepId === step.id) ||
               isStepSatisfied(task, workflow, step) ||

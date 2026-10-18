@@ -21,6 +21,7 @@ import { run, selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
+import { attemptSecrets } from './attempt-secrets.ts';
 import { credentialValues } from './authentication.ts';
 import { canAsk } from './organization.ts';
 import { answerSchema, askSchema, questionSchema } from './question-schema.ts';
@@ -185,7 +186,12 @@ export function askQuestion(
     throw new MeshError('INVALID_INPUT', 'Choices must be distinct.');
   }
   const job = managedSourceJob(context, actorId);
-  const redactor = new SecretRedactor([context.mesh.token, ...credentialValues(process.env)]);
+  // The attempt's granted secrets live only in its provider environment; redact them here too.
+  const redactor = new SecretRedactor([
+    context.mesh.token,
+    ...credentialValues(process.env),
+    ...attemptSecrets(context, job),
+  ]);
   const question = redactor.redact(value.question);
   // Redacted once, so an identical retry compares against exactly what was stored.
   const choices = value.choices.map((choice) => redactor.redact(choice));

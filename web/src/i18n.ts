@@ -222,7 +222,11 @@ export function formatMessage(template: string, parameters: MessageParameters, l
  * @returns Translated, filled text; English when no translation exists.
  */
 export function t(source: string, parameters: MessageParameters = {}): string {
-  return formatMessage(CATALOGS[state.locale][source] ?? source, parameters, state.locale);
+  const translation = CATALOGS[state.locale][source];
+  // An untranslated message is English, so English plural rules choose its branch.
+  return translation === undefined
+    ? formatMessage(source, parameters, 'en')
+    : formatMessage(translation, parameters, state.locale);
 }
 
 /** Source texts marked with `phrase`, the only strings `translated` tables translate. */
@@ -530,9 +534,38 @@ function translateAttributes(node: Element, from: Locale): void {
   }
 }
 
+/** Elements whose text is always literal content, never console labels. */
+const LITERAL_TAGS: ReadonlySet<string> = new Set(['pre', 'code', 'textarea']);
+
+/**
+ * Mark an element as recorded content (a report, transcript, log or result)
+ * that a language change must leave as it was recorded; browsers' own page
+ * translation leaves it alone too.
+ *
+ * @param node - Element showing project or model text.
+ * @returns The same element.
+ */
+export function keepLiteral<Node extends HTMLElement>(node: Node): Node {
+  node.setAttribute('translate', 'no');
+  return node;
+}
+
+/**
+ * Skip literal subtrees while translating.
+ *
+ * @param node - Visited node.
+ * @returns Whether the walker visits it and its descendants.
+ */
+function literalFilter(node: Node): number {
+  return node instanceof HTMLElement && (LITERAL_TAGS.has(node.localName) || node.getAttribute('translate') === 'no')
+    ? NodeFilter.FILTER_REJECT
+    : NodeFilter.FILTER_ACCEPT;
+}
+
 /**
  * Translate every known message under a root from one language into the one
- * in force: text nodes and text attributes. The shell is translated this way
+ * in force: text nodes and text attributes, except recorded content marked
+ * {@link keepLiteral}. The shell is translated this way
  * at startup, and every view is after a language change, so text built once
  * in a constructor changes without a reload.
  *
@@ -543,7 +576,7 @@ export function translateTree(root: Element, from: Locale): void {
   if (from === state.locale) {
     return;
   }
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL, { acceptNode: (node) => literalFilter(node) });
   for (let node: Node | null = walker.currentNode; node !== null; node = walker.nextNode()) {
     if (node instanceof Text) {
       const next = retranslated(node.data, from);

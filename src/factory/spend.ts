@@ -32,6 +32,8 @@ import type { SpendCaps, SpendChoice, SpendScope, SpendStatus, SpendUsage } from
 
 /** Settled attempts priced per refresh, bounding stream reads in one tick. */
 const REFRESH_BATCH = 20;
+/** Upper bound on refresh batches one drain runs, a guard against a row that never settles. */
+const DRAIN_BATCHES = 500;
 /** Stream reads in flight at once. */
 const READ_BATCH = 16;
 /** Milliseconds in one day. */
@@ -398,6 +400,26 @@ function openScopes(repository: FactoryRepository): { features: Feature[]; tasks
     features: repository.features().filter((feature) => isOpen(feature)),
     tasks: repository.tasks().filter((task) => isOpen(task)),
   };
+}
+
+/**
+ * Record settled attempts' spend before admission. While caps are set, an
+ * attempt not yet recorded (or repriced) may already exceed one, so every
+ * pending batch is recorded before the gate is read; without caps one batch
+ * per pass keeps the cost views current.
+ *
+ * @param repository - Selected project ledger.
+ * @param mesh - Project paths for attempt streams.
+ */
+export async function drainSpend(repository: FactoryRepository, mesh: MeshConfig): Promise<void> {
+  let recorded = await refreshSpend(repository, mesh);
+  for (let batch = 1; recorded === REFRESH_BATCH && batch < DRAIN_BATCHES; batch += 1) {
+    if (!hasCaps(readCaps(repository.store).caps)) {
+      return;
+    }
+    // eslint-disable-next-line no-await-in-loop -- Each batch reads the rows the previous one left.
+    recorded = await refreshSpend(repository, mesh);
+  }
 }
 
 /**
