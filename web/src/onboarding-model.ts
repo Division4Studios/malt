@@ -187,11 +187,11 @@ function startedRole(factory: Data, featureId: string): FirstOutcome | null {
     state: 'started',
     text:
       running === undefined
-        ? t('{role} ran {kind} on {provider} ({value}). Follow it on the Board and in Sessions.', {
+        ? t('{role} ran {kind} on {provider} ({state}). Follow it on the Board and in Sessions.', {
             role,
             kind,
             provider,
-            value: text(latest, 'state'),
+            state: text(latest, 'state'),
           })
         : t('{role} started {kind} on {provider}. Follow it on the Board and in Sessions.', { role, kind, provider }),
   };
@@ -262,8 +262,8 @@ export function firstOutcome(factory: Data, now: number): FirstOutcome {
     text:
       waited > SLOW_START_MS
         ? t(
-            'No role has started for {value} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.',
-            { value: String(Math.floor(waited / MINUTE_MS)) },
+            'No role has started for {minutes} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.',
+            { minutes: String(Math.floor(waited / MINUTE_MS)) },
           )
         : t('Queued. A role normally starts within one scheduling cycle, a few seconds.'),
   };
@@ -344,7 +344,9 @@ export function onboardingSteps(
       title: t('Connect the GitHub repository and Project'),
       progress: isConnected ? 'done' : 'todo',
       detail: isConnected
-        ? t('Connected to {value}.', { value: firstText(text(connection, 'repository'), 'the selected repository') })
+        ? t('Connected to {repository}.', {
+            repository: firstText(text(connection, 'repository'), t('the selected repository')),
+          })
         : t('Choose the repository and the GitHub Project its deliveries appear in.'),
     },
     {

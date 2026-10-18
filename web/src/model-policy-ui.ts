@@ -186,12 +186,13 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
   panel.dataset['editorFields'] = '';
   panel.dataset['modelPolicy'] = '';
   const revision = typeof policy['revision'] === 'number' ? policy['revision'] : null;
+  const shownRevision = revision ?? t('none');
   panel.append(
     element(
       'p',
       'subtle',
-      t('Editing revision {value}. Save requires a paused, settled factory. Unknown quota stays unknown.', {
-        value: revision ?? 'none',
+      t('Editing revision {revision}. Save requires a paused, settled factory. Unknown quota stays unknown.', {
+        revision: shownRevision,
       }),
     ),
   );

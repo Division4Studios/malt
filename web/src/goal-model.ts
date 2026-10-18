@@ -7,8 +7,10 @@
  */
 import { asData } from './console-model.js';
 import { phrase, t, translated } from './i18n.js';
+import { parseCustomization } from './step-override-model.js';
 
 import type { Data } from './api.js';
+import type { Customization } from './step-override-model.js';
 
 /** Checklist states. */
 export const DONE_STATES = ['open', 'proposed', 'checked', 'waived'] as const;
@@ -66,6 +68,8 @@ export interface Goal {
   readonly proposed: number;
   /** Whether every delivery is done but the checklist is not met. */
   readonly awaitsDefinition: boolean;
+  /** Step override editor state, while the objective has not started delivering. */
+  readonly customization: Customization | null;
 }
 
 /** One progress log entry. */
@@ -226,6 +230,7 @@ function parseGoal(record: Data): Goal | null {
     met: numberOf(definition, 'met'),
     proposed: numberOf(definition, 'proposed'),
     awaitsDefinition: record['awaitsDefinition'] === true,
+    customization: parseCustomization(record['customization']),
   };
 }
 
@@ -318,7 +323,7 @@ export function checklistInput(goal: Goal, rows: readonly ChecklistRow[]): { inp
   const items: Data[] = [];
   for (const [index, row] of filled.entries()) {
     const text = row.text.trim();
-    const label = t('Item {value}', { value: index + 1 });
+    const label = t('Item {number}', { number: index + 1 });
     if (text === '' || text.length > ITEM_TEXT_MAX) {
       return {
         error: t('{label} needs text of at most {itemTextMax} characters.', {

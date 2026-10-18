@@ -74,7 +74,7 @@ function identityProblems(step: DraftStep): string[] {
   }
   if (step.title.trim() === '') {
     messages.push(
-      t('The {value} step "{id}" needs a title.', { value: KIND_LABELS[step.kind] ?? step.kind, id: step.id }),
+      t('The {kind} step "{id}" needs a title.', { kind: KIND_LABELS[step.kind] ?? step.kind, id: step.id }),
     );
   }
   return messages;

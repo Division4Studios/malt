@@ -734,9 +734,7 @@ export function relativeAge(since: number, now: number): string {
   if (elapsed < MINUTE_MS) {
     return t('just now');
   }
-  return elapsed < DAY_MS
-    ? `${formatDuration(elapsed)} ago`
-    : t('{value}d ago', { value: Math.floor(elapsed / DAY_MS) });
+  return elapsed < DAY_MS ? `${formatDuration(elapsed)} ago` : t('{days}d ago', { days: Math.floor(elapsed / DAY_MS) });
 }
 
 /**
@@ -849,20 +847,20 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
  * @returns Text such as `Progressing · tool Bash 2m 10s ago · next checkpoint in 8m 00s`.
  */
 export function livenessText(liveness: Liveness, now: number): string {
-  const checkpoint = t('next checkpoint in {value}', {
-    value: formatDuration(Math.max(0, liveness.nextCheckpointAt - now)),
+  const checkpoint = t('next checkpoint in {wait}', {
+    wait: formatDuration(Math.max(0, liveness.nextCheckpointAt - now)),
   });
   const extended = liveness.extensions === 0 ? '' : t(' · extended {extensions}×', { extensions: liveness.extensions });
   if (liveness.state === 'awaiting_input') {
-    return t('Awaiting input · {value} · {checkpoint}{extended}', {
-      value: liveness.awaiting ?? 'a permission or an answer',
+    return t('Awaiting input · {awaiting} · {checkpoint}{extended}', {
+      awaiting: liveness.awaiting ?? t('a permission or an answer'),
       checkpoint,
       extended,
     });
   }
   const signal =
     liveness.lastSignal === null
-      ? t('no progress yet, started {value}', { value: relativeAge(liveness.lastProgressAt, now) })
+      ? t('no progress yet, started {age}', { age: relativeAge(liveness.lastProgressAt, now) })
       : `${liveness.lastSignal} ${relativeAge(liveness.lastProgressAt, now)}`;
   const state = t(liveness.state === 'progressing' ? 'Progressing' : 'Idle');
   return `${state} · ${signal} · ${checkpoint}${extended}`;
@@ -881,5 +879,5 @@ export function retryText(retry: Retry, now: number): string {
   const what = `${label.charAt(0).toUpperCase()}${label.slice(1)} ${times}`;
   return retry.retryAt === null
     ? t('{what} · out of automatic retries; recover it or change its scope', { what })
-    : t('{what} · retrying in {value}', { what, value: formatDuration(Math.max(0, retry.retryAt - now)) });
+    : t('{what} · retrying in {wait}', { what, wait: formatDuration(Math.max(0, retry.retryAt - now)) });
 }

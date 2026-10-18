@@ -333,8 +333,8 @@ export function overrideSummary(steps: readonly CustomStep[], overrides: readonl
   const skipped = overrides.filter((override) => override.skip === true).map((override) => title(override.stepId));
   const changed = overrides.filter((override) => override.skip !== true).map((override) => title(override.stepId));
   const parts = [
-    ...(skipped.length > 0 ? [t('Skips {value}', { value: skipped.join(', ') })] : []),
-    ...(changed.length > 0 ? [t('changes who performs {value}', { value: changed.join(', ') })] : []),
+    ...(skipped.length > 0 ? [t('Skips {steps}', { steps: skipped.join(', ') })] : []),
+    ...(changed.length > 0 ? [t('changes who performs {steps}', { steps: changed.join(', ') })] : []),
   ];
   const sentence = parts.join('; ');
   return sentence === '' ? '' : `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)}.`;

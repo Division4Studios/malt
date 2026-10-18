@@ -158,9 +158,9 @@ export function metricsLine(metrics: Data): string {
     `${formatTokens(optionalNumber(tokens, 'total'))} tokens`,
     formatCost(optionalNumber(cost, 'usd'), text(cost, 'source')),
     formatDuration(optionalNumber(metrics, 'durationMs')),
-    t('{value} tool calls ({value2} failed)', {
-      value: number(tools, 'total'),
-      value2: number(tools, 'failed'),
+    t('{total} tool calls ({failed} failed)', {
+      total: number(tools, 'total'),
+      failed: number(tools, 'failed'),
     }),
     `${String(number(metrics, 'filesTouched'))} files`,
   ].join(' · ');
