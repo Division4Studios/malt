@@ -219,8 +219,11 @@ export class StepOverrideDialog {
     });
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, this.save);
+    const heading = element('h2', '', t('Customize steps'));
+    heading.id = `override-dialog-${crypto.randomUUID()}`;
+    this.element.setAttribute('aria-labelledby', heading.id);
     form.append(
-      element('h2', '', t('Customize steps')),
+      heading,
       element(
         'p',
         'subtle',

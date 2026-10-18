@@ -132,6 +132,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_jobs_by_start ON factory_jobs(json_extract(data, '$.startedAt') DESC, id DESC);
       CREATE INDEX IF NOT EXISTS factory_job_checkpoints ON factory_jobs(json_extract(data, '$.checkpoint.state'));
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
@@ -458,6 +459,30 @@ export class FactoryRepository {
           `Issue #${String(task.issue)}: ${task.phase}. ${task.error ?? task.feedback.at(-1) ?? task.title}`,
         );
       }
+      return task;
+    });
+  }
+
+  /**
+   * Record an operator mark such as a hold or an archive choice without
+   * bumping the delivery's version, so a running attempt fenced on that version
+   * still publishes normally.
+   *
+   * @param id - Delivery identity.
+   * @param change - Pure edit that touches only operator marks.
+   * @returns Stored delivery.
+   */
+  public markTask(id: string, change: (task: FactoryTask) => FactoryTask): FactoryTask {
+    return this.store.transaction(() => {
+      const previous = this.task(id);
+      const task = taskSchema.parse({ ...change(previous), version: previous.version, updatedAt: previous.updatedAt });
+      this.putTask(task);
+      this.store.event('FACTORY_TASK_UPDATED', null, {
+        taskId: id,
+        issue: task.issue,
+        phase: task.phase,
+        head: task.head,
+      });
       return task;
     });
   }
