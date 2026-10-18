@@ -1,7 +1,8 @@
 /**
- * The Project group's own stable views: first-run onboarding ("Get started")
- * and Settings. Both reuse the shell's existing dialogs through its actions,
- * read their extra routes (`/api/preflight`, `/api/version`) themselves, and
+ * The Project group's own stable views: first-run onboarding ("Get started"),
+ * Settings and Recommendations. Both reuse the shell's existing dialogs through its actions,
+ * read their extra routes (`/api/preflight`, `/api/version`,
+ * `/api/recommendations`) themselves, and
  * survive snapshot pushes. Onboarding opens by itself once per project while
  * the project still needs setup, unless the operator dismissed it in this
  * browser.
@@ -12,10 +13,12 @@ import { request, scoped } from './api.js';
 import { onLocaleChange, t } from './i18n.js';
 import { isDismissed, isOnboardingNeeded, setDismissed } from './onboarding-model.js';
 import { createOnboardingView } from './onboarding-ui.js';
+import { createRecommendationsView } from './recommendations-ui.js';
 import { createSettingsView } from './settings-ui.js';
 
 import type { Data } from './api.js';
 import type { OnboardingHandle } from './onboarding-ui.js';
+import type { RecommendationsHandle } from './recommendations-ui.js';
 import type { SettingsHandle } from './settings-ui.js';
 
 /** What the Project views need from the shell. */
@@ -37,7 +40,9 @@ export interface ProjectViewHooks {
 }
 
 /** Views owned by this module. */
-export type ProjectView = 'onboarding' | 'settings';
+export type ProjectView = 'onboarding' | 'settings' | 'recommendations';
+/** Recommendation counts are re-read at most this often from snapshot pushes. */
+const RECOMMENDATION_POLL_MS = 15_000;
 
 /** The Project group's stable views. */
 export class ProjectViews {
@@ -45,6 +50,10 @@ export class ProjectViews {
   private readonly onboarding: OnboardingHandle;
   /** Appearance, provider health and build facts. */
   private readonly settings: SettingsHandle;
+  /** Product owner and lead ticket proposals. */
+  private readonly recommendations: RecommendationsHandle;
+  /** Project and time of the last recommendation read. */
+  private polled = { project: '', at: 0 };
   /** Projects whose first snapshot already had the chance to open onboarding. */
   private readonly offered = new Set<string>();
   /** Project whose routes the shown view last loaded; a new one reloads them. */
@@ -110,10 +119,20 @@ export class ProjectViews {
         { label: t('Get started guide'), action: open('onboarding') },
       ],
     });
+    this.recommendations = createRecommendationsView({
+      list: async (after) => {
+        const cursor = after === null ? '' : `&after=${encodeURIComponent(after)}`;
+        return await request(`${scoped(hooks.project(), '/api/recommendations')}${cursor}`);
+      },
+      markRead: async (id, revision) =>
+        await request(scoped(hooks.project(), '/api/recommendation/read'), { id, revision }),
+    });
+    // Recommendations redraw their own labels: proposal text must never pass through catalog translation.
     onLocaleChange(
       () => [this.onboarding.element, this.settings.element],
       () => {
         void this.settings.refresh();
+        this.recommendations.relabel();
       },
     );
   }
@@ -130,11 +149,23 @@ export class ProjectViews {
     this.onboarding.update(snapshot);
     this.settings.update(snapshot);
     const project = this.hooks.project();
-    if (project === this.loadedFor) {
+    if (project !== this.loadedFor) {
+      this.loadedFor = project;
+      this.shown(view);
+    }
+    if (project !== this.polled.project) {
+      this.recommendations.reset();
+    } else if (Date.now() - this.polled.at < RECOMMENDATION_POLL_MS) {
       return;
     }
-    this.loadedFor = project;
-    this.shown(view);
+    this.polled = { project, at: Date.now() };
+    void this.recommendations.refresh();
+  }
+
+  /** Forget the previous project's recommendations as soon as the selection changes. */
+  public clear(): void {
+    this.recommendations.reset();
+    this.polled = { project: '', at: 0 };
   }
 
   /**
@@ -144,7 +175,8 @@ export class ProjectViews {
    * @returns Stable root element.
    */
   public element(view: ProjectView): HTMLElement {
-    return view === 'onboarding' ? this.onboarding.element : this.settings.element;
+    return { onboarding: this.onboarding, settings: this.settings, recommendations: this.recommendations }[view]
+      .element;
   }
 
   /**
@@ -153,7 +185,11 @@ export class ProjectViews {
    * @returns Builders keyed by view.
    */
   public builders(): Record<ProjectView, () => HTMLElement> {
-    return { settings: () => this.settings.element, onboarding: () => this.onboarding.element };
+    return {
+      onboarding: () => this.element('onboarding'),
+      settings: () => this.element('settings'),
+      recommendations: () => this.element('recommendations'),
+    };
   }
 
   /**
@@ -162,10 +198,23 @@ export class ProjectViews {
    * @param view - Route just selected.
    */
   public shown(view: string): void {
-    if (view === 'onboarding') {
-      void this.onboarding.check();
-    } else if (view === 'settings') {
-      void this.settings.refresh();
+    switch (view) {
+      case 'onboarding': {
+        void this.onboarding.check();
+
+        break;
+      }
+      case 'settings': {
+        void this.settings.refresh();
+
+        break;
+      }
+      case 'recommendations': {
+        void this.recommendations.refresh();
+
+        break;
+      }
+      // No default
     }
   }
 

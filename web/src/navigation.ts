@@ -13,7 +13,7 @@ const GROUPS = {
   workflow: ['workflow', 'team', 'workflows', 'roles', 'pulls'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'settings', 'learning', 'secrets', 'onboarding'],
+  project: ['setup', 'settings', 'recommendations', 'learning', 'secrets', 'onboarding'],
 };
 
 /**
@@ -77,6 +77,7 @@ export type View =
   | 'learning'
   | 'setup'
   | 'settings'
+  | 'recommendations'
   | 'onboarding';
 
 /** UI navigation descriptions. */
@@ -126,6 +127,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
   settings: [
     phrase('Settings.'),
     phrase('Appearance, provider health and build facts, with every setting one step away.'),
+  ],
+  recommendations: [
+    phrase('Recommendations.'),
+    phrase('Ticket proposals from the product owner and team lead, by state, with their evidence.'),
   ],
   onboarding: [
     phrase('Get started.'),

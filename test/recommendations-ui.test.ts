@@ -1,7 +1,9 @@
 /** @file Project → Recommendations rendered into a text-only DOM: inert text, poll stability, keyboard rows, read receipts and counts. */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
+import { useLocale } from '../web/dist/i18n.js';
 import { createRecommendationsView } from '../web/dist/recommendations-ui.js';
 
 import { FakeElement, fake, installDom } from './dom-shim.ts';
@@ -279,4 +281,54 @@ await test('more than one page is reachable through the cursor', async (t) => {
   });
   assert.deepEqual(after, [null, null, 'e'.repeat(64)]);
   assert.equal(root.querySelectorAll('li').length, 2);
+});
+
+await test('the pane lives under Project without a new top-level section', () => {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Reads only this repository's shell.
+  const shell = readFileSync(new URL('../web/index.html', import.meta.url), 'utf8');
+  assert.equal(shell.match(/data-group="/gv)?.length, 7);
+  const project = shell.slice(shell.indexOf('data-navigation="project"'));
+  assert.ok(project.slice(0, project.indexOf('</div>')).includes('data-view="recommendations"'));
+});
+
+await test('a language change relabels the pane but keeps proposal text exactly as sent', async (t) => {
+  const dom = installDom(t);
+  t.after(() => {
+    useLocale('en');
+  });
+  const pane = createRecommendationsView({
+    list: async () => {
+      await Promise.resolve();
+      return {
+        items: [
+          {
+            id: 'a'.repeat(64),
+            revision: 'b'.repeat(64),
+            state: 'awaiting_human',
+            unread: false,
+            body: {
+              kind: 'related',
+              tickets: [4],
+              action: 'Pending',
+              evidence: [],
+              preview: { before: 'Before', after: 'After' },
+            },
+          },
+        ],
+        counts: { unread: 0, pending: 1 },
+        contentRevision: 'c'.repeat(64),
+      };
+    },
+    markRead: async () => {
+      await Promise.resolve();
+      return {};
+    },
+  });
+  const root = fake(pane.element);
+  dom.body.append(root);
+  await pane.refresh();
+  useLocale('zh-CN');
+  pane.relabel();
+  assert.match(root.textContent, /待处理（1）/v, 'labels follow the new language');
+  assert.match(root.textContent, /相关工单 · #4 · Pending/v, 'the proposal action stays as sent');
 });

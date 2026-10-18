@@ -32,7 +32,9 @@
           <button data-group="workflow" data-view="workflow" class="nav"><span>◎</span> Workflow</button>
           <button data-group="workers" data-view="sessions" class="nav"><span>▣</span> Sessions</button>
           <button data-group="costs" data-view="costs" class="nav"><span>◔</span> Costs</button>
-          <button data-group="project" data-view="setup" class="nav"><span>⚙</span> Project</button>
+          <button data-group="project" data-view="setup" class="nav">
+            <span>⚙</span> Project <span id="recommendation-count" class="nav-count" hidden></span>
+          </button>
         </nav>
         <div class="rail-note">
           <span class="signal-dot"></span> LOCAL FIRST
@@ -94,6 +96,7 @@
           <div data-navigation="project" hidden>
             <button data-view="setup" class="nav">Setup & capacity</button
             ><button data-view="settings" class="nav">Settings</button
+            ><button data-view="recommendations" class="nav">Recommendations</button
             ><button data-view="learning" class="nav">Learning & skills</button
             ><button data-view="secrets" class="nav">Secrets</button
             ><button data-view="onboarding" class="nav">Get started</button>
