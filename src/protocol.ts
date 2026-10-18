@@ -744,6 +744,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     "Designated lead or operator: list one workflow's revisions, current first: every revision the project saved and every revision an objective or delivery froze, each with its full definition, save time, and the objectives and deliveries that run it.",
   factory_ask:
     'Live managed assignment on a delivery or objective only: ask the operator one question you cannot resolve from the brief, code or evidence, with up to six choices and optionally a written answer. Use a stable key; retries deduplicate. Then end the assignment with outcome blocked and the question as summary: the result is set aside without counting as a failed attempt, and this step runs again with the answer in its context. Never ask for secrets.',
+  factory_checkpoint_decide:
+    'Human operator only: decide a productive attempt that a checkpoint held for want of verified quota or machine headroom, or that reached its ceiling. continue (with minutes, 5–240) re-runs the step once from its preserved worktree with that bound and no extension gate; wait leaves it to normal retries. Fenced by the attempt and the delivery head; a repeated requestId reports the first result.',
   factory_answer:
     'Human operator only: answer one open agent question once, with one of its choices and/or text. Repeating the request id reports the first result. The step that asked runs again with the answer.',
   factory_gates:

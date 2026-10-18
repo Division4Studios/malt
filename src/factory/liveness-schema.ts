@@ -87,6 +87,22 @@ export const checkpointSchema = z
 /** One checkpoint decision. */
 export type Checkpoint = z.output<typeof checkpointSchema>;
 
+/** Operator input deciding one checkpoint, fenced by attempt and source. */
+export const checkpointDecideSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    requestId: z.string().uuid(),
+    action: z.enum(['continue', 'wait']),
+    minutes: z.number().int().min(CONTINUE_MIN_MINUTES).max(CONTINUE_MAX_MINUTES).optional(),
+    /** The delivery head the operator saw; a moved head makes the decision stale. */
+    expectedHead: z.string().nullable().optional(),
+  })
+  .strict();
+/** Checkpoint operations. */
+export const CHECKPOINT_OPERATIONS = ['factory_checkpoint_decide'] as const;
+/** Their input schemas. */
+export const checkpointSchemas = { factory_checkpoint_decide: checkpointDecideSchema };
+
 /** Why an attempt did not succeed, which decides when its step may run again. */
 export const FAILURE_CLASSES = [
   'rate_limit',

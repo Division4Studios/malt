@@ -23,6 +23,7 @@ export const INBOX_KINDS = [
   'approval',
   'plan_approval',
   'question',
+  'checkpoint',
   'blocked_delivery',
   'blocked_objective',
   'skill',
