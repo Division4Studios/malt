@@ -2,25 +2,33 @@
  * Project → Recommendations: the product owner's and lead's ticket proposals
  * by lane, with tickets, evidence and an unread marker. Rows are buttons, so
  * the keyboard alone opens them; opening an unread row records it as read.
- * Polling an unchanged page leaves the DOM and focus alone. Read-only: the
- * decision controls are separate. All external text is set as text.
+ * Polling an unchanged page leaves the DOM and focus alone. An opened row
+ * loads its full detail: the context a decision rests on. All external text
+ * is set as text.
  *
  * @file
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { t } from './i18n.js';
+import { recommendationContext } from './recommendation-decision.js';
 import {
   LANE_LABELS,
   countLabel,
   kindLabel,
   laneGroups,
+  readDetail,
   readPage,
   renderKey,
   ticketText,
 } from './recommendations-model.js';
 import { element } from './worker-ui.js';
 
-import type { RecommendationCounts, RecommendationPage, RecommendationSummary } from './recommendations-model.js';
+import type {
+  RecommendationCounts,
+  RecommendationDetail,
+  RecommendationPage,
+  RecommendationSummary,
+} from './recommendations-model.js';
 
 /** Routes the pane reads through the shell. */
 export interface RecommendationsHooks {
@@ -28,6 +36,8 @@ export interface RecommendationsHooks {
   readonly list: (after: string | null) => Promise<unknown>;
   /** Record that the operator opened one exact revision. */
   readonly markRead: (id: string, revision: string) => Promise<unknown>;
+  /** Read one recommendation's current detail. */
+  readonly detail: (id: string) => Promise<unknown>;
 }
 
 /** A mounted Recommendations pane. */
@@ -77,6 +87,8 @@ class RecommendationsView implements RecommendationsHandle {
   private extraPages = 0;
   /** Bumped by `reset`, so a read started for the previous project is discarded. */
   private generation = 0;
+  /** Full detail of the open row. */
+  private opened: RecommendationDetail | null = null;
 
   /**
    * Build the pane.
@@ -117,6 +129,7 @@ class RecommendationsView implements RecommendationsHandle {
     this.generation += 1;
     this.page = null;
     this.selected = null;
+    this.opened = null;
     this.error = '';
     this.extraPages = 0;
     this.shown = '';
@@ -165,8 +178,13 @@ class RecommendationsView implements RecommendationsHandle {
    */
   private async open(item: RecommendationSummary): Promise<void> {
     this.selected = this.selected === item.id ? null : item.id;
+    this.opened = null;
     this.render();
-    if (this.selected === null || !item.isUnread) {
+    if (this.selected === null) {
+      return;
+    }
+    await this.load(item.id);
+    if (!item.isUnread) {
       return;
     }
     const started = this.generation;
@@ -181,9 +199,37 @@ class RecommendationsView implements RecommendationsHandle {
     }
   }
 
+  /**
+   * Read the open row's full detail.
+   *
+   * @param id - Open recommendation.
+   */
+  private async load(id: string): Promise<void> {
+    const started = this.generation;
+    try {
+      const detail = readDetail(await this.hooks.detail(id));
+      if (started !== this.generation || this.selected !== id) {
+        return;
+      }
+      this.opened = detail;
+    } catch (error) {
+      if (started !== this.generation) {
+        return;
+      }
+      this.error = error instanceof Error ? error.message : t('The recommendation could not be read.');
+    }
+    this.render();
+  }
+
   /** Rebuild the pane when its key changed, keeping focus on the same row. */
   private render(): void {
-    const key = JSON.stringify([this.page === null ? null : renderKey(this.page), this.selected, this.error]);
+    const key = JSON.stringify([
+      this.page === null ? null : renderKey(this.page),
+      this.selected,
+      this.opened?.revision ?? null,
+      this.opened?.state ?? null,
+      this.error,
+    ]);
     if (key === this.shown) {
       return;
     }
@@ -278,6 +324,9 @@ class RecommendationsView implements RecommendationsHandle {
       element('dd', '', item.after),
     );
     detail.append(element('h4', '', t('Evidence')), evidence, preview);
+    if (this.opened?.id === item.id) {
+      detail.append(recommendationContext(this.opened));
+    }
     return detail;
   }
 }

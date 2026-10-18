@@ -88,6 +88,7 @@ const SHELL = [
   '/settings-model.js',
   '/recommendations-model.js',
   '/recommendations-ui.js',
+  '/recommendation-decision.js',
   '/settings-ui.js',
   '/shell-state.js',
   '/project-views.js',
