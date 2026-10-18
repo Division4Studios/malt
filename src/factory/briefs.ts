@@ -110,5 +110,6 @@ export function briefPlan(objective: string): AgentResult {
     ],
     skillActions: [],
     instructionReceipts: [],
+    dispositions: [],
   };
 }
