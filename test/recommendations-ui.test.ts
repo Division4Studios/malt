@@ -214,6 +214,8 @@ await test('a receipt settling after a project reset does not reach the new proj
       });
       throw new Error('Old project receipt refused.');
     },
+    detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
@@ -261,6 +263,8 @@ await test('a change on an earlier loaded page redraws the pane', async (t) => {
       await Promise.resolve();
       return {};
     },
+    detail: unusedDetail,
+    decide: unusedDetail,
   });
   const root = fake(pane.element);
   dom.body.append(root);
