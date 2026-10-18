@@ -169,6 +169,7 @@ const WORKER_FILES = [
   'prepare-evidence.json',
   'test-evidence.json',
   'end-to-end-evidence.json',
+  'failure.json',
 ] as const;
 /** A set accepts untrusted select values without an unsafe union assertion. */
 const allowedFiles = new Set<string>(WORKER_FILES);

@@ -42,7 +42,7 @@ export const SEATS = [
   'regression-verifier',
 ] as const;
 /** Provider families a step may prefer (mirrors `PROVIDERS`). */
-export const PROVIDERS = ['codex', 'claude'] as const;
+export const PROVIDERS = ['codex', 'claude', 'copilot'] as const;
 /** Section bounds (mirror the schema maxima), so the editor stops adding before the server refuses. */
 export const MAX_STEPS = { planning: 12, delivery: 24 } as const;
 /** Longest valid key. */
@@ -670,11 +670,13 @@ export function copyNames(
   const ids = new Set(library.items.map((item) => item.id));
   const names = new Set(library.items.map((item) => item.workflow.name));
   const stem = workflow.id.slice(0, KEY_MAX - COPY_SUFFIX.length);
-  let name = `${workflow.name} (copy)`;
+  // Shorten the original so the suffix always fits the saved name limit.
+  const fit = (suffix: string): string => `${workflow.name.slice(0, TITLE_MAX - suffix.length)}${suffix}`;
+  let name = fit(' (copy)');
   let index = 1;
   while (names.has(name)) {
     index += 1;
-    name = t('{name} (copy {index})', { name: workflow.name, index });
+    name = fit(t(' (copy {index})', { index }));
   }
   return { id: uniqueKey(`${stem}${COPY_SUFFIX}`, ids), name };
 }
