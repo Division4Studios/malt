@@ -7,16 +7,12 @@
  *
  * @file
  */
-import { records, text } from './api.js';
 import { t } from './i18n.js';
 import { NEAR_SHARE, NO_CAP, capProgress, capsInput, overrideText, readSpend } from './spend-model.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 import type { CapsForm, SpendStatus, SpendUsage } from './spend-model.js';
-
-/** Grouping key the cost summary uses for attempts outside any scope. */
-const NONE = 'none';
 
 /**
  * Build a labelled input.
@@ -197,17 +193,12 @@ export class SpendEditor {
       policy.value = caps.unpriced;
     }
     this.body.replaceChildren(...status.usage.map((row) => usageRow(row, overrideText(caps, row))));
-    const capped = new Set(status.usage.map((row) => row.id));
-    const choices = [
-      ...records(summary['byObjective']).map((group) => ['objective', group] as const),
-      ...records(summary['byDelivery']).map((group) => ['delivery', group] as const),
-    ].filter(([, group]) => text(group, 'key') !== NONE && !capped.has(text(group, 'key')));
     this.scope.replaceChildren(
       new Option(t('Choose…'), ''),
-      ...choices.map(([scope, group]) => {
+      ...status.choices.map((choice) => {
         return new Option(
-          `${scope === 'objective' ? 'Objective' : 'Delivery'}: ${text(group, 'label')}`,
-          `${scope}:${text(group, 'key')}`,
+          `${choice.scope === 'objective' ? 'Objective' : 'Delivery'}: ${choice.label}`,
+          `${choice.scope}:${choice.id}`,
         );
       }),
     );
