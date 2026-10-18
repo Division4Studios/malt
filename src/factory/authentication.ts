@@ -26,8 +26,12 @@ const API_ENVIRONMENT = new Set([
   'CLAUDE_CODE_USE_VERTEX',
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_SIMPLE',
+  'COPILOT_OFFLINE',
+  'COPILOT_ALLOW_ALL',
   'CLAUDE_CODE_EFFORT_LEVEL',
 ]);
+/** Copilot bring-your-own-key and telemetry-export prefixes, which bill or export outside the subscription. */
+const API_PREFIXES = ['COPILOT_PROVIDER_', 'COPILOT_OTEL_'];
 /** Known inherited credential keys which must never reach captured diagnostics. */
 const CREDENTIAL_ENVIRONMENT = new Set([
   'GH_TOKEN',
@@ -39,6 +43,9 @@ const CREDENTIAL_ENVIRONMENT = new Set([
   'AZURE_OPENAI_API_KEY',
   'AWS_SECRET_ACCESS_KEY',
   'AWS_SESSION_TOKEN',
+  'COPILOT_GITHUB_TOKEN',
+  'COPILOT_PROVIDER_API_KEY',
+  'COPILOT_PROVIDER_BEARER_TOKEN',
 ]);
 
 /**
@@ -72,8 +79,8 @@ export interface ProviderReadiness {
   readonly provider: Provider;
   /** Native CLI version. */
   readonly version: string;
-  /** Verified subscription authentication method. */
-  readonly authentication: 'ChatGPT' | 'claude.ai';
+  /** Verified subscription method; Copilot has no unpaid status probe, so its first assignment proves login. */
+  readonly authentication: 'ChatGPT' | 'claude.ai' | 'GitHub Copilot (proven by first assignment)';
 }
 
 /**
@@ -84,7 +91,12 @@ export interface ProviderReadiness {
  */
 export function subscriptionEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(environment).filter(([key]) => !API_ENVIRONMENT.has(key.toUpperCase()))),
+    ...Object.fromEntries(
+      Object.entries(environment).filter(([key]) => {
+        const name = key.toUpperCase();
+        return !API_ENVIRONMENT.has(name) && API_PREFIXES.every((prefix) => !name.startsWith(prefix));
+      }),
+    ),
     // Factory context and handoffs are restored from the selected .malt ledger.
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1',
     CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: '1',
@@ -104,7 +116,7 @@ export function subscriptionEnvironment(environment: NodeJS.ProcessEnv): NodeJS.
  */
 export async function providerPreflight(settings: FactoryConfig, cwd: string): Promise<ProviderReadiness[]> {
   const evidence: ProviderReadiness[] = [];
-  for (const provider of ['codex', 'claude'] as const) {
+  for (const provider of ['codex', 'claude', 'copilot'] as const) {
     const config = settings.providers[provider];
     if (!config.enabled) {
       continue;
@@ -172,6 +184,10 @@ export async function diagnoseProvider(
     return { provider, state: 'missing', version: null };
   }
   const version = output.stdout.trim();
+  if (provider === 'copilot') {
+    // Copilot has no unpaid login probe; its first assignment proves the subscription.
+    return { provider, state: 'ready', version, authentication: 'GitHub Copilot (proven by first assignment)' };
+  }
   try {
     const authArguments = provider === 'codex' ? ['login', 'status'] : ['--setting-sources', '', 'auth', 'status'];
     return { state: 'ready', ...verifiedAuthentication(provider, version, await run(file, authArguments, cwd)) };
