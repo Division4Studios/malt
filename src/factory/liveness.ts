@@ -73,6 +73,9 @@ export function checkpointDecision(input: {
     : { action: 'extend', nextCheckpointAt: Math.min(input.now + input.policy.intervalMs, ceilingAt) };
 }
 
+/** An observation with no progress and no input wait. */
+const NO_PROGRESS: ProgressObservation = { progress: null, awaiting: null };
+
 /** Timer function, injectable so tests drive the monitor with a fake clock; returns a cancel function. */
 export type LivenessTimers = (callback: () => void, ms: number) => () => void;
 
@@ -198,15 +201,34 @@ export class LivenessMonitor {
   }
 
   /**
+   * Take one sample, waiting no later than the next checkpoint, so a sampler
+   * that hangs cannot hold off checkpoints or the hard ceiling.
+   *
+   * @returns What the sampler saw, or no progress when it failed or was too slow.
+   */
+  private async observation(): Promise<ProgressObservation> {
+    const budget = Math.max(0, this.current.nextCheckpointAt - this.options.now());
+    const late = Promise.withResolvers<ProgressObservation>();
+    const cancel = this.timers(() => {
+      late.resolve(NO_PROGRESS);
+    }, budget);
+    try {
+      return await Promise.race([this.sampled(), late.promise]);
+    } finally {
+      cancel();
+    }
+  }
+
+  /**
    * Take one sample; a failed sample counts as no progress.
    *
    * @returns What the sampler saw, or no progress when sampling failed.
    */
-  private async observation(): Promise<ProgressObservation> {
+  private async sampled(): Promise<ProgressObservation> {
     try {
       return await this.options.sample();
     } catch {
-      return { progress: null, awaiting: null };
+      return NO_PROGRESS;
     }
   }
 
