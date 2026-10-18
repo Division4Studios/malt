@@ -89,8 +89,10 @@ const SHELL = [
   '/recommendations-model.js',
   '/recommendations-ui.js',
   '/settings-ui.js',
+  '/shell-state.js',
   '/project-views.js',
   '/roles-model.js',
+  '/roles-dom.js',
   '/roles-ui.js',
   '/secrets-model.js',
   '/secrets-ui.js',
@@ -310,7 +312,19 @@ const INBOX_TAG = 'malt-inbox:';
 /** Notification click with a native promise lifetime. */
 interface NotificationClick extends LifecycleEvent {
   /** Clicked notification. */
-  readonly notification: { readonly tag: string; readonly close: () => void };
+  readonly notification: { readonly tag: string; readonly data?: unknown; readonly close: () => void };
+}
+
+/**
+ * The project a clicked notification was raised for.
+ *
+ * @param data - Untrusted notification data.
+ * @returns Project id, or `null` when it names none.
+ */
+function notifiedProject(data: unknown): string | null {
+  return typeof data === 'object' && data !== null && 'project' in data && typeof data.project === 'string'
+    ? data.project
+    : null;
 }
 
 /**
@@ -342,22 +356,23 @@ function hasClients(scope: object): scope is { clients: Clients } {
 }
 
 /**
- * Focus an open console on its Inbox, or open one there.
+ * Focus an open console on the notified project's Inbox, or open one there.
  *
  * @param clients - The worker's window clients.
+ * @param project - Project the notification was raised for, if known.
  */
-async function openInbox(clients: Clients): Promise<void> {
+async function openInbox(clients: Clients, project: string | null): Promise<void> {
   const windows = await clients.matchAll({ type: 'window', includeUncontrolled: true });
   const open = windows.find((client) => {
     const url = new URL(client.url);
     return url.origin === location.origin;
   });
   if (open === undefined) {
-    await clients.openWindow('/?view=inbox');
+    await clients.openWindow(project === null ? '/?view=inbox' : `/?view=inbox&project=${encodeURIComponent(project)}`);
     return;
   }
   const focused = await open.focus();
-  focused.postMessage(OPEN_INBOX_MESSAGE, { transfer: [] });
+  focused.postMessage({ type: OPEN_INBOX_MESSAGE, project }, { transfer: [] });
 }
 
 addEventListener('notificationclick', (event: Event) => {
@@ -366,5 +381,5 @@ addEventListener('notificationclick', (event: Event) => {
     return;
   }
   event.notification.close();
-  event.waitUntil(openInbox(scope.clients));
+  event.waitUntil(openInbox(scope.clients, notifiedProject(event.notification.data)));
 });

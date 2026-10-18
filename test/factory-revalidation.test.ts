@@ -15,6 +15,7 @@ import { consoleView } from '../src/factory/console-view.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { retryBlocked } from '../src/factory/recovery.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
+import { revalidationIntents } from '../src/factory/revalidation.ts';
 import { routeAssignment } from '../src/factory/routing.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
@@ -241,4 +242,30 @@ await test('an unfinished predecessor delays both revalidation and implementatio
   assert.ok(predecessorId !== undefined);
   context.repository.editTask(predecessorId, (current) => ({ ...current, phase: 'verifying' }));
   assert.deepEqual(offered(context, dependent.id), []);
+});
+
+await test('a long verdict is recorded bounded, and ineligible deliveries are not chosen', async (t) => {
+  const { context, dependent } = fixture(t);
+  const state = {
+    config: context.settings,
+    tasks: context.repository.tasks(),
+    jobs: context.repository.jobs(),
+    now: context.repository.store.now(),
+  };
+  assert.equal(revalidationIntents(state, []).length, 1);
+  assert.deepEqual(
+    revalidationIntents({ ...state, isSpendBlocked: () => true }, []),
+    [],
+    'A spend-blocked delivery waits.',
+  );
+  assert.deepEqual(
+    revalidationIntents({ ...state, objectiveQueue: { focusedFeatureId: 'another-objective' } }, []),
+    [],
+    'Only the focused objective is revalidated.',
+  );
+  await revalidate(context, { outcome: 'success', summary: 'x'.repeat(5000), findings: ['y'.repeat(5000)] });
+  const verdict = context.repository.task(dependent.id).revalidation;
+  assert.equal(verdict?.outcome, 'confirmed', 'A paid result longer than the record allows is kept, bounded.');
+  assert.equal(verdict.summary.length, 4000);
+  assert.equal(verdict.findings[0]?.length, 4000);
 });
