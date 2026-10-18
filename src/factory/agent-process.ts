@@ -118,11 +118,13 @@ async function main(): Promise<void> {
       } else {
         child.stdin.end();
       }
+    } else if (launch.stream) {
+      process.stdin.pipe(child.stdin);
     } else {
       child.stdin.end(launch.input);
     }
     await completed;
-    if (launch.interactive) {
+    if (launch.interactive || launch.stream) {
       await teardown();
       process.stdin.unpipe(child.stdin);
       process.stdin.destroy();
