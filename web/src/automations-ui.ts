@@ -109,6 +109,8 @@ export class AutomationEditor {
   private editing: AutomationView | null = null;
   /** Whether a save is in flight. */
   private isSending = false;
+  /** Counts openings, so a pending save only finishes the opening that sent it. */
+  private opening = 0;
   /** Operator control path. */
   private readonly control: OperatorControl;
   /** Receives a newly issued trigger secret. */
@@ -213,6 +215,9 @@ export class AutomationEditor {
     editing: AutomationView | null,
     workflows: readonly (readonly [string, string])[],
   ): void {
+    this.opening += 1;
+    this.isSending = false;
+    this.save.disabled = false;
     this.kind = kind;
     this.editing = editing;
     const draft = draftOf(editing);
@@ -272,6 +277,7 @@ export class AutomationEditor {
       return;
     }
     const { operation, input } = saveInput(this.kind, draft, this.editing);
+    const sent = this.opening;
     this.isSending = true;
     this.save.disabled = true;
     this.error.textContent = '';
@@ -280,17 +286,36 @@ export class AutomationEditor {
       const isSaved = await this.control(operation, input, (result) => {
         issued.value = issuedSecret(result);
       });
-      if (!isSaved) {
-        this.error.textContent = 'Not saved. The notice at the top of the console says why; your changes are kept.';
-        return;
-      }
-      this.element.close();
-      if (issued.value !== null) {
-        this.saved(issued.value.secret, issued.value.trigger);
-      }
+      this.finish(sent, isSaved, issued);
     } finally {
-      this.isSending = false;
-      this.save.disabled = false;
+      if (sent === this.opening) {
+        this.isSending = false;
+        this.save.disabled = false;
+      }
+    }
+  }
+
+  /**
+   * Finish a save. The operator may have closed this draft and opened another
+   * while it was pending; then only a newly issued secret is still shown.
+   *
+   * @param opening - Opening that sent the save.
+   * @param isSaved - Whether the control was applied.
+   * @param issued - Secret the save issued, if any.
+   */
+  private finish(opening: number, isSaved: boolean, issued: Issued): void {
+    const isCurrent = opening === this.opening;
+    if (!isSaved) {
+      if (isCurrent) {
+        this.error.textContent = 'Not saved. The notice at the top of the console says why; your changes are kept.';
+      }
+      return;
+    }
+    if (isCurrent) {
+      this.element.close();
+    }
+    if (issued.value !== null) {
+      this.saved(issued.value.secret, issued.value.trigger);
     }
   }
 }
