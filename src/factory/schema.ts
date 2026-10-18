@@ -9,6 +9,13 @@ import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
+import {
+  archiveMarkSchema,
+  DELIVERY_CONTROL_OPERATIONS,
+  deliveryControlSchemas,
+  holdSchema,
+} from './delivery-control-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -22,6 +29,7 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
   approvalSchema,
@@ -344,6 +352,10 @@ export const taskSchema = z.object({
   stepResults: z.array(stepResultSchema).default([]),
   /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
   workflow: frozenWorkflowSchema.optional(),
+  /** Operator hold: no new attempt starts while set. */
+  hold: holdSchema.nullable().default(null),
+  /** Operator archive choice; absent means finished deliveries archive automatically. */
+  archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -520,6 +532,9 @@ export const factorySchemas = {
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
+  ...telemetrySchemas,
+  ...deliveryControlSchemas,
+  ...automationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -551,5 +566,8 @@ export const FACTORY_OPERATIONS = [
   'factory_workflow_save',
   'factory_workflow_default',
   'factory_approve',
+  ...TELEMETRY_OPERATIONS,
+  ...DELIVERY_CONTROL_OPERATIONS,
+  ...AUTOMATION_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
