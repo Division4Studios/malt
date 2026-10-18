@@ -8,8 +8,15 @@
 import { z } from 'zod/v3';
 
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
+import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
+import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
 import {
-  roleChoiceOutput,
+  archiveMarkSchema,
+  DELIVERY_CONTROL_OPERATIONS,
+  deliveryControlSchemas,
+  holdSchema,
+} from './delivery-control-schema.ts';
+import {
   modelChoiceSchema,
   modelPolicySchema,
   modelPolicyUpdateSchema,
@@ -21,16 +28,27 @@ import { organizationSchema, frozenOrganizationSchema } from './organization.ts'
 import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
+import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
+import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
+import {
+  approvalSchema,
+  approveRequestSchema,
+  defaultWorkflowRequestSchema,
+  frozenWorkflowSchema,
+  saveWorkflowRequestSchema,
+  stepResultSchema,
+  planningResultSchema,
+  dispositionsSchema,
+} from './workflow-schema.ts';
+
+export { AGENT_OUTPUT_SCHEMA } from './agent-output.ts';
+export { FACTORY_ROLES, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 
 /** Bound operator triage context independently of model transcripts. */
 const TRIAGE_NOTE_MAX = 4000;
 /** Named min free percent bound. */
 const MIN_FREE_PERCENT = 15;
-/** Extra reviewed project skills attached to one stage. */
-const MAX_ASSIGNMENT_SKILLS = 4;
-/** Bound the lead's per-role routing explanation. */
-const ROUTING_REASON_MAX = 1000;
 /** Absolute operator-selected workspace path bound. */
 const WORKSPACE_MAX = 4096;
 /** Maximum explicitly configured descendants in a Windows managed process job. */
@@ -42,31 +60,10 @@ const DEFAULT_JOB_CPU = 50;
 /** Named percent max bound. */
 const PERCENT_MAX = 100;
 
-/**
- * Specialist seats used by configurable workflows. Projects saved before these
- * existed receive default members for them, so older settings stay valid.
- */
-export const SPECIALIST_ROLES = ['plan-reviewer', 'fixer', 'librarian', 'regression-verifier'] as const;
-/** Roles have independent process slots even when they use the same provider. */
-export const FACTORY_ROLES = [
-  'product-owner',
-  'team-lead',
-  'developer-1',
-  'developer-2',
-  'qa-1',
-  'qa-2',
-  'final-tester',
-  'learning-steward',
-  ...SPECIALIST_ROLES,
-] as const;
-/** Provider CLI families supported by the managed runtime. */
-export const PROVIDERS = ['codex', 'claude'] as const;
 /** Longest descriptive task text. */
 const TEXT_MAX = 32_000;
 /** Longest public title. */
 const TITLE_MAX = 200;
-/** Largest atomic plan accepted at once. */
-const PLAN_MAX = 100;
 /** Conservative capacity reservation for a job without usage telemetry yet. */
 const TOKEN_RESERVATION = 32_000;
 /** Default scheduling accounting window. */
@@ -93,8 +90,6 @@ const CPU_PERCENT = 85;
 export const COOLDOWN_MS = 300_000;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
-/** A safe internal key, used in branch and artifact names. */
-export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
 const assignmentProfilesSchema = z
   .array(
@@ -191,12 +186,7 @@ export const factoryConfigSchema = z
     jobTimeoutMs: z.number().int().positive().default(JOB_TIMEOUT_MS),
     reconcileMs: z.number().int().positive().default(RECONCILE_MS),
     learningMs: z.number().int().positive().default(LEARNING_MS),
-    assignmentSkills: z
-      .record(
-        z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
-        z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS),
-      )
-      .default({}),
+    assignmentSkills: z.record(z.enum(JOB_KINDS), z.array(keySchema).max(MAX_ASSIGNMENT_SKILLS)).default({}),
     resources: z
       .object({
         maxActiveJobs: z.number().int().min(1).max(FACTORY_ROLES.length).default(2),
@@ -246,8 +236,6 @@ const instructionReceiptSchema = z
   .refine((receipt) => !receipt.applied || receipt.acknowledged, {
     message: 'Applied instructions require explicit acknowledgement.',
   });
-/** Maximum focused instruction receipts per assignment. */
-const MAX_INSTRUCTION_RECEIPTS = 20;
 /** A provider's structured result; irrelevant fields must be empty arrays. */
 export const resultSchema = z
   .object({
@@ -257,6 +245,7 @@ export const resultSchema = z
     deliveries: z.array(deliverySchema).max(PLAN_MAX),
     skillActions: z.array(skillActionSchema).default([]),
     instructionReceipts: z.array(instructionReceiptSchema).max(MAX_INSTRUCTION_RECEIPTS).default([]),
+    dispositions: dispositionsSchema.optional(),
   })
   .strict();
 /** Validated managed agent output. */
@@ -275,17 +264,25 @@ export const featureSchema = z.object({
   error: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
+  /** Absent for objectives saved before workflows existed; they run the original pipeline. */
+  workflow: frozenWorkflowSchema.optional(),
+  approvals: z.array(approvalSchema).default([]),
+  /** When the plan step last produced a plan; plan reviews must postdate it. */
+  planAt: z.number().nullable().optional(),
+  planningResults: z.array(planningResultSchema).optional(),
 });
 /** One durable product request. */
 export type Feature = z.output<typeof featureSchema>;
-/** Exact-head independent QA evidence. */
+/** Exact-head independent review evidence; `stepId` is absent on results saved before workflows. */
 export const reviewSchema = z.object({
-  role: z.enum(['qa-1', 'qa-2']),
+  role: z.enum(FACTORY_ROLES),
+  stepId: keySchema.optional(),
   head: z.string(),
   base: z.string(),
   outcome: z.enum(['success', 'changes_requested', 'blocked']),
   summary: textSchema,
   jobId: z.string().uuid(),
+  findings: z.array(textSchema).optional(),
 });
 /** Exact source and size measured after successful delivery validation. */
 const publicationSizeSchema = z.object({
@@ -349,6 +346,16 @@ export const taskSchema = z.object({
     })
     .nullable()
     .default(null),
+  approvals: z.array(approvalSchema).default([]),
+  /** Source published by the implementation step; fixes and regressions build on it. */
+  implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
+  stepResults: z.array(stepResultSchema).default([]),
+  /** Frozen from the objective at provisioning; absent on deliveries saved before workflows. */
+  workflow: frozenWorkflowSchema.optional(),
+  /** Operator hold: no new attempt starts while set. */
+  hold: holdSchema.nullable().default(null),
+  /** Operator archive choice; absent means finished deliveries archive automatically. */
+  archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
   error: z.string().nullable(),
   updatedAt: z.number(),
@@ -372,7 +379,7 @@ export const jobSchema = z.object({
       organization: frozenOrganizationSchema.optional(),
     })
     .optional(),
-  kind: z.enum(['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage']),
+  kind: z.enum(JOB_KINDS),
   taskId: z.string().uuid().nullable(),
   featureId: z.string().uuid().nullable(),
   target: z.string().uuid().nullable().default(null),
@@ -388,6 +395,8 @@ export const jobSchema = z.object({
   base: z.string().nullable(),
   summary: z.string().nullable(),
   artifact: z.string(),
+  /** Workflow step this attempt performs; `null` for attempts saved before workflows. */
+  step: keySchema.nullable().default(null),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
@@ -455,7 +464,10 @@ export const factorySchemas = {
   factory_status: z.object({}).strict(),
   factory_start: z.object({}).strict(),
   factory_pause: z.object({}).strict(),
-  factory_request: z.object({ objective: textSchema, requestId: z.string().uuid().optional() }).strict(),
+  factory_request: z
+    .object({ objective: textSchema, requestId: z.string().uuid().optional(), workflowId: keySchema.optional() })
+    .strict(),
+  factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
     .object({
@@ -518,11 +530,11 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
-  /** The library validates the definition; any revision other than the stored one is stale. */
-  factory_workflow_save: z
-    .object({ workflow: z.unknown(), expectedRevision: z.string().max(TITLE_MAX).nullable() })
-    .strict(),
-  factory_workflow_default: z.object({ workflowId: keySchema }).strict(),
+  factory_workflow_save: saveWorkflowRequestSchema,
+  factory_workflow_default: defaultWorkflowRequestSchema,
+  ...telemetrySchemas,
+  ...deliveryControlSchemas,
+  ...automationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -553,77 +565,9 @@ export const FACTORY_OPERATIONS = [
   'factory_instruct',
   'factory_workflow_save',
   'factory_workflow_default',
+  'factory_approve',
+  ...TELEMETRY_OPERATIONS,
+  ...DELIVERY_CONTROL_OPERATIONS,
+  ...AUTOMATION_OPERATIONS,
   'factory_reconcile_github',
 ] as const;
-/** Strict JSON Schema passed to both providers for their final result. */
-export const AGENT_OUTPUT_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['outcome', 'summary', 'findings', 'deliveries', 'skillActions', 'instructionReceipts'],
-  properties: {
-    outcome: { type: 'string', enum: ['success', 'changes_requested', 'blocked'] },
-    summary: { type: 'string' },
-    findings: { type: 'array', items: { type: 'string' } },
-    instructionReceipts: {
-      type: 'array',
-      maxItems: MAX_INSTRUCTION_RECEIPTS,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['id', 'acknowledged', 'applied', 'evidence'],
-        properties: {
-          id: { type: 'string' },
-          acknowledged: { type: 'boolean' },
-          applied: { type: 'boolean' },
-          evidence: { type: 'string' },
-        },
-      },
-    },
-    skillActions: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['name', 'revision', 'state', 'reason'],
-        properties: {
-          name: { type: 'string' },
-          revision: { type: 'string' },
-          state: { type: 'string', enum: ['active', 'archived'] },
-          reason: { type: 'string' },
-        },
-      },
-    },
-    deliveries: {
-      type: 'array',
-      maxItems: PLAN_MAX,
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'key',
-          'title',
-          'description',
-          'acceptanceCriteria',
-          'dependencies',
-          'capabilityTier',
-          'assignmentProfiles',
-          'skills',
-        ],
-        properties: {
-          key: { type: 'string' },
-          title: { type: 'string' },
-          description: { type: 'string' },
-          acceptanceCriteria: { type: 'array', items: { type: 'string' } },
-          dependencies: { type: 'array', items: { type: 'string' } },
-          capabilityTier: { type: ['string', 'null'], enum: ['small', 'standard', 'advanced', null] },
-          assignmentProfiles: {
-            type: 'array',
-            maxItems: FACTORY_ROLES.length,
-            items: roleChoiceOutput(FACTORY_ROLES, ROUTING_REASON_MAX),
-          },
-          skills: { type: 'array', maxItems: MAX_ASSIGNMENT_SKILLS, items: { type: 'string' } },
-        },
-      },
-    },
-  },
-};
