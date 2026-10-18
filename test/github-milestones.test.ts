@@ -110,7 +110,11 @@ class FakeMilestones {
 function fixture(t: TestContext): { context: ResourceContext; remote: FakeMilestones } {
   const config = createProject(createCleanup(t));
   const remote = new FakeMilestones();
-  return { context: { runner: remote.run, repository: 'example/app', directory: config.directory }, remote };
+  const context = { runner: remote.run, repository: 'example/app', directory: config.directory };
+  return {
+    context: { ...context, owner: 'example', projectId: 'PVT_4', projectNumber: 4, workflowFieldId: 'F_1' },
+    remote,
+  };
 }
 
 await test('only existing milestones are assigned, never created', async (t) => {
