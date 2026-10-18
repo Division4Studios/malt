@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import * as automation from './automations.ts';
+import { refreshBaseline } from './baseline.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -488,6 +489,7 @@ export class FactoryService {
         this.connected = true;
       }
       await reconcile(context);
+      void refreshBaseline(context);
       triage.queueBlockerInvestigations(this.repository);
       this.error = null;
     }
