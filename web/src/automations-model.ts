@@ -160,8 +160,14 @@ const WEEKDAYS = translated([
   phrase('Friday'),
   phrase('Saturday'),
 ]);
-/** Letters in a month or weekday abbreviation, such as `mon`. */
-const ABBREVIATION = 3;
+/** Cron's own month names, which never depend on the display language. */
+const CRON_MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'] as const;
+/** Position of the day-of-month field. */
+const DAY_FIELD = 2;
+/** Position of the day-of-week field. */
+const WEEKDAY_FIELD = 4;
+/** Cron's own weekday names, Sunday first. */
+const CRON_DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
 /** One cron field: its name, bounds and accepted names. */
 interface FieldShape {
   /** Name used in messages. */
@@ -178,8 +184,8 @@ const FIELDS: readonly FieldShape[] = translated([
   { name: 'minute', min: 0, max: 59 },
   { name: 'hour', min: 0, max: 23 },
   { name: phrase('day of month'), min: 1, max: 31 },
-  { name: 'month', min: 1, max: 12, names: MONTHS.map((month) => month.slice(0, ABBREVIATION).toLowerCase()) },
-  { name: t('day of week'), min: 0, max: 7, names: WEEKDAYS.map((day) => day.slice(0, ABBREVIATION).toLowerCase()) },
+  { name: 'month', min: 1, max: 12, names: CRON_MONTHS },
+  { name: t('day of week'), min: 0, max: 7, names: CRON_DAYS },
 ]);
 /** Minutes in an hour; also the size of the minute field. */
 const MINUTES = 60;
@@ -434,7 +440,13 @@ function parseExpression(expression: string): ParsedCron {
       (left, right) => left - right,
     );
   }
-  return { values, restricted: parts.map((part) => part !== '*') };
+  // As the broker does: a day-of-month or weekday field starting with `*` (such as `*/1`) is unrestricted.
+  return {
+    values,
+    restricted: parts.map((part, index) =>
+      index === DAY_FIELD || index === WEEKDAY_FIELD ? !part.startsWith('*') : part !== '*',
+    ),
+  };
 }
 
 /**
