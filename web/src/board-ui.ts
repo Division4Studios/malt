@@ -8,11 +8,13 @@
  *
  * @file
  */
+import { BoardActions } from './board-actions.js';
 import { COLUMN_COPY, DEFAULT_PREFS, groupBoard, parsePrefs, tabTarget, workflowChoices } from './board-model.js';
 import { button, externalLink, focusedKey, restoreFocus, stepStripNode, tag } from './console-dom.js';
 import { COLUMNS, EMPTY_CONSOLE, STATE_LABELS, excerpt, readConsole, runningText } from './console-model.js';
 import { element } from './worker-ui.js';
 
+import type { ControlSender } from './approval-dialog.js';
 import type { BoardGroups, BoardPrefs, Card } from './board-model.js';
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { Column, ConsoleModel, Delivery, Objective } from './console-model.js';
@@ -23,6 +25,8 @@ export interface BoardHooks {
   readonly openDelivery: (taskId: string) => void;
   /** Open an objective; objective cards are not interactive without it. */
   readonly openObjective?: (featureId: string) => void;
+  /** Operator control path; bulk hold, resume and archive appear only with it. */
+  readonly control?: ControlSender;
 }
 
 /** Browser storage key for the saved tab and filters. */
@@ -131,6 +135,9 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
     card.append(line);
   }
   const badges = element('div', 'card-badges');
+  if (delivery.held !== null) {
+    badges.append(tag(delivery.held.reason === '' ? 'Held' : `Held: ${delivery.held.reason}`, 'tag-held'));
+  }
   badges.append(...delivery.waitingOn.map((issue) => tag(`Waiting on #${String(issue)}`, 'tag-waiting')));
   if (delivery.attempts > 0) {
     badges.append(tag(`${String(delivery.attempts)} attempt${delivery.attempts === 1 ? '' : 's'}`));
@@ -227,6 +234,8 @@ class BoardView {
   private model: ConsoleModel = EMPTY_CONSOLE;
   /** Last rendered state, to skip identical updates. */
   private renderKey = '';
+  /** Bulk actions, when the shell supplies a control path. */
+  private readonly actions: BoardActions | null;
 
   /**
    * Build the toolbar, tab list and columns once.
@@ -273,7 +282,8 @@ class BoardView {
     this.phone.addEventListener('change', () => {
       this.applyLayout();
     });
-    this.root.append(toolbar, this.tabs, this.region);
+    this.actions = hooks.control === undefined ? null : new BoardActions(hooks.control);
+    this.root.append(toolbar, ...(this.actions === null ? [] : [this.actions.element]), this.tabs, this.region);
     this.applyLayout();
   }
 
@@ -386,11 +396,12 @@ class BoardView {
   private render(isFilterChange: boolean): void {
     const groups = groupBoard(this.model, this.prefs);
     this.syncWorkflows();
-    const key = JSON.stringify([groups, this.workflow.value]);
+    const key = JSON.stringify([groups, this.workflow.value, this.model.archived]);
     if (key === this.renderKey) {
       return;
     }
     this.renderKey = key;
+    this.actions?.update(groups, this.model);
     const focused = focusedKey(this.root);
     let shown = 0;
     for (const [column, parts] of this.columns) {
