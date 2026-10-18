@@ -14,6 +14,7 @@ import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
+import { causeKey, causeLine } from './lesson-text.ts';
 import { MergeConflictError } from './merge-conflict.ts';
 import { MERGE_GATE_PENDING } from './merge-path.ts';
 import { automaticWorkflow } from './objectives.ts';
@@ -53,7 +54,8 @@ function queueDevelopmentComment(context: FactoryContext, taskId: string, role: 
 }
 
 /**
- * Record outcome-based learning without copying raw logs or credentials.
+ * Record outcome-based learning without copying raw logs or credentials. A rework
+ * lesson names its concrete cause and is kept once per delivery and cause.
  *
  * @param context - Project learning service.
  * @param task - Delivery outcome.
@@ -66,20 +68,33 @@ async function recordLesson(
   finding: string,
   outcome: 'rework' | 'success',
 ): Promise<void> {
+  const evidence = [
+    `Issue #${String(task.issue)}`,
+    task.prUrl ?? `Project-local task ${task.id}`,
+    `Source head ${task.head ?? 'not published'}`,
+  ];
+  if (outcome === 'rework') {
+    context.learning.recordOnce(
+      {
+        summary: `Issue #${String(task.issue)} rework: ${causeLine(finding)}`,
+        cause: finding,
+        prevention: `Check for this before publishing similar work: ${causeLine(finding)}`,
+        evidence,
+        outcome,
+        ticket: task.issue,
+      },
+      `rework:${String(task.issue)}:${causeKey(finding)}`,
+    );
+    return;
+  }
   await context.learning.execute(
     'learning_record',
     {
       summary: `Issue #${String(task.issue)}: ${outcome}`,
       cause: finding,
       prevention:
-        outcome === 'success'
-          ? 'Retain the project-specific acceptance checks and exact-head review evidence for similar deliveries.'
-          : 'The original developer must reproduce and fix the finding, rerun acceptance checks and obtain new independent approvals on the changed head.',
-      evidence: [
-        `Issue #${String(task.issue)}`,
-        task.prUrl ?? `Project-local task ${task.id}`,
-        `Source head ${task.head ?? 'not published'}`,
-      ],
+        'Retain the project-specific acceptance checks and exact-head review evidence for similar deliveries.',
+      evidence,
       outcome,
       ticket: task.issue,
     },
