@@ -880,3 +880,42 @@ await test('auto-merge is disarmed before a moved head is reworked', async (t) =
   assert.deepEqual(disarmed, [3]);
   assert.equal(context.repository.task(task.id).phase, 'development');
 });
+
+await test('a PR merged outside the factory at the recorded head is adopted and verified on main', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  const adopted = context.repository.task(task.id);
+  assert.equal(adopted.phase, 'verifying');
+  assert.equal(adopted.merge, task.head);
+  assert.equal(adopted.error, null);
+  assert.deepEqual(adopted.reviews, [], 'adoption implies no QA approval');
+  assert.equal(adopted.finalReview, null);
+});
+
+await test('a parked delivery whose PR was merged elsewhere is adopted instead of waiting for an operator', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  context.repository.editTask(task.id, (current) => ({ ...current, phase: 'development', reviews: [] }));
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  assert.equal(context.repository.task(task.id).phase, 'verifying');
+});
+
+await test('an external merge of another head or off main stays an operator decision', async (t) => {
+  const moved = await fixture(t);
+  moved.pr.state = 'MERGED';
+  moved.pr.headRefOid = 'f'.repeat(40);
+  moved.pr.mergeCommit = { oid: 'f'.repeat(40) };
+  await reconcile(moved.context);
+  assert.equal(moved.context.repository.task(moved.task.id).phase, 'blocked');
+
+  const elsewhere = await fixture(t);
+  elsewhere.pr.state = 'MERGED';
+  elsewhere.pr.mergeCommit = { oid: 'e'.repeat(40) };
+  await reconcile(elsewhere.context);
+  const blocked = elsewhere.context.repository.task(elsewhere.task.id);
+  assert.equal(blocked.phase, 'blocked');
+  assert.match(blocked.error ?? '', /without the current factory QA\/final gates/v);
+});

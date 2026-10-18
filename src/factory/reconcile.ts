@@ -14,6 +14,7 @@ import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { failedChecks } from './ci-logs.ts';
+import { didAdoptExternalMerge } from './external-merge.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, planningApprovals } from './pipeline.ts';
@@ -228,7 +229,7 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     return;
   }
   if (pr.state === 'MERGED') {
-    recoverMerge(context, task, pr);
+    await recoverMerge(context, task, pr);
     return;
   }
   const isSourceMoved = pr.headRefOid !== record.head || pr.baseRefOid !== record.base;
@@ -714,9 +715,12 @@ async function reconcileTask(context: FactoryContext, task: FactoryTask): Promis
  * @param task - Reviewed source.
  * @param pr - Actual GitHub state.
  */
-function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): void {
+async function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<void> {
   const record = task;
   if (!hasApprovals(record) || !hasFinalApproval(record) || record.head !== pr.headRefOid || pr.mergeCommit === null) {
+    if (await didAdoptExternalMerge(context, record, pr)) {
+      return;
+    }
     context.repository.editTask(record.id, (current) => {
       return {
         ...current,
