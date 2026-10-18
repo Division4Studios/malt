@@ -187,8 +187,13 @@ export class QuestionDialog {
     this.status.textContent = t('Sending…');
     this.isSending = true;
     this.submit.disabled = true;
+    const sent = this.requestId;
     const outcome = await this.apply(built.input);
     this.isSending = false;
+    if (sent !== this.requestId) {
+      // The dialog was closed and reopened for another question while this answer was sending.
+      return;
+    }
     if (outcome === true) {
       this.element.close();
       return;
