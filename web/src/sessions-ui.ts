@@ -27,7 +27,7 @@ const PAGE_SIZE = 50;
 /** Filterable roles: core seats followed by specialist seats. */
 const ROLES = [...ROLE_SLOTS.keys(), 'plan-reviewer', 'fixer', 'librarian', 'regression-verifier'];
 /** Filterable providers. */
-const PROVIDERS = ['claude', 'codex'];
+const PROVIDERS = ['claude', 'codex', 'copilot'];
 /** Filterable lifecycle states. */
 const STATES = ['running', 'succeeded', 'failed', 'interrupted'];
 /** Filter names sent to `/api/attempts`. */
