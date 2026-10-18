@@ -108,7 +108,7 @@ export class ConsoleViews {
         hooks.select('sessions');
       },
     });
-    this.workflows = createWorkflowsView({ control: hooks.control });
+    this.workflows = createWorkflowsView({ control: hooks.control, project: hooks.project });
     this.notifier = new InboxNotifier(() => {
       hooks.select('inbox');
     });
