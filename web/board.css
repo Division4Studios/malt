@@ -31,7 +31,7 @@
   gap: 4px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: #45352166;
+  background: var(--chip-bg);
   color: var(--muted);
   font: 10px/1.5 var(--font-terminal);
   white-space: nowrap;
@@ -114,7 +114,7 @@ select:focus-visible,
   outline-offset: 3px;
 }
 select {
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -566,11 +566,12 @@ select {
 }
 .delivery-error {
   margin-top: 16px;
-  border: 1px solid #6b2c3a;
+  border: 1px solid var(--error-line);
   border-left: 4px solid var(--red);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #2a141c;
+  background: var(--error-bg);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;

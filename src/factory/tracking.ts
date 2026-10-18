@@ -3,6 +3,8 @@
  *
  * @file
  */
+import { isCapabilityDenied, parkTask } from './capability-blocks.ts';
+
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryEffect, FactoryJob } from './schema.ts';
 
@@ -52,6 +54,10 @@ export async function ensureProjectTracking(input: {
       effect.id,
       'The next unpaid tracking gate retries current state; do not replay an obsolete assignment status.',
     );
+    if (isCapabilityDenied(error)) {
+      // Park the delivery so the scheduler admits no further assignment for it.
+      parkTask(repository, job.taskId, error);
+    }
     return `Project attachment/status not confirmed; no model turn started. ${reason}`;
   }
   repository.settleEffect(effect, null);
