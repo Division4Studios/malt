@@ -9,6 +9,7 @@ import { run, selectAll } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 import { SecretRedactor } from '../secrets.ts';
 
+import { attemptSecrets } from './attempt-secrets.ts';
 import { credentialValues } from './authentication.ts';
 import { logObjective } from './objective-log.ts';
 import { factorySchemas } from './schema.ts';
@@ -53,7 +54,12 @@ export function enqueueProgress(
     throw new MeshError('FACTORY_GATED', 'Only the assigned developer may publish ticket progress.');
   }
   const { taskId } = job;
-  const redactor = new SecretRedactor([context.mesh.token, ...credentialValues(process.env)]);
+  // The attempt's granted secrets live only in its provider environment; redact them here too.
+  const redactor = new SecretRedactor([
+    context.mesh.token,
+    ...credentialValues(process.env),
+    ...attemptSecrets(context, job),
+  ]);
   const body = redactor.redact(value.body);
   const id = `${job.id}:progress:${value.key}`;
   return context.repository.store.transaction(() => {

@@ -19,6 +19,7 @@
  *
  * @file
  */
+import { redactResolvedSecrets } from './secrets.ts';
 
 /** Severity of a single diagnostic record, from most to least verbose. */
 export type LogLevel = 'debug' | 'error' | 'info' | 'warn';
@@ -83,6 +84,6 @@ export function log(level: LogLevel, category: string, event: string, fields: Lo
   const now = new Date();
   const record = { timestamp: now.toISOString(), level, category, event, ...fields };
   // One write per record keeps lines intact when several processes share a
-  // terminal or a Docker log stream.
-  process.stderr.write(`${JSON.stringify(record)}\n`);
+  // terminal or a Docker log stream. Resolved connector credentials never print.
+  process.stderr.write(`${redactResolvedSecrets(JSON.stringify(record))}\n`);
 }

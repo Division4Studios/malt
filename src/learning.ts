@@ -195,6 +195,33 @@ export class ProjectLearning {
   }
 
   /**
+   * Record a lesson under a caller-chosen stable identity, once. Replaying
+   * the same identity returns the lesson already on disk, so a crash between
+   * writing it and the caller's own receipt never leaves a duplicate.
+   *
+   * @param input - Lesson fields, validated like `learning_record`.
+   * @param actor - Public author identity, never a credential.
+   * @param id - Stable lesson identity.
+   * @returns The recorded lesson.
+   * @throws {MeshError} For invalid lesson fields or an unreadable existing lesson.
+   */
+  public recordLesson(input: unknown, actor: string, id: string): z.output<typeof lessonSchema> {
+    const lessonId = z.string().uuid().parse(id);
+    const file = path.join(this.directory, 'lessons', `${lessonId}.json`);
+    try {
+      return lessonSchema.parse(readJsonFile(file));
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) {
+        throw error;
+      }
+    }
+    const lesson = { ...parseInput('learning_record', input), id: lessonId, actor, recordedAt: timestamp() };
+    this.mkdir(path.dirname(file));
+    writeAtomic(file, `${JSON.stringify(lesson, null, 2)}\n`);
+    return lesson;
+  }
+
+  /**
    * Expose only reviewed revision selectors for runtime routing.
    *
    * @returns Active and explicitly retired project overrides.

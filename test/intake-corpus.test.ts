@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod/v3';
 
+import { SUPERVISOR_PRINCIPAL } from '../src/capability-policy.ts';
 import { intakeCorpus, readIntakeMetadata, saveIntakeMetadata } from '../src/factory/intake-corpus.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from '../src/factory/provisioning-identity.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
@@ -100,7 +101,8 @@ await test('native operation inspection reads original unresolved identities wit
   const mesh = createProject(defer);
   const github = new ProjectGitHub(mesh);
   const id = deliveryOperationIdentity('00000000-0000-4000-8000-000000000001', 'checks');
-  github.execute = async (operation) => {
+  github.execute = async (principal, operation) => {
+    assert.deepEqual(principal, SUPERVISOR_PRINCIPAL, 'the supervisor reads the journal');
     assert.equal(operation, 'github_status');
     return await delay(0, { pendingOperations: [{ input: { requestId: id }, phase: 'creating' }] });
   };
