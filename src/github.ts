@@ -7,23 +7,26 @@
  * @file
  */
 
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { z } from 'zod/v3';
 
+import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
 import { createIssueReader } from './github-issues.ts';
+import { githubRunner } from './github-runner.ts';
 import { MeshError, parseInput, schemas } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
+import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
 import type { IssueReader } from './github-issues.ts';
+import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
 /** Factory workflow options in the dedicated MALT Status field. */
@@ -41,10 +44,6 @@ export const DELIVERY_STATUSES = [
 /** Name of MALT's field; existing user Status fields are left intact. */
 const STATUS_FIELD = 'MALT Status';
 
-/** Largest buffered GitHub CLI response. */
-const OUTPUT_MAX_BYTES = 4_194_304;
-/** Deadline for one GitHub CLI request. */
-const CLI_TIMEOUT_MS = 30_000;
 /** A stable GitHub ID returned by a Project mutation. */
 const itemSchema = z.object({ id: z.string() });
 /** Response for adding an issue to a Project. */
@@ -134,55 +133,7 @@ const setupSchema = z.object({
   project: projectSchema.optional(),
 });
 
-/** A CLI runner, injectable so tests do not create real GitHub artifacts. */
-export type GitHubRunner = (args: readonly string[], input?: unknown) => Promise<unknown>;
-
-/**
- * Run GitHub CLI without a shell, writing structured request bodies to stdin.
- *
- * @param root - Broker-accessible project directory.
- * @returns A bounded, noninteractive JSON runner.
- */
-export function githubRunner(root: string): GitHubRunner {
-  return async (args, input) =>
-    new Promise<unknown>((resolve, reject) => {
-      const child = execFile(
-        // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-        'gh',
-        [...args],
-        {
-          cwd: root,
-          windowsHide: true,
-          timeout: CLI_TIMEOUT_MS,
-          maxBuffer: OUTPUT_MAX_BYTES,
-          env: { ...process.env, GH_PROMPT_DISABLED: '1', GH_HOST: 'github.com' },
-        },
-        // eslint-disable-next-line promise/prefer-await-to-callbacks -- execFile's callback is required to stream structured stdin and keep bounded output.
-        (error, stdout) => {
-          if (error !== null) {
-            reject(
-              new MeshError(
-                'GITHUB_UNAVAILABLE',
-                'GitHub CLI failed. Check gh installation, authentication, repo/project scopes, network access and project permissions. Inspect saved operation progress before retrying issue creation.',
-              ),
-            );
-            return;
-          }
-          try {
-            resolve(stdout.trim() === '' ? null : JSON.parse(stdout));
-          } catch {
-            reject(new MeshError('GITHUB_UNAVAILABLE', 'GitHub CLI returned invalid JSON.'));
-          }
-        },
-      );
-      // A command may exit before it consumes stdin. Its callback reports the
-      // failure; do not let an EPIPE become an uncaught process error.
-      child.stdin?.on('error', () => {
-        /* The execFile completion callback reports the child failure. */
-      });
-      child.stdin?.end(input === undefined ? undefined : JSON.stringify(input));
-    });
-}
+export { githubRunner, type GitHubRunner } from './github-runner.ts';
 
 /** Per-project GitHub coordination with serialized mutations. */
 export class ProjectGitHub {
@@ -194,16 +145,24 @@ export class ProjectGitHub {
   private readonly directory: string;
   /** Tail of the per-project async operation queue. */
   private pending: Promise<undefined> = Promise.resolve(undefined);
+  /** The project's capability policy; mutations fail closed without one. */
+  private readonly policy: CapabilityGate;
 
   /**
    * Prepare project-specific integration without making network calls.
    *
    * @param config - The target workspace, not the broker's home project.
    * @param runner - Optional test adapter.
+   * @param policy - This same project's capability policy; the broker supplies it.
    */
-  public constructor(config: MeshConfig, runner: GitHubRunner = githubRunner(config.root)) {
+  public constructor(
+    config: MeshConfig,
+    runner: GitHubRunner = githubRunner(config.root),
+    policy: CapabilityGate = UNBOUND_GATE,
+  ) {
     this.config = config;
     this.runner = runner;
+    this.policy = policy;
     this.directory = path.join(config.directory, 'github');
   }
 
@@ -217,18 +176,27 @@ export class ProjectGitHub {
 
   /**
    * Execute an operation after earlier operations for this project finish.
+   * Mutations are authorized for the principal immediately before dispatch,
+   * so a denial makes no remote call and writes no journal.
    *
+   * @param principal - Caller derived from authenticated context, never request data.
    * @param operation - Validated GitHub operation name.
    * @param input - Untrusted tool or RPC arguments.
    * @returns Validated GitHub details or saved local state.
+   * @throws {MeshError} CAPABILITY_DENIED when policy forbids it or none is bound.
    */
-  public async execute(operation: GitHubOperation, input: unknown): Promise<unknown> {
+  public async execute(principal: CapabilityPrincipal, operation: GitHubOperation, input: unknown): Promise<unknown> {
     const previous = this.pending;
     const { promise, resolve } = Promise.withResolvers<undefined>();
     this.pending = promise;
     await previous;
     try {
-      return await this.dispatch(operation, input);
+      this.policy.authorize(principal, githubCapabilities(operation, input));
+      const result = await this.dispatch(operation, input);
+      if (operation === 'github_connect') {
+        this.policy.grantConnectionDefaults(principal);
+      }
+      return result;
     } finally {
       resolve(undefined);
     }
