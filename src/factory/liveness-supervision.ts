@@ -7,6 +7,7 @@
  *
  * @file
  */
+import { askForDecision, shouldAskOperator, useContinuation } from './checkpoint-decisions.ts';
 import { extensionHold } from './extension-gate.ts';
 import { livenessPolicy } from './liveness-schema.ts';
 import { LivenessMonitor } from './liveness.ts';
@@ -63,9 +64,13 @@ export function superviseLiveness(input: {
     artifact: job.artifact,
     worktree: input.worktree,
   });
+  const normal = livenessPolicy(input.settings);
+  // An operator continuation bounds this attempt by its minutes and replaces the extension gate.
+  const continued = useContinuation(repository, job, normal);
+  const policy = continued ?? normal;
   const monitor = new LivenessMonitor({
     startedAt: job.startedAt,
-    policy: livenessPolicy(input.settings),
+    policy,
     now: () => repository.store.now(),
     sample: async () => await sampler.sample(),
     record: (liveness) => {
@@ -75,10 +80,14 @@ export function superviseLiveness(input: {
       }
     },
     stop: (reason) => {
+      if (shouldAskOperator(monitor.liveness, policy, repository.store.now())) {
+        askForDecision(repository, job, monitor.liveness);
+      }
       input.controller.abort(new Error(`${STOP_PREFIX} ${reason}.`));
     },
     ...(input.timers !== undefined && { timers: input.timers }),
-    ...(input.gate !== undefined && { gate: extensionCheck(input.repository, job, input.settings, input.gate) }),
+    ...(input.gate !== undefined &&
+      continued === null && { gate: extensionCheck(input.repository, job, input.settings, input.gate) }),
   });
   monitor.start();
   return monitor;
