@@ -9,6 +9,7 @@
  * @file
  */
 import { asData } from './console-model.js';
+import { formatLocale, phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -109,13 +110,13 @@ export interface AutomationDraft {
 }
 
 /** Ready-made schedules offered in the editor. */
-export const CRON_PRESETS: readonly (readonly [string, string])[] = [
-  ['0 * * * *', 'Every hour'],
-  ['0 9 * * *', 'Every day at 09:00'],
-  ['0 9 * * 1-5', 'Weekdays at 09:00'],
-  ['0 9 * * 1', 'Mondays at 09:00'],
-  ['0 9 1 * *', 'First of the month at 09:00'],
-];
+export const CRON_PRESETS: readonly (readonly [string, string])[] = translated([
+  ['0 * * * *', phrase('Every hour')],
+  ['0 9 * * *', phrase('Every day at 09:00')],
+  ['0 9 * * 1-5', phrase('Weekdays at 09:00')],
+  ['0 9 * * 1', phrase('Mondays at 09:00')],
+  ['0 9 1 * *', phrase('First of the month at 09:00')],
+]);
 
 /** Longest name the broker accepts. */
 export const NAME_MAX = 120;
@@ -135,22 +136,30 @@ const MACROS: Readonly<Record<string, string>> = {
   '@annually': '0 0 1 1 *',
 };
 /** Month names, January first. */
-const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
-];
+const MONTHS = translated([
+  phrase('January'),
+  phrase('February'),
+  phrase('March'),
+  phrase('April'),
+  phrase('May'),
+  phrase('June'),
+  phrase('July'),
+  phrase('August'),
+  phrase('September'),
+  phrase('October'),
+  phrase('November'),
+  phrase('December'),
+]);
 /** Weekday names, Sunday first. */
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const WEEKDAYS = translated([
+  phrase('Sunday'),
+  phrase('Monday'),
+  phrase('Tuesday'),
+  phrase('Wednesday'),
+  phrase('Thursday'),
+  phrase('Friday'),
+  phrase('Saturday'),
+]);
 /** Letters in a month or weekday abbreviation, such as `mon`. */
 const ABBREVIATION = 3;
 /** One cron field: its name, bounds and accepted names. */
@@ -165,13 +174,13 @@ interface FieldShape {
   readonly names?: readonly string[];
 }
 /** The five fields, in order. */
-const FIELDS: readonly FieldShape[] = [
+const FIELDS: readonly FieldShape[] = translated([
   { name: 'minute', min: 0, max: 59 },
   { name: 'hour', min: 0, max: 23 },
-  { name: 'day of month', min: 1, max: 31 },
+  { name: phrase('day of month'), min: 1, max: 31 },
   { name: 'month', min: 1, max: 12, names: MONTHS.map((month) => month.slice(0, ABBREVIATION).toLowerCase()) },
-  { name: 'day of week', min: 0, max: 7, names: WEEKDAYS.map((day) => day.slice(0, ABBREVIATION).toLowerCase()) },
-];
+  { name: t('day of week'), min: 0, max: 7, names: WEEKDAYS.map((day) => day.slice(0, ABBREVIATION).toLowerCase()) },
+]);
 /** Minutes in an hour; also the size of the minute field. */
 const MINUTES = 60;
 /** Width of a zero-padded clock field. */
@@ -335,7 +344,14 @@ function fieldValue(text: string, shape: FieldShape): number {
   const named = shape.names?.indexOf(text.toLowerCase()) ?? -1;
   const parsed = named >= 0 ? shape.min + named : Number(text);
   if (text === '' || !Number.isSafeInteger(parsed) || parsed < shape.min || parsed > shape.max) {
-    throw new Error(`"${text}" is not a valid ${shape.name}; use ${String(shape.min)}–${String(shape.max)}.`);
+    throw new Error(
+      t('"{text}" is not a valid {name}; use {min}–{max}.', {
+        text,
+        name: shape.name,
+        min: shape.min,
+        max: shape.max,
+      }),
+    );
   }
   return parsed;
 }
@@ -356,7 +372,7 @@ function bounds(range: string, hasStep: boolean, shape: FieldShape): [number, nu
   }
   const [startText = '', endText, beyond] = range.split('-', SPLIT_LIMIT);
   if (beyond !== undefined) {
-    throw new Error(`"${range}" is not a valid range in the ${shape.name} field.`);
+    throw new Error(t('"{range}" is not a valid range in the {name} field.', { range, name: shape.name }));
   }
   const start = fieldValue(startText, shape);
   if (endText !== undefined) {
@@ -379,11 +395,11 @@ function fieldValues(text: string, shape: FieldShape): number[] {
     const [range = '', stepText, extra] = part.split('/', SPLIT_LIMIT);
     const step = stepText === undefined ? 1 : Number(stepText);
     if (extra !== undefined || !Number.isSafeInteger(step) || step < 1) {
-      throw new Error(`"${part}" has an invalid step in the ${shape.name} field.`);
+      throw new Error(t('"{part}" has an invalid step in the {name} field.', { part, name: shape.name }));
     }
     const [start, last] = bounds(range, stepText !== undefined, shape);
     if (last < start) {
-      throw new Error(`"${part}" runs backwards in the ${shape.name} field.`);
+      throw new Error(t('"{part}" runs backwards in the {name} field.', { part, name: shape.name }));
     }
     for (let current = start; current <= last; current += step) {
       values.add(current);
@@ -403,12 +419,12 @@ function parseExpression(expression: string): ParsedCron {
   const trimmed = expression.trim();
   const parts = (MACROS[trimmed.toLowerCase()] ?? trimmed).split(/\s+/v);
   if (parts.length !== FIELDS.length) {
-    throw new Error('Use five fields: minute hour day-of-month month day-of-week, such as "0 9 * * 1-5".');
+    throw new Error(t('Use five fields: minute hour day-of-month month day-of-week, such as "0 9 * * 1-5".'));
   }
   const values = parts.map((part, index) => {
     const shape = FIELDS[index];
     if (shape === undefined) {
-      throw new Error('Unexpected field.');
+      throw new Error(t('Unexpected field.'));
     }
     return fieldValues(part, shape);
   });
@@ -498,26 +514,26 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
   const [hour = 0] = hours;
   if (!isHourRestricted) {
     if (minutes.length === MINUTES) {
-      return 'Every minute';
+      return t('Every minute');
     }
     if (step !== null) {
-      return `Every ${String(step)} minutes`;
+      return t('Every {step} minutes', { step });
     }
     return minutes.length === 1
-      ? `At ${String(minute)} minutes past every hour`
-      : `At minutes ${ranges(minutes, String)} past every hour`;
+      ? t('At {minute} minutes past every hour', { minute })
+      : t('At minutes {value} past every hour', { value: ranges(minutes, String) });
   }
   if (minutes.length === 1 && hours.length === 1) {
-    return `At ${pad(hour)}:${pad(minute)}`;
+    return t('At {value}:{value2}', { value: pad(hour), value2: pad(minute) });
   }
   const hourText = ranges(hours, (value) => `${pad(value)}:00`);
   if (minutes.length === 1) {
-    return `At ${pad(minute)} minutes past ${hourText}`;
+    return t('At {value} minutes past {hourText}', { value: pad(minute), hourText });
   }
   const minuteList = ranges(minutes, String);
   return step === null
-    ? `At minutes ${minuteList} during ${hourText}`
-    : `Every ${String(step)} minutes during ${hourText}`;
+    ? t('At minutes {minuteList} during {hourText}', { minuteList, hourText })
+    : t('Every {step} minutes during {hourText}', { step, hourText });
 }
 
 /**
@@ -529,9 +545,9 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
 function dayText(parsed: ParsedCron): string {
   const [days = [], months = [], weekdays = []] = parsed.values.slice(2);
   const [isDayRestricted = false, isMonthRestricted = false, isWeekdayRestricted = false] = parsed.restricted.slice(2);
-  const dayWords = `on day ${ranges(days, String)} of the month`;
+  const dayWords = t('on day {value} of the month', { value: ranges(days, String) });
   const weekdayWords = `on ${ranges(weekdays, (value) => WEEKDAYS[value] ?? String(value))}`;
-  let text = 'every day';
+  let text = t('every day');
   if (isDayRestricted && isWeekdayRestricted) {
     text = `${dayWords} or ${weekdayWords}`;
   } else if (isDayRestricted) {
@@ -543,7 +559,7 @@ function dayText(parsed: ParsedCron): string {
     return text;
   }
   const monthText = ranges(months, (value) => MONTHS[value - 1] ?? String(value));
-  return `${text}, in ${monthText}`;
+  return t('{text}, in {monthText}', { text, monthText });
 }
 
 /**
@@ -557,7 +573,7 @@ export function describeCron(expression: string): { readonly text: string; reado
   try {
     parsed = parseExpression(expression);
   } catch (error) {
-    return { text: error instanceof Error ? error.message : 'Invalid schedule.', isValid: false };
+    return { text: error instanceof Error ? error.message : t('Invalid schedule.'), isValid: false };
   }
   const [minutes = [], hours = []] = parsed.values;
   const [, isHourRestricted = false] = parsed.restricted;
@@ -584,9 +600,9 @@ const FIRE_FORMAT: Intl.DateTimeFormatOptions = {
 export function zonedTime(at: number, timeZone: string): string {
   let format: Intl.DateTimeFormat;
   try {
-    format = new Intl.DateTimeFormat(undefined, { ...FIRE_FORMAT, ...(timeZone !== '' && { timeZone }) });
+    format = new Intl.DateTimeFormat(formatLocale(), { ...FIRE_FORMAT, ...(timeZone !== '' && { timeZone }) });
   } catch {
-    format = new Intl.DateTimeFormat(undefined, FIRE_FORMAT);
+    format = new Intl.DateTimeFormat(formatLocale(), FIRE_FORMAT);
   }
   return format.format(at);
 }
@@ -609,8 +625,10 @@ export function browserZone(): string {
  * @returns Plain status text.
  */
 export function fireText(fire: FireView): string {
-  const cause = { schedule: 'Scheduled', trigger: 'Webhook', manual: 'Run now' }[fire.kind];
-  return fire.error === null ? `${cause}: objective filed` : `${cause}: not filed. ${fire.error}`;
+  const cause = { schedule: t('Scheduled'), trigger: t('Webhook'), manual: t('Run now') }[fire.kind];
+  return fire.error === null
+    ? t('{cause}: objective filed', { cause })
+    : t('{cause}: not filed. {error}', { cause, error: fire.error });
 }
 
 /**
@@ -639,10 +657,10 @@ export function draftOf(automation: AutomationView | null): AutomationDraft {
  */
 export function draftProblem(kind: AutomationView['kind'], draft: AutomationDraft): string | null {
   if (draft.name.trim() === '' || draft.name.length > NAME_MAX) {
-    return `Give it a name of 1–${String(NAME_MAX)} characters.`;
+    return t('Give it a name of 1–{nameMax} characters.', { nameMax: NAME_MAX });
   }
   if (draft.objective.trim() === '' || draft.objective.length > OBJECTIVE_MAX) {
-    return 'Describe the objective it files.';
+    return t('Describe the objective it files.');
   }
   if (kind === 'trigger') {
     return null;
@@ -651,7 +669,7 @@ export function draftProblem(kind: AutomationView['kind'], draft: AutomationDraf
   if (!cron.isValid) {
     return cron.text;
   }
-  return draft.timeZone.trim() === '' ? 'Choose a time zone, such as Europe/Berlin.' : null;
+  return draft.timeZone.trim() === '' ? t('Choose a time zone, such as Europe/Berlin.') : null;
 }
 
 /**
@@ -713,7 +731,7 @@ export function issuedSecret(
   const name = textOf(trigger, 'name');
   const path = textOf(trigger, 'path');
   const fallbackPath = `/triggers/${id === '' ? '<id>' : id}`;
-  return { secret, trigger: { name: name === '' ? 'the trigger' : name, path: path === '' ? fallbackPath : path } };
+  return { secret, trigger: { name: name === '' ? t('the trigger') : name, path: path === '' ? fallbackPath : path } };
 }
 
 /**
