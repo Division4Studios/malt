@@ -173,8 +173,19 @@ await test('held deliveries start no new attempts and finished ones leave the bo
     changed: 2,
     skipped: [],
   });
+  assert.equal(
+    repository.task(first.id).version,
+    first.version,
+    'a hold leaves the version alone, so a running attempt still publishes',
+  );
   const held = consoleView(repository).deliveries.find((card) => card.taskId === first.id);
   assert.equal(held?.held?.reason, 'Release freeze');
+  const implement = held.steps.find((step) => step.id === 'implement');
+  assert.equal(
+    implement?.state,
+    'waiting',
+    'a held delivery cannot start, so its implementation is not shown as ready',
+  );
   const claim = jobSchema.parse({
     id: randomUUID(),
     role: 'developer-1',
@@ -216,4 +227,73 @@ await test('held deliveries start no new attempts and finished ones leave the bo
   assert.ok(board().includes(old.id), 'Unarchiving keeps a delivery on the board.');
   assert.ok(!board().includes(recent.id));
   assert.equal(archiveDeliveries(repository, { taskIds: [first.id], archive: true }).skipped.length, 1);
+});
+
+await test('every running step shows as running and kept deliveries stay past the board limit', (t) => {
+  const repository = project(t);
+  const assured = builtinWorkflows().find((workflow) => workflow.id === 'malt-assured');
+  assert.ok(assured !== undefined);
+  const task = delivery(repository, {
+    phase: 'review',
+    head: 'h',
+    base: 'b',
+    pr: 1,
+    workflow: { id: assured.id, revision: workflowDigest(assured), workflow: assured },
+  });
+  const job = (role: 'qa-1' | 'qa-2', step: string): ReturnType<typeof jobSchema.parse> => {
+    return jobSchema.parse({
+      id: randomUUID(),
+      role,
+      provider: 'codex',
+      kind: 'review',
+      taskId: task.id,
+      featureId: null,
+      token: randomUUID(),
+      state: 'running',
+      startedAt: 1,
+      finishedAt: null,
+      expiresAt: Number.MAX_SAFE_INTEGER,
+      reservation: 1,
+      usageTokens: null,
+      pid: null,
+      head: 'h',
+      base: 'b',
+      summary: null,
+      artifact: 'fixture',
+      step,
+    });
+  };
+  const settings = repository.config();
+  assert.ok(settings !== null);
+  assert.equal(repository.claim(job('qa-1', 'acceptance'), settings), true);
+  const states = (): Record<string, string> => {
+    const card = consoleView(repository).deliveries.find((candidate) => candidate.taskId === task.id);
+    return Object.fromEntries((card?.steps ?? []).map((step) => [step.id, step.state]));
+  };
+  assert.equal(states()['acceptance'], 'running');
+  assert.notEqual(states()['engineering'], 'running', 'a sibling review of the same kind is not running');
+  assert.equal(repository.claim(job('qa-2', 'engineering'), settings), true);
+  assert.equal(states()['engineering'], 'running');
+
+  const now = repository.store.now();
+  const kept = delivery(repository, { phase: 'done', updatedAt: now - 1000 });
+  archiveDeliveries(repository, { taskIds: [kept.id], archive: false });
+  for (let index = 0; index < 51; index += 1) {
+    delivery(repository, { phase: 'done', updatedAt: now });
+  }
+  assert.ok(consoleView(repository).deliveries.some((card) => card.taskId === kept.id));
+});
+
+await test('the restorable list shows the most recently archived deliveries first', (t) => {
+  const repository = project(t);
+  const now = repository.store.now();
+  const older = delivery(repository, { phase: 'done', updatedAt: now });
+  const newer = delivery(repository, { phase: 'done', updatedAt: now });
+  archiveDeliveries(repository, { taskIds: [newer.id], archive: true });
+  archiveDeliveries(repository, { taskIds: [older.id], archive: true });
+  assert.deepEqual(
+    consoleView(repository).archived.recent.map((entry) => entry.taskId),
+    [older.id, newer.id],
+    'the delivery archived last is listed first, whatever its creation order',
+  );
 });

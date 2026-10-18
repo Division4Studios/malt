@@ -24,12 +24,15 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { ListRootsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod/v3';
 
+import { PROJECT_OPERATOR } from '../src/capability-endpoints.ts';
 import { loadConfig } from '../src/config.ts';
+import { ProjectGitHub } from '../src/github.ts';
 
 import type { ClientResults } from '../src/client.ts';
 import type { MeshConfig } from '../src/config.ts';
 import type { WorkState } from '../src/coordination.ts';
 import type { AgentRow } from '../src/database.ts';
+import type { GitHubRunner } from '../src/github.ts';
 import type { ToolOperation } from '../src/protocol.ts';
 import type { InboxPage } from '../src/store.ts';
 import type { Buffer } from 'node:buffer';
@@ -312,4 +315,27 @@ const toolErrorSchema = z.object({ error: z.object({ code: z.string(), message: 
  */
 export function toolErrorCode(payload: unknown): string {
   return toolErrorSchema.parse(payload).error.code;
+}
+
+/** The project-token human, as the broker derives it for web and CLI callers. */
+export const OPERATOR = PROJECT_OPERATOR;
+
+/**
+ * Build a GitHub integration for connection and journal mechanics tests.
+ * Capability decisions are covered against the real policy store in
+ * `capability-enforcement.test.ts`; here every principal is allowed.
+ *
+ * @param config - Disposable project.
+ * @param runner - Optional fixture GitHub CLI.
+ * @returns Integration with an allow-all gate bound.
+ */
+export function mechanicsGitHub(config: MeshConfig, runner?: GitHubRunner): ProjectGitHub {
+  return new ProjectGitHub(config, runner, {
+    authorize: () => {
+      /* Mechanics tests do not exercise capability policy. */
+    },
+    grantConnectionDefaults: () => {
+      /* No policy to grant into. */
+    },
+  });
 }
