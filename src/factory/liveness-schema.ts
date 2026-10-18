@@ -17,6 +17,8 @@ export const DEFAULT_MAX_MS = 7_200_000;
 export const DEFAULT_SAMPLE_MS = 60_000;
 /** Smallest accepted sample interval, so sampling never becomes a busy loop. */
 const MIN_SAMPLE_MS = 1000;
+/** Full subscription usage. */
+const PERCENT_MAX = 100;
 
 /** Optional project liveness policy; `jobTimeoutMs` is the checkpoint interval. */
 export const livenessSettingsSchema = z
@@ -24,13 +26,15 @@ export const livenessSettingsSchema = z
     stallMs: z.number().int().positive().optional(),
     maxMs: z.number().int().positive().optional(),
     sampleMs: z.number().int().min(MIN_SAMPLE_MS).optional(),
+    /** Subscription headroom an extension needs, per running attempt sharing the provider. */
+    quotaMarginPercent: z.number().min(0).max(PERCENT_MAX).optional(),
   })
   .strict();
 /** Saved liveness policy. */
 export type LivenessSettings = z.output<typeof livenessSettingsSchema>;
 
 /** What an assignment's latest signals say about it. */
-export const LIVENESS_STATES = ['progressing', 'idle', 'awaiting_input', 'stalled', 'ceiling'] as const;
+export const LIVENESS_STATES = ['progressing', 'idle', 'awaiting_input', 'stalled', 'ceiling', 'held'] as const;
 /** One liveness state. */
 export type LivenessState = (typeof LIVENESS_STATES)[number];
 
@@ -52,7 +56,15 @@ export const jobLivenessSchema = z
 export type JobLiveness = z.output<typeof jobLivenessSchema>;
 
 /** Why an attempt did not succeed, which decides when its step may run again. */
-export const FAILURE_CLASSES = ['rate_limit', 'transient', 'stalled', 'invalid_output', 'gate', 'cancelled'] as const;
+export const FAILURE_CLASSES = [
+  'rate_limit',
+  'transient',
+  'stalled',
+  'held',
+  'invalid_output',
+  'gate',
+  'cancelled',
+] as const;
 /** One failure class. */
 export type FailureClass = (typeof FAILURE_CLASSES)[number];
 /** Recorded failure class. */

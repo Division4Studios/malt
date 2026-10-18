@@ -46,6 +46,8 @@ export const RETRY_POLICY: Readonly<Record<FailureClass, RetryRule>> = {
   rate_limit: { baseMs: MINUTE_MS, maxMs: FIFTEEN_MINUTES_MS, cap: 6 },
   transient: { baseMs: HALF_MINUTE_MS, maxMs: TEN_MINUTES_MS, cap: 5 },
   stalled: { baseMs: FIVE_MINUTES_MS, maxMs: THIRTY_MINUTES_MS, cap: 3 },
+  // A productive attempt held for want of verified quota or machine headroom.
+  held: { baseMs: FIFTEEN_MINUTES_MS, maxMs: THIRTY_MINUTES_MS, cap: 2 },
   invalid_output: { baseMs: TWO_MINUTES_MS, maxMs: TEN_MINUTES_MS, cap: 3 },
   // Unpaid gates re-check on the reconcile cadence and never exhaust.
   gate: { baseMs: null, maxMs: TEN_MINUTES_MS, cap: null },
@@ -53,6 +55,8 @@ export const RETRY_POLICY: Readonly<Record<FailureClass, RetryRule>> = {
   cancelled: { baseMs: 0, maxMs: 0, cap: null },
 };
 
+/** Prefix of a checkpoint stop that held a productive attempt rather than finding it stalled. */
+export const HOLD_PREFIX = 'no extension:';
 /** Patterns that identify provider limits in failure text. */
 const LIMIT_PATTERN = /rate.?limit|usage.?limit|quota|\b429\b/iv;
 /** Patterns that identify unusable provider output. */
@@ -93,6 +97,9 @@ export function classifyAttempt(facts: AttemptFacts): FailureClass | null {
   const isGated = !facts.isResultMissing && facts.error instanceof MeshError && facts.error.code === 'FACTORY_GATED';
   if (isGated || facts.waiting !== null) {
     return 'gate';
+  }
+  if (facts.stopReason?.startsWith(HOLD_PREFIX) === true) {
+    return 'held';
   }
   if (facts.isCoolingDown || LIMIT_PATTERN.test(facts.reason ?? '')) {
     return 'rate_limit';

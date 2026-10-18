@@ -101,6 +101,7 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   '{days}d ago': '{days} 天前',
   '{done} of {length} steps done': '已完成 {done}/{length} 个步骤',
   'hit a provider limit': '触及提供方限制',
+  'was held at a checkpoint': '在检查点被暂停',
   'returned no usable result': '未返回可用结果',
   'waited on a gate': '在关卡处等待',
   'was interrupted': '被中断',

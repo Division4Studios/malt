@@ -837,6 +837,7 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
   rate_limit: phrase('hit a provider limit'),
   transient: 'failed',
   stalled: 'stalled',
+  held: phrase('was held at a checkpoint'),
   invalid_output: phrase('returned no usable result'),
   gate: phrase('waited on a gate'),
   cancelled: phrase('was interrupted'),
