@@ -11,7 +11,9 @@
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { t } from './i18n.js';
+import { checkbox, fillSelect, labelled, prioritized } from './roles-dom.js';
 import {
+  EMPTY_ROLES,
   INSTRUCTIONS_MAX,
   LABEL_MAX,
   MAX_SERVERS,
@@ -41,65 +43,8 @@ import type { MemberDraft, RolesModel, ServerDraft, TypeDraft } from './roles-mo
 export interface RolesHooks {
   /** Operator control path. */
   readonly control: OperatorControl;
-}
-
-/** An empty model before the first snapshot. */
-const EMPTY: RolesModel = {
-  isConfigured: false,
-  isPaused: false,
-  types: [],
-  members: [],
-  catalog: { revision: null, skills: [], tools: [], native: [] },
-  models: [],
-  secrets: {},
-};
-
-/**
- * Build a labelled form field.
- *
- * @param label - Visible label.
- * @param control - Input, select or textarea.
- * @param hint - Optional help text.
- * @returns Label wrapping the control.
- */
-function labelled(label: string, control: HTMLElement, hint = ''): HTMLLabelElement {
-  const node = element('label', 'role-field');
-  node.append(element('span', 'role-field-label', label), control);
-  if (hint !== '') {
-    node.append(element('span', 'role-hint', hint));
-  }
-  return node;
-}
-
-/**
- * Build a checkbox with its label.
- *
- * @param label - Visible label.
- * @param isChecked - Initial state.
- * @param value - Value carried by the checkbox.
- * @returns Label and its checkbox.
- */
-function checkbox(label: string, isChecked: boolean, value = ''): { node: HTMLLabelElement; input: HTMLInputElement } {
-  const input = element('input');
-  input.type = 'checkbox';
-  input.checked = isChecked;
-  input.value = value;
-  const node = element('label', 'role-check');
-  node.append(input, element('span', '', label));
-  return { node, input };
-}
-
-/**
- * Replace a select's options.
- *
- * @param select - Select element.
- * @param options - Value and label pairs.
- * @param value - Selected value.
- */
-function fillSelect(select: HTMLSelectElement, options: readonly (readonly [string, string])[], value: string): void {
-  const node = select;
-  node.replaceChildren(...options.map(([optionValue, label]) => new Option(label, optionValue)));
-  node.value = options.some(([optionValue]) => optionValue === value) ? value : (options[0]?.[0] ?? '');
+  /** Selected project id; a draft belongs to the project it was started in. */
+  readonly project?: () => string;
 }
 
 /** One server row in the editor. */
@@ -153,18 +98,26 @@ class TypeEditor {
   /** Type being edited, or `null` for a new one. */
   private editing: TypeDraft | null = null;
   /** Current view model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Seats using the type. */
   private seats: readonly string[] = [];
   /** Receives the edited type. */
-  private readonly saved: (draft: TypeDraft, previous: TypeDraft | null) => string[];
+  private readonly saved: (draft: TypeDraft, previous: TypeDraft | null, revision: string | null) => string[];
+  /** Configured tools the current seats do not list; kept so an unrelated edit does not drop them. */
+  private hiddenTools: readonly string[] = [];
+  /** Deny rules saved beside an allow list. */
+  private keptDeny: readonly string[] = [];
+  /** The type's skills in priority order when it was opened. */
+  private skillOrder: readonly string[] = [];
+  /** Organization revision when the dialog opened. */
+  private openedRevision: string | null = null;
 
   /**
    * Build the dialog once.
    *
    * @param saved - Applies the edit to the view draft and returns problems that block it.
    */
-  public constructor(saved: (draft: TypeDraft, previous: TypeDraft | null) => string[]) {
+  public constructor(saved: (draft: TypeDraft, previous: TypeDraft | null, revision: string | null) => string[]) {
     this.saved = saved;
     const id = `role-editor-${crypto.randomUUID()}`;
     this.heading.id = `${id}-title`;
@@ -265,12 +218,19 @@ class TypeEditor {
       ...model.catalog.skills.map((skill) => checkbox(skill, type.skills.includes(skill), skill).node),
     );
     this.toolMode.value = type.toolMode;
+    const shown = toolsFor(model.catalog, this.seats);
     this.tools.replaceChildren(
       this.tools.firstElementChild ?? '',
-      ...toolsFor(model.catalog, this.seats).map((tool) => checkbox(tool, type.tools.includes(tool), tool).node),
+      ...shown.map((tool) => checkbox(tool, type.tools.includes(tool), tool).node),
     );
+    this.hiddenTools = type.tools.filter((tool) => !shown.includes(tool));
+    this.keptDeny = type.keptDeny;
+    this.skillOrder = type.skills;
+    this.openedRevision = model.catalog.revision;
     this.rows = [];
     this.servers.replaceChildren();
+    // The dialog is reused: a type that filled every server row must not leave the button disabled.
+    this.serverButton.disabled = false;
     for (const server of type.servers) {
       this.appendServer(server);
     }
@@ -400,13 +360,14 @@ class TypeEditor {
       ...blankType(this.name.value.trim()),
       label: this.label.value,
       instructions: this.instructions.value,
-      skills: this.checked(this.skills),
+      skills: prioritized(this.skillOrder, this.checked(this.skills)),
       minimumTier: TIERS.find((tier) => tier === this.tier.value) ?? 'small',
       provider,
       modelId: this.selectedModel(),
       effort: this.effort.value === '' ? null : this.effort.value,
       toolMode: this.toolMode.value === 'allow' ? 'allow' : 'deny',
-      tools: this.checked(this.tools),
+      tools: [...this.checked(this.tools), ...this.hiddenTools],
+      keptDeny: this.keptDeny,
       servers: this.rows.map((row) => {
         return {
           name: row.name.value.trim(),
@@ -421,7 +382,7 @@ class TypeEditor {
   /** Validate and apply the edit to the view draft; problems stay in the dialog. */
   private submit(): void {
     const draft = this.draft();
-    const problems = [...typeProblems(draft, this.model), ...this.saved(draft, this.editing)];
+    const problems = [...typeProblems(draft, this.model), ...this.saved(draft, this.editing, this.openedRevision)];
     if (problems.length > 0) {
       this.error.textContent = problems.join(' ');
       return;
@@ -447,7 +408,7 @@ class RolesView implements ConsoleViewHandle {
   /** Type editor. */
   private readonly editor: TypeEditor;
   /** Latest validated model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Draft types, or `null` while nothing is edited. */
   private types: TypeDraft[] | null = null;
   /** Draft members, or `null` while nothing is edited. */
@@ -458,6 +419,8 @@ class RolesView implements ConsoleViewHandle {
   private isSending = false;
   /** Signature of the last render. */
   private rendered = '';
+  /** Project the shown organization and any draft belong to. */
+  private project = '';
   /** Shell callbacks. */
   private readonly hooks: RolesHooks;
 
@@ -468,7 +431,7 @@ class RolesView implements ConsoleViewHandle {
    */
   public constructor(hooks: RolesHooks) {
     this.hooks = hooks;
-    this.editor = new TypeEditor((draft, previous) => this.applyType(draft, previous));
+    this.editor = new TypeEditor((draft, previous, revision) => this.applyType(draft, previous, revision));
     this.error.setAttribute('role', 'alert');
     this.status.setAttribute('aria-live', 'polite');
     const types = element('section', 'role-section');
@@ -498,6 +461,13 @@ class RolesView implements ConsoleViewHandle {
    * @param snapshot - Untrusted live snapshot.
    */
   public update(snapshot: unknown): void {
+    const project = this.hooks.project?.() ?? '';
+    if (project !== this.project) {
+      // Two projects can share an organization revision; never let one project's draft be saved into another.
+      this.project = project;
+      this.editor.element.close();
+      this.discard();
+    }
     this.model = readRoles(snapshot);
     this.render();
   }
@@ -536,9 +506,17 @@ class RolesView implements ConsoleViewHandle {
    *
    * @param draft - Edited type.
    * @param previous - Type it replaces, or `null` for a new one.
+   * @param revision - Organization revision the editor opened the type at.
    * @returns Problems that block the edit.
    */
-  private applyType(draft: TypeDraft, previous: TypeDraft | null): string[] {
+  private applyType(draft: TypeDraft, previous: TypeDraft | null, revision: string | null): string[] {
+    if (this.isSending) {
+      return [t('Wait until the organization is saved, then apply this edit again.')];
+    }
+    if (this.types === null && revision !== this.model.catalog.revision) {
+      // Without a draft, applying would overwrite the newer saved organization with what this dialog opened.
+      return [t('The saved organization changed while this dialog was open. Close it and edit the saved type.')];
+    }
     this.beginDraft();
     const types = this.types ?? [];
     if (previous === null && types.some((type) => type.name === draft.name)) {
@@ -710,12 +688,13 @@ class RolesView implements ConsoleViewHandle {
       const row = element('tr');
       const type = element('select');
       type.dataset['focusKey'] = `role-member-type-${member.role}`;
-      type.setAttribute('aria-label', `${member.role} type`);
+      type.setAttribute('aria-label', t('{role} type', { role: member.role }));
       fillSelect(
         type,
         types.map((candidate) => [candidate.name, candidate.label] as const),
         member.type,
       );
+      type.disabled = this.isSending;
       type.addEventListener('change', () => {
         this.setMember(member.role, { type: type.value });
       });
@@ -732,6 +711,7 @@ class RolesView implements ConsoleViewHandle {
         ],
         member.reportsTo ?? '',
       );
+      manager.disabled = this.isSending;
       manager.addEventListener('change', () => {
         this.setMember(member.role, { reportsTo: manager.value === '' ? null : manager.value });
       });
@@ -754,6 +734,9 @@ class RolesView implements ConsoleViewHandle {
    * @param change - New type or manager.
    */
   private setMember(role: string, change: Partial<MemberDraft>): void {
+    if (this.isSending) {
+      return;
+    }
     this.beginDraft();
     this.members = (this.members ?? []).map((member) => (member.role === role ? { ...member, ...change } : member));
     this.render(true);
@@ -771,7 +754,7 @@ class RolesView implements ConsoleViewHandle {
       confirm: t('Delete type'),
       cancel: t('Keep it'),
     });
-    if (!isSure) {
+    if (!isSure || this.isSending) {
       return;
     }
     this.beginDraft();
