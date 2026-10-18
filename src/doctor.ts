@@ -365,6 +365,9 @@ async function githubCheck(probes: DoctorProbes, cwd: string): Promise<DoctorChe
   }
 }
 
+/** Broker port detail when a MALT broker already listens there. */
+const BROKER_RUNNING = 'a MALT broker is already listening';
+
 /**
  * One port is free, or already owned by a MALT broker.
  *
@@ -380,7 +383,7 @@ async function portCheck(probes: DoctorProbes, port: number, role: 'broker' | 'c
     return check({ id, label }, 'pass', 'free');
   }
   if (role === 'broker' && (await probes.isBroker(port))) {
-    return check({ id, label }, 'pass', 'a MALT broker is already listening');
+    return check({ id, label }, 'pass', BROKER_RUNNING);
   }
   return check(
     { id, label },
@@ -465,11 +468,12 @@ export function formatDoctor(report: DoctorReport): string {
   });
   const failures = report.checks.filter((item) => item.status === 'fail').length;
   const plural = failures === 1 ? '' : 's';
+  // `--with-broker` starts its own broker, which cannot share a port with one already running.
+  const isBrokerRunning = report.checks.some((item) => item.id === 'broker-port' && item.detail === BROKER_RUNNING);
+  const next = isBrokerRunning ? 'node src/cli.ts ui' : 'node src/cli.ts ui --with-broker';
   lines.push(
     '',
-    report.ok
-      ? 'Ready. Next: node src/cli.ts ui --with-broker'
-      : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
+    report.ok ? `Ready. Next: ${next}` : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
   );
   return `${lines.join('\n')}\n`;
 }
