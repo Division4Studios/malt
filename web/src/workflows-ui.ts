@@ -23,7 +23,7 @@ import type { DraftOrigin, DraftWorkflow, Library, LibraryItem } from './workflo
 export interface WorkflowsHooks {
   /** The console's operator control sender (`createOperatorControl`); resolves false when not applied. */
   readonly control: (operation: string, input: unknown) => Promise<boolean>;
-  /** Selected project id; revision history is offered when it is supplied. */
+  /** Selected project id: an open draft belongs to the project it was opened in, and revision history is offered when it is supplied. */
   readonly project?: () => string;
 }
 
@@ -100,6 +100,8 @@ class WorkflowsView {
   private isPending = false;
   /** Failure text captured while a control is in flight. */
   private failure = '';
+  /** Project the open draft was opened in; its saves go nowhere else. */
+  private draftProject = '';
 
   /**
    * Build the view shell.
@@ -109,7 +111,7 @@ class WorkflowsView {
   public constructor(hooks: WorkflowsHooks) {
     this.hooks = hooks;
     this.editor = new WorkflowEditor({
-      send: async (operation, input) => this.send(operation, input),
+      send: async (operation, input) => this.sendDraft(operation, input),
       library: () => this.library,
       saved: (id) => {
         this.saved(id);
@@ -181,6 +183,13 @@ class WorkflowsView {
    * @param snapshot - Untrusted live snapshot.
    */
   public update(snapshot: unknown): void {
+    if (this.editor.isOpen && this.project() !== this.draftProject) {
+      this.editor.close();
+      this.followUp.replaceChildren();
+      this.status.textContent = t(
+        'The workflow draft was closed because the console switched projects; nothing was saved.',
+      );
+    }
     this.library = parseLibrary(snapshot);
     this.render();
     this.editor.libraryChanged();
@@ -214,6 +223,19 @@ class WorkflowsView {
     } finally {
       this.isPending = false;
     }
+  }
+
+  /**
+   * Send a draft control, but only into the project the draft was opened in.
+   *
+   * @param operation - Operation name.
+   * @param input - Request body.
+   * @returns Outcome and explanation.
+   */
+  private async sendDraft(operation: string, input: unknown): Promise<ControlResult> {
+    return this.project() === this.draftProject
+      ? this.send(operation, input)
+      : { ok: false, error: t('This draft was opened in another project, so it was not saved here.') };
   }
 
   /** Re-render the library list and the preview when their data changed, keeping focus. */
@@ -419,6 +441,7 @@ class WorkflowsView {
     const { draft, origin, title } = make();
     this.status.textContent = '';
     this.followUp.replaceChildren();
+    this.draftProject = this.project();
     this.editor.open(draft, origin, title);
     this.render();
   }
@@ -453,6 +476,15 @@ class WorkflowsView {
   }
 
   /**
+   * The project the console currently shows.
+   *
+   * @returns Project id, or empty when the shell does not supply one.
+   */
+  private project(): string {
+    return this.hooks.project?.() ?? '';
+  }
+
+  /**
    * Replace the draft with the latest saved revision, or close it when none exists.
    *
    * @param id - Workflow id.
@@ -466,6 +498,7 @@ class WorkflowsView {
       return;
     }
     const { draft, origin } = draftFrom(item, this.library);
+    this.draftProject = this.project();
     this.editor.open(draft, origin, t('Edit “{name}”', { name: item.workflow.name }));
     this.status.textContent = t('Loaded the latest revision of “{id}”.', { id });
     this.render();
