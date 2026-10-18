@@ -56,7 +56,7 @@ const TOKENS: readonly RegExp[] = [
 /** URL credentials: the scheme survives, the user and password do not. */
 const URL_CREDENTIALS = /\b(?<scheme>[a-z][\d+\-.a-z]*:\/\/)[^\s\/:@]+:[^\s\/@]+@/giv;
 /** An authorization value: the label survives, the scheme and every credential after it do not. */
-const AUTHORIZATION = /\b(?<label>authorization["']?[:=] ?["']?)[^\n"']+/giv;
+const AUTHORIZATION = /\b(?<label>authorization["']?\s*[:=]\s*["']?)[^\n"']+/giv;
 /** A labelled secret value: the label survives, the value does not. */
 const LABELLED_SECRET = /\b(?<label>(?:api[\-_]?key|password|secret|token)["']?\s*[:=]\s*["']?)[^\s"',]+/giv;
 /** A bearer credential: the scheme word survives, the credential does not. */

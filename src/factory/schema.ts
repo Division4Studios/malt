@@ -434,8 +434,14 @@ export const taskSchema = z.object({
   regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
   /** Last operator retry; repair rounds and failed attempts before it no longer count toward the caps. */
   repairsResetAt: z.number().optional(),
-  /** Reviewed source the supervisor last merged advanced main into; reviews then cover only that merge. */
-  refreshedFrom: z.object({ head: z.string(), base: z.string(), at: z.number() }).optional(),
+
+  /**
+   * Approved source the supervisor last merged advanced main into, and the head that merge produced; reviews
+   * cover only the merge while the delivery is still at that head.
+   */
+  refreshedFrom: z
+    .object({ head: z.string(), base: z.string(), at: z.number(), merged: z.string().optional() })
+    .optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
