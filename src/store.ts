@@ -49,6 +49,7 @@ import {
 } from './database.ts';
 import { readEvents } from './event-log.ts';
 import { TERMINAL_OPERATIONS } from './factory/terminal-schema.ts';
+import { retireExpiredSessions, SESSION_RETIRE_MS } from './identity-retirement.ts';
 import { log } from './log.ts';
 import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from './message-dedup.ts';
 import {
@@ -541,6 +542,7 @@ export class Store implements CoordinationHost {
         run(this.db, "UPDATE agents SET status = 'OFFLINE' WHERE id = ?", id);
         this.event('AGENT_DISCONNECTED', id, { reason: 'heartbeat_timeout' });
       }
+      retireExpiredSessions(this.db, this.now() - this.config.offlineMs - SESSION_RETIRE_MS, (id) => this.depart(id));
       return stale.length;
     });
   }
@@ -704,7 +706,7 @@ export class Store implements CoordinationHost {
               messages: selectAll(
                 this.db,
                 idRowSchema,
-                "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' ORDER BY name",
+                "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' AND role != 'observer' ORDER BY name",
                 sender,
               ).map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })),
             };

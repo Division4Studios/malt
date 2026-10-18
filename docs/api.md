@@ -36,7 +36,7 @@ Before joining, `mesh_list_agents` and `mesh_team_status` already show the folde
 
 Presence values: STARTING, IDLE, WORKING, WAITING, BLOCKED, REVIEWING, NEEDS_INPUT, OFFLINE, FAILED, STOPPED. Presence labels do not launch, pause, or kill processes. WORKING/REVIEWING are agent reports; heartbeats measure bridge connectivity.
 
-Lifetime values: `durable` (a named identity whose secret is saved; it can always reconnect), `session` (created by `mesh_join`; its secret exists only in the bridge) and `ended` (a session whose bridge disconnected). An ended session never returns: it is omitted from the roster, status counts and broadcasts, and messages to it fail with `AGENT_LEFT`.
+Lifetime values: `durable` (a named identity whose secret is saved; it can always reconnect), `session` (created by `mesh_join`; its secret exists only in the bridge) and `ended` (a session whose bridge disconnected). An ended session never returns: it is omitted from the roster, status counts and broadcasts, and messages to it fail with `AGENT_LEFT`. A session whose lease expired more than one hour ago is retired the same way, since no bridge can resume it; durable identities are never retired. The supervisor retires its own system identity when it releases its lease, and any system identity an earlier broker left behind when it starts.
 
 ## Messages
 
@@ -49,7 +49,7 @@ Lifetime values: `durable` (a named identity whose secret is saved; it can alway
 | `mesh_ack_message`         | `id`                                                                 | Idempotent acknowledgement for the caller's own inbox.                                                                          |
 | `mesh_reply`               | `id`, `body`                                                         | A direct message to the original sender, with `reply_to` linking it.                                                            |
 
-Bodies are 1–32,000 characters. Pages contain 1–100 messages. Supported public types: direct, task, handoff, question, blocker, review_request. Broadcast, work_request and worker_left are broker-generated types. A `worker_left` message tells the lead that a session ended while it still held assigned work; its body is JSON with `worker`, `instructions` and `action`. Broadcast recipients are captured at send time; future registrations do not receive historical broadcasts.
+Bodies are 1–32,000 characters. Pages contain 1–100 messages. Supported public types: direct, task, handoff, question, blocker, review_request. Broadcast, work_request and worker_left are broker-generated types. A `worker_left` message tells the lead that a session ended while it still held assigned work; its body is JSON with `worker`, `instructions` and `action`. Broadcast recipients are captured at send time; future registrations do not receive historical broadcasts. Observers (role `observer`, including the supervisor's own `factory-system-*` identity) never receive broadcasts or factory notices.
 
 Retries are safe with an `idempotencyKey` (1–100 characters, chosen by the sender): a send or broadcast that repeats a key the same sender already used returns the original message IDs and stores nothing new, and reusing the key for a different request fails with `IDEMPOTENCY_CONFLICT`. Keys are scoped to the sender and the operation and are kept with the project's messages. Calls without a key behave as before.
 
