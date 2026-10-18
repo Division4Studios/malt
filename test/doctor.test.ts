@@ -151,6 +151,12 @@ await test('GitHub CLI absent or logged out is fix-it, and a port held by a MALT
   });
   assert.equal(status(busy, 'broker-port').status, 'pass');
   assert.ok(busy.checks.some((item) => item.label === 'Broker port 5000'));
+  assert.equal(busy.ok, true);
+  assert.match(
+    formatDoctor(busy),
+    /^Ready\. Next: node src\/cli\.ts ui$/mv,
+    'A running broker is reused, not started again.',
+  );
   const skipped = await runDoctor({ project: '/p', skipPorts: true, probes: probes() });
   assert.ok(skipped.checks.every((item) => !item.id.endsWith('-port')));
 });
