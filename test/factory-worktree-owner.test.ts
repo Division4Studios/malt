@@ -73,6 +73,19 @@ await test('worktrees registered under another path root block a first superviso
     /another environment \(it registered \/data\/\.malt\/worktrees\/a\)/v,
   );
   assert.equal(readOwner(mesh), null, 'no owner is recorded while worktrees are mixed');
+  assert.throws(
+    () => adoptWorktrees(mesh, 20),
+    (error: unknown) =>
+      error instanceof MeshError && error.code === 'FACTORY_GATED' && error.message.includes('cannot be used here'),
+    'worktrees created elsewhere are never adopted',
+  );
+  assert.equal(readOwner(mesh), null, 'a refused adoption changes nothing');
+  // Once the other environment removed them, the handover completes.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture's own temporary project.
+  writeFileSync(
+    ledger,
+    JSON.stringify([{ id: 'a', directory: '/data/.malt/worktrees/a', branch: null, removed: true }]),
+  );
   adoptWorktrees(mesh, 20);
   assert.equal(worktreeOwnerBlocker(mesh, 30), null);
 });

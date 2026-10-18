@@ -150,13 +150,21 @@ export function worktreeOwnerBlocker(mesh: MeshConfig, now: number): string | nu
  * @param mesh - Project configuration.
  * @param now - Handover time.
  * @returns The new owner record.
- * @throws {MeshError} When this environment already owns them.
+ * @throws {MeshError} When this environment already owns them, or worktrees the other environment created remain.
  */
 export function adoptWorktrees(mesh: MeshConfig, now: number): WorktreeOwner {
   const here = currentEnvironment(mesh);
   const owner = readOwner(mesh);
   if (owner !== null && owner.root === here.root && owner.platform === here.platform) {
     throw new MeshError('INVALID_INPUT', 'This environment already owns .malt/worktrees.');
+  }
+  // Their Git links, ledger paths and memory links only resolve where they were created, so they are never adopted.
+  const foreign = foreignWorktrees(mesh);
+  if (foreign.length > 0) {
+    throw new MeshError(
+      'FACTORY_GATED',
+      `${String(foreign.length)} worktrees were created by the other environment (first: ${foreign[0] ?? ''}) and cannot be used here. In that environment, finish, merge or cancel those deliveries so their worktrees are removed, then run factory-worktrees-adopt again. Ownership was not changed.`,
+    );
   }
   const previous =
     owner === null

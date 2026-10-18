@@ -38,8 +38,8 @@ const baselineSchema = z.object({
 export type Baseline = z.output<typeof baselineSchema>;
 /** Stored row. */
 const rowSchema = z.object({ data: z.string() });
-/** Baseline runs in progress, one per project database. */
-const inFlight = new WeakSet<Store>();
+/** Baseline runs in progress, one per project database, with their cancellation. */
+const inFlight = new WeakMap<Store, { controller: AbortController; promise: Promise<void> }>();
 
 /**
  * Ensure the additive baseline table exists.
@@ -78,19 +78,20 @@ export function baselineEvidence(store: Store, base: string | null): Baseline | 
 }
 
 /**
- * Run one test command in the baseline snapshot.
+ * Run one command in the baseline snapshot.
  *
  * @param context - Process runner and policy.
  * @param check - Configured command.
- * @param where - Snapshot directory and artifact folder.
+ * @param where - Snapshot directory, artifact folder and cancellation.
  * @param where.directory - Immutable snapshot of main.
  * @param where.artifact - Private log directory for this command.
+ * @param where.signal - Supervisor cancellation.
  * @returns Its failure, or null when it passed.
  */
 async function runCheck(
   context: FactoryContext,
   check: FactoryContext['settings']['testCommands'][number],
-  where: { directory: string; artifact: string },
+  where: { directory: string; artifact: string; signal: AbortSignal },
 ): Promise<Baseline['failures'][number] | null> {
   const result = await context.processes({
     ...check,
@@ -102,9 +103,10 @@ async function runCheck(
     memoryMb: context.settings.resources.jobMemoryMb,
     cpuPercent: context.settings.resources.jobCpuPercent,
     processLimit: context.settings.resources.jobProcessLimit,
-    signal: AbortSignal.timeout(context.settings.jobTimeoutMs),
+    signal: AbortSignal.any([where.signal, AbortSignal.timeout(context.settings.jobTimeoutMs)]),
     env: validationEnvironment(context.mesh.directory),
   });
+  where.signal.throwIfAborted();
   if (result.exitCode === 0 && !result.interrupted) {
     return null;
   }
@@ -117,25 +119,55 @@ async function runCheck(
 }
 
 /**
- * Run the project's test commands on a main head in an immutable snapshot.
+ * Prepare a snapshot as delivery snapshots are prepared, then run the project's test commands in it.
  *
- * @param context - Project Git, process runner and policy.
- * @param head - Main commit.
- * @returns The recorded baseline.
+ * @param context - Process runner and policy.
+ * @param where - Snapshot and cancellation.
+ * @param where.id - Snapshot key, also naming its log folder.
+ * @param where.directory - Immutable snapshot of main.
+ * @param where.signal - Supervisor cancellation.
+ * @returns Failing test commands.
+ * @throws {Error} When preparation fails, so the baseline stays pending instead of recording setup failures.
  */
-async function measure(context: FactoryContext, head: string): Promise<Baseline> {
-  const id = `baseline-${head.slice(0, SHORT_SHA)}`;
-  const directory = await context.workspaces.create(id, head, null, false);
+async function runStages(
+  context: FactoryContext,
+  where: { id: string; directory: string; signal: AbortSignal },
+): Promise<Baseline['failures']> {
   const failures: Baseline['failures'] = [];
-  try {
-    for (const [index, check] of context.settings.testCommands.entries()) {
-      const artifact = path.join(context.mesh.directory, 'factory', 'baselines', id, `test-${String(index)}`);
-      // eslint-disable-next-line no-await-in-loop -- Project test commands run in their configured order.
-      const failure = await runCheck(context, check, { directory, artifact });
+  const stages = [
+    ['prepare', context.settings.prepareCommands],
+    ['test', context.settings.testCommands],
+  ] as const;
+  for (const [stage, commands] of stages) {
+    for (const [index, check] of commands.entries()) {
+      const artifact = path.join(context.mesh.directory, 'factory', 'baselines', where.id, `${stage}-${String(index)}`);
+      // eslint-disable-next-line no-await-in-loop -- Project commands run in their configured order.
+      const failure = await runCheck(context, check, { directory: where.directory, artifact, signal: where.signal });
+      if (failure !== null && stage === 'prepare') {
+        throw new Error(`Baseline preparation failed: ${failure.command}`);
+      }
       if (failure !== null) {
         failures.push(failure);
       }
     }
+  }
+  return failures;
+}
+
+/**
+ * Measure a main head in an immutable snapshot that is always removed afterwards.
+ *
+ * @param context - Project Git, process runner and policy.
+ * @param head - Main commit.
+ * @param signal - Supervisor cancellation.
+ * @returns The recorded baseline.
+ */
+async function measure(context: FactoryContext, head: string, signal: AbortSignal): Promise<Baseline> {
+  const id = `baseline-${head.slice(0, SHORT_SHA)}`;
+  const directory = await context.workspaces.create(id, head, null, false);
+  let failures: Baseline['failures'];
+  try {
+    failures = await runStages(context, { id, directory, signal });
   } finally {
     await context.workspaces.remove(directory);
   }
@@ -143,8 +175,28 @@ async function measure(context: FactoryContext, head: string): Promise<Baseline>
 }
 
 /**
+ * Measure current main unless its baseline is recorded. It never rejects: a failed or cancelled measurement is
+ * retried on a later pass.
+ *
+ * @param context - Project Git, process runner and policy.
+ * @param signal - Supervisor cancellation.
+ */
+async function measureMissing(context: FactoryContext, signal: AbortSignal): Promise<void> {
+  const { store } = context.repository;
+  try {
+    const head = await context.workspaces.base();
+    if (baselineFor(store, head) === null) {
+      const baseline = await measure(context, head, signal);
+      signal.throwIfAborted();
+      run(store.db, 'INSERT OR REPLACE INTO factory_baselines(head,data) VALUES(?,?)', head, JSON.stringify(baseline));
+    }
+  } catch {
+    // Main could not be fetched, prepared or measured now; the next reconcile pass tries again.
+  }
+}
+
+/**
  * Record main's baseline in the background when none exists for current main.
- * It never rejects: a failed measurement is retried on a later pass.
  *
  * @param context - Project Git, process runner and policy.
  * @returns The measurement in progress, already settled when nothing needed measuring.
@@ -154,16 +206,27 @@ export async function refreshBaseline(context: FactoryContext): Promise<void> {
   if (inFlight.has(store)) {
     return;
   }
-  inFlight.add(store);
+  const controller = new AbortController();
+  const promise = measureMissing(context, controller.signal);
+  inFlight.set(store, { controller, promise });
   try {
-    const head = await context.workspaces.base();
-    if (baselineFor(store, head) === null) {
-      const baseline = await measure(context, head);
-      run(store.db, 'INSERT OR REPLACE INTO factory_baselines(head,data) VALUES(?,?)', head, JSON.stringify(baseline));
-    }
-  } catch {
-    // Main could not be fetched or measured now; the next reconcile pass tries again.
+    await promise;
   } finally {
     inFlight.delete(store);
   }
+}
+
+/**
+ * Stop a running baseline measurement and wait for its commands and checkout to be cleaned up, so the supervisor
+ * can pause or release its lease and the broker can close the database.
+ *
+ * @param store - Selected project's SQLite owner.
+ */
+export async function cancelBaseline(store: Store): Promise<void> {
+  const current = inFlight.get(store);
+  if (current === undefined) {
+    return;
+  }
+  current.controller.abort(new Error('Supervisor stopped; main baseline interrupted.'));
+  await current.promise;
 }

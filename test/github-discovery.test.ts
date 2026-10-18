@@ -33,6 +33,8 @@ interface Behaviour {
   readonly viewsError?: { readonly type?: string; readonly message: string };
   /** The Project and its Status field are beyond the first listed page. */
   readonly isPaged?: boolean;
+  /** The Project a field read by ID belongs to, when not the selected one. */
+  readonly fieldProject?: string;
   /** Fields of the selected repository that differ from the default fixture. */
   readonly repository?: { readonly viewerPermission?: string; readonly isArchived?: boolean };
 }
@@ -113,7 +115,7 @@ function answerProject(query: string, behaviour: Behaviour): unknown {
     return { data: { node: { fields: { nodes: behaviour.isPaged === true ? [{}] : [status, {}] } } } };
   }
   if (query.includes('... on ProjectV2SingleSelectField') && !query.includes('fields(')) {
-    return { data: { node: status } };
+    return { data: { node: { ...status, project: { id: behaviour.fieldProject ?? 'PVT_4' } } } };
   }
   if (query.includes('views(first')) {
     return behaviour.viewsError === undefined
@@ -280,6 +282,12 @@ await test('a Project and saved Status field beyond the first page are still fou
   );
   assert.deepEqual(result.errors, []);
   assertReadOnlyAndClean(queries, result);
+});
+
+await test("a saved field another Project owns is not taken as the selected Project's", async () => {
+  const { run } = fixture({ isPaged: true, fieldProject: 'PVT_OTHER' });
+  const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4, fieldIds: ['F_1'] });
+  assert.deepEqual(result.fields, [], 'the unrelated field is not merged into the selected Project');
 });
 
 await test('read access may open issues; an archived repository supports no change', async () => {
