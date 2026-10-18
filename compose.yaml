@@ -1,6 +1,9 @@
 services:
   broker:
-    build: .
+    build:
+      context: .
+      args:
+        MALT_SOURCE_REVISION: ${MALT_SOURCE_REVISION:-}
     image: agentmesh:local
     init: true
     depends_on:

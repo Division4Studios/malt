@@ -123,6 +123,17 @@ Coordinated quality/scope feedback additionally queues focused acceptance clarif
 
 ## Docker startup and provider authentication
 
+**Image builds.** The runtime image is `node:24-bookworm-slim` with production dependencies, compiled browser assets, Git, `gh` and the two pinned provider CLIs; TypeScript, ESLint and Prettier stay in the build stage. Layers run from least to most frequently changed (system packages, provider CLIs, npm dependencies, MALT source), and BuildKit cache mounts keep apt and npm downloads between builds without adding them to the image. Measured on 2026-10-17 (Windows 10, Docker Desktop 29.8, BuildKit `docker-container` builder, 10 logical CPUs, home broadband):
+
+| Build                                 | Before | After |
+| ------------------------------------- | ------ | ----- |
+| Cold (empty builder cache)            | 98 s   | 82 s  |
+| Warm, nothing changed                 | 1 s    | 0 s   |
+| Warm, MALT source changed             | 2 s    | 2 s   |
+| Warm, `package.json`/lockfile changed | 49 s   | 22 s  |
+
+Cold builds are dominated by downloading the base image, apt packages and the provider CLIs, so they vary with the network. A dependency change no longer reinstalls the provider CLIs, and npm reuses its download cache. `docker compose up -d --build` uses the same cache.
+
 Compose runs both services in the same container so artifact reads use the same target paths as the supervisor. The image includes Git, GitHub CLI, Codex CLI 0.162.1 and Claude Code 2.1.296. Provider versions are build arguments, not browser dependencies. Claude's native binary is checked against its official release manifest; Codex's native CLI is installed through its official npm distribution at image build time. No frontend packages are fetched or installed at runtime.
 
 ```powershell
@@ -178,6 +189,24 @@ Superseded feature parents wait for their local children to be delivered or safe
 If GitHub completes a merge during scope replacement or while its response is lost, reconciliation checks the actual PR before flushing obsolete closure effects. Exact-head/base QA and final evidence from a retained `merging` revision restore the actual merged-main verification stage. Pending retirement effects are cancelled with an audit event, without a false remote-success receipt. A merge lacking that historical proof preserves its actual commit and issue in Blocked for investigation; it is never reported as delivered or retired as obsolete.
 
 The regression suite exercises real MCP transports, SQLite, loopback HTTP, local Git/worktrees and validation subprocesses, with fixture inference and GitHub boundaries. It includes broker-wide admission, Windows descendant process ceilings/cancellation, credential redaction, durable instruction receipts, restart recovery and SSE cursor replay. Browser inspection has verified pairing, worker artifact controls and human skill approval against the actual backend, including rendering hostile markup as text; compact-screen inspection confirms no page-width overflow. Docker smoke covers actual container PWA pairing, authenticated durable objective submission, container recreation and MCP interoperability. A full protected live-board delivery using paid subscription agents and a complete browser installation/offline/update/accessibility audit remain unverified.
+
+**Installed-shell lifecycle (#307).** The service worker installs every shell asset with `cache: 'reload'`, past the HTTP cache, into one content-revisioned cache, and retires older `malt-public-shell-*` revisions on activation. Offline answers come only from its own revision. A window whose page loaded from that cache keeps loading every module from it after the network returns, so a page never mixes revisions; a reload, or **Update console** once a new worker is waiting, moves it to the new shell. The worker never intercepts `/api/*`, `/sw.js`, query strings, non-GET or cross-origin requests. The console serves shell assets `no-cache` and every API, pairing and SSE response `no-store`. The status line distinguishes browser offline, connecting, reconnecting and retries stopped, and says whether any state is loaded. After live retries stop, the console keeps polling, every 30 seconds and every five minutes after five failed reads, and the first successful read reopens the live stream. `test/service-worker.test.ts` runs the compiled worker with fake caches and network and checks the real loopback headers; `test/connection-status.test.ts` covers the wording. Still unverified: install and launch in Chrome and Edge on desktop and in a mobile browser, a real update and offline cycle in an installed window, and the WCAG pass.
+
+**Accessibility pass (#261, static).** On 2026-10-17 a WCAG 2.2 AA static pass covered every stylesheet, the shell and every script-built dialog; `test/accessibility.test.ts` keeps it from regressing. It found and fixed:
+
+- Light-theme accent, warning and decorative text (`--cyan`, `--amber`, `--violet`) fell to 3.9–4.4:1 on some surfaces. They are darkened to at least 4.6:1 on every surface, and accent buttons use white text (5.5:1).
+- Selects, inputs, step editors, error panels, cost tiles and badges in the Board, workflow and Costs views used fixed dark colours. In the light theme that put dark text on near-black fields. They now use theme tokens.
+- The workflow revision-history and step-override dialogs had no accessible name; both are now labelled by their headings. A role-type selector's label was not translated.
+
+It also confirmed:
+
+- Theme text meets 4.5:1 on every surface in the dark, system-light and chosen-light themes.
+- One global `prefers-reduced-motion: reduce` rule turns off every animation and transition.
+- Both places that remove an outline (workflow map nodes and board cards) replace it with a visible focus style.
+- Every shell control and button has an accessible name.
+- Every stylesheet has narrow-screen rules.
+
+Still unverified, and needing a real browser and a person: a keyboard-only walk-through of each view, a screen-reader spot check, and visual narrow-layout checks of the capacity, handoff, activity, board and Inbox views.
 
 Managed identity retirement is fenced by the current job token. A stopped assignment can reconnect immediately through the other provider without losing its inbox; replaying an old completion cannot detach that replacement. Both provider launch policies explicitly permit the scoped messaging tools while retaining QA's readonly implementation boundary.
 
@@ -248,6 +277,10 @@ The equivalent operator command is `node src/cli.ts factory-queue --file queue.j
 Read actual IDs and `objectiveQueue.revision` from `factory-status`; `order` must contain **every unfinished** current objective ID exactly once; completed and superseded objectives are excluded. Use `null` for `focusedFeatureId` to release focus. The same validated `factory_queue` operation serves MCP, CLI and paired browser controls. A project can have at most 5,000 unfinished objectives, matching the request-size boundary. Completed and superseded objectives remain in history without consuming queue positions.
 
 Full queue replacements and `factory-reorder-objective` share the same durable ranks and revision. Either control invalidates stale inputs to the other; relative moves retain the current focus. Existing saved queue order/focus is migrated once without discarding history. Status reads use a deferred read-only SQLite snapshot and do not regenerate the README or reserve the writer lock.
+
+## Delivery manager
+
+**Mission → Manager** is the conversation with the project's persistent delivery manager. The status bar shows its true session state, model, generation, process, last activity and any rate-limit pause, with **Start manager**, **Stop** and **Export transcript**. Every message shows whether it is queued, sent, received, answered or failed; failed messages are never resent automatically. **Needs your decision** lists the manager's questions with one-click answers alongside blocked deliveries, triage, blocked objectives and skill approvals, each naming where to resolve it. **Mission** lists objectives and open deliveries with stage, owner and model, branch and head, progress evidence, possible stalls and next action. The composer keeps its draft and focus across refreshes. See [delivery manager](delivery-manager.md) for authority, efficiency and limits.
 
 ## Mission handoff previews
 

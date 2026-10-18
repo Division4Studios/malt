@@ -131,6 +131,7 @@ async function publishFix(
   if (worktree === null) {
     throw new MeshError('FACTORY_GATED', 'The delivery worktree is missing.');
   }
+  const pushed: { head: string | null } = { head: null };
   try {
     await publishDelivery(
       { workspaces: context.workspaces, mesh: context.mesh, now: () => context.repository.store.now() },
@@ -160,8 +161,14 @@ async function publishFix(
             error: null,
           };
         });
-        queueComment(context, published, `${step.title} (${job.role}) published ${source.head}.\n\n${result.summary}`);
+        pushed.head = published.head;
       },
+    );
+    // Announce only once the push succeeded; a size or push failure never claims publication.
+    queueComment(
+      context,
+      context.repository.task(task.id),
+      `${step.title} (${job.role}) published ${pushed.head ?? ''}.\n\n${result.summary}`,
     );
   } catch (error) {
     if (error instanceof MergeConflictError) {
@@ -176,8 +183,29 @@ async function publishFix(
     if (!(error instanceof PublicationSizeError)) {
       throw error;
     }
-    blockForOperator(context, task, error.message);
+    holdForSize(context, task, error);
   }
+}
+
+/**
+ * Stop an oversized fix for the operator with the measured source, so a size
+ * exception can be approved exactly as for developer publication.
+ *
+ * @param context - Project ledger.
+ * @param task - Delivery.
+ * @param error - The measured size refusal.
+ */
+function holdForSize(context: FactoryContext, task: FactoryTask, error: PublicationSizeError): void {
+  context.repository.editTask(task.id, (current) => {
+    const isMeasured = current.head === error.measured.head && current.base === error.measured.base;
+    return {
+      ...current,
+      phase: 'blocked',
+      error: error.message,
+      ...(isMeasured && { publicationGate: error.measured }),
+    };
+  });
+  context.repository.notify(`Delivery #${String(task.issue)} needs a decision: ${error.message}`);
 }
 
 /**
@@ -206,9 +234,8 @@ function completeRegression(
     return;
   }
   const since = task.implementation?.at ?? 0;
-  const failures = task.stepResults.filter(
-    (previous) => previous.kind === 'regress' && previous.outcome === 'changes_requested' && previous.at >= since,
-  ).length;
+  // A durable count: the bounded result history may already have dropped older failures.
+  const failures = task.regressionFailures?.since === since ? task.regressionFailures.count : 0;
   const isFailure = result.outcome !== 'success';
   if (isFailure && failures + 1 >= context.settings.maxAttempts) {
     blockForOperator(context, task, `${step.title} still fails after ${String(failures + 1)} fix rounds.`);
@@ -224,6 +251,7 @@ function completeRegression(
     const recorded = {
       ...current,
       stepResults: [...current.stepResults, entry].slice(-MAX_STEP_RESULTS),
+      ...(isFailure && { regressionFailures: { since, count: failures + 1 } }),
       feedback: isFailure
         ? [
             ...current.feedback,

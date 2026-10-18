@@ -275,6 +275,8 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
  */
 export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizationDialog> {
   const defaults = {
+    delivery: 'local',
+    remote: 'malt-hub',
     testCommands: [{ file: 'npm', args: ['test'] }],
     endToEndCommands: [{ file: 'npm', args: ['run', 'test:e2e'] }],
     prepareCommands: [{ file: 'npm', args: ['ci', '--ignore-scripts'] }],
@@ -282,9 +284,11 @@ export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizat
   return {
     description: {
       title: t('Configure factory policy'),
-      explanation: t(
+      explanation: `${t(
         'Use this project’s actual commands and executable paths. Pause before updating an active factory. Authentication stays with the native CLI.',
-      ),
+      )} ${t(
+        '"delivery": "local" keeps issues, pull requests and merges in a protected hub on this machine; use "github" with a connected Project instead. Set providers.copilot.enabled to add GitHub Copilot, and cloud.developers with cloud.environment to route developers to Codex Cloud.',
+      )}`,
       initial: JSON.stringify(Object.keys(settings).length === 0 ? defaults : settings, null, 2),
     },
     action: { operation: 'factory_setup', input: (body) => data(JSON.parse(body)) },

@@ -206,9 +206,10 @@ async function specifyAndPlan(context: FactoryContext): Promise<JobIntent> {
   const plan = await perform(context, { deliveries: [delivery] });
   assert.deepEqual([plan.role, plan.kind, plan.step], ['team-lead', 'refine', 'plan']);
   const review = nextIntent(context);
+  // The fixture plans on Codex, so the review prefers the other family.
   assert.deepEqual(
     [review.role, review.kind, review.step, review.preferredProvider],
-    ['plan-reviewer', 'plan_review', 'plan-review', 'codex'],
+    ['plan-reviewer', 'plan_review', 'plan-review', 'claude'],
   );
   return review;
 }
