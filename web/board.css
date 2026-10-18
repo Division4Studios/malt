@@ -659,3 +659,60 @@ select {
     padding: 14px;
   }
 }
+
+/* ---------- navigation badge ---------- */
+/* Outranks the rail's `.nav span` icon rule, which also hides icons on phones. */
+.nav .nav-count {
+  display: inline-block;
+  width: auto;
+  margin-left: 4px;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent-strong);
+  color: var(--on-accent);
+  font: 600 11px/1.6 var(--font-terminal);
+  text-align: center;
+}
+
+/* ---------- holds, bulk actions and archive ---------- */
+.console-tag.tag-held {
+  color: var(--violet);
+  border: 1px solid var(--violet);
+  background: none;
+}
+.board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 var(--card-gap);
+}
+.board-archived {
+  flex-basis: 100%;
+  color: var(--muted);
+}
+.board-archived summary {
+  cursor: pointer;
+  width: max-content;
+}
+.board-archived-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.board-archived-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.delivery-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
