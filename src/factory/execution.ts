@@ -61,7 +61,10 @@ export function cancelStaleAssignments(
       }
       continue;
     }
-    if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
+    // A retried delivery that never started sits in development with no head, and still awaits its revalidation.
+    const isUnstarted = job.kind === 'revalidate' && task.phase === 'development' && task.developer === null;
+    const isStage = task.phase === JOB_PHASE[job.kind] || isUnstarted;
+    if (!isStage || task.head !== job.head || task.base !== job.base) {
       running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
     }
   }

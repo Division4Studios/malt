@@ -65,8 +65,10 @@ export interface StepChoice {
   readonly stepId: string;
   /** Whether the step runs. */
   readonly include: boolean;
-  /** Seat performing it; empty keeps the workflow's seats. */
+  /** Seat performing it; empty keeps the workflow's seats, {@link KEPT_SEATS} the override's several seats. */
   readonly role: string;
+  /** Every seat the override in effect assigns, kept while {@link KEPT_SEATS} stays selected. */
+  readonly seats?: readonly string[];
   /** Profile; empty keeps the workflow's, `-` uses the seat's own type. */
   readonly profile: string;
   /** Provider; empty keeps the workflow's, `any` uses normal routing. */
@@ -75,6 +77,8 @@ export interface StepChoice {
 
 /** Profile choice meaning "the seat's own type". */
 export const SEAT_PROFILE = '-';
+/** Seat choice meaning "keep the several seats the override assigns". */
+export const KEPT_SEATS = '*';
 /** Provider choice meaning "normal routing". */
 export const ANY_PROVIDER = 'any';
 
@@ -255,10 +259,13 @@ export function initialChoice(step: CustomStep, overrides: readonly StepOverride
   const override = overrides.find((candidate) => candidate.stepId === step.id);
   const profile = override?.profile === undefined ? '' : (override.profile ?? SEAT_PROFILE);
   const provider = override?.provider === undefined ? '' : (override.provider ?? ANY_PROVIDER);
+  const seats = override?.roles ?? [];
   return {
     stepId: step.id,
     include: override?.skip !== true,
-    role: override?.roles?.[0] ?? '',
+    // A single seat field cannot show several seats; an untouched save must not narrow them to the first.
+    role: seats.length > 1 ? KEPT_SEATS : (seats[0] ?? ''),
+    seats,
     profile,
     provider,
   };
@@ -287,11 +294,12 @@ function overrideFor(step: CustomStep, choice: StepChoice): StepOverride | null 
  * @returns Changed fields only.
  */
 function performerFields(step: CustomStep, choice: StepChoice): Pick<StepOverride, 'roles' | 'profile' | 'provider'> {
-  const isSameSeat = step.roles.length === 1 && step.roles[0] === choice.role;
+  const roles = choice.role === KEPT_SEATS ? [...(choice.seats ?? [])] : [choice.role];
+  const isSameSeat = roles.length === step.roles.length && roles.every((role, index) => step.roles[index] === role);
   const profile = choice.profile === SEAT_PROFILE ? null : choice.profile;
   const provider = choice.provider === ANY_PROVIDER ? null : choice.provider;
   return {
-    ...(choice.role !== '' && !isSameSeat && { roles: [choice.role] }),
+    ...(choice.role !== '' && roles.length > 0 && !isSameSeat && { roles }),
     ...(choice.profile !== '' && profile !== step.profile && { profile }),
     ...(choice.provider !== '' && provider !== step.provider && { provider }),
   };

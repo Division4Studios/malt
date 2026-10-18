@@ -66,7 +66,7 @@ import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
-import { announceSpendBlocks, refreshSpend, spendGate } from './spend.ts';
+import { announceSpendBlocks, drainSpend, spendGate } from './spend.ts';
 import { factoryStatus, preflight } from './status.ts';
 import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
@@ -501,7 +501,7 @@ export class FactoryService {
     }
     automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
-    await refreshSpend(this.repository, this.mesh);
+    await drainSpend(this.repository, this.mesh);
     const spend = spendGate(this.repository);
     announceSpendBlocks(this.repository, spend);
     const scheduling = {
