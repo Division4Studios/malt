@@ -13,9 +13,11 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
+import { failedChecks } from './ci-logs.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
-import { featureWorkflow, planningApprovals } from './pipeline.ts';
+import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { advanceRecommendations } from './recommendation-execution.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
@@ -105,8 +107,7 @@ async function provision(context: FactoryContext): Promise<void> {
   const candidates1 = context.repository
     .features()
     .filter(
-      (candidate) =>
-        candidate.phase === 'provisioning' && planningApprovals(candidate, featureWorkflow(candidate)).length === 0,
+      (candidate) => candidate.phase === 'provisioning' && isPlanningComplete(candidate, featureWorkflow(candidate)),
     );
   for (const feature of candidates1) {
     try {
@@ -115,6 +116,10 @@ async function provision(context: FactoryContext): Promise<void> {
     } catch (error) {
       const current = context.repository.features().find((candidate) => candidate.id === feature.id);
       if (current === undefined || current.scopeReplacement !== undefined) {
+        continue;
+      }
+      if (isCapabilityDenied(error)) {
+        parkFeature(context.repository, current, error);
         continue;
       }
       context.repository.saveFeature({
@@ -231,7 +236,12 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     recoverMerge(context, task, pr);
     return;
   }
-  if (pr.headRefOid !== record.head || pr.baseRefOid !== record.base) {
+  const isSourceMoved = pr.headRefOid !== record.head || pr.baseRefOid !== record.base;
+  if (isAutoMergeArmed(pr) && (isSourceMoved || (failedChecks(pr.statusCheckRollup) ?? []).length > 0)) {
+    // A reworked or refreshed head must never be merged by an earlier auto-merge request.
+    await context.remote.disarm?.(pr.number);
+  }
+  if (isSourceMoved) {
     refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
     return;
   }
@@ -248,6 +258,16 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
   if (record.phase === 'merging') {
     await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Whether GitHub auto-merge or the merge queue is set to merge this PR.
+ *
+ * @param pr - Current PR state.
+ * @returns True while an auto-merge request is armed.
+ */
+function isAutoMergeArmed(pr: PullRequest): boolean {
+  return pr.autoMergeRequest !== null && pr.autoMergeRequest !== undefined;
 }
 
 /**
@@ -277,6 +297,11 @@ async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: Pu
     return;
   }
   const merge = await context.remote.merge(record, context.settings);
+  if (typeof merge !== 'string') {
+    // GitHub merges later (auto-merge or queue) or a person acts first; the merged PR is adopted on a later pass.
+    context.repository.editTask(record.id, (current) => ({ ...current, error: merge.pending }));
+    return;
+  }
   context.repository.editTask(record.id, (current) => {
     return {
       ...current,
@@ -412,6 +437,10 @@ async function flushEffects(context: FactoryContext): Promise<void> {
       await context.remote.effect(effect);
       context.repository.settleEffect(effect, null);
     } catch (error) {
+      if (isCapabilityDenied(error)) {
+        parkEffect(context.repository, effect, error);
+        continue;
+      }
       context.repository.settleEffect(effect, Error.isError(error) ? error.message : 'GitHub synchronization failed.');
     }
   }
@@ -502,6 +531,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
  * @param context - Current workspace factory.
  */
 export async function reconcile(context: FactoryContext): Promise<void> {
+  resumeCapabilityBlocks(context.repository);
   await importReady(context);
   await provision(context);
   // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
