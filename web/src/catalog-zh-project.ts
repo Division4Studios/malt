@@ -48,6 +48,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'At minutes {minuteList} during {hourText}': '{hourText}期间的第 {minuteList} 分钟',
   'Every {step} minutes during {hourText}': '{hourText}期间每 {step} 分钟',
   'on day {days} of the month': '每月 {days} 日',
+  'every {step} days from day 1 of the month': '每月从 1 日起每 {step} 天',
   'every day': '每天',
   '{text}, in {monthText}': '{text}，在{monthText}',
   'Invalid schedule.': '计划无效。',
