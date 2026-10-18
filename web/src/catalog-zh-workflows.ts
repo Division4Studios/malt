@@ -178,6 +178,7 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
   'preferred provider': '首选提供方',
   'its ancestors': '其所有前序步骤',
   'instructions changed': '指令已更改',
+  'position: {from} → {to}': '位置：{from} → {to}',
   'name: {name} → {name2}': '名称：{name} → {name2}',
   'description changed': '描述已更改',
   'No objective or delivery runs it.': '没有目标或交付项在运行它。',
