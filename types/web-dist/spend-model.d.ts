@@ -50,6 +50,12 @@ declare module '*/web/dist/spend-model.js' {
     readonly caps: SpendCaps;
     /** Spend rows, project first. */
     readonly usage: readonly SpendUsage[];
+    /** Uncapped open scopes the operator can cap, whether or not they have run. */
+    readonly choices: readonly {
+      readonly scope: 'objective' | 'delivery';
+      readonly id: string;
+      readonly label: string;
+    }[];
   }
 
   /** The editor's fields as typed. */

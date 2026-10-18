@@ -123,7 +123,7 @@
 .wf-badge.default {
   color: var(--green);
   border-color: #315c47;
-  background: #183329;
+  background: var(--success-bg);
 }
 .wf-badge.gate {
   color: var(--amber);
@@ -265,7 +265,7 @@
   padding: 9px 10px;
   border: 1px solid var(--line);
   border-radius: 7px;
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
 }
 .wf-select:focus-visible {
@@ -288,7 +288,7 @@
   padding: 12px 14px 16px;
   border: 1px solid var(--line);
   border-radius: 12px;
-  background: #0d0d14;
+  background: var(--well-bg);
 }
 .wf-step-editor.has-problem {
   border-color: var(--red);
@@ -363,8 +363,8 @@
   padding: 8px 12px 8px 28px;
   border: 1px solid var(--red);
   border-radius: 8px;
-  background: #2a1218;
-  color: #ffb3bd;
+  background: var(--error-bg);
+  color: var(--error-text);
   font-size: 12px;
   overflow-wrap: anywhere;
 }

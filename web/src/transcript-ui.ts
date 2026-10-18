@@ -7,7 +7,7 @@
  * @file
  */
 import { child, data, hasFlag, number, records, scoped, text } from './api.js';
-import { phrase, t } from './i18n.js';
+import { keepLiteral, phrase, t } from './i18n.js';
 import { formatCost, formatDuration, formatTokens } from './telemetry-format.js';
 import { element } from './worker-ui.js';
 
@@ -114,6 +114,16 @@ function fileChangeNode(node: Data): HTMLElement {
  * @returns Safe DOM for the node.
  */
 export function transcriptNode(node: Data): HTMLElement {
+  return keepLiteral(transcriptBody(node));
+}
+
+/**
+ * Build one transcript node's element.
+ *
+ * @param node - Untrusted transcript node.
+ * @returns Rendered node.
+ */
+function transcriptBody(node: Data): HTMLElement {
   const kind = text(node, 'kind');
   const isTruncated = hasFlag(node, 'truncated');
   let rendered: HTMLElement;
@@ -250,7 +260,12 @@ export class TranscriptViewer {
     this.nodes = [];
     this.nextCursor = null;
     this.unseen = 0;
+    this.isLive = false;
     this.list.replaceChildren();
+    // Nothing from the previous attempt may show under this one's heading.
+    this.details.replaceChildren();
+    this.more.hidden = true;
+    this.newer.hidden = true;
     this.title.textContent = t('Transcript · {label}', { label });
     this.element.hidden = false;
     await this.load(0);
@@ -296,6 +311,10 @@ export class TranscriptViewer {
       this.status.textContent = error instanceof Error ? error.message : t('The transcript could not be read.');
     } finally {
       this.isLoading = false;
+      // A different attempt opened while this read was in flight: read it now.
+      if (this.target !== null && this.target !== target) {
+        void this.load(0);
+      }
     }
   }
 
@@ -365,6 +384,9 @@ export class TranscriptViewer {
         ...files.map((file) => element('li', '', `${text(file, 'path')} ×${String(number(file, 'touches'))}`)),
       );
       parts.push(disclosure(t('Files touched ({length})', { length: files.length }), [list], 'transcript-touched'));
+    }
+    if (hasFlag(page, 'filesTruncated')) {
+      parts.push(element('p', 'notice', t('More files were touched than are listed here.')));
     }
     this.details.replaceChildren(...parts);
   }

@@ -95,13 +95,22 @@ export interface DoctorInput {
 }
 
 /** Display names of the provider CLIs. */
-const PROVIDER_NAMES: Readonly<Record<Provider, string>> = { claude: 'Claude Code', codex: 'Codex' };
+const PROVIDER_NAMES: Readonly<Record<Provider, string>> = {
+  claude: 'Claude Code',
+  codex: 'Codex',
+  copilot: 'GitHub Copilot CLI',
+};
 /** How each provider logs in with its subscription. */
-const LOGIN_COMMANDS: Readonly<Record<Provider, string>> = { claude: 'claude auth login', codex: 'codex login' };
+const LOGIN_COMMANDS: Readonly<Record<Provider, string>> = {
+  claude: 'claude auth login',
+  codex: 'codex login',
+  copilot: 'copilot, then /login',
+};
 /** Where each provider CLI is installed from. */
 const INSTALL_HINTS: Readonly<Record<Provider, string>> = {
   claude: 'Install Claude Code (npm install -g @anthropic-ai/claude-code)',
   codex: 'Install Codex (npm install -g @openai/codex)',
+  copilot: 'Install the GitHub Copilot CLI (npm install -g @github/copilot)',
 };
 
 /**
@@ -356,6 +365,9 @@ async function githubCheck(probes: DoctorProbes, cwd: string): Promise<DoctorChe
   }
 }
 
+/** Broker port detail when a MALT broker already listens there. */
+const BROKER_RUNNING = 'a MALT broker is already listening';
+
 /**
  * One port is free, or already owned by a MALT broker.
  *
@@ -371,7 +383,7 @@ async function portCheck(probes: DoctorProbes, port: number, role: 'broker' | 'c
     return check({ id, label }, 'pass', 'free');
   }
   if (role === 'broker' && (await probes.isBroker(port))) {
-    return check({ id, label }, 'pass', 'a MALT broker is already listening');
+    return check({ id, label }, 'pass', BROKER_RUNNING);
   }
   return check(
     { id, label },
@@ -418,7 +430,7 @@ async function writableCheck(probes: DoctorProbes, project: string): Promise<Doc
 export async function runDoctor(input: DoctorInput): Promise<DoctorReport> {
   const probes: DoctorProbes = { ...DEFAULT_PROBES, ...input.probes };
   const cwd = probes.exists(input.project) ? input.project : process.cwd();
-  const executables = input.executables ?? { claude: 'claude', codex: 'codex' };
+  const executables = input.executables ?? { claude: 'claude', codex: 'codex', copilot: 'copilot' };
   const providers = ['claude', 'codex'] as const;
   const diagnoses = await Promise.all(
     providers.map(async (provider) => await diagnoseProvider(provider, executables[provider], cwd, probes.run)),
@@ -456,11 +468,12 @@ export function formatDoctor(report: DoctorReport): string {
   });
   const failures = report.checks.filter((item) => item.status === 'fail').length;
   const plural = failures === 1 ? '' : 's';
+  // `--with-broker` starts its own broker, which cannot share a port with one already running.
+  const isBrokerRunning = report.checks.some((item) => item.id === 'broker-port' && item.detail === BROKER_RUNNING);
+  const next = isBrokerRunning ? 'node src/cli.ts ui' : 'node src/cli.ts ui --with-broker';
   lines.push(
     '',
-    report.ok
-      ? 'Ready. Next: node src/cli.ts ui --with-broker'
-      : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
+    report.ok ? `Ready. Next: ${next}` : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
   );
   return `${lines.join('\n')}\n`;
 }
