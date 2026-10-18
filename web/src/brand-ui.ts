@@ -491,6 +491,10 @@ export class QueueState {
     for (const detail of next.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
       detail.open = this.details.get(detail.dataset['queueKey'] ?? '') ?? false;
     }
+    if (target.childElementCount === 1 && target.firstElementChild === next) {
+      // A stable view root is already mounted: re-inserting it would drop focus and selection mid-edit.
+      return;
+    }
     target.replaceChildren(next);
     if (focus === '') {
       return;
