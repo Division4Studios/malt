@@ -108,6 +108,8 @@ export class HistoryDialog {
    */
   public constructor(hooks: HistoryHooks) {
     this.hooks = hooks;
+    this.heading.id = `wf-history-${crypto.randomUUID()}`;
+    this.element.setAttribute('aria-labelledby', this.heading.id);
     this.status.setAttribute('role', 'status');
     const close = button(
       t('Close'),

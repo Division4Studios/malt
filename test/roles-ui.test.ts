@@ -169,6 +169,33 @@ await test('drafts are checked before sending and saved in the broker’s organi
   assert.deepEqual(settings.organization.types['reader']?.tools, { allow: ['mesh_send_message'], deny: [] });
   assert.deepEqual(settings.organization.types['builder']?.permissions, ['inbox.ask']);
   assert.deepEqual(settings.organization.types['builder'].model, { entryId: 'claude', effort: 'high' });
+
+  // A type with both an allow and a deny list keeps its deny rules through an unrelated edit.
+  const mixedModel = readRoles(
+    snapshot({
+      settings: {
+        ...policySettings,
+        organization: {
+          ...policySettings.organization,
+          types: {
+            ...policySettings.organization.types,
+            mixed: { label: 'Mixed', tools: { allow: ['mesh_whoami'], deny: ['shell'] } },
+          },
+        },
+      },
+    }),
+  );
+  const both = mixedModel.types.find((type) => type.name === 'mixed');
+  assert.ok(both !== undefined);
+  const toolsAfter = (draft: typeof both): unknown => {
+    const types = mixedModel.types.map((type) => (type.name === draft.name ? draft : type));
+    const saved = roleSchemas.factory_roles_save.parse(rolesSaveInput(REVISION, types, mixedModel.members).input);
+    return factoryConfigSchema.parse({ ...policySettings, organization: saved.organization }).organization.types[
+      'mixed'
+    ]?.tools;
+  };
+  assert.deepEqual(toolsAfter({ ...both, label: 'Renamed' }), { allow: ['mesh_whoami'], deny: ['shell'] });
+  assert.deepEqual(toolsAfter({ ...both, toolMode: 'deny', tools: ['edit'] }), { allow: [], deny: ['edit', 'shell'] });
 });
 
 await test('the secrets model shows metadata only and builds version-checked saves', () => {
