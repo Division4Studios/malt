@@ -11,6 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { consoleView } from '../src/factory/console-view.ts';
+import { MERGE_GATE_STEP } from '../src/factory/gate-schema.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { featureWorkflow, taskWorkflow } from '../src/factory/pipeline.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
@@ -345,4 +346,33 @@ await test('a delivery freezes its objective merge gate when it is provisioned',
     const { featureId } = queueObjective(context.repository, { objective: 'Merge gate', gates: { merge: isGated } });
     assert.equal(provision(context, featureId).gates?.merge, isGated);
   }
+});
+
+await test('the merge approval takes no overrides; a delivery blocked before any attempt keeps implementation open', (t) => {
+  const context = fixture(t);
+  const { featureId } = queueObjective(context.repository, {
+    objective: 'Gated',
+    workflowId: 'quick',
+    gates: { merge: true },
+  });
+  const task = provision(context, featureId);
+  assert.throws(
+    () => {
+      return changeStepOverrides(context.repository, {
+        taskId: task.id,
+        expectedVersion: task.version,
+        overrides: [{ stepId: MERGE_GATE_STEP, provider: 'claude' }],
+      });
+    },
+    (error: unknown) => error instanceof MeshError && error.code === 'INVALID_INPUT',
+  );
+  // Its issue was closed before dispatch: blocked, but no implementation attempt ever ran.
+  const closed = { phase: 'blocked' as const, error: 'The issue was closed.' };
+  const blocked = context.repository.editTask(task.id, (current) => ({ ...current, ...closed }));
+  const saved = changeStepOverrides(context.repository, {
+    taskId: task.id,
+    expectedVersion: blocked.version,
+    overrides: [{ stepId: 'implement', provider: 'claude' }],
+  });
+  assert.deepEqual(saved.overrides, [{ stepId: 'implement', provider: 'claude' }]);
 });
