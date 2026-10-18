@@ -109,6 +109,9 @@ await test('cron expressions read as plain language and invalid ones explain the
     ['0 0 * * 7', 'At 00:00, on Sunday.'],
     ['@weekly', 'At 00:00, on Sunday.'],
     ['*/30 9-17 * * mon-fri', 'Every 30 minutes during 09:00 to 17:00, on Monday to Friday.'],
+    // A day field starting with `*` stays unrestricted, as on the broker: Mondays only, not every day.
+    ['0 0 */1 * mon', 'At 00:00, on Monday.'],
+    ['0 9 * jan *', 'At 09:00, every day, in January.'],
   ];
   for (const [expression, text] of cases) {
     assert.deepEqual(describeCron(expression), { text, isValid: true }, expression);
@@ -194,4 +197,10 @@ await test('a newly issued secret is read once with its trigger, and examples qu
   assert.match(team.curl, /'x-agentmesh-team: o'\\''brien'/v, 'A quote cannot break out of the shell argument.');
   assert.match(team.powershell, /'x-agentmesh-team' = 'o''brien'/v);
   assert.match(team.curl, /Authorization: Bearer malt_trg_x/v);
+});
+
+void test('a minute step that does not divide the hour is not described as a fixed interval', () => {
+  assert.notEqual(describeCron('*/40 * * * *').text, 'Every 40 minutes, every day.');
+  assert.ok(describeCron('*/40 * * * *').text.includes('40'));
+  assert.match(describeCron('*/15 * * * *').text, /15 minutes/v);
 });

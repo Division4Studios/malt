@@ -78,3 +78,11 @@ await test('Git path decoding handles octal, single-character escapes and unquot
   assert.equal(gitPath(String.raw`"a/tab\there\"q\"\\"`), 'a/tab\there"q"\\');
   assert.equal(gitPath('a/plain path'), 'a/plain path');
 });
+
+await test('a quoted header path keeps an escaped quote followed by a space', () => {
+  const [mode] = parseDiff(
+    [String.raw`diff --git "a/a\" b.txt" "b/a\" b.txt"`, 'old mode 100644', 'new mode 100755'].join('\n'),
+  );
+  assert.equal(mode?.path, 'a" b.txt');
+  assert.deepEqual(mode.notes, ['old mode 100644', 'new mode 100755']);
+});

@@ -11,6 +11,9 @@ import type { Snapshot, Data } from './api.js';
 import type { OperatorEdit } from './recovery-ui.js';
 import type { EditorDescription } from './worker-ui.js';
 
+/** GitHub's default name for a Project's workflow field. */
+const DEFAULT_STATUS_FIELD = 'Status';
+
 /** Bound instruction excerpts; the editor retains full validated text. */
 const EXCERPT = 400;
 /** Default publication limit for a newly configured project. */
@@ -232,8 +235,9 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
     [
       t('Workflow status field'),
       'github-status-field',
-      displayText(text(child(connection, 'statusField'), 'name'), t('Status')),
-      t('Status'),
+      // A field name GitHub matches exactly, not display text: it stays untranslated.
+      displayText(text(child(connection, 'statusField'), 'name'), DEFAULT_STATUS_FIELD),
+      DEFAULT_STATUS_FIELD,
     ],
   ].map(([labelText = '', id = '', value = '', placeholder = '']) => {
     const input = element('input');
@@ -275,6 +279,8 @@ export function mountConnectionFields(body: HTMLTextAreaElement, connection: Dat
  */
 export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizationDialog> {
   const defaults = {
+    delivery: 'local',
+    remote: 'malt-hub',
     testCommands: [{ file: 'npm', args: ['test'] }],
     endToEndCommands: [{ file: 'npm', args: ['run', 'test:e2e'] }],
     prepareCommands: [{ file: 'npm', args: ['ci', '--ignore-scripts'] }],
@@ -282,9 +288,11 @@ export function factoryPolicyDialog(settings: Data): ReturnType<typeof organizat
   return {
     description: {
       title: t('Configure factory policy'),
-      explanation: t(
+      explanation: `${t(
         'Use this project’s actual commands and executable paths. Pause before updating an active factory. Authentication stays with the native CLI.',
-      ),
+      )} ${t(
+        '"delivery": "local" keeps issues, pull requests and merges in a protected hub on this machine; use "github" with a connected Project instead. Set providers.copilot.enabled to add GitHub Copilot, and cloud.developers with cloud.environment to route developers to Codex Cloud.',
+      )}`,
       initial: JSON.stringify(Object.keys(settings).length === 0 ? defaults : settings, null, 2),
     },
     action: { operation: 'factory_setup', input: (body) => data(JSON.parse(body)) },

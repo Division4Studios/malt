@@ -47,6 +47,7 @@ export const artifactQuerySchema = z.object({
       'prepare-evidence.json',
       'test-evidence.json',
       'end-to-end-evidence.json',
+      'failure.json',
     ])
     .default('stdout.log'),
   after: z.coerce.number().int().nonnegative().safe().default(0),
