@@ -449,3 +449,178 @@
     transform: none;
   }
 }
+
+/* Roles and Secrets: type and secret cards, the seat table and their dialogs. */
+.roles-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.role-status {
+  margin: 0;
+  color: var(--muted);
+}
+.role-toolbar,
+.role-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.role-section h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+.role-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+}
+.role-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--raised);
+}
+.role-card p {
+  margin: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.role-card code {
+  font: 12px/1.5 var(--font-terminal);
+  color: var(--cyan);
+}
+.role-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.role-name {
+  margin: 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.role-actions .danger {
+  color: var(--red);
+}
+.role-members {
+  overflow-x: auto;
+}
+.role-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.role-table th,
+.role-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.role-table select,
+.role-dialog select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--input-bg);
+  color: var(--text);
+}
+.role-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+.role-dialog .role-field {
+  display: block;
+  margin: 14px 0 0;
+}
+.role-field-label {
+  display: block;
+  margin-bottom: 6px;
+}
+.role-hint {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.role-checks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: 4px 12px;
+  margin: 14px 0 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+.role-checks legend {
+  padding: 0 4px;
+  font-size: 12px;
+}
+.role-dialog .role-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.role-check input {
+  width: auto;
+}
+.role-subheading {
+  margin: 18px 0 0;
+  font-size: 14px;
+}
+.role-server {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px dashed var(--line);
+  border-radius: 7px;
+}
+.secret-audit {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+/* Revision history dialog. */
+.wf-history-dialog {
+  width: min(760px, calc(100vw - 32px));
+}
+.wf-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+.wf-history-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.wf-history-item p {
+  margin: 0 0 4px;
+}
+.wf-history-head {
+  font-weight: 600;
+}
+.wf-history-detail {
+  margin-top: 12px;
+}
+.wf-history-changes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+  overflow-wrap: anywhere;
+}
