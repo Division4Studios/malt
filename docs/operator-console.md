@@ -370,6 +370,10 @@ Local machine includes a keyboard-accessible **Why work is running or parked** d
 - **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
 - **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.
 
+## Recommendations
+
+**Project → Recommendations** lists the product owner's and team lead's ticket proposals (duplicates, related or consolidated tickets, scope changes and guidance) in Pending, Approved, Applying, Completed, Rejected, Stale and Failed lanes, with their tickets, an evidence summary and an **Unread** marker. Each row is a button: opening it shows the evidence and the before/after preview and records a read receipt for that exact revision. The Project entry shows pending and unread counts, re-read at most every 15 seconds; a poll of an unchanged page leaves the pane and focus alone. Proposal text is always shown as text. An opened proposal shows its exact revision, survivor, transferred acceptance and dependencies, and affected assignments. While it awaits a human decision, **Approve** or **Reject** sends that exact revision with your required rationale and one operation identity: repeated clicks send one request, a failed request keeps your rationale and retries with the same identity, and a revision that changed meanwhile asks you to refresh instead of showing it as decided. Results are announced to assistive technology.
+
 ## Schedules and triggers
 
 **Board → Schedules & triggers** lists every automation with what it files, its workflow and its recent fires. A schedule shows its cron expression in plain words, such as "At 09:00, on Monday to Friday", and its next three fires in the schedule's own time zone. A trigger shows the broker URL a script POSTs to. Each card has **Edit**, **Enable**/**Disable**, **Run now** and **Delete**; triggers also have **Example command** and **Rotate secret**. Deleting and rotating ask for confirmation in the console; nothing uses browser pop-ups.

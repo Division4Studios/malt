@@ -8,6 +8,7 @@
  * @file
  */
 
+import { checkpointItems } from './checkpoint-view.ts';
 import { AUTO_ARCHIVE_MS, isArchived } from './delivery-controls.ts';
 import { livenessView, retryView } from './liveness-view.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
@@ -730,6 +731,7 @@ function openItems(
   });
   return [
     ...questions,
+    ...checkpointItems(repository.jobs(), tasks),
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
     // Inbox items read only the checklist, so no attempted-step lookup is needed.

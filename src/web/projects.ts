@@ -79,6 +79,8 @@ const automationRecordsSchema = z.array(z.record(z.unknown()));
 const secretRecordsSchema = z.array(z.record(z.unknown()));
 /** Broker address local scripts POST webhook triggers to. */
 const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
+/** One identity's unread backlog. */
+const unreadSchema = z.object({ name: z.string(), role: z.string(), runtime: z.string(), unread: z.number() }).strict();
 /** Validated factory settings and synchronization details contain no credentials. */
 const factoryViewSchema = dashboardSchema.extend({
   orderRevision: z.number().int().nonnegative(),
@@ -97,6 +99,8 @@ const factoryViewSchema = dashboardSchema.extend({
   console: z.record(z.unknown()).default({}),
   /** Schedules and triggers without secrets; the browser validates each record it shows. */
   automations: automationRecordsSchema.default([]),
+  /** Identities with unread messages, largest backlog first. */
+  unread: z.array(unreadSchema).default([]),
   /** Broker address local scripts call to fire a trigger. */
   triggerEndpoint: triggerEndpointSchema.nullable().default(null),
   /** Roles editor choices; the browser validates what it shows. */
@@ -129,6 +133,7 @@ export const controlSchema = z
       'factory_workflow_default',
       'factory_approve',
       'factory_answer',
+      'factory_checkpoint_decide',
       'factory_gates',
       'factory_step_overrides',
       'factory_cancel_job',
@@ -149,7 +154,11 @@ export const controlSchema = z
       'factory_secret_delete',
       'factory_local',
       'factory_manager',
+      'mcp_binding_propose',
+      'mcp_binding_approve',
       'github_connect',
+      'github_verify',
+      'github_section_save',
       'terminal_start',
       'terminal_close',
       'terminal_input',
@@ -366,16 +375,6 @@ export class ProjectGateway {
   }
 
   /**
-   * Read connector capability policies beside provider support and history.
-   *
-   * @param id - Explicit project selection.
-   * @returns The broker's policy view for that project only.
-   */
-  public async capabilities(id: string): Promise<unknown> {
-    return rpc(this.config(id), 'capability_policy_status', {});
-  }
-
-  /**
    * List recorded attempts with metrics through the broker's read-only operation.
    *
    * @param id - Explicit project selection.
@@ -509,6 +508,16 @@ export class ProjectGateway {
     }
     const selected = this.config(id);
     return this.recommendationOperator(selected, input);
+  }
+
+  /**
+   * Read connector capability policies beside provider support and history.
+   *
+   * @param id - Explicit project selection.
+   * @returns The broker's policy view for that project only.
+   */
+  public async capabilities(id: string): Promise<unknown> {
+    return rpc(this.config(id), 'capability_policy_status', {});
   }
 
   /**

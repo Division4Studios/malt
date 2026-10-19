@@ -19,7 +19,14 @@ import {
 } from './delivery-control-schema.ts';
 import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
-import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import {
+  CHECKPOINT_OPERATIONS,
+  checkpointSchema,
+  checkpointSchemas,
+  failureClassSchema,
+  jobLivenessSchema,
+  livenessSettingsSchema,
+} from './liveness-schema.ts';
 import { localControlSchema } from './local-schema.ts';
 import { MANAGER_FACTORY_OPERATIONS, managerOperationSchemas, managerPolicySchema } from './manager-schema.ts';
 import {
@@ -427,6 +434,14 @@ export const taskSchema = z.object({
   regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
   /** Last operator retry; repair rounds and failed attempts before it no longer count toward the caps. */
   repairsResetAt: z.number().optional(),
+
+  /**
+   * Approved source the supervisor last merged advanced main into, and the head that merge produced; reviews
+   * cover only the merge while the delivery is still at that head.
+   */
+  refreshedFrom: z
+    .object({ head: z.string(), base: z.string(), at: z.number(), merged: z.string().optional() })
+    .optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
@@ -474,6 +489,8 @@ export const jobSchema = z.object({
   liveness: jobLivenessSchema.optional(),
   /** Why a finished attempt did not succeed, which spaces its retries. */
   failureClass: failureClassSchema.optional(),
+  /** Operator decision a held or ceiling-stopped productive attempt asked for. */
+  checkpoint: checkpointSchema.optional(),
 });
 /** One managed process attempt. */
 export type FactoryJob = z.output<typeof jobSchema>;
@@ -626,11 +643,13 @@ export const factorySchemas = {
   ...deliveryControlSchemas,
   ...automationSchemas,
   ...questionSchemas,
+  ...checkpointSchemas,
   ...spendSchemas,
   ...objectiveGoalSchemas,
   ...roleSchemas,
   ...managerOperationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
+  factory_worktrees_adopt: z.object({}).strict(),
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -669,6 +688,7 @@ export const FACTORY_OPERATIONS = [
   ...DELIVERY_CONTROL_OPERATIONS,
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
+  ...CHECKPOINT_OPERATIONS,
   'factory_gates',
   'factory_step_overrides',
   ...SPEND_OPERATIONS,
@@ -677,4 +697,5 @@ export const FACTORY_OPERATIONS = [
   'factory_local',
   ...MANAGER_FACTORY_OPERATIONS,
   'factory_reconcile_github',
+  'factory_worktrees_adopt',
 ] as const;

@@ -3,6 +3,8 @@
  *
  * @file
  */
+import { unreadCounts } from '../inbox-reads.ts';
+
 import { automationsStatus } from './automations.ts';
 import { consoleView } from './console-view.ts';
 import { conversationWindow } from './conversations.ts';
@@ -66,6 +68,7 @@ export async function factoryStatus(
     workflow: workflowState(repository),
     workflows: workflowLibrary(repository.store).status(),
     automations: automationsStatus(repository.store),
+    unread: unreadCounts(repository.store.db),
     roles: roleCatalog(settings, learning),
     // Names, grants, versions and fingerprints only; values never leave the vault.
     secrets: vaultStatus(repository.store),
