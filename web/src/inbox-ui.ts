@@ -44,11 +44,19 @@ export interface InboxHooks {
   readonly toolbar?: HTMLElement;
 }
 
+/** Half an hour, in minutes. */
+const HALF_HOUR_MINUTES = 30;
+/** One hour, in minutes. */
+const HOUR_MINUTES = 60;
+/** Continuations offered for a checkpoint decision, in minutes. */
+const CONTINUE_MINUTES = [HALF_HOUR_MINUTES, HOUR_MINUTES] as const;
+
 /** Visible label per decision kind. */
 const KIND_LABELS: Readonly<Record<InboxKind, string>> = translated({
   approval: phrase('Step approval'),
   plan_approval: phrase('Plan approval'),
   question: phrase('Agent question'),
+  checkpoint: phrase('Checkpoint decision'),
   blocked_delivery: phrase('Blocked delivery'),
   blocked_objective: phrase('Planning stopped'),
   skill: phrase('Skill decision'),
@@ -96,6 +104,8 @@ class InboxView {
   private readonly answered = lane(t('Answered'), 'inbox-answered-title');
   /** Polite announcement of count changes. */
   private readonly status = element('p', 'sr-only');
+  /** Request id per open checkpoint item, reused when a decision is retried. */
+  private readonly checkpointRequests = new Map<string, string>();
   /** Last rendered data, to skip identical updates. */
   private renderKey = '';
   /** Last announced open count, or `-1` before the first render. */
@@ -225,8 +235,9 @@ class InboxView {
     if (target !== null) {
       return this.dialog.buttons(target, item.id);
     }
-    if (item.kind === 'question') {
-      return [this.questions.button(item)];
+    const replies = this.replyActions(item);
+    if (replies !== null) {
+      return replies;
     }
     const action = (label: string, suffix: string, run: () => void, isPrimary = true): HTMLButtonElement => {
       return button(label, {
@@ -273,6 +284,59 @@ class InboxView {
       ];
     }
     return openCosts !== undefined && item.kind === 'spend_cap' ? [action(t('Open costs'), 'costs', openCosts)] : [];
+  }
+
+  /**
+   * Buttons for decisions answered in place: agent questions and checkpoints.
+   *
+   * @param item - Open Inbox item.
+   * @returns Its buttons, or null for other kinds.
+   */
+  private replyActions(item: InboxItem): HTMLButtonElement[] | null {
+    if (item.kind === 'question') {
+      return [this.questions.button(item)];
+    }
+    return item.kind === 'checkpoint' && item.requestId !== null ? this.checkpointActions(item, item.requestId) : null;
+  }
+
+  /**
+   * Continue or wait buttons for a checkpoint decision, fenced to the head it stopped on.
+   *
+   * @param item - Open checkpoint item.
+   * @param jobId - The stopped attempt.
+   * @returns One button per bounded continuation, then wait.
+   */
+  private checkpointActions(item: InboxItem, jobId: string): HTMLButtonElement[] {
+    // One request id per checkpoint, so retrying an unanswered submission is reported as a repeat.
+    const requestId = this.checkpointRequests.get(item.id) ?? crypto.randomUUID();
+    this.checkpointRequests.set(item.id, requestId);
+    const decide = (action: 'continue' | 'wait', minutes?: number): void => {
+      void this.hooks.control('factory_checkpoint_decide', {
+        jobId,
+        requestId,
+        action,
+        expectedHead: item.head,
+        ...(minutes !== undefined && { minutes }),
+      });
+    };
+    return [
+      ...CONTINUE_MINUTES.map((minutes, index) => {
+        return button(t('Continue {minutes} min', { minutes }), {
+          cssClass: index === 0 ? 'button primary' : 'button secondary',
+          key: `${item.id}:continue-${String(minutes)}`,
+          action: () => {
+            decide('continue', minutes);
+          },
+        });
+      }),
+      button(t('Wait'), {
+        cssClass: 'button secondary',
+        key: `${item.id}:wait`,
+        action: () => {
+          decide('wait');
+        },
+      }),
+    ];
   }
 }
 
