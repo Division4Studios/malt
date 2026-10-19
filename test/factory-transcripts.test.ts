@@ -5,8 +5,12 @@
  * @file
  */
 import assert from 'node:assert/strict';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 
+import { readStreamLines } from '../src/factory/attempt-stream.ts';
 import { estimateCost } from '../src/factory/price-table.ts';
 import { NODES_MAX, TranscriptBuilder } from '../src/factory/transcript-builder.ts';
 import { normalizeLines } from '../src/factory/transcripts.ts';
@@ -300,4 +304,38 @@ await test('usage with an unknown cache component is never priced as zero', () =
   assert.equal(estimateCost(known, price), 5);
   assert.equal(estimateCost({ ...known, cacheRead: null }, price), null);
   assert.equal(estimateCost({ ...known, cacheWrite: null }, price), null);
+});
+
+await test('malformed known events count as unknown and failed patches change no files', () => {
+  const claude = normalizeLines(lines({ type: 'assistant' }, { type: 'rate_limit_event' }), 'claude', {
+    isCollecting: true,
+    isLive: false,
+  });
+  assert.equal(claude.digest.unknownEvents, 2);
+  const codex = normalizeLines(
+    lines({
+      type: 'item.completed',
+      item: { id: 'i1', type: 'file_change', status: 'failed', changes: [{ path: 'src/a.ts', kind: 'update' }] },
+    }),
+    'codex',
+    { isCollecting: true, isLive: false },
+  );
+  assert.deepEqual(codex.files, []);
+  assert.ok(codex.nodes.some((node) => node.label === 'Patch failed'));
+});
+
+await test('a stream cut inside an event never hands the fragment to the decoder', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'malt-stream-'));
+  t.after(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+  const file = path.join(directory, 'stdout.log');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture file in this test's own temporary directory.
+  await writeFile(file, '{"type":"a"}\n{"type":"b"}\n{"type":"c","text":"cut off');
+  const seen: string[] = [];
+  const read = await readStreamLines({ file, size: 46, mtimeMs: 0 }, (line) => {
+    seen.push(line);
+  });
+  assert.equal(read.available, true);
+  assert.deepEqual(seen, ['{"type":"a"}', '{"type":"b"}']);
 });

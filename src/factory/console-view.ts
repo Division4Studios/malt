@@ -29,6 +29,7 @@ import { attemptedSteps } from './step-override-controls.ts';
 import { customizationView, objectiveCustomizationView } from './step-override-view.ts';
 import { stepLayers } from './workflows.ts';
 
+import type { AnsweredItem, InboxItem } from './console-inbox-types.ts';
 import type { LivenessView, RetryView } from './liveness-view.ts';
 import type { DoneItem } from './objective-goal-schema.ts';
 import type { Question } from './question-schema.ts';
@@ -36,6 +37,8 @@ import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { CustomizationView } from './step-override-view.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
+
+export type { AnsweredItem, InboxItem, InboxLane } from './console-inbox-types.ts';
 
 /** Reconcile interval assumed before a project is configured. */
 const RECONCILE_FALLBACK_MS = 30_000;
@@ -192,8 +195,6 @@ export interface ObjectiveView {
   readonly createdAt: number;
 }
 
-/** Inbox lane: decisions that need a reply, or notices to look into. */
-export type InboxLane = 'reply' | 'notice';
 /** An objective with its definition of done, for the objective view. */
 export interface GoalView {
   /** Objective id. */
@@ -219,58 +220,6 @@ export interface GoalView {
   readonly awaitsDefinition: boolean;
   /** Step override editor state, while the objective has not started delivering. */
   readonly customization: CustomizationView | null;
-}
-
-/** Something waiting on the human. */
-export interface InboxItem {
-  /** Stable item id. */
-  readonly id: string;
-  /** What kind of decision it is. */
-  readonly kind:
-    | 'approval'
-    | 'plan_approval'
-    | 'question'
-    | 'blocked_delivery'
-    | 'blocked_objective'
-    | 'skill'
-    | 'spend_cap'
-    | 'done_criteria';
-  /** Lane it is listed in. */
-  readonly lane: InboxLane;
-  /** Headline. */
-  readonly title: string;
-  /** Context the operator needs. */
-  readonly detail: string;
-  /** When it started waiting. */
-  readonly since: number;
-  /** Delivery, when it concerns one. */
-  readonly taskId: string | null;
-  /** Objective, when it concerns one. */
-  readonly featureId: string | null;
-  /** Step to decide, for approvals. */
-  readonly stepId: string | null;
-  /** Head an approval binds, for delivery approvals. */
-  readonly head: string | null;
-  /** Skill request, for skill decisions. */
-  readonly requestId: string | null;
-  /** Agent question, for questions. */
-  readonly questionId: string | null;
-  /** Offered answers, for questions. */
-  readonly choices: readonly string[];
-  /** Whether a question accepts a written answer. */
-  readonly allowText: boolean;
-}
-
-/** A decision already made. */
-export interface AnsweredItem {
-  /** Stable item id. */
-  readonly id: string;
-  /** What was decided. */
-  readonly title: string;
-  /** Operator note. */
-  readonly note: string;
-  /** Decision time. */
-  readonly at: number;
 }
 
 /** Complete console projection. */
@@ -353,17 +302,23 @@ function deliveryResult(task: FactoryTask, workflow: Workflow, step: WorkflowSte
  * @param task - Delivery whose step is described.
  * @param workflow - Workflow the delivery runs.
  * @param step - The step whose state to compute.
- * @param context - Live attempt and the steps waiting on the human or ready to start.
- * @param context.running - The delivery's live attempt, if any.
+ * @param context - Live attempts and the steps waiting on the human or ready to start.
+ * @param context.running - The delivery's live attempts.
  * @param context.waiting - Steps waiting on a human decision.
  * @param context.startable - Review-stage steps that may start now.
+ * @param context.isAdmissible - Whether a ready delivery may start: not held, dependencies done.
  * @returns State for display.
  */
 function deliveryState(
   task: FactoryTask,
   workflow: Workflow,
   step: WorkflowStep,
-  context: { running: FactoryJob | undefined; waiting: ReadonlySet<string>; startable: ReadonlySet<string> },
+  context: {
+    running: readonly FactoryJob[];
+    waiting: ReadonlySet<string>;
+    startable: ReadonlySet<string>;
+    isAdmissible: boolean;
+  },
 ): StepState {
   if (context.waiting.has(step.id)) {
     return 'needs_you';
@@ -371,11 +326,12 @@ function deliveryState(
   if (isStepSatisfied(task, workflow, step)) {
     return 'done';
   }
-  if (context.running !== undefined && (context.running.step === step.id || context.running.kind === step.kind)) {
+  // Attempts saved before workflows carry no step and match by kind; others match their exact step.
+  if (context.running.some((job) => (job.step === null ? job.kind === step.kind : job.step === step.id))) {
     return 'running';
   }
   const spine: Partial<Record<string, boolean>> = {
-    implement: task.phase === 'ready' || BUILDING_PHASES.has(task.phase),
+    implement: (task.phase === 'ready' && context.isAdmissible) || BUILDING_PHASES.has(task.phase),
     final: task.phase === 'merge_ready' || task.phase === 'merging',
     verify: task.phase === 'verifying' || task.phase === 'closing',
   };
@@ -446,19 +402,21 @@ function deliveryView(
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
   const layers = stepLayers(workflow.delivery);
-  const running = context.live.find((job) => job.taskId === task.id);
+  const runningJobs = context.live.filter((job) => job.taskId === task.id);
+  const [running] = runningJobs;
   const waiting = new Set(awaitingApproval(task, workflow).map((step) => step.id));
   const startable = new Set(task.phase === 'review' ? startableSteps(task, workflow).map((step) => step.id) : []);
-  const steps = workflow.delivery.map((step) => {
-    return {
-      ...stepShape(step, layers),
-      state: deliveryState(task, workflow, step, { running, waiting, startable }),
-      result: deliveryResult(task, workflow, step),
-    };
-  });
   const waitingOn = context.tasks
     .filter((candidate) => task.dependencies.includes(candidate.id) && candidate.phase !== 'done')
     .map((dependency) => dependency.issue);
+  const isAdmissible = task.hold === null && waitingOn.length === 0;
+  const steps = workflow.delivery.map((step) => {
+    return {
+      ...stepShape(step, layers),
+      state: deliveryState(task, workflow, step, { running: runningJobs, waiting, startable, isAdmissible }),
+      result: deliveryResult(task, workflow, step),
+    };
+  });
   return {
     taskId: task.id,
     issue: task.issue,
@@ -872,7 +830,12 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
   const attempted = attemptedSteps(repository);
   const archived = tasks.filter((task) => isArchived(task, now));
-  const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
+  // Explicitly kept deliveries always stay; the board limit applies to completions that expire on their own.
+  const finished = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now));
+  const done = [
+    ...finished.filter((task) => task.archive?.state === 'kept'),
+    ...finished.filter((task) => task.archive?.state !== 'kept').slice(-DONE_ON_BOARD),
+  ];
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
   const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
