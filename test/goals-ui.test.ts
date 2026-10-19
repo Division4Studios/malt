@@ -4,16 +4,17 @@
  *
  * @file
  */
-
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checklistInput, definitionText, readGoals, readLogPage } from '../web/dist/goal-model.js';
+import { checklistInput, definitionText, goalProgress, readGoals, readLogPage } from '../web/dist/goal-model.js';
+import { NO_CAP, capProgress, capsInput, overrideText, readSpend } from '../web/dist/spend-model.js';
 
 /** Objective ids. */
 const OBJECTIVE = '00000000-0000-4000-8000-000000000001';
 const ITEM = '00000000-0000-4000-8000-000000000002';
 const PROPOSAL = '00000000-0000-4000-8000-000000000003';
+const DELIVERY = '00000000-0000-4000-8000-000000000004';
 
 /** A snapshot carrying one objective with a checklist. */
 const snapshot = {
@@ -55,8 +56,55 @@ void test('objectives read from the snapshot with checklist progress', () => {
   );
   assert.equal(goal.awaitsDefinition, true);
   assert.equal(definitionText(goal), '1 of 1 criteria met · 1 proposed');
+  assert.equal(goal.customization, null, 'an objective without editor state is not customizable');
+  const [editable] = readGoals({
+    factory: {
+      console: {
+        goals: [
+          {
+            ...snapshot.factory.console.goals[0],
+            customization: {
+              version: 7,
+              steps: [
+                { id: 'plan', title: 'Plan', kind: 'plan', optional: false, roles: ['team-lead'], started: true },
+              ],
+              overrides: [{ stepId: 'plan', provider: 'codex' }],
+            },
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(editable?.customization !== null && editable?.customization !== undefined);
+  assert.equal(editable.customization.version, 7);
+  assert.deepEqual(editable.customization.overrides, [{ stepId: 'plan', provider: 'codex' }]);
+  assert.equal(editable.customization.steps[0]?.started, true);
   assert.equal(definitionText({ items: [], met: 0, proposed: 0 }), 'No definition of done yet');
   assert.deepEqual(readGoals({}), []);
+});
+
+void test('the Mission overview lists unfinished objectives with a definition of done, waiting ones first', () => {
+  const { goals } = snapshot.factory.console;
+  const plain = {
+    ...goals[0],
+    featureId: DELIVERY,
+    title: 'Plain',
+    awaitsDefinition: false,
+    definition: { items: [], met: 0, proposed: 0 },
+  };
+  const finished = { ...goals[0], featureId: PROPOSAL, title: 'Shipped', phase: 'done' };
+  const later = { ...goals[0], featureId: ITEM, title: 'Later', awaitsDefinition: false };
+  const rows = goalProgress({ factory: { console: { goals: [later, plain, finished, goals[0]] } } });
+  assert.deepEqual(
+    rows.map((row) => [row.title, row.awaitsDefinition]),
+    [
+      ['Checkout redesign', true],
+      ['Later', false],
+    ],
+    'objectives without a checklist and finished ones are left out',
+  );
+  assert.equal(rows[0]?.progress, '1 of 1 criteria met · 1 proposed');
+  assert.deepEqual(goalProgress({}), []);
 });
 
 void test('checklist rows validate into a version-fenced save, dismissing absent proposals', () => {
@@ -99,4 +147,82 @@ void test('log pages keep valid entries and their older-page cursor', () => {
   assert.equal(page.entries.length, 1);
   assert.equal(page.next, 9);
   assert.equal(readLogPage({ entries: [], total: 0, next: null }).next, null);
+});
+
+/** A cost summary carrying caps and spend. */
+const summary = {
+  spend: {
+    revision: 3,
+    caps: {
+      project: 100,
+      windowDays: 30,
+      objectiveDefault: null,
+      deliveryDefault: 2,
+      objectives: {},
+      deliveries: { [DELIVERY]: null },
+      unpriced: 'block',
+    },
+    usage: [
+      { scope: 'project', id: '', label: 'Project', usd: 85, unpricedAttempts: 0, cap: 100, blocked: null },
+      { scope: 'delivery', id: DELIVERY, label: '#4 Card', usd: 2.5, unpricedAttempts: 1, cap: 2, blocked: 'cap' },
+    ],
+  },
+};
+
+void test('spend rows describe progress toward each cap', () => {
+  const status = readSpend(summary);
+  const [project, delivery] = status.usage;
+  assert.ok(project !== undefined && delivery !== undefined);
+  assert.deepEqual(capProgress(project), { percent: 85, text: '$85.00 of $100.00 (85%)', state: 'near' });
+  assert.equal(capProgress(delivery).state, 'reached');
+  assert.match(capProgress(delivery).text, /1 unpriced · cap reached/v);
+  assert.equal(capProgress({ ...project, cap: null }).state, 'uncapped');
+  assert.equal(overrideText(status.caps, delivery), NO_CAP);
+  assert.equal(overrideText(status.caps, project), '');
+});
+
+void test('typed caps validate into a revision-fenced request with overrides', () => {
+  const status = readSpend(summary);
+  const form = {
+    project: '150',
+    windowDays: '7',
+    objectiveDefault: '',
+    deliveryDefault: '2.5',
+    unpriced: 'ignore',
+    overrides: [{ scope: 'delivery', id: DELIVERY, value: '' }],
+  };
+  const result = capsInput(status, form);
+  assert.ok('input' in result);
+  assert.deepEqual(result.input, {
+    expectedRevision: 3,
+    caps: {
+      project: 150,
+      windowDays: 7,
+      objectiveDefault: null,
+      deliveryDefault: 2.5,
+      objectives: {},
+      deliveries: {},
+      unpriced: 'ignore',
+    },
+  });
+  const lifted = capsInput(status, { ...form, overrides: [{ scope: 'objective', id: DELIVERY, value: 'NONE' }] });
+  assert.ok('input' in lifted);
+  assert.deepEqual(lifted.input, {
+    expectedRevision: 3,
+    caps: {
+      project: 150,
+      windowDays: 7,
+      objectiveDefault: null,
+      deliveryDefault: 2.5,
+      objectives: { [DELIVERY]: null },
+      deliveries: { [DELIVERY]: null },
+      unpriced: 'ignore',
+    },
+  });
+  assert.match(JSON.stringify(capsInput(status, { ...form, project: '-1' })), /positive dollar amount/v);
+  assert.match(JSON.stringify(capsInput(status, { ...form, windowDays: '0' })), /1 to 90 days/v);
+  assert.match(
+    JSON.stringify(capsInput(status, { ...form, overrides: [{ scope: 'delivery', id: DELIVERY, value: 'lots' }] })),
+    /Use none/v,
+  );
 });

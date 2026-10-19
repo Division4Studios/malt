@@ -401,6 +401,7 @@ await test(
       'mesh_factory_transcript',
       'mesh_factory_costs',
       'mesh_factory_prices',
+      'mesh_factory_preflight',
     ]) {
       assert.ok(!names.has(name), name);
     }
