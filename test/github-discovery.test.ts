@@ -31,6 +31,12 @@ interface Behaviour {
   readonly deletesProject?: boolean;
   /** Reading Project views fails with this GraphQL error. */
   readonly viewsError?: { readonly type?: string; readonly message: string };
+  /** The Project and its Status field are beyond the first listed page. */
+  readonly isPaged?: boolean;
+  /** The Project a field read by ID belongs to, when not the selected one. */
+  readonly fieldProject?: string;
+  /** Fields of the selected repository that differ from the default fixture. */
+  readonly repository?: { readonly viewerPermission?: string; readonly isArchived?: boolean };
 }
 
 /** GraphQL request body. */
@@ -79,7 +85,9 @@ function answerRepository(query: string, variables: Record<string, unknown>, beh
       : { data: { viewer: { repositories: { nodes: [repository] } } } };
   }
   if (query.includes('repository(owner: $owner')) {
-    return { data: { repository: behaviour.hidesRepository === true ? null : repository } };
+    return {
+      data: { repository: behaviour.hidesRepository === true ? null : { ...repository, ...behaviour.repository } },
+    };
   }
   if (query.includes('... on Repository { id nameWithOwner')) {
     return { data: { node: variables['id'] === 'R_1' ? { ...repository, nameWithOwner: 'example/renamed' } : null } };
@@ -95,12 +103,19 @@ function answerRepository(query: string, variables: Record<string, unknown>, beh
  * @returns Remote-shaped response; any other query is a readable capability probe.
  */
 function answerProject(query: string, behaviour: Behaviour): unknown {
+  const status = { id: 'F_1', name: 'Status', options: [{ id: 'o1', name: 'Backlog' }] };
+  const isListed = behaviour.deletesProject !== true && behaviour.isPaged !== true;
+  if (query.includes('projectV2(number')) {
+    return { data: { repositoryOwner: { projectV2: behaviour.deletesProject === true ? null : project } } };
+  }
   if (query.includes('repositoryOwner(')) {
-    return { data: { repositoryOwner: { projectsV2: { nodes: behaviour.deletesProject === true ? [] : [project] } } } };
+    return { data: { repositoryOwner: { projectsV2: { nodes: isListed ? [project] : [] } } } };
   }
   if (query.includes('fields(first')) {
-    const status = { id: 'F_1', name: 'Status', options: [{ id: 'o1', name: 'Backlog' }] };
-    return { data: { node: { fields: { nodes: [status, {}] } } } };
+    return { data: { node: { fields: { nodes: behaviour.isPaged === true ? [{}] : [status, {}] } } } };
+  }
+  if (query.includes('... on ProjectV2SingleSelectField') && !query.includes('fields(')) {
+    return { data: { node: { ...status, project: { id: behaviour.fieldProject ?? 'PVT_4' } } } };
   }
   if (query.includes('views(first')) {
     return behaviour.viewsError === undefined
@@ -254,4 +269,37 @@ await test('github_discover runs through the project integration and saves nothi
   await assert.rejects(github.execute(OPERATOR, 'github_discover', { repository: 'not a repository' }), {
     code: 'INVALID_INPUT',
   });
+});
+
+await test('a Project and saved Status field beyond the first page are still found', async () => {
+  const { run, queries } = fixture({ isPaged: true });
+  const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4, fieldIds: ['F_1'] });
+  assert.equal(result.project?.id, 'PVT_4', 'read by number when the listed page lacks it');
+  assert.deepEqual(
+    result.fields.map((field) => field.id),
+    ['F_1'],
+    'the saved field is read by ID',
+  );
+  assert.deepEqual(result.errors, []);
+  assertReadOnlyAndClean(queries, result);
+});
+
+await test("a saved field another Project owns is not taken as the selected Project's", async () => {
+  const { run } = fixture({ isPaged: true, fieldProject: 'PVT_OTHER' });
+  const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4, fieldIds: ['F_1'] });
+  assert.deepEqual(result.fields, [], 'the unrelated field is not merged into the selected Project');
+});
+
+await test('read access may open issues; an archived repository supports no change', async () => {
+  const reader = await discoverGitHub(fixture({ repository: { viewerPermission: 'READ' } }).run, {
+    repository: 'example/app',
+  });
+  assert.equal(reader.capabilities.issue_create, 'supported');
+  assert.equal(reader.capabilities.labels, 'unsupported');
+  const archived = await discoverGitHub(fixture({ repository: { isArchived: true } }).run, {
+    repository: 'example/app',
+  });
+  assert.equal(archived.capabilities.issue_create, 'unsupported');
+  assert.equal(archived.capabilities.labels, 'unsupported');
+  assert.equal(archived.capabilities.pull_requests, 'unsupported');
 });

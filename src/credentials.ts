@@ -12,8 +12,11 @@ import { execFile } from 'node:child_process';
 
 import { z } from 'zod/v3';
 
+import { trustedExecutable } from './executables.ts';
 import { MeshError } from './protocol.ts';
 import { registerResolvedSecret } from './secrets.ts';
+
+import type { ConnectionV2 } from './connector.ts';
 
 /** Deadline for the local `gh auth status` presence probe. */
 const PROBE_TIMEOUT_MS = 10_000;
@@ -100,6 +103,24 @@ export async function credentialPresence(handle: CredentialHandle, probe: Presen
 }
 
 /**
+ * Check each section's credential handle; records saved before handles use the gh session.
+ *
+ * @param record - Saved connection.
+ * @param probe - Local presence sources.
+ * @returns Presence per section.
+ */
+export async function connectionCredentials(
+  record: ConnectionV2,
+  probe: PresenceProbe,
+): Promise<Record<'tracker' | 'source', CredentialPresence>> {
+  const fallback = { kind: 'github-cli' } as const;
+  return {
+    tracker: await credentialPresence(record.tracker.credential ?? fallback, probe),
+    source: await credentialPresence(record.source.credential ?? fallback, probe),
+  };
+}
+
+/**
  * Resolve an environment handle's value for an outgoing request. The value is
  * registered for redaction first, so no log line or error can echo it.
  *
@@ -131,9 +152,9 @@ export function ghAuthProbe(root: string): () => Promise<boolean | null> {
   return async () => {
     return await new Promise<boolean | null>((resolve) => {
       execFile(
-        // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-        'gh',
-        ['auth', 'status', '--hostname', 'github.com'],
+        trustedExecutable('gh'),
+        // Only the account commands use: a stale inactive account would otherwise fail the probe.
+        ['auth', 'status', '--hostname', 'github.com', '--active'],
         { cwd: root, windowsHide: true, timeout: PROBE_TIMEOUT_MS, env: { ...process.env, GH_PROMPT_DISABLED: '1' } },
 
         (error) => {
