@@ -1,6 +1,5 @@
 /**
- * Operator controls that only read or change the project ledger: workflows,
- * approvals, answers, gates, holds, archives, telemetry, spend caps,
+ * Operator controls that only read or change the project ledger: approvals, answers, gates, holds, archives, telemetry, spend caps,
  * definitions of done and automations. None of them needs the supervisor's
  * live state, so they are routed here rather than in the service class.
  *
@@ -15,7 +14,6 @@ import { readObjectiveLog } from './objective-log.ts';
 import { answerQuestion } from './questions.ts';
 import { saveCaps } from './spend.ts';
 import * as telemetry from './telemetry-controls.ts';
-import { chooseDefaultWorkflow, saveWorkflow } from './workflow-controls.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -24,8 +22,6 @@ import type { FactoryRepository } from './repository.ts';
 type LedgerOperation =
   | 'factory_answer'
   | 'factory_gates'
-  | 'factory_workflow_save'
-  | 'factory_workflow_default'
   | 'factory_approve'
   | 'factory_attempts'
   | 'factory_transcript'
@@ -58,8 +54,6 @@ export function ledgerHandlers(
   return {
     factory_answer: () => answerQuestion(repository, input),
     factory_gates: () => changeGates(repository, input),
-    factory_workflow_save: () => saveWorkflow(repository, input),
-    factory_workflow_default: () => chooseDefaultWorkflow(repository, input),
     factory_approve: () => decideApproval(repository, input),
     factory_attempts: async () => telemetry.attempts(repository, mesh, input),
     factory_transcript: async () => telemetry.transcript(repository, mesh, input),
