@@ -7,16 +7,30 @@
  * @file
  */
 import { number, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
+import { parseCustomization } from './step-override-model.js';
 import { formatDuration } from './telemetry-format.js';
 
 import type { Data } from './api.js';
+import type { Customization } from './step-override-model.js';
 
 /** Plain step states, in the order the broker defines them. */
 export const STEP_STATES = ['done', 'running', 'ready', 'needs_you', 'waiting'] as const;
 /** Board columns, left to right. */
 export const COLUMNS = ['planning', 'ready', 'in_progress', 'needs_you', 'done'] as const;
 /** Inbox decision kinds the console can act on. */
-export const INBOX_KINDS = ['approval', 'plan_approval', 'blocked_delivery', 'blocked_objective', 'skill'] as const;
+export const INBOX_KINDS = [
+  'approval',
+  'plan_approval',
+  'question',
+  'blocked_delivery',
+  'blocked_objective',
+  'skill',
+  'spend_cap',
+  'done_criteria',
+] as const;
+/** Inbox lanes: decisions that need a reply, and notices to look into. */
+export const INBOX_LANES = ['reply', 'notice'] as const;
 
 /** Where a step stands. */
 export type StepState = (typeof STEP_STATES)[number];
@@ -24,6 +38,8 @@ export type StepState = (typeof STEP_STATES)[number];
 export type Column = (typeof COLUMNS)[number];
 /** Inbox decision kind. */
 export type InboxKind = (typeof INBOX_KINDS)[number];
+/** Where an Inbox item is listed: needs a reply, or a notice to look into. */
+export type InboxLane = (typeof INBOX_LANES)[number];
 
 /** A fixer's or plan reviser's ruling on one finding. */
 export interface Disposition {
@@ -101,8 +117,15 @@ export interface Delivery {
   readonly workflow: WorkflowIdentity;
   /** Steps in workflow order. */
   readonly steps: readonly Step[];
-  /** Live attempt. */
-  readonly running: { readonly jobId: string; readonly role: string; readonly step: string | null } | null;
+  /** Live attempt and its checkpoint liveness. */
+  readonly running: {
+    readonly jobId: string;
+    readonly role: string;
+    readonly step: string | null;
+    readonly liveness: Liveness | null;
+  } | null;
+  /** Retry backoff of the latest failed step, while it delays that step. */
+  readonly retry: Retry | null;
   /** Current head commit. */
   readonly head: string | null;
   /** Current base commit. */
@@ -119,10 +142,56 @@ export interface Delivery {
   readonly error: string | null;
   /** Operator hold: no new attempt starts while set. */
   readonly held: { readonly at: number; readonly reason: string } | null;
+  /** Recent CI-failure and merge-conflict repair rounds, oldest first. */
+  readonly repairs: readonly RepairRound[];
   /** Whether the operator kept it on the board after it finished. */
   readonly isKept: boolean;
+  /** Step override editor state, while its steps can still change. */
+  readonly customization: Customization | null;
+  /** The lead's brief revalidation verdict, when recorded. */
+  readonly revalidation: { readonly outcome: string; readonly summary: string; readonly at: number } | null;
   /** Last change time. */
   readonly updatedAt: number;
+}
+
+/** What a running attempt is doing, from its latest progress sample. */
+export interface Liveness {
+  /** `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling`. */
+  readonly state: string;
+  /** Newest meaningful signal. */
+  readonly lastSignal: string | null;
+  /** When it last progressed. */
+  readonly lastProgressAt: number;
+  /** What it waits on, if anything. */
+  readonly awaiting: string | null;
+  /** Next checkpoint. */
+  readonly nextCheckpointAt: number;
+  /** Extensions granted so far. */
+  readonly extensions: number;
+}
+
+/** A failed step waiting to retry, or out of retries. */
+export interface Retry {
+  /** Failure class of the latest attempts. */
+  readonly failureClass: string;
+  /** Consecutive failures of that class. */
+  readonly failures: number;
+  /** When it may run again; null once retries are exhausted. */
+  readonly retryAt: number | null;
+}
+
+/** One CI-failure or merge-conflict repair round. */
+export interface RepairRound {
+  /** What failed. */
+  readonly kind: 'ci' | 'conflict';
+  /** When the round started. */
+  readonly at: number;
+  /** Source that failed. */
+  readonly head: string;
+  /** One-line description. */
+  readonly summary: string;
+  /** Redacted evidence previews. */
+  readonly findings: readonly string[];
 }
 
 /** A finished delivery archived off the board, which the operator can restore. */
@@ -151,6 +220,8 @@ export interface Objective {
   readonly steps: readonly Step[];
   /** Provisioned delivery progress. */
   readonly deliveries: { readonly total: number; readonly done: number };
+  /** Definition-of-done progress. */
+  readonly definition: { readonly met: number; readonly total: number };
   /** Blocker or last error. */
   readonly error: string | null;
   /** Creation time. */
@@ -163,6 +234,8 @@ export interface InboxItem {
   readonly id: string;
   /** Decision kind. */
   readonly kind: InboxKind;
+  /** Lane the item is listed in. */
+  readonly lane: InboxLane;
   /** Headline. */
   readonly title: string;
   /** Context for the operator. */
@@ -179,6 +252,12 @@ export interface InboxItem {
   readonly head: string | null;
   /** Skill request. */
   readonly requestId: string | null;
+  /** Agent question, for questions. */
+  readonly questionId: string | null;
+  /** Offered answers, for questions. */
+  readonly choices: readonly string[];
+  /** Whether a question accepts a written answer. */
+  readonly allowText: boolean;
 }
 
 /** A decision already made. */
@@ -380,7 +459,51 @@ function parseRunning(value: unknown): Delivery['running'] {
   const record = asData(value);
   return record === null
     ? null
-    : { jobId: text(record, 'jobId'), role: text(record, 'role'), step: nullableText(record, 'step') };
+    : {
+        jobId: text(record, 'jobId'),
+        role: text(record, 'role'),
+        step: nullableText(record, 'step'),
+        liveness: parseLiveness(record['liveness']),
+      };
+}
+
+/**
+ * Validate a running attempt's liveness.
+ *
+ * @param value - Untrusted liveness record.
+ * @returns Liveness, or `null`.
+ */
+function parseLiveness(value: unknown): Liveness | null {
+  const record = asData(value);
+  return record === null
+    ? null
+    : {
+        state: text(record, 'state'),
+        lastSignal: nullableText(record, 'lastSignal'),
+        lastProgressAt: number(record, 'lastProgressAt'),
+        awaiting: nullableText(record, 'awaiting'),
+        nextCheckpointAt: number(record, 'nextCheckpointAt'),
+        extensions: number(record, 'extensions'),
+      };
+}
+
+/**
+ * Validate a delivery's retry backoff.
+ *
+ * @param value - Untrusted retry record.
+ * @returns Retry, or `null`.
+ */
+function parseRetry(value: unknown): Retry | null {
+  const record = asData(value);
+  if (record === null) {
+    return null;
+  }
+  const { retryAt } = record;
+  return {
+    failureClass: text(record, 'failureClass'),
+    failures: number(record, 'failures'),
+    retryAt: typeof retryAt === 'number' && Number.isFinite(retryAt) ? retryAt : null,
+  };
 }
 
 /**
@@ -405,6 +528,7 @@ function parseDelivery(record: Data): Delivery | null {
     workflow: parseWorkflow(record['workflow']),
     steps: parseSteps(record['steps']),
     running: parseRunning(record['running']),
+    retry: parseRetry(record['retry']),
     head: nullableText(record, 'head'),
     base: nullableText(record, 'base'),
     prUrl: nullableText(record, 'prUrl'),
@@ -415,9 +539,33 @@ function parseDelivery(record: Data): Delivery | null {
     attempts: number(record, 'attempts'),
     error: nullableText(record, 'error'),
     held: parseHold(record['held']),
+    repairs: objects(record['repairs']).map((round) => {
+      return {
+        kind: round['kind'] === 'conflict' ? 'conflict' : 'ci',
+        at: number(round, 'at'),
+        head: text(round, 'head'),
+        summary: text(round, 'summary'),
+        findings: strings(round['findings']),
+      };
+    }),
     isKept: record['isKept'] === true,
+    customization: parseCustomization(record['customization']),
+    revalidation: parseRevalidation(record['revalidation']),
     updatedAt: number(record, 'updatedAt'),
   };
+}
+
+/**
+ * Validate a brief revalidation verdict.
+ *
+ * @param value - Untrusted verdict.
+ * @returns Outcome, summary and time, or `null` when none was recorded.
+ */
+function parseRevalidation(value: unknown): Delivery['revalidation'] {
+  const verdict = asData(value);
+  return verdict === null
+    ? null
+    : { outcome: text(verdict, 'outcome'), summary: text(verdict, 'summary'), at: number(verdict, 'at') };
 }
 
 /**
@@ -457,6 +605,7 @@ function parseObjective(record: Data): Objective | null {
     return null;
   }
   const deliveries = asData(record['deliveries']) ?? {};
+  const definition = asData(record['definition']) ?? {};
   return {
     featureId,
     title: text(record, 'title'),
@@ -465,9 +614,20 @@ function parseObjective(record: Data): Objective | null {
     workflow: parseWorkflow(record['workflow']),
     steps: parseSteps(record['steps']),
     deliveries: { total: number(deliveries, 'total'), done: number(deliveries, 'done') },
+    definition: { met: number(definition, 'met'), total: number(definition, 'total') },
     error: nullableText(record, 'error'),
     createdAt: number(record, 'createdAt'),
   };
+}
+
+/**
+ * The lane an item belongs in when an older broker sends none.
+ *
+ * @param kind - Decision kind.
+ * @returns Notices for blockers, replies for everything else.
+ */
+function defaultLane(kind: InboxKind): InboxLane {
+  return kind === 'blocked_delivery' || kind === 'blocked_objective' ? 'notice' : 'reply';
 }
 
 /**
@@ -482,9 +642,11 @@ function parseInboxItem(record: Data): InboxItem | null {
   if (id === '' || !isOneOf(INBOX_KINDS, kind)) {
     return null;
   }
+  const { lane, choices } = record;
   return {
     id,
     kind,
+    lane: isOneOf(INBOX_LANES, lane) ? lane : defaultLane(kind),
     title: text(record, 'title'),
     detail: text(record, 'detail'),
     since: number(record, 'since'),
@@ -493,6 +655,11 @@ function parseInboxItem(record: Data): InboxItem | null {
     stepId: nullableText(record, 'stepId'),
     head: nullableText(record, 'head'),
     requestId: nullableText(record, 'requestId'),
+    questionId: nullableText(record, 'questionId'),
+    choices: Array.isArray(choices)
+      ? choices.filter((choice): choice is string => typeof choice === 'string' && choice !== '')
+      : [],
+    allowText: record['allowText'] === true,
   };
 }
 
@@ -520,14 +687,17 @@ export function readConsole(snapshot: unknown): ConsoleModel {
       .map((record) => parseInboxItem(record))
       .filter((entry) => entry !== null),
     archived: parseArchived(view['archived']),
-    answered: objects(inbox['answered']).map((record) => {
-      return {
-        id: text(record, 'id'),
-        title: text(record, 'title'),
-        note: text(record, 'note'),
-        at: number(record, 'at'),
-      };
-    }),
+    // Like every other Inbox entry, an answered decision without a stable id is skipped.
+    answered: objects(inbox['answered'])
+      .filter((record) => text(record, 'id') !== '')
+      .map((record) => {
+        return {
+          id: text(record, 'id'),
+          title: text(record, 'title'),
+          note: text(record, 'note'),
+          at: number(record, 'at'),
+        };
+      }),
   };
 }
 
@@ -542,13 +712,15 @@ export function inboxCount(snapshot: unknown): number {
 }
 
 /** Visible label and glyph for each step state; the glyph keeps state readable without color. */
-export const STATE_LABELS: Readonly<Record<StepState, { readonly label: string; readonly glyph: string }>> = {
-  done: { label: 'Done', glyph: '✓' },
-  running: { label: 'Running', glyph: '▶' },
-  ready: { label: 'Ready', glyph: '○' },
-  needs_you: { label: 'Needs you', glyph: '!' },
-  waiting: { label: 'Waiting', glyph: '·' },
-};
+export const STATE_LABELS: Readonly<Record<StepState, { readonly label: string; readonly glyph: string }>> = translated(
+  {
+    done: { label: phrase('Done'), glyph: '✓' },
+    running: { label: phrase('Running'), glyph: '▶' },
+    ready: { label: phrase('Ready'), glyph: '○' },
+    needs_you: { label: phrase('Needs you'), glyph: '!' },
+    waiting: { label: phrase('Waiting'), glyph: '·' },
+  },
+);
 
 /**
  * Describe how long ago something happened.
@@ -559,13 +731,13 @@ export const STATE_LABELS: Readonly<Record<StepState, { readonly label: string; 
  */
 export function relativeAge(since: number, now: number): string {
   if (since <= 0) {
-    return 'unknown time';
+    return t('unknown time');
   }
   const elapsed = Math.max(0, now - since);
   if (elapsed < MINUTE_MS) {
-    return 'just now';
+    return t('just now');
   }
-  return elapsed < DAY_MS ? `${formatDuration(elapsed)} ago` : `${String(Math.floor(elapsed / DAY_MS))}d ago`;
+  return elapsed < DAY_MS ? `${formatDuration(elapsed)} ago` : t('{days}d ago', { days: Math.floor(elapsed / DAY_MS) });
 }
 
 /**
@@ -639,7 +811,10 @@ export function stepStrip(steps: readonly Step[]): { segments: Segment[]; captio
     return { id: step.id, state: step.state, label };
   });
   const done = steps.filter((step) => step.state === 'done').length;
-  return { segments, caption: `${String(done)} of ${String(steps.length)} steps done` };
+  return {
+    segments,
+    caption: t('{done} of {length} steps done', { done, length: steps.length }),
+  };
 }
 
 /**
@@ -655,4 +830,57 @@ export function runningText(delivery: Delivery): string | null {
   const { role, step } = delivery.running;
   const title = delivery.steps.find((candidate) => candidate.id === step)?.title ?? step;
   return title === null ? role : `${role} · ${title}`;
+}
+
+/** Plain words for each failure class. */
+const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
+  rate_limit: phrase('hit a provider limit'),
+  transient: 'failed',
+  stalled: 'stalled',
+  invalid_output: phrase('returned no usable result'),
+  gate: phrase('waited on a gate'),
+  cancelled: phrase('was interrupted'),
+});
+
+/**
+ * Describe a running attempt's liveness.
+ *
+ * @param liveness - Latest liveness record.
+ * @param now - Current epoch milliseconds.
+ * @returns Text such as `Progressing · tool Bash 2m 10s ago · next checkpoint in 8m 00s`.
+ */
+export function livenessText(liveness: Liveness, now: number): string {
+  const checkpoint = t('next checkpoint in {wait}', {
+    wait: formatDuration(Math.max(0, liveness.nextCheckpointAt - now)),
+  });
+  const extended = liveness.extensions === 0 ? '' : t(' · extended {extensions}×', { extensions: liveness.extensions });
+  if (liveness.state === 'awaiting_input') {
+    return t('Awaiting input · {awaiting} · {checkpoint}{extended}', {
+      awaiting: liveness.awaiting ?? t('a permission or an answer'),
+      checkpoint,
+      extended,
+    });
+  }
+  const signal =
+    liveness.lastSignal === null
+      ? t('no progress yet, started {age}', { age: relativeAge(liveness.lastProgressAt, now) })
+      : `${liveness.lastSignal} ${relativeAge(liveness.lastProgressAt, now)}`;
+  const state = t(liveness.state === 'progressing' ? 'Progressing' : 'Idle');
+  return `${state} · ${signal} · ${checkpoint}${extended}`;
+}
+
+/**
+ * Describe a failed step's retry backoff.
+ *
+ * @param retry - Retry state.
+ * @param now - Current epoch milliseconds.
+ * @returns Text such as `Stalled 2 times · retrying in 9m 00s`, or that retries are exhausted.
+ */
+export function retryText(retry: Retry, now: number): string {
+  const label = FAILURE_LABELS[retry.failureClass] ?? 'failed';
+  const times = retry.failures === 1 ? 'once' : `${String(retry.failures)} times`;
+  const what = `${label.charAt(0).toUpperCase()}${label.slice(1)} ${times}`;
+  return retry.retryAt === null
+    ? t('{what} · out of automatic retries; recover it or change its scope', { what })
+    : t('{what} · retrying in {wait}', { what, wait: formatDuration(Math.max(0, retry.retryAt - now)) });
 }
