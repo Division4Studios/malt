@@ -39,11 +39,18 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Pause factory': '暂停工厂',
   'Start factory': '启动工厂',
   'LOCAL CONSOLE CONNECTED': '本地控制台已连接',
-  'DISCONNECTED · STATE IS STALE': '已断开 · 状态已过时',
+  'BROWSER OFFLINE · SHOWING LAST STATE': '浏览器离线 · 显示上次的状态',
+  'BROWSER OFFLINE · NO STATE LOADED': '浏览器离线 · 未加载状态',
+  'DISCONNECTED · RETRIES STOPPED · STATE IS STALE': '已断开 · 已停止重试 · 状态已过时',
+  'DISCONNECTED · RETRIES STOPPED · NO STATE LOADED': '已断开 · 已停止重试 · 未加载状态',
+  'RECONNECTING · STATE IS STALE': '正在重新连接 · 状态已过时',
+  'RECONNECTING · NO STATE LOADED': '正在重新连接 · 未加载状态',
+  'CONNECTING · STATE IS STALE': '正在连接 · 状态已过时',
+  'CONNECTING · NO STATE LOADED': '正在连接 · 未加载状态',
+  'The local console is unavailable. Live retries have stopped; it keeps checking and resumes when it is back.':
+    '本地控制台不可用。实时重试已停止；控制台会继续检查，恢复后自动继续。',
   'The broker is unavailable.': 'Broker 不可用。',
   'Invalid live state received. Refresh the local console.': '收到无效的实时状态。请刷新本地控制台。',
-  'The local console is unavailable. Automatic retries have stopped; refresh the page after restarting the daemon.':
-    '本地控制台不可用。自动重试已停止；请在重启守护进程后刷新页面。',
   'This draft belongs to another project. Return to that project or cancel.':
     '此草稿属于另一个项目。请返回该项目或取消。',
   'Invalid control input.': '控制输入无效。',
@@ -162,6 +169,9 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Settings.': '设置。',
   'Appearance, provider health and build facts, with every setting one step away.':
     '外观、提供方健康状况和构建信息，每项设置一步可达。',
+  'Recommendations.': '建议。',
+  'Ticket proposals from the product owner and team lead, by state, with their evidence.':
+    '产品负责人和团队负责人的工单提议，按状态分组，并附带证据。',
   'Get started.': '开始使用。',
   'From an empty project to the first role at work, with the reason if it cannot start.':
     '从空项目到第一个角色开始工作；如果无法开始，会说明原因。',
@@ -169,6 +179,10 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'What each seat is: its instructions, provider, model, skills, tools and local MCP servers.':
     '每个席位的定义：指令、提供方、模型、技能、工具和本地 MCP 服务器。',
   'Secrets.': '机密。',
+  'Capabilities.': '能力。',
+  Capabilities: '能力',
+  'What humans and approved roles may do through connectors, beside what the provider supports.':
+    '人工和已批准的角色可以通过连接器做什么，以及提供方支持什么。',
   'Local encrypted keys and tokens, granted to the role types that need them.':
     '本地加密的密钥和令牌，授予需要它们的角色类型。',
   'Factory & validation': '工厂与校验',
@@ -301,6 +315,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.':
     '未保存。请查看控制台消息；你的草稿已保留。出现修订冲突后请刷新并重新打开。',
   '{unread} unread handoffs': '{unread} 条未读交接',
+  '{count, plural, one {# unread message} other {# unread messages}}': '{count} 条未读消息',
   'Pane height': '窗格高度',
   '{role} pane height': '{role} 窗格高度',
   '{role} operator instruction receipts': '{role} 的操作员指令回执',

@@ -44,7 +44,7 @@ const viewSchema = z
   .object({
     connected: z.boolean(),
     provider: z.string().nullable(),
-    capabilities: z.array(capabilitySchema).length(15),
+    capabilities: z.array(capabilitySchema).length(16),
     history: z.array(historySchema),
     historyTruncated: z.boolean(),
   })
