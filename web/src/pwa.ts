@@ -5,6 +5,7 @@
  */
 
 import { LocalRequestError } from './api.js';
+import { t } from './i18n.js';
 
 /** Unauthorized response status. */
 const UNAUTHORIZED = 401;
@@ -35,7 +36,7 @@ export async function installShellUpdates(
     });
     control.addEventListener('click', () => {
       if (document.querySelector('dialog[open]') !== null) {
-        announce('Save or cancel the open editor before updating the console.');
+        announce(t('Save or cancel the open editor before updating the console.'));
         return;
       }
       const worker = registration.waiting;
@@ -52,12 +53,12 @@ export async function installShellUpdates(
         }
 
         control.disabled = false;
-        announce('The console update was interrupted. Reload to check for another update.');
+        announce(t('The console update was interrupted. Reload to check for another update.'));
       });
       worker.postMessage('MALT_ACTIVATE_PUBLIC_SHELL', { transfer: [] });
     });
   } catch {
-    announce('The console is usable, but offline shell installation is unavailable in this browser.');
+    announce(t('The console is usable, but offline shell installation is unavailable in this browser.'));
   }
 }
 
@@ -74,6 +75,6 @@ export function startupFailure(error: unknown, announce: (message: string) => vo
     dialog.showModal();
     return;
   }
-  announce('Local daemon unavailable. Cached shell only; controls disabled. Start the daemon and reconnect.');
+  announce(t('Local daemon unavailable. Cached shell only; controls disabled. Start the daemon and reconnect.'));
   retry();
 }
