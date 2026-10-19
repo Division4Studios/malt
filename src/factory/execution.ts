@@ -12,7 +12,9 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { assignmentPreflight } from './assignment-preflight.ts';
 import { attemptSecrets, launchEnvironment } from './attempt-secrets.ts';
+import { baselineEvidence } from './baseline.ts';
 import { featureWorkflow, findingsToRule, planFindings, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
@@ -152,16 +154,7 @@ export async function executeJob(
   const skill = repository.skillRequests().find((candidate) => candidate.id === record.target) ?? null;
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Every attempt's artifacts live under its private project-local record directory.
   mkdirSync(record.artifact, { recursive: true, mode: 0o700 });
-  const tracking = await ensureProjectTracking({
-    repository,
-    job: record,
-    sync: async (effect) => context.remote.effect(effect),
-    signal: controls.signal,
-  });
-  if (tracking !== null) {
-    return { completion: null, snapshot: null, checks: [], waiting: tracking };
-  }
-  const waiting = await finalGate(context, record);
+  const waiting = await unpaidGate(context, record, controls.signal);
   if (waiting !== null) {
     return { completion: null, snapshot: null, checks: [], waiting };
   }
@@ -176,6 +169,10 @@ export async function executeJob(
     controls.onSource?.(cwd);
   }
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
+  const blocked = await assignmentPreflight(context, record, cwd);
+  if (blocked !== null) {
+    return { completion: null, snapshot, checks, waiting: blocked };
+  }
   const evidence = await roleEvidence(context, record);
   const recommendations = recommendationNotices(repository.store, record);
 
@@ -183,7 +180,7 @@ export async function executeJob(
   const view = promptView(repository, record, currentTask, feature);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, repair: view.repair, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations, answers: stepAnswers(repository.store, record), repair: view.repair } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, repair: view.repair, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations, answers: stepAnswers(repository.store, record), repair: view.repair, baseline: baselineEvidence(repository.store, record.base) } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
     `${JSON.stringify({ record: publicJobSchema.parse(record), task: view.task, feature: view.feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
@@ -210,6 +207,24 @@ export async function executeJob(
     `${JSON.stringify({ result: completion.result, usageTokens: completion.usageTokens, cooldownUntil: completion.cooldownUntil }, null, 2)}\n`,
   );
   return { completion, snapshot, checks, waiting: null };
+}
+
+/**
+ * Unpaid gates checked before any source is prepared: project tracking, then the final-test PR gate.
+ *
+ * @param context - Project services.
+ * @param job - Current stage.
+ * @param signal - Cancellation.
+ * @returns Why the attempt waits, or null.
+ */
+async function unpaidGate(context: FactoryContext, job: FactoryJob, signal: AbortSignal): Promise<string | null> {
+  const tracking = await ensureProjectTracking({
+    repository: context.repository,
+    job,
+    sync: async (effect) => context.remote.effect(effect),
+    signal,
+  });
+  return tracking ?? (await finalGate(context, job));
 }
 
 /**

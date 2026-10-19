@@ -14,6 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod/v3';
 
+import { isAlreadyRunning } from '../src/factory/issue-guard.ts';
 import { factoryConfigSchema, taskSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
@@ -464,4 +465,12 @@ await test('two projects awaiting GitHub cannot overclaim the same broker slot',
   verdict.resolve({ state: 'open', stateReason: null });
   await passes;
   assert.equal(developJobs(first).length + developJobs(second).length, 1);
+});
+
+await test('independent review steps of one delivery are not taken for duplicates of each other', () => {
+  const running = { state: 'running' as const, kind: 'review' as const, taskId: 't1', step: 'review' };
+  assert.equal(isAlreadyRunning([running], { kind: 'review', step: 'security' }, 't1'), false);
+  assert.equal(isAlreadyRunning([running], { kind: 'review', step: 'review' }, 't1'), true);
+  assert.equal(isAlreadyRunning([{ ...running, step: null }], { kind: 'review', step: 'security' }, 't1'), true);
+  assert.equal(isAlreadyRunning([running], { kind: 'review', step: 'review' }, 't2'), false);
 });

@@ -42,7 +42,10 @@ const setupSchema = z.object({
   candidates: z.array(candidateSchema).optional(),
 });
 /** One page of Projects with creation times. */
-const candidatePageSchema = z.object({ nodes: z.array(candidateSchema) });
+const candidatePageSchema = z.object({
+  nodes: z.array(candidateSchema),
+  pageInfo: z.object({ hasNextPage: z.boolean() }).optional(),
+});
 /** `repositoryOwner.projectsV2` with creation times. */
 const ownerProjectsSchema = z.object({ repositoryOwner: z.object({ projectsV2: candidatePageSchema }).nullable() });
 
@@ -90,27 +93,28 @@ export function pendingCreationDecision(
  * @param context - Integration.
  * @param owner - Project owner.
  * @param title - Requested title.
- * @returns Projects with that exact title.
+ * @returns Projects with that exact title, and whether older Projects lie beyond the listed page.
  * @throws {MeshError} GITHUB_UNAVAILABLE when the owner's Projects cannot be read.
  */
 async function sameTitled(
   context: CreationContext,
   owner: string,
   title: string,
-): Promise<z.output<typeof candidateSchema>[]> {
+): Promise<{ matches: z.output<typeof candidateSchema>[]; isPartial: boolean }> {
   const result = await readGraphQL(
     context.runner,
-    `query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner { projectsV2(first: ${String(PROJECT_LIMIT)}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id number url title createdAt } } } } }`,
+    `query($login: String!) { repositoryOwner(login: $login) { ... on ProjectV2Owner { projectsV2(first: ${String(PROJECT_LIMIT)}, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { id number url title createdAt } pageInfo { hasNextPage } } } } }`,
     { login: owner },
   );
-  const nodes = dataOf(result, ownerProjectsSchema)?.repositoryOwner?.projectsV2.nodes;
+  const page = dataOf(result, ownerProjectsSchema)?.repositoryOwner?.projectsV2;
+  const nodes = page?.nodes;
   if (nodes === undefined) {
     throw new MeshError(
       'GITHUB_UNAVAILABLE',
       `Projects of ${owner} could not be read to check an interrupted creation.`,
     );
   }
-  return nodes.filter((node) => node.title === title);
+  return { matches: nodes.filter((node) => node.title === title), isPartial: page?.pageInfo?.hasNextPage === true };
 }
 
 /**
@@ -129,14 +133,16 @@ async function reconcile(
   saved: z.output<typeof setupSchema>,
   request: { owner: string; title: string },
 ): Promise<CreatedProject | null> {
-  const matches = await sameTitled(context, request.owner, request.title);
-  const since = saved.startedAt === undefined ? -Infinity : Date.parse(saved.startedAt) - SKEW_MS;
+  const { matches, isPartial } = await sameTitled(context, request.owner, request.title);
+  // A checkpoint from before start times were recorded cannot tell this creation from an older board.
+  const since = saved.startedAt === undefined ? Infinity : Date.parse(saved.startedAt) - SKEW_MS;
   const recent = matches.filter((match) => Date.parse(match.createdAt) >= since);
   const [only] = recent;
-  if (only !== undefined && recent.length === 1 && matches.length === 1) {
+  // A full first page may hide the creation or other same-titled boards: never create or adopt on it.
+  if (!isPartial && only !== undefined && recent.length === 1 && matches.length === 1) {
     return { id: only.id, number: only.number, url: only.url };
   }
-  if (matches.length === 0) {
+  if (!isPartial && matches.length === 0) {
     return null;
   }
   writeAtomic(
@@ -183,6 +189,13 @@ export async function createProjectOnce(
   }
   if (saved.project !== undefined) {
     return saved.project;
+  }
+  if (saved.phase === 'ambiguous') {
+    // The recorded decision stands until the operator connects the Project they chose.
+    throw new MeshError(
+      'GITHUB_OPERATION_PENDING',
+      `Choose which Project named "${title}" this workspace uses and connect it with its projectNumber; MALT will not create another.`,
+    );
   }
   const adopted = isFresh ? null : await reconcile(context, saved, { owner, title });
   const project =

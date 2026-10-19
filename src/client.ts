@@ -80,6 +80,10 @@ export interface ClientResults
   readonly github_views: unknown;
   /** The created or adopted saved view. */
   readonly github_view_create: unknown;
+  /** The created, changed or deleted Project field. */
+  readonly github_field_manage: unknown;
+  /** The changed or deleted saved view. */
+  readonly github_view_manage: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

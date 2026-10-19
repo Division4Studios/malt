@@ -212,7 +212,7 @@ export class ProjectGitHub {
    * @returns Runner, connected repository and this project's integration directory.
    */
   private resourceContext(): ResourceContext {
-    const { repository, owner, project } = this.connection();
+    const { repository, owner, project, statusField } = this.connection();
     return {
       runner: this.runner,
       repository,
@@ -220,6 +220,7 @@ export class ProjectGitHub {
       owner,
       projectId: project.id,
       projectNumber: project.number,
+      workflowFieldId: statusField.id,
     };
   }
 
@@ -279,10 +280,18 @@ export class ProjectGitHub {
    * Read the validated project-local connection.
    *
    * @returns Verified connection metadata.
-   * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds and both saved sections are verified.
    */
   private connection(): LegacyConnection {
-    return this.savedConnection().legacy;
+    const saved = this.savedConnection();
+    // A section saved but not yet verified may name the wrong repository or Project; never act on it.
+    if (!isConnected(saved.v2)) {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'The saved GitHub connection is not verified. Verify it (mesh_github_verify) before coordinating tickets.',
+      );
+    }
+    return saved.legacy;
   }
 
   /**

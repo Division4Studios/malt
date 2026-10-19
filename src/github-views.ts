@@ -22,10 +22,10 @@ import type { OperationInput } from './protocol.ts';
 /** Views read in one page. */
 const VIEW_LIMIT = 50;
 /** Fields read for each view. */
-const VIEW_FIELDS = 'id number name layout';
+export const VIEW_FIELDS = 'id number name layout';
 
 /** One saved view. */
-const viewSchema = z.object({
+export const viewSchema = z.object({
   id: z.union([z.string(), z.number()]),
   number: z.number().int(),
   name: z.string(),
@@ -42,7 +42,7 @@ const mutationFieldSchema = z.object({ name: z.string() });
 /** Mutation type fields, aliased so no response field starts with an underscore. */
 const mutationTypeSchema = z.object({ fields: z.array(mutationFieldSchema) });
 /** Mutation names from introspection. */
-const mutationFieldsSchema = z.object({ mutations: mutationTypeSchema.nullable() });
+export const mutationFieldsSchema = z.object({ mutations: mutationTypeSchema.nullable() });
 /** Owner kind, aliased from `__typename`. */
 const ownerKindSchema = z.object({ repositoryOwner: z.object({ kind: z.enum(['Organization', 'User']) }).nullable() });
 /** REST view list. */
@@ -80,7 +80,7 @@ export type ViewSupport =
  * @param context - Connected Project.
  * @returns Endpoint path, or null.
  */
-async function restEndpoint(context: ViewContext): Promise<string | null> {
+export async function restEndpoint(context: ViewContext): Promise<string | null> {
   const result = await readGraphQL(
     context.runner,
     'query($login: String!) { repositoryOwner(login: $login) { kind: __typename } }',
@@ -101,7 +101,7 @@ async function restEndpoint(context: ViewContext): Promise<string | null> {
  * @param endpoint - REST view list path.
  * @returns True when it returns a view list.
  */
-async function isRestReadable(context: ViewContext, endpoint: string): Promise<boolean> {
+export async function isRestReadable(context: ViewContext, endpoint: string): Promise<boolean> {
   try {
     restViewsSchema.parse(await context.runner(['api', endpoint]));
     return true;
@@ -144,8 +144,9 @@ export async function viewSupport(context: ViewContext): Promise<ViewSupport> {
  * @param context - Connected Project.
  * @param support - Result of the live check; never unsupported.
  * @returns Saved views.
+ * @throws {MeshError} GITHUB_UNAVAILABLE when the views cannot be read; an unread list is never taken as empty.
  */
-async function readViews(
+export async function readViews(
   context: ViewContext,
   support: Exclude<ViewSupport, { path: 'unsupported' }>,
 ): Promise<ProjectView[]> {
@@ -157,7 +158,11 @@ async function readViews(
     `query($id: ID!) { node(id: $id) { ... on ProjectV2 { views(first: ${String(VIEW_LIMIT)}) { nodes { ${VIEW_FIELDS} } } } } }`,
     { id: context.projectId },
   );
-  return dataOf(result, projectViewsSchema)?.node.views.nodes ?? [];
+  const views = dataOf(result, projectViewsSchema)?.node.views.nodes;
+  if (views === undefined) {
+    throw new MeshError('GITHUB_UNAVAILABLE', 'The Project views could not be read; retry the same requestId.');
+  }
+  return views;
 }
 
 /**
