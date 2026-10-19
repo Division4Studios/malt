@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
 import { writeFile, access, readFile, symlink } from 'node:fs/promises';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -565,6 +566,24 @@ await test('post-merge defects preserve dirty owned edits and history and return
   assert.equal(await context.workspaces.git(['rev-parse', branch]), task.head);
 });
 
+await test('rework lessons are kept per finding, not per whole review report', async (t) => {
+  const { context, task } = await fixture(t);
+  const [first, second] = ['Export drops the header row.', 'Totals are off by one.'];
+  await rejectDelivery(context, task, `Two defects.\n${first}\n${second}`, [first, second]);
+  await rejectDelivery(context, task, `One defect is still open.\n${first}`, [first]);
+  const folder = path.join(context.mesh.directory, 'knowledge', 'lessons');
+  const lessonSchema = z.object({ cause: z.string(), occurrences: z.number().optional() });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture's own lesson folder.
+  const recorded = readdirSync(folder).map((name) => {
+    const file = path.join(folder, name);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- A file listed in that folder.
+    const text = readFileSync(file, 'utf8');
+    return lessonSchema.parse(JSON.parse(text));
+  });
+  assert.equal(recorded.length, 2, 'one lesson per cause; the summary is not part of its identity');
+  assert.equal(recorded.find((lesson) => lesson.cause === first)?.occurrences, 2, 'the repeated cause is counted');
+});
+
 await test('oversized validated source parks for an exact human exception and publishes without another developer turn', async (t) => {
   const { context, task } = await fixture(t);
   const settings = { ...context.settings, maxDiffLines: 1, maxFiles: 1 };
@@ -879,4 +898,77 @@ await test('auto-merge is disarmed before a moved head is reworked', async (t) =
   await reconcile(watched);
   assert.deepEqual(disarmed, [3]);
   assert.equal(context.repository.task(task.id).phase, 'development');
+});
+
+await test('auto-merge is disarmed as soon as any check fails, even while others still run', async (t) => {
+  const { context, pr } = await fixture(t);
+  const disarmed: number[] = [];
+  const watched: FactoryContext = {
+    ...context,
+    remote: {
+      ...context.remote,
+      disarm: async (number) => {
+        await delay(0);
+        disarmed.push(number);
+      },
+    },
+  };
+  pr.autoMergeRequest = { enabledAt: '2026-10-17T00:00:00Z' };
+  pr.statusCheckRollup = [
+    { name: 'docker', status: 'COMPLETED', conclusion: 'FAILURE' },
+    { name: 'check (ubuntu-latest)', status: 'IN_PROGRESS', conclusion: null },
+  ];
+  await reconcile(watched);
+  assert.deepEqual(disarmed, [3]);
+});
+
+await test('a PR merged outside the factory at the recorded head is adopted and verified on main', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  const adopted = context.repository.task(task.id);
+  assert.equal(adopted.phase, 'verifying');
+  assert.equal(adopted.merge, task.head);
+  assert.equal(adopted.error, null);
+  assert.deepEqual(adopted.reviews, [], 'adoption implies no QA approval');
+  assert.equal(adopted.finalReview, null);
+});
+
+await test('a parked delivery whose PR was merged elsewhere is adopted instead of waiting for an operator', async (t) => {
+  const { context, task, pr } = await fixture(t);
+  context.repository.editTask(task.id, (current) => ({ ...current, phase: 'development', reviews: [] }));
+  pr.state = 'MERGED';
+  pr.mergeCommit = { oid: task.head ?? '' };
+  await reconcile(context);
+  assert.equal(context.repository.task(task.id).phase, 'verifying');
+});
+
+await test('an external merge of another head or off main stays an operator decision', async (t) => {
+  const moved = await fixture(t);
+  moved.pr.state = 'MERGED';
+  moved.pr.headRefOid = 'f'.repeat(40);
+  moved.pr.mergeCommit = { oid: 'f'.repeat(40) };
+  await reconcile(moved.context);
+  assert.equal(moved.context.repository.task(moved.task.id).phase, 'blocked');
+
+  // Repeated passes never turn a merge of another head into an adoption, even without an owned worktree.
+  const repeated = await fixture(t);
+  repeated.context.repository.editTask(repeated.task.id, (current) => ({ ...current, worktree: null }));
+  repeated.pr.state = 'MERGED';
+  repeated.pr.headRefOid = 'f'.repeat(40);
+  repeated.pr.mergeCommit = { oid: repeated.task.head ?? '' };
+  await reconcile(repeated.context);
+  await reconcile(repeated.context);
+  const kept = repeated.context.repository.task(repeated.task.id);
+  assert.equal(kept.phase, 'blocked', 'the second pass still waits for the operator');
+  assert.equal(kept.head, repeated.task.head, 'the recorded source is kept');
+
+  const elsewhere = await fixture(t);
+  elsewhere.pr.state = 'MERGED';
+  elsewhere.pr.mergeCommit = { oid: 'e'.repeat(40) };
+  await reconcile(elsewhere.context);
+  const blocked = elsewhere.context.repository.task(elsewhere.task.id);
+  assert.equal(blocked.phase, 'blocked');
+  assert.match(blocked.error ?? '', /without the current factory QA\/final gates/v);
 });
