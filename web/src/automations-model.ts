@@ -191,6 +191,8 @@ const FIELDS: readonly FieldShape[] = translated([
 const MINUTES = 60;
 /** Width of a zero-padded clock field. */
 const CLOCK_WIDTH = 2;
+/** Days in the longest month; also the top of the day-of-month field. */
+const MONTH_DAYS = 31;
 /** Day-of-week value cron also accepts for Sunday. */
 const SUNDAY_ALIAS = 7;
 /** Parts in a valid range or step, plus one to catch extras. */
@@ -202,8 +204,10 @@ const LIST_MAX = 6;
 interface ParsedCron {
   /** Sorted values for minute, hour, day, month and weekday. */
   readonly values: readonly (readonly number[])[];
-  /** Whether each field was something other than `*`. */
+  /** Whether each field leaves values out, so it constrains the schedule: every day stepped by 1 does not, by 2 does. */
   readonly restricted: readonly boolean[];
+  /** As on the broker: neither day field starts with `*`, so a day fires when either matches rather than both. */
+  readonly isEither: boolean;
 }
 
 /**
@@ -440,12 +444,15 @@ function parseExpression(expression: string): ParsedCron {
       (left, right) => left - right,
     );
   }
-  // As the broker does: a day-of-month or weekday field starting with `*` (such as `*/1`) is unrestricted.
   return {
     values,
-    restricted: parts.map((part, index) =>
-      index === DAY_FIELD || index === WEEKDAY_FIELD ? !part.startsWith('*') : part !== '*',
-    ),
+    restricted: values.map((field, index) => {
+      const shape = FIELDS[index];
+      // Day of week 7 is Sunday again, so the week has seven distinct values.
+      const span = index === WEEKDAY_FIELD ? WEEKDAYS.length : (shape?.max ?? 0) - (shape?.min ?? 0) + 1;
+      return field.length < span;
+    }),
+    isEither: [DAY_FIELD, WEEKDAY_FIELD].every((index) => parts[index]?.startsWith('*') === false),
   };
 }
 
@@ -550,6 +557,22 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
 }
 
 /**
+ * The step of a day-of-month field such as `*` + `/2`: days 1, 1 + step, … through the end of the month.
+ *
+ * @param days - Sorted matching days.
+ * @returns The step, or null for any other set of days.
+ */
+function monthStep(days: readonly number[]): number | null {
+  const [first, second] = days;
+  if (first !== 1 || second === undefined) {
+    return null;
+  }
+  const step = second - first;
+  const isEven = days.every((day, index) => day === 1 + index * step);
+  return isEven && step > 1 && (days.at(-1) ?? 0) + step > MONTH_DAYS ? step : null;
+}
+
+/**
  * Describe which days fire.
  *
  * @param parsed - Parsed expression.
@@ -558,11 +581,15 @@ function timeText(minutes: readonly number[], hours: readonly number[], isHourRe
 function dayText(parsed: ParsedCron): string {
   const [days = [], months = [], weekdays = []] = parsed.values.slice(2);
   const [isDayRestricted = false, isMonthRestricted = false, isWeekdayRestricted = false] = parsed.restricted.slice(2);
-  const dayWords = t('on day {days} of the month', { days: ranges(days, String) });
+  const step = monthStep(days);
+  const dayWords =
+    step === null
+      ? t('on day {days} of the month', { days: ranges(days, String) })
+      : t('every {step} days from day 1 of the month', { step });
   const weekdayWords = `on ${ranges(weekdays, (value) => WEEKDAYS[value] ?? String(value))}`;
   let text = t('every day');
   if (isDayRestricted && isWeekdayRestricted) {
-    text = `${dayWords} or ${weekdayWords}`;
+    text = `${dayWords} ${parsed.isEither ? 'or' : 'and'} ${weekdayWords}`;
   } else if (isDayRestricted) {
     text = dayWords;
   } else if (isWeekdayRestricted) {
