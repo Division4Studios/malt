@@ -7,6 +7,7 @@ import { z } from 'zod/v3';
 
 import { startBroker } from './broker.ts';
 import { loadConfig, saveBrokerDiscovery } from './config.ts';
+import { log } from './log.ts';
 import { startWebConsole } from './web/server.ts';
 
 import type { WebConsole } from './web/server.ts';
@@ -47,6 +48,8 @@ try {
   throw error;
 }
 process.stdout.write(`${JSON.stringify({ category: 'console', url: ui.url, pairingCode: ui.pairingCode })}\n`);
+// Compose detaches stdout; one log record keeps the code findable in `docker compose logs broker`.
+log('info', 'console', 'pairing_code', { url: ui.url, pairingCode: ui.pairingCode });
 /** Shared shutdown is idempotent and stops only processes owned by this factory. */
 const shutdown: { promise?: Promise<void> } = {};
 /** Close streaming first, then drain managed assignments and SQLite. */

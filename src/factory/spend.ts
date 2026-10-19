@@ -13,14 +13,13 @@
  *
  * @file
  */
-
 import { z } from 'zod/v3';
 
 import { run, selectAll, selectOne } from '../database.ts';
 import { MeshError } from '../protocol.ts';
 
 import { metricsFor } from './attempt-metrics.ts';
-import { attemptContext, objectiveOf } from './attempts.ts';
+import { OBJECTIVE_MAX, attemptContext, objectiveOf } from './attempts.ts';
 import { readPrices } from './price-table.ts';
 import { jobSchema } from './schema.ts';
 import { spendCapsInputSchema, spendCapsSchema } from './spend-schema.ts';
@@ -28,17 +27,32 @@ import { spendCapsInputSchema, spendCapsSchema } from './spend-schema.ts';
 import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
 import type { FactoryRepository } from './repository.ts';
-import type { SpendCaps, SpendScope } from './spend-schema.ts';
+import type { FactoryTask, Feature } from './schema.ts';
+import type { SpendCaps, SpendChoice, SpendScope, SpendStatus, SpendUsage } from './spend-schema.ts';
 
 /** Settled attempts priced per refresh, bounding stream reads in one tick. */
 const REFRESH_BATCH = 20;
+/** Upper bound on refresh batches one drain runs, a guard against a row that never settles. */
+const DRAIN_BATCHES = 500;
 /** Stream reads in flight at once. */
 const READ_BATCH = 16;
+/** Milliseconds in one day. */
+const DAY_MS = 86_400_000;
+/** Notices remembered; older keys are pruned. */
+const NOTICES_MAX = 500;
+/** Most uncapped scopes offered to the cap picker. */
+const CHOICES_MAX = 500;
 
 /** Stored caps row. */
 const capsRowSchema = z.object({ revision: z.number().int().nonnegative(), data: z.string() });
 /** Stored job row. */
 const jobRowSchema = z.object({ data: z.string() });
+/** Aggregated spend row. */
+const totalRowSchema = z.object({
+  id: z.string().nullable(),
+  usd: z.number().nullable(),
+  unpriced: z.number().int().nonnegative(),
+});
 
 /** A scope a proposed attempt would spend against. */
 export interface SpendTarget {
@@ -77,6 +91,17 @@ export interface SpendGate {
    */
   readonly block: (target: SpendTarget) => SpendBlock | null;
 }
+
+/** Recorded spend of one scope. */
+interface Totals {
+  /** Known spend in USD. */
+  readonly usd: number;
+  /** Attempts without a known cost. */
+  readonly unpriced: number;
+}
+
+/** No spend recorded. */
+const NOTHING: Totals = { usd: 0, unpriced: 0 };
 
 /**
  * Ensure the additive spend tables exist.
@@ -193,4 +218,329 @@ export async function refreshSpend(
     }
   });
   return jobs.length;
+}
+
+/**
+ * Sum recorded spend grouped by one column, optionally from a time.
+ *
+ * @param store - Selected project's SQLite owner.
+ * @param column - Grouping column; `''` sums the whole project.
+ * @param since - Inclusive lower bound on attempt start.
+ * @returns Totals keyed by id, with the project total under the empty key.
+ */
+function totalsBy(store: Store, column: 'task_id' | 'feature_id' | "''", since = 0): Map<string, Totals> {
+  const rows = selectAll(
+    store.db,
+    totalRowSchema,
+    `SELECT ${column} AS id, SUM(usd) AS usd, SUM(CASE WHEN source = 'unpriced' THEN 1 ELSE 0 END) AS unpriced
+     FROM factory_spend WHERE at >= ? GROUP BY ${column}`,
+    since,
+  );
+  return new Map(rows.map((row) => [row.id ?? '', { usd: row.usd ?? 0, unpriced: row.unpriced }]));
+}
+
+/** Recorded spend for every scope a cap can apply to. */
+interface Ledger {
+  /** Project spend inside the rolling window. */
+  readonly project: Totals;
+  /** Lifetime spend by objective. */
+  readonly byFeature: ReadonlyMap<string, Totals>;
+  /** Lifetime spend by delivery. */
+  readonly byTask: ReadonlyMap<string, Totals>;
+}
+
+/**
+ * Read recorded spend for the project window and every objective and delivery.
+ *
+ * @param store - Selected project's SQLite owner.
+ * @param caps - Caps, for the project window.
+ * @returns Spend by scope.
+ */
+function ledger(store: Store, caps: SpendCaps): Ledger {
+  return {
+    project: totalsBy(store, "''", store.now() - caps.windowDays * DAY_MS).get('') ?? NOTHING,
+    byFeature: totalsBy(store, 'feature_id'),
+    byTask: totalsBy(store, 'task_id'),
+  };
+}
+
+/**
+ * The cap that applies to one objective or delivery.
+ *
+ * @param overrides - Per-scope overrides.
+ * @param fallback - Default cap.
+ * @param id - Scope id.
+ * @returns Cap in USD, or `null` when uncapped.
+ */
+function capFor(
+  overrides: Readonly<Record<string, number | null>>,
+  fallback: number | null,
+  id: string,
+): number | null {
+  return Object.hasOwn(overrides, id) ? (overrides[id] ?? null) : fallback;
+}
+
+/**
+ * Compare a scope's spend with its cap.
+ *
+ * @param scope - Scope kind.
+ * @param id - Scope id, empty for the project.
+ * @param totals - Recorded spend.
+ * @param context - Cap and unpriced policy.
+ * @param context.cap - Cap in USD, or `null`.
+ * @param context.policy - Unpriced policy.
+ * @returns Block, or `null` within the cap.
+ */
+function blockOf(
+  scope: SpendScope,
+  id: string,
+  totals: Totals,
+  context: { cap: number | null; policy: SpendCaps['unpriced'] },
+): SpendBlock | null {
+  const { cap } = context;
+  if (cap === null) {
+    return null;
+  }
+  const name = scope === 'project' ? 'The project' : `This ${scope}`;
+  const spent = `$${totals.usd.toFixed(2)}`;
+  const limit = `$${cap.toFixed(2)}`;
+  if (totals.usd >= cap) {
+    return {
+      scope,
+      id,
+      usd: totals.usd,
+      cap,
+      reason: 'cap',
+      message: `${name} reached its spend cap: ${spent} of ${limit}. Raise or lift the cap in Costs to resume.`,
+    };
+  }
+  if (totals.unpriced > 0 && context.policy === 'block') {
+    const count = `${String(totals.unpriced)} unpriced attempt${totals.unpriced === 1 ? '' : 's'}`;
+    return {
+      scope,
+      id,
+      usd: totals.usd,
+      cap,
+      reason: 'unpriced',
+      message: `${name} has ${count} under a ${limit} cap. Price their models in Costs, or choose to ignore unpriced attempts.`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Whether any cap is configured.
+ *
+ * @param caps - Cap settings.
+ * @returns True when a project, default or override cap exists.
+ */
+function hasCaps(caps: SpendCaps): boolean {
+  return (
+    caps.project !== null ||
+    caps.objectiveDefault !== null ||
+    caps.deliveryDefault !== null ||
+    Object.keys(caps.objectives).length > 0 ||
+    Object.keys(caps.deliveries).length > 0
+  );
+}
+
+/**
+ * Compute spend admission decisions from the ledger.
+ *
+ * @param repository - Selected project ledger.
+ * @returns Gate answering for any delivery or objective.
+ */
+export function spendGate(repository: FactoryRepository): SpendGate {
+  const { store } = repository;
+  const { revision, caps } = readCaps(store);
+  if (!hasCaps(caps)) {
+    return { revision, block: () => null };
+  }
+  const spent = ledger(store, caps);
+  const policy = caps.unpriced;
+  const featureOf = new Map(repository.tasks().map((task) => [task.id, task.featureId]));
+  const objectiveBlock = (featureId: string | null): SpendBlock | null => {
+    return featureId === null
+      ? null
+      : blockOf('objective', featureId, spent.byFeature.get(featureId) ?? NOTHING, {
+          cap: capFor(caps.objectives, caps.objectiveDefault, featureId),
+          policy,
+        });
+  };
+  const deliveryBlock = (taskId: string | null): SpendBlock | null => {
+    return taskId === null
+      ? null
+      : blockOf('delivery', taskId, spent.byTask.get(taskId) ?? NOTHING, {
+          cap: capFor(caps.deliveries, caps.deliveryDefault, taskId),
+          policy,
+        });
+  };
+  return {
+    revision,
+    block: (target) => {
+      const owner = target.taskId === null ? null : (featureOf.get(target.taskId) ?? null);
+      return (
+        blockOf('project', '', spent.project, { cap: caps.project, policy }) ??
+        objectiveBlock(target.featureId ?? owner) ??
+        deliveryBlock(target.taskId)
+      );
+    },
+  };
+}
+
+/**
+ * Open objectives and deliveries, the scopes new spending could start on.
+ *
+ * @param repository - Selected project ledger.
+ * @returns Unfinished, unreplaced objectives and deliveries.
+ */
+function openScopes(repository: FactoryRepository): { features: Feature[]; tasks: FactoryTask[] } {
+  const isOpen = (item: Feature | FactoryTask): boolean => item.scopeReplacement === undefined && item.phase !== 'done';
+  return {
+    features: repository.features().filter((feature) => isOpen(feature)),
+    tasks: repository.tasks().filter((task) => isOpen(task)),
+  };
+}
+
+/**
+ * Record settled attempts' spend before admission. While caps are set, an
+ * attempt not yet recorded (or repriced) may already exceed one, so every
+ * pending batch is recorded before the gate is read; without caps one batch
+ * per pass keeps the cost views current.
+ *
+ * @param repository - Selected project ledger.
+ * @param mesh - Project paths for attempt streams.
+ */
+export async function drainSpend(repository: FactoryRepository, mesh: MeshConfig): Promise<void> {
+  let recorded = await refreshSpend(repository, mesh);
+  for (let batch = 1; recorded === REFRESH_BATCH && batch < DRAIN_BATCHES; batch += 1) {
+    if (!hasCaps(readCaps(repository.store).caps)) {
+      return;
+    }
+    // eslint-disable-next-line no-await-in-loop -- Each batch reads the rows the previous one left.
+    recorded = await refreshSpend(repository, mesh);
+  }
+}
+
+/**
+ * Every open scope that a cap currently stops.
+ *
+ * @param repository - Selected project ledger.
+ * @param gate - Decisions computed by {@link spendGate}.
+ * @returns Distinct blocks, project first.
+ */
+export function openBlocks(repository: FactoryRepository, gate: SpendGate): SpendBlock[] {
+  const { features, tasks } = openScopes(repository);
+  const blocks = new Map<string, SpendBlock>();
+  const targets: SpendTarget[] = [
+    ...features.map((feature) => ({ taskId: null, featureId: feature.id })),
+    ...tasks.map((task) => ({ taskId: task.id, featureId: task.featureId })),
+  ];
+  for (const target of targets) {
+    const block = gate.block(target);
+    if (block !== null) {
+      blocks.set(`${block.scope}:${block.id}`, block);
+    }
+  }
+  return blocks.values().toArray();
+}
+
+/**
+ * Notify the operator once per newly stopped scope and caps revision.
+ *
+ * @param repository - Selected project ledger.
+ * @param gate - Decisions computed by {@link spendGate}.
+ * @returns Blocks announced by this call.
+ */
+export function announceSpendBlocks(repository: FactoryRepository, gate: SpendGate): SpendBlock[] {
+  const { store } = repository;
+  ensureTables(store);
+  const announced: SpendBlock[] = [];
+  for (const block of openBlocks(repository, gate)) {
+    const key = `${String(gate.revision)}:${block.scope}:${block.id}:${block.reason}`;
+    const isNew = store.transaction(
+      () => run(store.db, 'INSERT OR IGNORE INTO factory_spend_notices VALUES(?, ?)', key, store.now()).changes > 0,
+    );
+    if (!isNew) {
+      continue;
+    }
+    announced.push(block);
+    repository.notify(`Spend cap: ${block.message}`);
+  }
+  if (announced.length > 0) {
+    run(
+      store.db,
+      `DELETE FROM factory_spend_notices WHERE key NOT IN (SELECT key FROM factory_spend_notices ORDER BY at DESC LIMIT ${String(NOTICES_MAX)})`,
+    );
+  }
+  return announced;
+}
+
+/**
+ * One usage row for a capped scope.
+ *
+ * @param scope - Scope kind, id and visible name.
+ * @param scope.scope - Scope kind.
+ * @param scope.id - Objective or delivery id, empty for the project.
+ * @param scope.label - Name shown in the Costs view.
+ * @param totals - Recorded spend.
+ * @param context - Cap and unpriced policy.
+ * @param context.cap - Cap in USD.
+ * @param context.policy - Unpriced policy.
+ * @returns Spend, cap and block state for the Costs view.
+ */
+function usageRow(
+  scope: { scope: SpendScope; id: string; label: string },
+  totals: Totals,
+  context: { cap: number | null; policy: SpendCaps['unpriced'] },
+): SpendUsage {
+  return {
+    ...scope,
+    usd: totals.usd,
+    unpricedAttempts: totals.unpriced,
+    cap: context.cap,
+    blocked: blockOf(scope.scope, scope.id, totals, context)?.reason ?? null,
+  };
+}
+
+/**
+ * Caps and spend for the costs view: the project, and every open objective
+ * or delivery that has a cap.
+ *
+ * @param repository - Selected project ledger.
+ * @returns Caps, revision and usage rows.
+ */
+export function spendStatus(repository: FactoryRepository): SpendStatus {
+  const { store } = repository;
+  const { revision, caps } = readCaps(store);
+  const policy = caps.unpriced;
+  const spent = ledger(store, caps);
+  const { features, tasks } = openScopes(repository);
+  const choices: SpendChoice[] = [];
+  const objectives = features.flatMap((feature) => {
+    const cap = capFor(caps.objectives, caps.objectiveDefault, feature.id);
+    const label = feature.objective.split('\n', 1)[0]?.slice(0, OBJECTIVE_MAX) ?? '';
+    const totals = spent.byFeature.get(feature.id) ?? NOTHING;
+    if (cap === null) {
+      choices.push({ scope: 'objective', id: feature.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'objective', id: feature.id, label }, totals, { cap, policy })];
+  });
+  const deliveries = tasks.flatMap((task) => {
+    const cap = capFor(caps.deliveries, caps.deliveryDefault, task.id);
+    const label = `#${String(task.issue)} ${task.title}`;
+    const totals = spent.byTask.get(task.id) ?? NOTHING;
+    if (cap === null) {
+      choices.push({ scope: 'delivery', id: task.id, label });
+      return [];
+    }
+    return [usageRow({ scope: 'delivery', id: task.id, label }, totals, { cap, policy })];
+  });
+  const project = usageRow(
+    { scope: 'project', id: '', label: `Project, last ${String(caps.windowDays)} days` },
+    spent.project,
+    { cap: caps.project, policy },
+  );
+  return { revision, caps, usage: [project, ...objectives, ...deliveries], choices: choices.slice(0, CHOICES_MAX) };
 }

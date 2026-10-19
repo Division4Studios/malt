@@ -56,3 +56,11 @@ await test('chunked surrogate pairs are not corrupted by immediate prompt redact
   assert.equal(redactor.write('\u{DF0C}> '), '🌌> ');
   assert.equal(redactor.finish(), '');
 });
+
+await test('a secret is also redacted in its JSON-escaped form', () => {
+  const key = ['first line', String.raw`line "two" \ end`, 'last line'].join('\n');
+  const redactor = new SecretRedactor([key]);
+  const encoded = JSON.stringify({ summary: `printed ${key}` });
+  assert.equal(redactor.redact(encoded), '{"summary":"printed [REDACTED]"}');
+  assert.equal(redactor.redact(`raw ${key}`), 'raw [REDACTED]');
+});

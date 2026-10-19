@@ -72,10 +72,24 @@ export type RepairRound = z.output<typeof repairRoundSchema>;
  * @returns Developer attempts allowed before the delivery stops.
  */
 export function attemptBudget(
-  task: { readonly repairs: readonly unknown[] },
+  task: { readonly repairs: readonly { readonly at: number }[]; readonly repairsResetAt?: number | undefined },
   config: { readonly maxAttempts: number },
 ): number {
-  return config.maxAttempts + task.repairs.length;
+  return config.maxAttempts + countedRepairs(task).length;
+}
+
+/**
+ * Rounds that count toward the caps: those since the operator last retried the delivery.
+ *
+ * @param task - Delivery and its recorded repair rounds.
+ * @returns Rounds recorded after the latest operator retry; every round when it was never retried.
+ */
+export function countedRepairs<Round extends { readonly at: number }>(task: {
+  readonly repairs: readonly Round[];
+  readonly repairsResetAt?: number | undefined;
+}): Round[] {
+  const since = task.repairsResetAt ?? -1;
+  return task.repairs.filter((round) => round.at > since);
 }
 
 /**
