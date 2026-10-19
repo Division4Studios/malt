@@ -5,6 +5,7 @@
  */
 
 import { records, text } from './api.js';
+import { t } from './i18n.js';
 
 import type { Data, Snapshot } from './api.js';
 
@@ -35,8 +36,9 @@ export function canFinishEdit(submitted: object, current: object | null, isAppli
     return false;
   }
   if (!isApplied) {
-    shellNode('editor-error', HTMLParagraphElement).textContent =
-      'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.';
+    shellNode('editor-error', HTMLParagraphElement).textContent = t(
+      'Not saved. Review the console message; your draft is retained. Refresh and reopen after a revision conflict.',
+    );
   }
   return isApplied;
 }
@@ -66,7 +68,7 @@ export function shellNode<T extends HTMLElement>(id: string, type: new () => T):
 export function consoleNotice(message: string, isSuccessful = false): void {
   const target = shellNode('notice', HTMLDivElement);
   target.hidden = message === '';
-  target.textContent = message;
+  target.textContent = t(message);
   target.setAttribute('class', isSuccessful ? 'notice success' : 'notice');
 }
 
@@ -213,7 +215,7 @@ export function handoffBadge(state: Snapshot, role: string, shouldRead = false):
     handoffs.seen.set(role, new Set(completed.map((job) => text(job, 'id'))));
     return null;
   }
-  return unread === 0 ? null : element('span', 'pill', `${String(unread)} unread handoffs`);
+  return unread === 0 ? null : element('span', 'pill', t('{unread} unread handoffs', { unread }));
 }
 
 /**
@@ -317,14 +319,14 @@ export function paneHeight(pane: HTMLElement, role: string): HTMLElement {
   target.dataset['workerRole'] = role;
   target.style.height = `${String(height)}px`;
   paneObserver?.observe(target);
-  const label = element('label', 'resize-control', 'Pane height');
+  const label = element('label', 'resize-control', t('Pane height'));
   const range = element('input');
   range.type = 'range';
   range.min = String(MIN_HEIGHT);
   range.max = String(MAX_HEIGHT);
   range.step = String(HEIGHT_STEP);
   range.value = String(height);
-  range.setAttribute('aria-label', `${role} pane height`);
+  range.setAttribute('aria-label', t('{role} pane height', { role }));
   range.addEventListener('input', () => {
     const next = Number(range.value);
     saveHeight(role, next);
@@ -355,9 +357,9 @@ export function isWorkerArtifact(file: string): boolean {
 export function instructionPanel(factory: Data, role: string, taskId: string): HTMLElement {
   const panel = document.createElement('section');
   panel.classList.add('panel-body', 'instruction-receipts');
-  panel.setAttribute('aria-label', `${role} operator instruction receipts`);
+  panel.setAttribute('aria-label', t('{role} operator instruction receipts', { role }));
   const title = document.createElement('h3');
-  title.textContent = 'Operator instructions';
+  title.textContent = t('Operator instructions');
   panel.append(title);
   const instructions = records(factory['instructions'])
     .filter((instruction) => {
@@ -367,13 +369,13 @@ export function instructionPanel(factory: Data, role: string, taskId: string): H
     .slice(0, VISIBLE_INSTRUCTIONS);
   if (instructions.length === 0) {
     const empty = document.createElement('p');
-    empty.textContent = 'No queued instructions for this role or delivery.';
+    empty.textContent = t('No queued instructions for this role or delivery.');
     panel.append(empty);
   }
   for (const instruction of instructions) {
     const row = document.createElement('p');
     const state = text(instruction, 'state');
-    const label = state === 'applied' || state === 'acknowledged' ? `${state} (agent report)` : state;
+    const label = state === 'applied' || state === 'acknowledged' ? t('{state} (agent report)', { state }) : state;
     row.textContent = `${label}: ${text(instruction, 'body').slice(0, INSTRUCTION_EXCERPT)}`;
     panel.append(row);
   }
@@ -389,14 +391,14 @@ export function instructionPanel(factory: Data, role: string, taskId: string): H
  */
 export function conversationPanel(factory: Data, role: string): HTMLElement {
   const panel = element('section', 'panel-body instruction-receipts');
-  panel.setAttribute('aria-label', `${role} broker conversations`);
-  panel.append(element('h3', '', 'Broker conversations'));
+  panel.setAttribute('aria-label', t('{role} broker conversations', { role }));
+  panel.append(element('h3', '', t('Broker conversations')));
   const identity = `factory-${role}`;
   const messages = records(factory['conversations'])
     .filter((message) => text(message, 'sender_name') === identity || text(message, 'recipient_name') === identity)
     .slice(-VISIBLE_INSTRUCTIONS);
   if (messages.length === 0) {
-    panel.append(element('p', 'subtle', 'No recent peer messages for this role.'));
+    panel.append(element('p', 'subtle', t('No recent peer messages for this role.')));
   }
   for (const message of messages) {
     const row = element('article', 'lesson');
@@ -406,7 +408,7 @@ export function conversationPanel(factory: Data, role: string): HTMLElement {
     );
     if (message['truncated'] === true) {
       row.append(
-        element('p', 'subtle', 'Preview clipped; full history remains in project SQLite and the agent inbox.'),
+        element('p', 'subtle', t('Preview clipped; full history remains in project SQLite and the agent inbox.')),
       );
     }
     panel.append(row);

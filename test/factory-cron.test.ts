@@ -73,3 +73,14 @@ await test('malformed or impossible schedules are explained or never fire', () =
   assert.equal(isTimeZone('Europe/Berlin'), true);
   assert.equal(isTimeZone('Mars/Olympus'), false);
 });
+
+await test('a day jump across a spring-forward night keeps the next midnight fire', () => {
+  const after = Date.parse('2026-03-07T12:00:00Z');
+  assert.equal(nextFire(parseCron('0 0 * * mon'), 'America/New_York', after), Date.parse('2026-03-09T04:00:00Z'));
+});
+
+await test('stepped wildcards in a day field stay unrestricted, as in classic cron', () => {
+  const wednesday = Date.parse('2026-10-14T12:00:00Z');
+  assert.equal(nextFire(parseCron('0 0 */1 * mon'), 'UTC', wednesday), Date.parse('2026-10-19T00:00:00Z'));
+  assert.equal(nextFire(parseCron('0 0 * * */1'), 'UTC', wednesday), Date.parse('2026-10-15T00:00:00Z'));
+});
