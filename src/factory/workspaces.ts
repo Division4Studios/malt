@@ -20,7 +20,7 @@ import { writeAtomic } from '../summary.ts';
 import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
 import { MergeConflictError } from './merge-conflict.ts';
-import { assertPublicationSize } from './publication-size.ts';
+import { assertPublicationSize, emptyPublicationReason, EmptyPublicationError } from './publication-size.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -152,6 +152,8 @@ export class WorkspaceManager {
   private readonly config: FactoryConfig;
   /** Ownership ledger location. */
   private readonly ledger: string;
+  /** The last base fetch; fetches of one ref run one at a time, since concurrent ones fail on its lock. */
+  private fetching: Promise<undefined> = Promise.resolve(undefined);
 
   /**
    * Prepare repository operations without touching the primary checkout.
@@ -218,12 +220,17 @@ export class WorkspaceManager {
     if (this.config.baseBranch.startsWith('malt/terminal/')) {
       throw new MeshError('FACTORY_GATED', 'A terminal scratch branch cannot be a delivery base.');
     }
-    await this.git([
-      'fetch',
-      this.config.remote,
-      `+refs/heads/${this.config.baseBranch}:refs/remotes/${this.config.remote}/${this.config.baseBranch}`,
-    ]);
-    return this.git(['rev-parse', `refs/remotes/${this.config.remote}/${this.config.baseBranch}`]);
+    const { remote, baseBranch } = this.config;
+    const previous = this.fetching;
+    const turn = Promise.withResolvers<undefined>();
+    this.fetching = turn.promise;
+    try {
+      await previous;
+      await this.git(['fetch', remote, `+refs/heads/${baseBranch}:refs/remotes/${remote}/${baseBranch}`]);
+    } finally {
+      turn.resolve(undefined);
+    }
+    return this.git(['rev-parse', `refs/remotes/${remote}/${baseBranch}`]);
   }
 
   /**
@@ -363,6 +370,7 @@ export class WorkspaceManager {
    * @param task - Original developer assignment with an owned worktree.
    * @param beforePush - Verify the refreshed source and commit its durable publication checkpoint.
    * @param provenance - Workflow step, seat and attempt recorded as commit trailers.
+   * @param onStep - Told when committing, refreshing main and measuring publication begin, for failure records.
    * @returns Current head/base and diff summary.
    * @throws {MeshError} For empty or oversized deliveries.
    */
@@ -370,6 +378,7 @@ export class WorkspaceManager {
     task: FactoryTask,
     beforePush: (source: { head: string; base: string }) => Promise<void>,
     provenance: CommitProvenance | null = null,
+    onStep?: (step: 'commit' | 'refresh' | 'publish') => void,
   ): Promise<{ head: string; base: string; diff: string }> {
     this.assertDeliveryTask(task);
     const record = task;
@@ -380,7 +389,10 @@ export class WorkspaceManager {
     const base = await this.base();
     const previous = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, previous, base);
+    onStep?.('commit');
     const status = await this.git(['status', '--porcelain', '--untracked-files=all'], directory);
+    // Measured from the base this delivery last built on, so work main absorbed since still counts as its own.
+    const ownCommitsBefore = await this.ownCommits(record.base ?? base, previous, directory);
     if (status !== '') {
       await this.assertResolved(directory);
       await this.git(['add', '--all'], directory);
@@ -389,8 +401,10 @@ export class WorkspaceManager {
       const committed = await this.git(['rev-parse', 'HEAD'], directory);
       await recordDeliveryCommit(async (args) => this.git(args), record.id, committed);
     }
+    onStep?.('refresh');
     await this.refreshForPublication(record, base, directory, provenance);
     await this.assertPrivateStateUntracked(directory);
+    onStep?.('publish');
     const head = await this.git(['rev-parse', 'HEAD'], directory);
     await this.assertDeliveryHead(record, head, base);
     const diff = await this.git(['diff', '--numstat', `${base}...${head}`], directory);
@@ -403,9 +417,9 @@ export class WorkspaceManager {
       }
     }
     if (entries.length === 0) {
-      throw new MeshError(
-        'FACTORY_GATED',
-        'The delivery diff is empty. Reconcile already-delivered work before implementation.',
+      const ownCommitsAfter = await this.ownCommits(base, head, directory);
+      throw new EmptyPublicationError(
+        emptyPublicationReason({ ownCommitsBefore, ownCommitsAfter, hadEdits: status !== '' }),
       );
     }
     await beforePush({ head, base });
@@ -453,6 +467,44 @@ export class WorkspaceManager {
       );
     }
     return findings;
+  }
+
+  /**
+   * Merge advanced main into a published, reviewed branch and push it, with no edits of its own.
+   *
+   * @param task - Published delivery at its reviewed head.
+   * @returns New head and base, or the conflicted paths and main (the merge is aborted; the branch is unchanged).
+   * @throws {MeshError} When the owned branch is missing or changed locally.
+   */
+  public async refreshPublished(
+    task: FactoryTask,
+  ): Promise<{ head: string; base: string } | { conflicts: string[]; base: string }> {
+    this.assertDeliveryTask(task);
+    if (task.worktree === null || task.branch === null || task.head === null) {
+      throw new MeshError('FACTORY_GATED', 'A main refresh needs an owned, published branch.');
+    }
+    const directory = task.worktree;
+    this.assertOwnedPath(directory);
+    const source = await this.snapshot(directory);
+    const branch = await this.git(['branch', '--show-current'], directory);
+    if (source.status !== '' || source.head !== task.head || branch !== task.branch) {
+      throw new MeshError('FACTORY_GATED', 'The published branch changed locally; preserve it for developer repair.');
+    }
+    const base = await this.base();
+    try {
+      await this.mergeBase(task, base, directory);
+    } catch (error) {
+      const conflicts = await this.conflictedFiles(directory);
+      if (conflicts.length === 0) {
+        throw error;
+      }
+      await this.git(['merge', '--abort'], directory);
+      return { conflicts, base };
+    }
+    const head = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.assertDeliveryHead(task, head, base);
+    await this.git(['push', this.config.remote, task.branch], directory);
+    return { head, base };
   }
 
   /**
@@ -617,6 +669,18 @@ export class WorkspaceManager {
     if (isTerminal || task.branch?.startsWith('malt/terminal/') === true) {
       throw new MeshError('FACTORY_GATED', 'Terminal scratch work cannot be adopted as a delivery branch or worktree.');
     }
+  }
+
+  /**
+   * Commits a branch head has that main does not.
+   *
+   * @param base - Fetched main.
+   * @param head - Branch commit.
+   * @param directory - Owned worktree.
+   * @returns Commit count.
+   */
+  private async ownCommits(base: string, head: string, directory: string): Promise<number> {
+    return Number(await this.git(['rev-list', '--count', `${base}..${head}`], directory));
   }
 
   /**
