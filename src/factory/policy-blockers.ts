@@ -3,6 +3,8 @@ import { z } from 'zod/v3';
 
 import { run, selectOne } from '../database.ts';
 
+import { worktreeOwnerBlocker } from './worktree-owner.ts';
+
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { JobIntent } from './scheduler.ts';
@@ -109,12 +111,17 @@ export function policyBlocker(repository: FactoryRepository): string | null {
 }
 
 /**
- * Park entirely unknown policy before GitHub, quota helpers or provider startup.
+ * Park entirely unknown policy, or worktrees owned by another environment, before GitHub,
+ * quota helpers or provider startup.
  *
  * @param context - Current authoritative configuration.
  * @returns Actionable unsupported policy gate, otherwise null.
  */
 export function policySetupBlocker(context: FactoryContext): string | null {
+  const owner = worktreeOwnerBlocker(context.mesh, context.repository.store.now());
+  if (owner !== null) {
+    return owner;
+  }
   const policy = context.settings.modelPolicy;
   if (policy === undefined || policy.entries.some((entry) => entry.effortSupport !== 'unknown')) {
     return null;

@@ -6,6 +6,10 @@ New issue journals bind their fingerprints to the stable repository node ID when
 
 These contracts prepare provider-specific connectors; a Jira provider value does not establish implemented Jira discovery, authentication or remote operations. Provider credentials remain outside project state.
 
+## Project creation
+
+`github_connect` with `createProject: true` needs `project-create` as well as `project-connect`; connecting an existing `projectNumber` never creates a board. The creation is checkpointed in `.malt/github/project-creation.json` with its title and start time before GitHub is contacted. If it was interrupted without a recorded Project, the owner's Projects are listed: exactly one Project with that title created since the checkpoint is adopted, no match means the create never landed and it runs once, and several or uncertain matches are recorded as a human decision (`github_status.projectCreation` lists the candidates) and refused with `GITHUB_OPERATION_PENDING` until the operator connects one by its `projectNumber`. `github_create_issue` reports `outcome: {issue, membership, status}` so creating an issue, attaching it to the Project and setting its Status are reported separately.
+
 ## Verification states
 
 `mesh_github_section_save` (CLI `github-section-save`, console control `github_section_save`) saves the tracker section (`owner`, `projectId`, `projectNumber`, `url` and an existing `workflowField` `{id, name}`, chosen from discovery) and/or the source section (`repository` and its `repositoryId`), each independently. The first save needs both; later saves may change one, and the other section is kept exactly as it was. Saving needs the `project-connect` capability, contacts no remote, and is fenced like `github_connect`: switching the repository or Project while ticket operations are pending is refused. A saved section is `saved` and never reports connected until verified. `github_connect` keeps working unchanged.
