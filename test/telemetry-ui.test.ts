@@ -7,8 +7,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { JOB_KINDS } from '../src/factory/seats.ts';
 import { validatePrices } from '../web/dist/price-editor.js';
 import {
+  ATTEMPT_KINDS,
   formatCost,
   formatDuration,
   formatTokens,
@@ -16,6 +18,13 @@ import {
   groupByDay,
   stackBars,
 } from '../web/dist/telemetry-format.js';
+
+void test('the attempt kind filter lists exactly the broker kinds, each with a label', () => {
+  assert.deepEqual(Object.keys(ATTEMPT_KINDS), [...JOB_KINDS]);
+  for (const label of Object.values(ATTEMPT_KINDS)) {
+    assert.ok(label.length > 0);
+  }
+});
 
 void test('formatting keeps unknown values distinct from zero', () => {
   assert.equal(formatUsd(null), 'unpriced');
@@ -82,4 +91,24 @@ void test('price rows require a model and four non-negative prices, without dupl
   assert.ok('error' in validatePrices([{ ...row, input: '1e3' }]));
   assert.ok('error' in validatePrices([{ ...row, model: '' }]));
   assert.ok('error' in validatePrices([row, row]));
+});
+
+void test('stacked bar segments never overlap, even when raised to the minimum height', () => {
+  const { bars } = stackBars(
+    [
+      { day: '2026-10-01', totalUsd: 0.03, byRole: { 'qa-1': 0.01, 'qa-2': 0.01, 'developer-1': 0.01 } },
+      { day: '2026-10-02', totalUsd: 100, byRole: { 'developer-1': 100 } },
+    ],
+    100,
+    2,
+  );
+  const [small] = bars;
+  assert.ok(small !== undefined);
+  const ordered = small.segments.toSorted((left, right) => right.y - left.y);
+  for (let index = 1; index < ordered.length; index += 1) {
+    const below = ordered[index - 1];
+    const above = ordered[index];
+    assert.ok(below !== undefined && above !== undefined);
+    assert.ok(above.y + above.height <= below.y, 'each segment ends at or above the one below it');
+  }
 });
