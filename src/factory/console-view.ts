@@ -8,7 +8,7 @@
  * @file
  */
 
-import { isArchived } from './delivery-controls.ts';
+import { AUTO_ARCHIVE_MS, isArchived } from './delivery-controls.ts';
 import { livenessView, retryView } from './liveness-view.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import {
@@ -816,6 +816,16 @@ function answeredItems(
 }
 
 /**
+ * When a delivery left the board: its explicit archive mark, or when it expired automatically.
+ *
+ * @param task - Archived delivery.
+ * @returns Epoch milliseconds, for ordering the restorable list.
+ */
+function archivedAt(task: FactoryTask): number {
+  return task.archive?.at ?? task.updatedAt + AUTO_ARCHIVE_MS;
+}
+
+/**
  * Build the complete console projection.
  *
  * @param repository - Project ledger.
@@ -829,7 +839,9 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const now = repository.store.now();
   const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
   const attempted = attemptedSteps(repository);
-  const archived = tasks.filter((task) => isArchived(task, now));
+  const archived = tasks
+    .filter((task) => isArchived(task, now))
+    .toSorted((left, right) => archivedAt(left) - archivedAt(right));
   // Explicitly kept deliveries always stay; the board limit applies to completions that expire on their own.
   const finished = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now));
   const done = [

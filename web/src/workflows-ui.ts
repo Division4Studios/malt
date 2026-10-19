@@ -423,6 +423,10 @@ class WorkflowsView {
    * @param make - Builds the draft once replacement is confirmed.
    */
   private async openDraft(make: () => { draft: DraftWorkflow; origin: DraftOrigin; title: string }): Promise<void> {
+    if (this.editor.isBusy) {
+      this.status.textContent = t('Wait for the current save to finish before opening another workflow.');
+      return;
+    }
     const shouldOpen =
       !this.editor.isDirty ||
       (await isConfirmed(this.root, {

@@ -283,3 +283,17 @@ await test('every running step shows as running and kept deliveries stay past th
   }
   assert.ok(consoleView(repository).deliveries.some((card) => card.taskId === kept.id));
 });
+
+await test('the restorable list shows the most recently archived deliveries first', (t) => {
+  const repository = project(t);
+  const now = repository.store.now();
+  const older = delivery(repository, { phase: 'done', updatedAt: now });
+  const newer = delivery(repository, { phase: 'done', updatedAt: now });
+  archiveDeliveries(repository, { taskIds: [newer.id], archive: true });
+  archiveDeliveries(repository, { taskIds: [older.id], archive: true });
+  assert.deepEqual(
+    consoleView(repository).archived.recent.map((entry) => entry.taskId),
+    [older.id, newer.id],
+    'the delivery archived last is listed first, whatever its creation order',
+  );
+});
