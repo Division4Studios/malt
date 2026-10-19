@@ -272,4 +272,10 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Cooling down until {until}.': '冷却至 {until}。',
   'Dispatch gate: {gate}': '分派关卡：{gate}',
   'Last failed attempt ': '最近一次失败的尝试 ',
+  'Set up the factory first.': '请先设置工厂。',
+  'Pause the factory to change project policy.': '请先暂停工厂，再更改项目策略。',
+  'Delivery checks': '交付检查',
+  'Recheck a dependent delivery’s brief after its predecessors merge': '前置交付合并后，重新核对依赖交付的简报',
+  'Before implementation starts, the team lead compares the brief with what its predecessors merged, on the small tier. A brief that no longer holds stops the delivery for your decision.':
+    '实现开始前，团队负责人会以小档位将简报与前置交付实际合并的内容进行比对。若简报不再成立，交付会停下，等待你的决定。',
 };
