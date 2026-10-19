@@ -233,7 +233,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Send instruction': '发送指令',
   'No activity yet. A quiet factory is not consuming model tokens.': '暂无活动。空闲的工厂不会消耗模型 token。',
   'Your autonomous team': '你的自主团队',
-  '08 LOGICAL ROLES': '08 个逻辑角色',
+  '{count} LOGICAL ROLES': '{count} 个逻辑角色',
   'Product queue': '产品队列',
   '{unfinished} UNFINISHED OBJECTIVES': '{unfinished} 个未完成目标',
   'Provider & local capacity': '提供方与本地容量',

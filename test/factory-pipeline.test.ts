@@ -464,3 +464,47 @@ await test('fix-stage steps are scheduled as their own assignment kinds, not as 
     [['fixer', 'adjudicate', 'fix']],
   );
 });
+
+await test('a plan review prefers the family that did not write the plan', () => {
+  const full = builtin('full-assurance');
+  const plan = {
+    outcome: 'success' as const,
+    summary: 'Plan',
+    findings: [],
+    deliveries: [],
+    skillActions: [],
+    instructionReceipts: [],
+  };
+  const feature = objective(full, { phase: 'refining', productPlan: plan, plan, planAt: now - 10 });
+  const planner = (provider: 'codex' | 'claude'): ReturnType<typeof jobSchema.parse> => {
+    return jobSchema.parse({
+      id: randomUUID(),
+      role: 'team-lead',
+      provider,
+      kind: 'refine',
+      taskId: null,
+      featureId: feature.id,
+      token: randomUUID(),
+      state: 'succeeded',
+      startedAt: now - 20,
+      finishedAt: now - 10,
+      expiresAt: now,
+      reservation: 0,
+      usageTokens: null,
+      pid: null,
+      head: null,
+      base: null,
+      summary: 'Planned',
+      artifact: 'fixture',
+      step: 'plan',
+    });
+  };
+  const review = (jobs: ReturnType<typeof jobSchema.parse>[]): unknown => {
+    return jobIntents({ config, tasks: [], features: [feature], jobs, skillRequests: [], now }).find(
+      (intent) => intent.kind === 'plan_review',
+    )?.preferredProvider;
+  };
+  assert.equal(review([planner('codex')]), 'claude');
+  assert.equal(review([planner('claude')]), 'codex');
+  assert.equal(review([]), 'codex', 'without a recorded planner the workflow preference applies');
+});
