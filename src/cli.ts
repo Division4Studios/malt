@@ -29,8 +29,9 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
-import { loadConfig, saveBrokerDiscovery } from './config.ts';
+import { STATE_DIRECTORY_NAME, loadConfig, readJsonFile, saveBrokerDiscovery } from './config.ts';
 import { FACTORY_COMMANDS, isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
+import { log } from './log.ts';
 import { MeshError } from './protocol.ts';
 
 import type { MeshConfig } from './config.ts';
@@ -43,10 +44,12 @@ const MAX_PORT = 65_535;
 const HELP = `MALT 0.1 — durable local agent communication
 
 Usage: node src/cli.ts <command> [options]
+  doctor [--json]              Preflight: Node, Git, provider logins, GitHub CLI, ports, .malt
   init                         Initialize .malt and project agent discovery files
   start                        Start the broker (foreground; Ctrl+C to stop)
   ui --port 4318              Serve the installable local PWA; prints a pairing code
   ui --with-broker             Own broker and console together; enables native terminals
+  pairing-code [--rotate]      Show (or re-issue) the persisted console pairing code
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
@@ -87,12 +90,15 @@ Options:
   --verbose                    Log detailed broker/bridge activity to stderr
 
 Docker: docker compose up -d --build
+        docker compose exec broker node src/cli.ts pairing-code --project /data
         docker compose exec broker node src/cli.ts status --project /data
         docker compose down
 `;
 
 /** Every command the CLI accepts. */
 const COMMANDS = [
+  'doctor',
+  'pairing-code',
   'ui',
   ...FACTORY_COMMANDS,
   'init',
@@ -112,7 +118,7 @@ const COMMANDS = [
 type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
-type TeamCommand = Exclude<Command, 'init' | 'mcp' | 'start' | 'teams' | 'ui'>;
+type TeamCommand = Exclude<Command, 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'start' | 'teams' | 'ui'>;
 
 /** Default page size for `messages` and `events`. */
 const DEFAULT_PAGE_LIMIT = 50;
@@ -137,6 +143,8 @@ interface CliOptions {
   readonly runtime?: string | undefined;
   /** `--role`: role label for registration. */
   readonly role?: string | undefined;
+  /** `--deny-tools`: comma-separated seat tools a managed role policy removed. */
+  readonly 'deny-tools'?: string | undefined;
   /** `--host`: broker bind address. */
   readonly host?: string | undefined;
   /** `--to`: message recipient. */
@@ -153,6 +161,10 @@ interface CliOptions {
   readonly all?: boolean | undefined;
   /** `--apply`: apply proposed GitHub reconciliation decisions instead of a dry run. */
   readonly apply?: boolean | undefined;
+  /** `--json`: print one machine-readable document (doctor). */
+  readonly json?: boolean | undefined;
+  /** `--rotate`: re-issue the console pairing code. */
+  readonly rotate?: boolean | undefined;
 }
 
 /**
@@ -268,6 +280,7 @@ async function runBridge(config: MeshConfig, options: CliOptions): Promise<void>
     provider: record.provider,
     runtime: record.runtime,
     role: record.role,
+    deniedTools: record['deny-tools']?.split(',').filter((tool) => tool !== ''),
     workspace: record.workspace === undefined ? undefined : absoluteWorkspace(record.workspace),
   });
 
@@ -328,6 +341,12 @@ async function runMessaging(
  */
 async function run(command: Command, options: CliOptions): Promise<void> {
   const record = options;
+  if (command === 'doctor') {
+    if (!(await isDoctorPassing(record))) {
+      process.exitCode = 1;
+    }
+    return;
+  }
   // Only `init` and `start` may create a project; see loadConfig.
   const home = loadConfig(record.project, {
     create: command === 'init' || command === 'start' || (command === 'ui' && record['with-broker'] === true),
@@ -354,27 +373,107 @@ async function run(command: Command, options: CliOptions): Promise<void> {
         await runBridge(home, record);
         return;
       }
+      case 'pairing-code': {
+        await runPairingCode(home, record);
+        return;
+      }
       case 'ui': {
-        const { startNativeConsole } = await import('./web/native.ts');
-        const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
-        if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
-          throw new Error('Use a valid local UI port.');
-        }
-        const console = await startNativeConsole(home, port, record['with-broker'] === true);
-        print({
-          url: console.url,
-          pairingCode: console.pairingCode,
-          note: 'Pair locally; browser installation does not install the native daemon.',
-        });
-        process.once('SIGINT', () => {
-          void console.close();
-        });
-        process.once('SIGTERM', () => {
-          void console.close();
-        });
+        await runConsole(home, record);
       }
     }
   }
+}
+
+/**
+ * Serve the local PWA, printing and logging its pairing code once.
+ *
+ * @param home - Home project.
+ * @param record - Port and broker ownership options.
+ * @throws {Error} When `--port` is not a valid port.
+ */
+async function runConsole(home: MeshConfig, record: CliOptions): Promise<void> {
+  const { startNativeConsole } = await import('./web/native.ts');
+  const port = record.port === undefined ? CONSOLE_PORT : Number(record.port);
+  if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
+    throw new Error('Use a valid local UI port.');
+  }
+  const console = await startNativeConsole(home, port, record['with-broker'] === true);
+  // The one log record that contains the code, so it survives a scrolled-away terminal.
+  log('info', 'console', 'pairing_code', { url: console.url, pairingCode: console.pairingCode });
+  print({
+    url: console.url,
+    pairingCode: console.pairingCode,
+    note: 'Pair locally; browser installation does not install the native daemon. Re-show it with pairing-code.',
+  });
+  process.once('SIGINT', () => {
+    void console.close();
+  });
+  process.once('SIGTERM', () => {
+    void console.close();
+  });
+}
+
+/**
+ * Show or re-issue the persisted console pairing code.
+ *
+ * @param home - Home project whose console owns the code.
+ * @param record - `--rotate` re-issues it.
+ */
+async function runPairingCode(home: MeshConfig, record: CliOptions): Promise<void> {
+  const { ensurePairingCode, rotatePairingCode } = await import('./web/pairing.ts');
+  const isRotated = record.rotate === true;
+  print({
+    pairingCode: isRotated ? rotatePairingCode(home.directory) : ensurePairingCode(home.directory),
+    rotated: isRotated,
+    note: isRotated
+      ? 'A running console accepts only this code from its next pairing attempt; paired browsers keep their sessions.'
+      : 'Pair locally; keep this code private.',
+  });
+}
+
+/**
+ * Run the first-run preflight without creating or changing project state.
+ *
+ * @param options - Project, console port and output format.
+ * @returns Whether no check failed.
+ * @throws {Error} When `--port` is not a valid port.
+ */
+async function isDoctorPassing(options: CliOptions): Promise<boolean> {
+  const { DEFAULT_BROKER_PORT, formatDoctor, runDoctor } = await import('./doctor.ts');
+  const project = path.resolve(options.project ?? process.cwd());
+  const consolePort = options.port === undefined ? CONSOLE_PORT : Number(options.port);
+  if (!Number.isSafeInteger(consolePort) || consolePort < 1 || consolePort > MAX_PORT) {
+    throw new Error('Use a console port between 1 and 65535.');
+  }
+  const report = await runDoctor({ project, brokerPort: savedBrokerPort(project) ?? DEFAULT_BROKER_PORT, consolePort });
+  if (options.json === true) {
+    print(report);
+  } else {
+    process.stdout.write(formatDoctor(report));
+  }
+  return report.ok;
+}
+
+/**
+ * Read the broker port an existing project saved, without migrating or creating anything.
+ *
+ * @param project - Project folder.
+ * @returns Saved port, or null for a new or unreadable project.
+ */
+function savedBrokerPort(project: string): number | null {
+  let saved: unknown;
+  try {
+    saved = readJsonFile(path.join(project, STATE_DIRECTORY_NAME, 'config.json'));
+  } catch {
+    return null;
+  }
+  const url = typeof saved === 'object' && saved !== null && 'url' in saved ? saved.url : undefined;
+  if (typeof url !== 'string' || !URL.canParse(url)) {
+    return null;
+  }
+  const { port: text } = new URL(url);
+  const port = Number(text);
+  return Number.isSafeInteger(port) && port > 0 ? port : null;
 }
 
 /**
@@ -443,6 +542,7 @@ async function main(): Promise<void> {
       provider: { type: 'string' },
       runtime: { type: 'string' },
       role: { type: 'string' },
+      'deny-tools': { type: 'string' },
       host: { type: 'string' },
       to: { type: 'string' },
       body: { type: 'string' },
@@ -451,6 +551,8 @@ async function main(): Promise<void> {
       limit: { type: 'string' },
       all: { type: 'boolean' },
       apply: { type: 'boolean' },
+      json: { type: 'boolean' },
+      rotate: { type: 'boolean' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -489,5 +591,5 @@ try {
  * @returns Whether it addresses one workspace team.
  */
 function isTeamCommand(value: Command): value is TeamCommand {
-  return !['init', 'start', 'mcp', 'teams', 'ui'].includes(value);
+  return !['doctor', 'init', 'start', 'mcp', 'pairing-code', 'teams', 'ui'].includes(value);
 }

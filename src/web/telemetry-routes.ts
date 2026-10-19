@@ -1,16 +1,16 @@
 /**
  * Strict query parsing for the read-only telemetry routes `/api/attempts`,
  * `/api/transcript` and `/api/costs`, for an objective's progress log at
- * `/api/objective-log` and for a delivery's diff at `/api/delivery-diff`.
- * Every parameter is a known, unrepeated
- * key; numbers must be plain decimals. Data comes from broker operations.
+ * `/api/objective-log`, for a delivery's diff at `/api/delivery-diff`, and for a
+ * workflow's revision history at `/api/workflow-history`. Every parameter is a
+ * known, unrepeated key; numbers must be plain decimals. Data comes from broker operations.
  *
  * @file
  */
 import { z } from 'zod/v3';
 
 import { DIFF_PATH_MAX } from '../factory/diff-schema.ts';
-import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from '../factory/seats.ts';
+import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, keySchema } from '../factory/seats.ts';
 import { ATTEMPT_PAGE_MAX, ATTEMPT_STATES, TRANSCRIPT_PAGE_MAX } from '../factory/telemetry-schema.ts';
 import { MeshError } from '../protocol.ts';
 
@@ -23,6 +23,7 @@ const TELEMETRY_ROUTES = new Set([
   '/api/costs',
   '/api/objective-log',
   '/api/delivery-diff',
+  '/api/workflow-history',
 ]);
 /** Largest progress log page. */
 const LOG_PAGE_MAX = 100;
@@ -76,6 +77,8 @@ const costsQuerySchema = z
     timeZone: z.string().min(1).max(TIME_ZONE_MAX).optional(),
   })
   .strict();
+/** Workflow revision history query. */
+const workflowHistoryQuerySchema = z.object({ project, workflowId: keySchema }).strict();
 /** Objective progress log page query. */
 const objectiveLogQuerySchema = z
   .object({
@@ -143,6 +146,10 @@ export async function telemetryRoute(url: URL, gateway: ProjectGateway): Promise
     case '/api/delivery-diff': {
       const { project: scope, ...query } = deliveryDiffQuerySchema.parse(parameters);
       return gateway.deliveryDiff(scope, query);
+    }
+    case '/api/workflow-history': {
+      const { project: scope, workflowId } = workflowHistoryQuerySchema.parse(parameters);
+      return gateway.workflowHistory(scope, { workflowId });
     }
     default: {
       throw new MeshError('NOT_FOUND', 'Unknown inspection route.');
