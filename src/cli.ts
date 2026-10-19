@@ -143,6 +143,8 @@ interface CliOptions {
   readonly runtime?: string | undefined;
   /** `--role`: role label for registration. */
   readonly role?: string | undefined;
+  /** `--deny-tools`: comma-separated seat tools a managed role policy removed. */
+  readonly 'deny-tools'?: string | undefined;
   /** `--host`: broker bind address. */
   readonly host?: string | undefined;
   /** `--to`: message recipient. */
@@ -278,6 +280,7 @@ async function runBridge(config: MeshConfig, options: CliOptions): Promise<void>
     provider: record.provider,
     runtime: record.runtime,
     role: record.role,
+    deniedTools: record['deny-tools']?.split(',').filter((tool) => tool !== ''),
     workspace: record.workspace === undefined ? undefined : absoluteWorkspace(record.workspace),
   });
 
@@ -539,6 +542,7 @@ async function main(): Promise<void> {
       provider: { type: 'string' },
       runtime: { type: 'string' },
       role: { type: 'string' },
+      'deny-tools': { type: 'string' },
       host: { type: 'string' },
       to: { type: 'string' },
       body: { type: 'string' },
