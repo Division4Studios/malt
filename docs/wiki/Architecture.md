@@ -1,23 +1,14 @@
 # Architecture and trust boundaries
 
-```mermaid
-flowchart TB
-  Browser[Paired local PWA] -->|Authenticated local control| UI[Loopback UI service]
-  Attached[Attached Codex or Claude MCP session] --> Bridge[MCP stdio bridge]
-  UI --> Broker[Project-aware broker]
-  Bridge --> Broker
-  Broker --> DB[Target .malt SQLite and artifacts]
-  Broker --> Supervisor[Unpaid factory supervisor]
-  Supervisor --> Workers[Bounded native subscription sessions]
-  Workers --> Worktrees[Owned Git branches and worktrees]
-  Supervisor --> GH[Selected GitHub repository and Project]
-  Workers --> Credentials[Provider-supported credential store]
-```
+![MALT components: the operator's browser and CLI talk to one local broker and supervisor, which launch provider CLIs through bridges, keep state in the project's .malt folder and deliver through GitHub or a local hub](https://raw.githubusercontent.com/Division4Studios/malt/main/docs/images/diagrams/system-overview.svg)
 
-The browser has no project bearer token or provider secret. Its session is separate from an attached MCP agent and from a managed model job. All mutations go through backend invariants; the PWA is not another scheduler.
+- The **broker** is one local service. It validates every request and owns each project's SQLite state in that project's private `.malt/`.
+- The **supervisor** runs inside the broker. It schedules bounded assignments, launches the provider CLIs in owned worktrees and retires them. It spends no model tokens while it waits, and idle roles have no process.
+- A **bridge** connects one agent session to the broker over MCP. It is not a model and uses no tokens.
+- The **console** is a PWA served on loopback. The browser holds no project token or provider secret, and every change goes through the same backend checks as the CLI.
 
-Each target project is isolated. Private messages, claims, handoffs, evidence, skills and resource accounting live under that target's `.malt`. Atomic/transactional persistence fences stale claims and late output. The generated README is derived navigation; it does not replace authoritative SQLite or source history.
+Each project is isolated: its messages, claims, evidence, skills and accounting stay in its own `.malt/`. Delivery goes through GitHub or through a protected local hub.
 
-Managed development is trusted local execution, not a hostile-agent sandbox. Windows Job Objects and platform process groups clean up owned processes; aggregate admission limits protect capacity. Do not confuse a resource admission threshold with a hard kernel memory/CPU ceiling on every OS.
+MALT trusts the local user. It is not a sandbox for hostile agents or a multi-tenant service. Process groups and Windows Job Objects clean up owned processes; resource limits are admission thresholds, not hard kernel ceilings on every OS.
 
-See [the source architecture guide](https://github.com/Division4Studios/malt/blob/main/docs/architecture.md) for modules, protocol boundaries and recovery behavior.
+See the [architecture guide](https://github.com/Division4Studios/malt/blob/main/docs/architecture.md) for modules, transactions and recovery, and the [API reference](https://github.com/Division4Studios/malt/blob/main/docs/api.md) for every tool and operation.

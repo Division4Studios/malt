@@ -1,6 +1,6 @@
 # Support MALT
 
-[**Sponsor Division4Studios on GitHub**](https://github.com/sponsors/Division4Studios) · [Project roadmap](https://github.com/users/Division4Studios/projects/10) · [Discussions](https://github.com/Division4Studios/malt/discussions)
+[**Sponsor Division4Studios on GitHub**](https://github.com/sponsors/Division4Studios) · [Roadmap to 1.0](https://github.com/Division4Studios/malt/issues/263) · [Project board](https://github.com/users/Division4Studios/projects/10) · [Discussions](https://github.com/Division4Studios/malt/discussions)
 
 MALT is an MIT-licensed effort to make local multi-agent development understandable, resource-aware and accountable. Sponsorship helps the maintainer spend more time building, reviewing, documenting and validating it.
 

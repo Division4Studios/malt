@@ -1,28 +1,22 @@
 # Getting started
 
-Use Git, Node.js 24.15.0+ in the 24.x line, and npm. Managed jobs additionally require installed Codex/Claude Code CLIs with subscription authentication. GitHub delivery requires GitHub CLI access to the intended repository and Project.
+You need Node.js 24.15.0 or later in the 24.x line, npm, Git, and at least one of the Claude Code or Codex CLIs logged in with a subscription account. GitHub delivery also needs the GitHub CLI (`gh`).
 
 ```sh
 git clone https://github.com/Division4Studios/malt.git
 cd malt
 npm ci --ignore-scripts
-npm run check
-node src/cli.ts ui --with-broker --project /absolute/path/to/target --port 4318
+npm run build:web
+node src/cli.ts doctor --project /absolute/path/to/a/disposable/project
+node src/cli.ts ui --with-broker --project /absolute/path/to/a/disposable/project --port 4318
 ```
 
-This combined owner starts the native broker and paired UI together. Ordinary separately attached UIs can inspect/control their authorized project, but project-token access does not grant scratch-terminal or prepared recommendation-decision authority. Those human controls require the owning process's memory-only capability. The combined Docker deployment also provides that owner boundary.
+1. `doctor` reports **PASS**, **FAIL** or **FIX-IT** for Node.js, Git, the provider logins, `gh`, the ports and a writable project. It changes nothing.
+2. `ui --with-broker` starts the broker and the console together and prints a pairing code.
+3. Open `http://127.0.0.1:4318/` and enter the code. The **Get started** guide opens.
+4. Choose a delivery mode: local (a protected hub in `.malt/`, no hosted service) or GitHub.
+5. Save a factory policy with real test commands, set a spend cap, submit a small objective and start the factory.
 
-Open `http://127.0.0.1:4318/` and enter the pairing code printed by that UI process. It is a credential, not something to paste into a public report. On Windows, quote target paths such as `"C:\work\target"`.
+On Windows, quote paths such as `"C:\work\sandbox"`. The pairing code is a credential; keep it out of public reports.
 
-```mermaid
-flowchart LR
-  Native[Start native broker and UI] --> Pair[Pair local browser]
-  Pair --> Target[Select actual target folder]
-  Target --> Verify[Verify GitHub and providers]
-  Verify --> Policy[Set checks and resource ceilings]
-  Policy --> Start[Enable authorized dispatch]
-```
-
-In Project setup, verify the repository and intended GitHub Project, workflow field, real validation commands and resource ceilings. No model process should be launched solely to make the dashboard appear busy. Install the app using the compatible browser's install control; offline mode is a stale app shell, not offline agent execution.
-
-For container configuration, provider authentication and exact controls, follow [the operator guide](https://github.com/Division4Studios/malt/blob/main/docs/operator-console.md). Do not run native and container brokers against the same `.malt` database. The provider credential volume is private and is not a project backup.
+The full walk-through, including every `doctor` check, Docker, attached Claude Code and Codex sessions, upgrades and backups, is the [getting started guide](https://github.com/Division4Studios/malt/blob/main/docs/getting-started.md). To move to a real repository, read [Use MALT on your own project](https://github.com/Division4Studios/malt/blob/main/docs/using-malt-in-your-project.md).

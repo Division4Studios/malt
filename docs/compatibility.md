@@ -3,14 +3,28 @@
 This page is the contract between MALT versions and the state they leave behind, and explains how to tell which source
 a running broker is using.
 
+## Supported platforms
+
+| Component        | Supported                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Node.js          | 24.15.0 or later on the 24 LTS line (`engines` in `package.json`). `doctor` checks it.                                   |
+| Operating system | Windows, macOS and Linux. CI runs the test suite on `windows-latest`, `macos-latest` and `ubuntu-latest`.                |
+| Container        | `node:24-bookworm-slim`, pinned by digest in the `Dockerfile`, with Codex CLI 0.162.1 and Claude Code 2.1.296 installed. |
+| Provider CLIs    | Claude Code, Codex and GitHub Copilot CLI, each logged in with a subscription. MALT never uses an inference API key.     |
+| Git and GitHub   | Git on `PATH`, and the GitHub CLI (`gh`) for GitHub delivery. Local delivery needs no GitHub.                            |
+
+MALT is pre-1.0 (package version 0.1.0). Fresh-machine runs on each platform (#258) and the installed-PWA audit (#261) are still open.
+
 ## What stays compatible
 
-| State                                             | Format today                                                     | Contract                                                                                                                                                                                                        |
-| ------------------------------------------------- | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| SQLite database (`.malt/state/mesh.db`)           | `metadata.schema_version` = `3`; versions `1` and `2` still open | Opening an older version migrates it forward in one transaction; migrations are additive and never drop data. A version this code does not know, such as one written by newer code, is refused and left intact. |
-| Project and broker configuration (`.malt/*.json`) | `version: 1`                                                     | New fields are optional with defaults, so a file saved by an older release parses unchanged. A different `version` is refused rather than guessed.                                                              |
-| Factory ledger records (tasks, jobs, objectives)  | Zod schemas in `src/factory/`                                    | Every field added after 1.0 is optional or defaulted; saved records parse unchanged. Removing or retyping a field needs a migration and a release note.                                                         |
-| Frozen workflows and attempt routing              | Copied into each delivery and attempt                            | A running delivery keeps the copy it froze; new workflow or role revisions apply only to new work.                                                                                                              |
+| State                                             | Format today                                                    | Contract                                                                                                                                                                                                        |
+| ------------------------------------------------- | --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| SQLite database (`.malt/state/mesh.db`)           | `metadata.schema_version` = `4`; versions `1` to `3` still open | Opening an older version migrates it forward in one transaction; migrations are additive and never drop data. A version this code does not know, such as one written by newer code, is refused and left intact. |
+| Project and broker configuration (`.malt/*.json`) | `version: 1`                                                    | New fields are optional with defaults, so a file saved by an older release parses unchanged. A different `version` is refused rather than guessed.                                                              |
+| Factory ledger records (tasks, jobs, objectives)  | Zod schemas in `src/factory/`                                   | Every field added after 1.0 is optional or defaulted; saved records parse unchanged. Removing or retyping a field needs a migration and a release note.                                                         |
+| Frozen workflows and attempt routing              | Copied into each delivery and attempt                           | A running delivery keeps the copy it froze; new workflow or role revisions apply only to new work.                                                                                                              |
+
+Schema 4 bounded coordination messaging. Its one-time migration marks old observer broadcasts read and retires sessions nobody can resume, without deleting any message or event row. After that, the broker's retention pass prunes acknowledged messages and old events as described in [Messages](api.md#messages).
 
 There is no downgrade path: after a newer release migrates the database, an older release refuses it. Take a backup
 before every upgrade (below) so you can roll back.

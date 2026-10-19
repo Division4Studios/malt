@@ -1,5 +1,7 @@
 # Repository issue audit — 2026-10-15
 
+> **Historical snapshot from 2026-10-15.** Later code, issues and the [current status](Current-status) take precedence.
+
 Audited **all 95 open issues** from the initial snapshot against merged main [0325f63](https://github.com/Division4Studios/malt/tree/0325f63), native parent/child and blocked-by edges, issue discussions, merged PR changes and the current source/tests. This is a dated record; subsequent issue and Project state takes precedence.
 
 Follow-up: documentation Stack #151 (PRs #148–#150) merged at [e925bb5](https://github.com/Division4Studios/malt/commit/e925bb5541a31b9e6fa3a770780ce8eb105e1ae6), whose exact tree matches the full 236-test check. That completes #45 and parent #40. The final discussion pass retained #28 for a still-reproducible redraw/focus regression and #51 for the state-machine documentation repair prepared by this audit.

@@ -1,103 +1,180 @@
-# Architecture and implementation boundary
+# Architecture
 
-The managed supervisor and PWA extend the cooperative messaging core. [Operator console architecture](operator-console.md) describes the browser boundary, routing and human-gated local overrides. Managed roles exit after bounded assignments; attached roles retain their existing check-in/wait contract.
+This page describes MALT's components, where each trust boundary sits, and the order in which to read the source. For the operations each component exposes, see the [API reference](api.md). For how the factory schedules work, see [the managed software factory](software-factory.md).
 
-For a dated implementation map and the unfinished integration boundaries, see [current capabilities](current-status.md) and the [95-issue audit](issue-audit-2026-10-15.md).
+## Components
 
-## Current milestone
+![System overview: the operator's browser (installable PWA) and CLI reach the broker and its supervisor; MCP bridges connect provider CLIs (Claude Code, Codex, Copilot); each project keeps its state in its own .malt store; delivery goes to GitHub or the local hub](images/diagrams/system-overview.svg)
 
-The current service combines durable communication with orchestrator-controlled check-in and cooperative wait/resume. The core contains no Claude/Codex execution semantics and makes no inference API calls. See the [README](../README.md), [workflow](workflow.md), and [API reference](api.md).
+| Component        | What it is                                                                                                                                                                                           |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Broker           | The one long-running process. A loopback HTTP JSON-RPC service that owns every project's SQLite store. Started with `start`, or together with the console by `ui --with-broker` and in Docker.       |
+| Supervisor       | One per configured project, inside the broker. It schedules managed assignments, runs checks, publishes, merges and reconciles. It never calls a model itself.                                       |
+| MCP bridge       | One stdio process per agent session (`mcp`). It exposes `mesh_*` tools to its host and forwards them to the broker over authenticated HTTP.                                                          |
+| Provider CLIs    | Claude Code, Codex and GitHub Copilot CLI. Attached sessions are started by you; managed assignments are started by the supervisor, each with its own scoped bridge.                                 |
+| Web gateway      | The console server (`ui`). It serves the installable PWA, pairs browsers and proxies every read and control to the broker. Browsers never receive a broker token.                                    |
+| Delivery manager | An optional persistent model session per project that you talk to in **Mission → Manager**. It steers the supervisor through a fixed set of operations. See [Delivery manager](delivery-manager.md). |
+| Delivery adapter | Where work is published: GitHub (`gh` CLI, issues, Projects, pull requests, branch protection) or the project-private local hub and tracker. See [Local delivery](local-delivery.md).                |
+| Connectors       | Provider-neutral connection records with separate work-tracker and source-control sections, credential handles, a capability policy and reviewed MCP tool bindings.                                  |
+| Project store    | Each project's `.malt/` folder: configuration, identities, SQLite database, journals, worktrees and job files. See the [project-local layout](software-factory.md#project-local-layout).             |
 
-The factory layer separately launches bounded subscription-authenticated native CLI assignments, persists stage-specific claims and handoffs, and reconciles Git/worktree/GitHub effects without replaying successful model turns. PWA controls use this same authority. An operator-approved private-repository pilot has completed a real delivery; its local review gates are distinct from GitHub branch protection. Superseded-parent retirement waits for actual native child closure and journals `not_planned` receipts rather than reporting obsolete scope as delivered.
+In Docker, `docker compose exec -T` carries a bridge's stdio into the container. Each bridge stays an independent process, and the broker alone opens SQLite. Docker Compose supervises the broker and console, not the agent models.
 
-When the operator explicitly selects the broker's home repository as a delivery target, its workspace routing reference resolves to the existing home store and supervisor. Restart restoration never allocates a second supervisor for that project ID. Old team-header aliases remain authenticated and resolve the same authority; they do not create a second lease contender.
+### One broker, many projects
 
-```text
-Claude Code / Codex / other MCP host
-                |
-           MCP over stdio
-                |
-     one bridge per agent session
-                |
-       authenticated HTTP RPC
-                |
-        persistent broker
-                |
-       SQLite WAL database
-```
+One broker serves its home project plus one team per workspace folder. Each workspace keeps its team in `<workspace>/.malt/`; the broker home keeps only `.malt/teams/<slug>.json` routing references. Windows paths are compared case-insensitively, POSIX paths exactly. In Docker, set an absolute `AGENTMESH_WORKSPACE_ROOT`, which Compose mounts at `/workspaces` and the broker uses to translate host paths; a project outside it fails clearly.
 
-In Docker, `docker compose exec -T` carries the stdio stream into the container; each bridge remains an independent process. The broker alone opens SQLite. Docker Compose supervises the broker process, not the agent models.
+You need a separate broker only to isolate whole teams of projects. For Docker, use a separate Compose project (`docker compose -p inventory ...`) with its own published ports and its own `AGENTMESH_HOME_ROOT` bind mount, and repeat `-p` in its MCP launch configurations and lifecycle commands. Never run two brokers against the same store.
 
-One broker serves its home project plus one team per workspace folder. Each workspace team stores its ID, token, SQLite file, GitHub connection and learning evidence under its own `<workspace>/.malt/`. The broker home keeps only `.malt/teams/<slug>.json` routing references. The broker opens a team's store lazily, on `open_team` or on the first authenticated request carrying the team's `X-AgentMesh-Team` header, and gives each team its own waiter registry. Presence sweeps and shutdown cover every open team.
+### Broker configuration
+
+A project's `.malt/config.json` sets:
+
+| Field         | Default                 | Meaning                                                               |
+| ------------- | ----------------------- | --------------------------------------------------------------------- |
+| `url`         | `http://127.0.0.1:4317` | Where bridges and the CLI reach the broker                            |
+| `heartbeatMs` | `15000`                 | How often each bridge renews its presence                             |
+| `offlineMs`   | `60000`                 | Silence after which an agent is OFFLINE; at least twice `heartbeatMs` |
+
+Change the URL before startup to use another port, and restart the affected processes after any change.
+
+### Container hardening
+
+`compose.yaml` runs the broker as a non-root user (`MALT_DOCKER_UID`, default 1000) with a read-only root filesystem, a `tmpfs` `/tmp`, all Linux capabilities dropped, `no-new-privileges`, and limits on processes (256), memory (`MALT_DOCKER_MEMORY`, default `4g`) and CPU (`MALT_DOCKER_CPUS`, default 2). It mounts no Docker socket. Ports are published on `127.0.0.1` only. A short-lived init container, with no network, prepares ownership of the provider-home volume and exits.
+
+## Trust boundaries
+
+**Loopback only.** The broker binds `127.0.0.1` by default, and Docker publishes its ports on loopback only. Browser-origin requests to the broker are rejected and CORS is not enabled. `GET /health` is the only unauthenticated broker route and reveals only health, version and source revision. Remote hosting and TLS are out of scope before 1.0.
+
+**Project token.** Every RPC carries the addressed project's bearer token and project ID; one team's token is rejected by every other team. The home project's token can open any workspace team, so it is the broker's administrative secret. A call with the project token and no agent credentials is the **operator**. Anyone who can read `.malt/config.json` is therefore an operator.
+
+**Agent credentials.** Agent operations also carry the agent's secret and current session ID. Only a hash of each secret is stored in SQLite. Operator-only operations refuse any call that carries agent credentials, even from the designated lead.
+
+**Managed seats.** A managed assignment's bridge registers only its seat's tools, narrowed further by its role's tool policy. The broker refuses any other tool from that live attempt (`TOOL_DENIED`), whatever the client advertises.
+
+**Console sessions.** The gateway pairs a browser with a pairing code stored in the console's `.malt/console-pairing.json`. Paired sessions are in memory, expire after eight hours and are limited to eight. The gateway checks the exact local origin on every request and forwards controls only from a fixed allowlist. Scratch terminals need an in-process operator capability that exists only when the gateway and broker run in one process (`ui --with-broker` or Docker).
+
+**External services.** Only provider subscription CLIs and, for GitHub delivery, GitHub are contacted. MALT never uses an inference API key. GitHub authentication stays with `gh` or the container environment; `gh` and Git run with argument arrays, never through a shell.
+
+**The local OS account is trusted.** The local OS user and anyone with Docker access are administrators: they can read project files and the database. This is not tenant isolation or a hostile-agent sandbox. Managed assignments run with explicit provider permissions and terminate only their own process trees; attached sessions keep their host's permissions.
+
+## Data and concurrency
+
+**One database per project.** The broker serves its home project plus one team per workspace folder. Each team's ID, token, SQLite file, GitHub connection and learning evidence live under that workspace's own `.malt/`. The broker home keeps only `.malt/teams/<slug>.json` routing references and opens a team's store lazily, on `open_team` or on the first request carrying its `X-AgentMesh-Team` header.
+
+**Transactions.** `Store.execute` wraps every mutation in `BEGIN IMMEDIATE`/`COMMIT`. Coordination methods run inside that transaction, so a message and the idle revocation it causes are indivisible. SQLite runs in WAL mode with foreign keys and a busy timeout.
+
+**Waits.** The broker wakes waiters only after a mutation commits. A wait reads current state and subscribes without an intervening `await`, so no change can be lost between checking and listening. Open waits never hold a transaction. The MCP bridge renews bounded HTTP waits inside one tool call (hold mode), so an empty wait does not cost a model turn. Only one wait is allowed per agent.
+
+**Identity and recovery.** A named identity reuses its saved secret and can reconnect after a crash once its lease expires. A bridge launched without a name gets a **session identity** when the model calls `mesh_join`; its secret exists only in the bridge's memory, and a clean disconnect ends it. Heartbeats run every 15 seconds; an agent is OFFLINE after 60 seconds without one.
+
+**Messages.** A message and its event commit together. Sends and broadcasts accept an `idempotencyKey` for safe retries, and identical broadcasts from one sender inside `AGENTMESH_MESSAGE_DEDUP_MS` collapse into one. Acknowledged messages and old events are pruned after `AGENTMESH_MESSAGE_RETENTION_DAYS` and `AGENTMESH_EVENT_RETENTION_DAYS`; unread messages to live identities are never deleted. Observers receive no broadcasts, and expired sessions retire. See [Messages](api.md#messages).
+
+**Schema migrations.** The coordination schema is at version 4. Opening an older database migrates it forward in one transaction; an unknown version is refused. Factory tables are created additively by the modules that own them. See [Compatibility](compatibility.md).
+
+**The factory ledger.** Factory tasks, objectives, jobs, effects and claims share the project's SQLite store but are separate from cooperative check-in state. GitHub and other remote effects go through a transactional outbox with stable identities, so a retry after a lost response does not repeat the effect or a paid model turn.
+
+### What survives what
+
+| Situation                         | What survives, and what to do                                                                                     |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Named bridge exits cleanly        | Presence becomes OFFLINE; identity, inbox and work state remain.                                                  |
+| Named bridge crashes              | Presence expires after `offlineMs`; reconnect with the same name.                                                 |
+| Session bridge exits cleanly      | The session ends: its pending check-in is withdrawn and unfinished work is reported to the lead.                  |
+| Session bridge crashes            | It expires to OFFLINE and never returns, and retires an hour later; open a new session in that folder.            |
+| Native broker restarts            | Credentials stay valid; reopen any wait that failed. Factory claims are fenced and resumed by the supervisor.     |
+| Container is recreated            | Container bridges exit; reconnect them through their MCP hosts. Bind-mounted `.malt` data remains.                |
+| Lead goes offline                 | Check-in requests stay pending; silence never grants idle.                                                        |
+| Human promotes another lead       | Pending requests are rerouted and old idle grants are revoked; assigned instructions remain.                      |
+| Message reaches an offline worker | It persists, and it revokes any idle grant before the worker reconnects.                                          |
+| Schema upgrade                    | Older databases migrate forward in one transaction; an older release then refuses the database, so back up first. |
+
+## Factory execution
+
+The supervisor runs one pass at a time: verify the connection, reconcile remote state, run intake and automations, then admit eligible assignments. A pass never awaits a model. Admission is shared across every project on the broker.
+
+Each assignment is a provider CLI process inside a containment wrapper: a Windows Job Object with memory, CPU and process ceilings, or a POSIX process group. A parent link kills the provider tree if the broker dies. Prompts, logs and results stay in `.malt/factory/jobs/<id>/`. Code-writing assignments run in owned worktrees; reviewers receive an immutable snapshot and a sealed read-only source view.
+
+The delivery manager is one persistent session per project, launched with the same containment. Its conversation, session generations, decisions and report cursor live in the project database. The broker fences every manager message to the current generation and grants it a fixed set of operations only while that generation is live. It is a steering client of the supervisor, not a second scheduler.
+
+Scratch terminals reserve the same admission pool, build an allowlisted provider launch in a separate worktree and stream redacted output from a bounded in-memory ring. Terminal operations are absent from MCP and ordinary RPC. See [Interactive terminals](interactive-terminals.md).
+
+Connector support is partly shipped. GitHub discovery, credential handles, the capability policy (enforced in the GitHub integration), verified connection sections, gated labels, milestones, views, fields, Project creation and reviewed MCP tool bindings are in place. A console panel with separate work-tracker and source-control sections is not done yet (#84). A Jira Cloud library exists in `src/jira/`, but it is not wired into connection verification, the console or the factory, so Jira is not yet available.
 
 ## Source tour
 
-Read protocol.ts first to see the public operations, then coordination.ts for the worker rules, store.ts and database.ts for persistence, waiters.ts for suspension, and finally broker/client/mcp for transport. Every file opens with a header describing its role, and inline comments explain the important ordering and failure rules.
+Backend TypeScript runs directly on Node.js 24 through type stripping; the browser app is compiled separately. Every file opens with a header describing its role. Read in this order:
 
-| Module                | Responsibility                                                             |
-| --------------------- | -------------------------------------------------------------------------- |
-| `src/config.ts`       | Project bootstrap, credentials, persisted and session identities           |
-| `src/teams.ts`        | Workspace normalization, mount translation and project-local routing       |
-| `src/protocol.ts`     | Provider-neutral validation schemas, error codes and model-facing text     |
-| `src/database.ts`     | SQLite row schemas and validated, typed query helpers                      |
-| `src/store.ts`        | Transactional identity/presence, messaging, acknowledgements, events       |
-| `src/coordination.ts` | Durable work requests, designated lead authority, idle approval/revocation |
-| `src/waiters.ts`      | In-memory HTTP wait handles, committed-state wake-up, timeout/cancellation |
-| `src/broker.ts`       | HTTP boundary, authentication, request limits, presence sweeps             |
-| `src/client.ts`       | Broker RPC and bridge heartbeat lifecycle                                  |
-| `src/mcp.ts`          | Official MCP SDK stdio tool facade, held waits and participation prompts   |
-| `src/cli.ts`          | Bootstrap, foreground daemon and human CLI commands                        |
-| `src/docker-mcp.ts`   | Host launcher: passes the session folder into the Docker bridge            |
-| `src/log.ts`          | Structured stderr-only diagnostics with level filtering                    |
+### 1. Protocol and coordination core
 
-Node.js 24 runs backend TypeScript directly through type stripping; browser TypeScript is compiled separately. The optional terminal host alone loads the native node-pty addon in an owned child process. The MCP SDK handles protocol negotiation and framing. SQLite uses WAL, foreign keys, a busy timeout and explicit transactions. Schema 2 adds worker_coordination and the stored lead ID to schema 1; schema 3 adds the `agents.lifetime` column (existing identities become durable). Startup performs these additive migrations inside a transaction. Unknown schema versions are rejected.
+| Module                                     | Responsibility                                                                                 |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `src/protocol.ts`                          | Every operation's input schema, the closed vocabularies, MCP tool descriptions and `MeshError` |
+| `src/error-statuses.ts`                    | The closed table of error codes and HTTP statuses                                              |
+| `src/config.ts`                            | Project bootstrap, credentials and identities                                                  |
+| `src/teams.ts`                             | Workspace teams, path normalization, Docker mount translation and routing references           |
+| `src/database.ts`                          | Typed, schema-validated SQLite queries                                                         |
+| `src/store.ts`                             | Schema and migrations, identity and presence, messages, acknowledgements and events            |
+| `src/coordination.ts`                      | Check-in requests, the designated lead and idle approval                                       |
+| `src/message-dedup.ts`, `src/retention.ts` | Idempotent sends, broadcast collapsing and bounded retention                                   |
+| `src/waiters.ts`                           | In-memory waits woken only after commit                                                        |
 
-Factory initialization also adds provider-typed work keys transactionally, without altering `factory_tasks` or `factory_effects`. The `factory_task_keys` and `factory_effect_keys` side tables hold `tracker_provider` and `external_key` per task or effect ID. `AFTER INSERT` triggers write `github` and the numeric issue as text for every insert, including inserts by older positional `INSERT ... VALUES` writers. `AFTER DELETE` triggers remove the matching keys, and an idempotent backfill keys rows that predate the triggers. Numeric issue readers, task uniqueness, column counts and effect operation identities are unchanged. This is only the expand step: Jira writes, typed-key readers and removal of numeric columns are deferred.
+### 2. Transport and entry points
 
-## Transactions and wait delivery
+| Module                                       | Responsibility                                                                                         |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `src/broker.ts`                              | HTTP boundary, authentication, operator-only and lead checks, routing to store, factory and connectors |
+| `src/client.ts`                              | One authenticated RPC, plus the bridge's heartbeat lifecycle; never retries a mutation                 |
+| `src/mcp.ts`                                 | The stdio MCP bridge: `mesh_join`, tool registration, held waits and participation prompts             |
+| `src/managed-tools.ts`                       | The tools each managed seat may call, and role tool-policy narrowing                                   |
+| `src/cli.ts`, `src/factory-cli.ts`           | Every human command, from `doctor` to `factory-reconcile-github`                                       |
+| `src/doctor.ts`                              | First-run preflight checks                                                                             |
+| `src/docker-mcp.ts`, `src/docker-runtime.ts` | Host launcher for container bridges; container entry point owning broker and console                   |
+| `src/log.ts`                                 | Structured stderr diagnostics                                                                          |
 
-Store.execute wraps mutations in BEGIN IMMEDIATE/COMMIT. Coordination methods run inside that transaction, so a message and idle revocation are indivisible, as are a lead decision and resolution of its request notification. A decision checks the current request ID and phase before changing anything.
+### 3. Factory supervisor (`src/factory/`)
 
-The broker notifies Waiters only after execute/register returns, hence after commit. A wait reads current state synchronously and subscribes without an intervening await, so a change cannot be lost between checking and listening on Node's event loop. Open waits never hold SQLite transactions across suspension.
+| Module                                                                                  | Responsibility                                                                          |
+| --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `schema.ts`, `seats.ts`                                                                 | Factory settings, ledger records, seats, providers and assignment kinds                 |
+| `workflow-schema.ts`, `workflows.ts`, `pipeline.ts`                                     | Workflow validation, the revisioned library and how steps map onto deliveries           |
+| `repository.ts`                                                                         | The transactional ledger: claims, reservations, review evidence and outbox effects      |
+| `service.ts`                                                                            | The supervisor loop: reconcile, intake, automations, admission, dispatch                |
+| `scheduler.ts`, `dispatch-admission.ts`, `admission.ts`, `resources.ts`                 | Candidate ordering and filtering, and broker-wide admission                             |
+| `execution.ts`, `workspaces.ts`, `assignment-preflight.ts`, `baseline.ts`               | Worktrees, snapshots, preflight, checks and the main baseline                           |
+| `providers.ts`, `copilot.ts`, `cloud.ts`, `processes.ts`, `agent-process.ts`            | Provider adapters, Codex Cloud tasks and owned process containment                      |
+| `liveness*.ts`, `extension-gate.ts`, `retry-policy.ts`, `checkpoint-decisions.ts`       | Checkpoints, extensions, holds, retries and operator decisions                          |
+| `reconcile.ts`, `post-agent.ts`, `publication-size.ts`, `main-refresh.ts`, `repairs.ts` | Publication, `failure.json`, refreshes and repair rounds                                |
+| `merge-path.ts`, `external-merge.ts`, `adoption.ts`, `worktree-owner.ts`                | Protected merges, external-merge adoption, GitHub reconciliation and worktree ownership |
+| `remote.ts`, `local-delivery.ts`, `local-hub.ts`, `local-tracker.ts`                    | GitHub delivery adapter and the local hub and tracker                                   |
+| `manager-*.ts`                                                                          | The persistent delivery manager: service, process, ledger, brief and launch scope       |
+| `operator-only.ts`, `triage.ts`, `recovery.ts`                                          | Which operations only the operator may call; blocker and objective decisions            |
+| `recommendation-*.ts`, `intake-corpus.ts`                                               | Duplicate and overlap intake, human recommendation decisions and their execution        |
+| `automations.ts`, `cron.ts`, `spend.ts`, `vault.ts`, `role-controls.ts`                 | Schedules and triggers, spend caps, the secrets vault and the roles editor              |
+| `status.ts`, `console-view.ts`                                                          | The read projections the console renders                                                |
+| `terminals.ts`, `terminal-*.ts`                                                         | Operator scratch terminals                                                              |
 
-Waiters authenticate each wake again to reject replaced sessions. HTTP disconnection, MCP cancellation, timeout and broker shutdown all share cleanup that removes the pending entry and timer. Durable state remains in SQLite; temporary Promise handles do not survive process restart.
+### 4. Web gateway (`src/web/`)
 
-The MCP facade adds hold mode: empty bounded HTTP timeouts renew inside the same tool callback. This avoids repeated model continuations while keeping the underlying HTTP requests finite. Host tool cancellation remains authoritative and propagates through AbortSignal to fetch and then response-close cleanup. Only one wait is permitted per agent.
+| Module                                                       | Responsibility                                                         |
+| ------------------------------------------------------------ | ---------------------------------------------------------------------- |
+| `server.ts`                                                  | Static PWA assets, pairing, `/api/*` routing and the control allowlist |
+| `projects.ts`                                                | Server-side project routing; proxies reads and controls to the broker  |
+| `security.ts`, `pairing.ts`                                  | Origin checks, in-memory sessions and the persisted pairing code       |
+| `artifacts.ts`, `telemetry-routes.ts`, `terminal-streams.ts` | Allowlisted job files, telemetry queries and terminal SSE              |
+| `native.ts`                                                  | `ui --with-broker`: broker and console in one process                  |
 
-## Identity and recovery
+The browser app is in `web/src/`. `navigation.ts` lists the console sections, and `i18n.ts` holds the English catalog (Simplified Chinese is in the `catalog-zh-*.ts` files).
 
-Project initialization creates a random project ID and bearer secret. The database records its project ID and rejects reuse with a different project configuration. Each agent name gets a random local secret; only its hash is stored in SQLite. Agents have stable UUID-based IDs, while each bridge process generates a fresh session UUID.
+### 5. Connectors and learning
 
-Registration reuses an identity only with the correct secret. Another live session using that name is rejected. Once its lease expires or it disconnects, a replacement bridge can register the same identity and inbox. Old session credentials become invalid after replacement. Credentials do not appear in list/status/event responses or broker logs.
+| Module                                                  | Responsibility                                                                           |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/connector.ts`, `connection-*.ts`, `credentials.ts` | Connection records, per-section save and verification, credential handles                |
+| `src/capability-policy.ts`, `capability-endpoints.ts`   | The capability policy store and its read and human edit                                  |
+| `src/connector-bindings.ts`                             | Reviewed, role-scoped MCP tool bindings                                                  |
+| `src/github.ts`, `github-*.ts`                          | GitHub Projects, discovery, issues, labels, milestones, views and fields through `gh`    |
+| `src/learning.ts`, `guidance.ts`                        | Lessons, pinned research, skill candidates and the managed `AGENTS.md`/`CLAUDE.md` block |
+| `src/jira/`                                             | Jira Cloud discovery, modes, creation and transitions. Not wired into MALT yet.          |
 
-A bridge launched without a name uses a **session identity** instead: a generated name and a secret that exists only in the bridge's memory, registered with `ephemeral: true` when the model calls `mesh_join`. It can never reconnect after its bridge exits. A clean disconnect therefore ends it in one transaction: its pending request is retired, unfinished assigned work is reported to the lead as a `worker_left` message, and its lifetime becomes `ended`, which removes it from the roster, broadcasts and messaging and rejects its credentials. A crashed session simply expires to OFFLINE. An ended lead's unread inbox passes to the next lead.
-
-Heartbeats run independently of model turns, every 15 seconds by default. An agent becomes OFFLINE after 60 seconds without a heartbeat. A clean bridge disconnect marks a named identity offline immediately. A native bridge can keep using its existing credentials across a broker restart; recreating the container also terminates container-based bridges, which the MCP host must reconnect.
-
-## Message semantics
-
-Messages and their send events commit in the same transaction. Broadcast fan-out is transactional and creates a per-recipient message. Inbox reads do not acknowledge. Acknowledgement only works for the recipient and emits one event even if repeated. Reply looks up the original inside the sender's own inbox. Message/event sequence numbers provide stable cursor pagination.
-
-Acknowledged messages remain available for history; retention and pruning are deferred. A request timeout is ambiguous for a mutation, so automatic send retries are intentionally absent. A future idempotency key can support safe retries. Cooperative message handoff payloads and task references remain message metadata. Managed factory tasks, claims and reporting handoffs have their own durable SQLite records; they are separate from cooperative work requests and do not turn a message into verified delivery evidence.
-
-## Local trust model
-
-All RPCs require the addressed team's bearer secret and project ID; one team's token is rejected by every other team. Agent operations also require the agent secret and current session UUID. The home project's token can open any workspace team (`open_team` returns that team's token), so it is the broker's administrative secret. Project-authenticated CLI readers may view aggregate status, the roster, and events without registering. HTTP requests from browser origins are rejected. No CORS is enabled. The health endpoint reveals only service health/version.
-
-The local OS account and users with Docker access are trusted administrators: they can read project/identity files and inspect the database. This is not tenant isolation or a hostile-agent sandbox. Local broker credentials live in the project .malt folders; GitHub authentication stays with gh or the container environment. The broker invokes gh using argument arrays and structured stdin without a shell. It never executes downloaded research scripts or blanket-kills provider processes. Managed assignments use explicit provider permissions and terminate only their owned process trees; cooperative attached sessions retain their host permissions. Bind to loopback outside Docker; container port publication is loopback-only. Remote hosting and TLS are outside this milestone.
-
-## Factory execution and verification boundaries
-
-Objective ordering, focus/clearance and blocker decisions share the durable repository/supervisor authority. Model tier/effort routing is implemented, but a revisioned allowed-combination policy is not. Connector v2 records, the capability policy store and recommendation storage/classification are separate foundations; their presence does not grant connector authority or execute a consolidation. Scratch terminals start only through authenticated operator controls, not agent RPC or scheduler work.
-
-Transactional task claims, dependency validation, original-owner rework, independent head/base reviews, owned worktrees, native provider launch policies and an unpaid supervisor now implement the managed lifecycle. The native terminal dashboard and installable PWA inspect and control the same durable backend; neither is a separate scheduler. Frontend production dependencies are absent; MCP SDK and Zod remain backend dependencies.
-
-The optional [delivery manager](delivery-manager.md) is one persistent model session per project, launched through the same owned-process containment as workers. Its conversation, session generations, decisions and report cursor live in the project database. The broker fences every message and report to the current generation, and grants it a fixed scope of factory operations only while that generation is live. It is a steering client of the supervisor, not a second scheduler: every action it takes passes the same transactions and gates as an operator control.
-
-The [scratch-terminal service](interactive-terminals.md) reserves the same broker-wide admission pool, builds an allowlisted subscription-CLI descriptor and fetches a separate owned worktree. The native addon lives behind the contained process wrapper: Windows Job Objects use an OS-lifetime pipe for wrapper-loss cleanup; POSIX retires both host and CLI process groups. The colocated gateway receives a memory-only, project-scoped operator capability, revoked when its broker closes. All ordinary terminal RPC is rejected, including project-token calls without agent credentials. Terminal operations are absent from MCP tools. Native `ui --with-broker` and Docker share the owning process lifetime; a separate UI cannot grant this capability.
-
-Only terminal metadata/counters are transactional SQLite state. Redacted output stays in a bounded RAM ring and reaches the browser over cursor SSE. Input is transient, single-flight and never automatically retried; reconnect does not replay it. Restart fences orphan metadata and starts no process. The generated README is derived and cannot roll back a committed transition. Scratch branches/commits/output cannot enter managed publication, QA, skill or merge evidence. These boundaries are exercised with real Git/worktrees/native PTYs and fixture inference, not protocol-shaped terminal mocks.
-
-The connected regression scenario uses real local Git and validation processes with fixture inference and GitHub. Windows tests verify native literal arguments, standard input, credential redaction, cancellation, hard descendant-count ceilings and cleanup. Instruction receipts distinguish dispatch from explicit model reports. Restart recovery acquires the durable supervisor lease before fencing old jobs. Browser inspection verifies paired backend controls and human skill decisions; Docker smoke exercises the colocated PWA/broker and persistence across recreation. Both subscription CLIs have passed bounded native structured-response smokes. Approved reusable lessons reach a separate source factory through human-authorized, journaled, idempotent objectives; no running daemon is hot-patched. Live delivery through a protected target GitHub Project and complete browser installation/update/offline verification remain unverified. See [Mission control](operator-console.md) for current startup, policy and evidence.
-
-GitHub and learning operations run outside SQLite transactions, use each workspace's own services and append completion events. GitHub mutation queues serialize setup and issue operations within a project; journals persist checkpoints across restarts. Immutable research and skill candidates retain provenance. Only the designated lead can mutate GitHub tickets. Skill changes require independent lead review followed by human approval; managed agents cannot activate or retire them. See [Project coordination and learning](software-factory.md) for the detailed lifecycle and limits.
+Inline comments explain the ordering and failure rules that matter: authorization, state transitions, migrations, cancellation and waiting.

@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="652" viewBox="0 0 880 652" role="img" aria-labelledby="title desc">
+  <title id="title">Connector capability policy: principal, mode, decision, blocker</title>
+  <desc id="desc">Every connector mutation is authorized before dispatch. The principal comes from authenticated context, never from request data: the human operator, meaning the console or factory CLI using the project token without agent credentials; an agent, meaning an MCP or RPC call by the designated lead, acting as team-lead; or the supervisor, acting for team-lead when it provisions plans, re-verifies the connection and moves board status. Each capability has one mode. disabled denies everyone. human-only allows the human and denies agents and the supervisor. approved-agent-roles allows the human, and allows agents and the supervisor only for the roles it lists. An operation needs every capability it lists. If allowed, the call is dispatched and journaled. If denied, it fails with CAPABILITY_DENIED, makes no remote call and writes no journal; in the factory, the delivery or objective is parked once with one durable blocker naming the capability, its mode and the human action, with no retry loop and no paid run. It resumes after a policy edit or factory_retry. By default every capability is disabled except project-create and project-connect, which are human-only, and a human connect grants team-lead five capabilities. The delivery adapter's direct repository effects, such as pull requests, merges, closures and comments, are not gated yet.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}.sys{fill:var(--sys);stroke:var(--sysl)}
+    .hum{fill:var(--hum);stroke:var(--huml)}.agt{fill:var(--agt);stroke:var(--agtl)}
+    .ok{fill:var(--card);stroke:var(--stol)}
+    .ht{fill:var(--humt)}.at{fill:var(--agtt)}.st{fill:var(--stot)}
+    .w{fill:none;stroke:var(--wire);stroke-width:1.5}.ah{fill:var(--wire)}
+    .yes{fill:none;stroke:var(--stol);stroke-width:2.25;stroke-linecap:round;stroke-linejoin:round}
+    .no{fill:none;stroke:var(--mut);stroke-width:2;stroke-linecap:round}
+    .sep{stroke:var(--line)}
+    .ch{font-size:13.5px;font-weight:600;fill:var(--mut);text-anchor:middle}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0 1L10 5L0 9z"/></marker>
+    <path id="y" d="M-6 0l4 4l8 -8"/>
+    <path id="n" d="M-5 -5l10 10M5 -5l-10 10"/>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="651" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · CONNECTOR CAPABILITIES</text>
+  <text class="ttl" x="32" y="68">One policy check before every connector mutation</text>
+  <text class="s mut" x="32" y="92">The principal comes from authenticated context, never from request data. Only a human can edit the policy.</text>
+
+  <!-- Principals -->
+  <g transform="translate(32 128)">
+    <rect class="hum" width="230" height="96" rx="10"/>
+    <text class="b ht" x="16" y="26">Human operator</text>
+    <text class="m mut" x="16" y="46">kind: human</text>
+    <text class="s mut" x="16" y="67">Console or factory CLI, project</text>
+    <text class="s mut" x="16" y="85">token without agent credentials</text>
+  </g>
+  <g transform="translate(32 240)">
+    <rect class="agt" width="230" height="96" rx="10"/>
+    <text class="b at" x="16" y="26">Agent</text>
+    <text class="m mut" x="16" y="46">kind: agent, role</text>
+    <text class="s mut" x="16" y="67">MCP or RPC call by the</text>
+    <text class="s mut" x="16" y="85">designated lead, as team-lead</text>
+  </g>
+  <g transform="translate(32 352)">
+    <rect class="sys" width="230" height="96" rx="10"/>
+    <text class="b" x="16" y="26">Supervisor</text>
+    <text class="m mut" x="16" y="46">kind: supervisor</text>
+    <text class="s mut" x="16" y="67">Acts for team-lead: plans,</text>
+    <text class="s mut" x="16" y="85">re-verifies, moves status</text>
+  </g>
+  <path class="w" d="M262 176H295" marker-end="url(#ah)"/>
+  <path class="w" d="M262 288H295" marker-end="url(#ah)"/>
+  <path class="w" d="M262 400H295" marker-end="url(#ah)"/>
+
+  <!-- Mode matrix -->
+  <g transform="translate(296 128)">
+    <rect class="card" width="300" height="320" rx="10"/>
+    <text class="b" x="16" y="28">Mode of each capability</text>
+    <text class="s mut" x="16" y="50">An operation needs all of its</text>
+    <text class="s mut" x="16" y="68">capabilities; reads need none.</text>
+    <text class="ch" x="16" y="104" style="text-anchor:start">mode</text>
+    <text class="ch" x="210" y="104">Human</text>
+    <text class="ch" x="264" y="104">Agent*</text>
+    <path class="sep" d="M16 116H284M16 152H284M16 188H284M16 224H284"/>
+    <text class="m" x="16" y="139">disabled</text>
+    <use href="#n" class="no" x="210" y="134"/><use href="#n" class="no" x="264" y="134"/>
+    <text class="m" x="16" y="175">human-only</text>
+    <use href="#y" class="yes" x="210" y="172"/><use href="#n" class="no" x="264" y="170"/>
+    <text class="m" x="16" y="211">approved-agent-roles</text>
+    <use href="#y" class="yes" x="210" y="208"/><use href="#y" class="yes" x="264" y="208"/>
+    <text class="s mut" x="16" y="252">* Agents and the supervisor pass</text>
+    <text class="s mut" x="16" y="270">only for a role the policy lists.</text>
+    <text class="s mut" x="16" y="298">Edited in <tspan fill="var(--ink)" font-weight="600">Project → Capabilities</tspan></text>
+  </g>
+
+  <!-- Outcomes -->
+  <g transform="translate(630 128)">
+    <rect class="ok" width="218" height="68" rx="10"/>
+    <use href="#y" class="yes" x="24" y="26"/>
+    <text class="b st" x="40" y="30">Allowed</text>
+    <text class="s mut" x="16" y="53">Dispatched and journaled</text>
+  </g>
+  <g transform="translate(630 212)">
+    <rect class="card" width="218" height="88" rx="10"/>
+    <use href="#n" class="no" x="24" y="24"/>
+    <text class="b" x="40" y="30">Denied</text>
+    <text class="m" x="16" y="53">CAPABILITY_DENIED</text>
+    <text class="s mut" x="16" y="74">No remote call, no journal</text>
+  </g>
+  <g transform="translate(630 316)">
+    <rect class="hum" width="218" height="132" rx="10"/>
+    <text class="b ht" x="16" y="28">One durable blocker</text>
+    <text class="s mut" x="16" y="52">Parks the work once, naming</text>
+    <text class="s mut" x="16" y="71">the capability, its mode and</text>
+    <text class="s mut" x="16" y="90">the human action. No retry</text>
+    <text class="s mut" x="16" y="109">loop and no paid run.</text>
+  </g>
+  <path class="w" d="M596 162H629" marker-end="url(#ah)"/>
+  <path class="w" d="M596 256H629" marker-end="url(#ah)"/>
+  <path class="w" d="M739 300V315" marker-end="url(#ah)"/>
+
+  <!-- Notes -->
+  <g transform="translate(32 476)">
+    <rect class="card" width="400" height="122" rx="10"/>
+    <text class="b" x="16" y="28">Defaults</text>
+    <text class="s mut" x="16" y="53">Every capability starts <tspan class="m" fill="var(--ink)">disabled</tspan> except</text>
+    <text class="s mut" x="16" y="73"><tspan class="m" fill="var(--ink)">project-create</tspan> and <tspan class="m" fill="var(--ink)">project-connect</tspan>,</text>
+    <text class="s mut" x="16" y="93">which start human-only. A human connect grants</text>
+    <text class="s mut" x="16" y="112">team-lead five; a human's own choice is kept.</text>
+  </g>
+  <g transform="translate(448 476)">
+    <rect class="card" width="400" height="122" rx="10"/>
+    <text class="b" x="16" y="28">Resume and limits</text>
+    <text class="s mut" x="16" y="53">A policy edit releases parked work to its earlier</text>
+    <text class="s mut" x="16" y="73">phase; <tspan class="m" fill="var(--ink)">factory_retry</tspan> also resolves the blocker.</text>
+    <text class="s mut" x="16" y="93">Not gated yet: the delivery adapter's direct pull</text>
+    <text class="s mut" x="16" y="112">request, merge, closure and comment calls.</text>
+  </g>
+  <text class="s mut" x="32" y="628">Every policy edit is appended to history with the actor, the previous and next policy, and the time.</text>
+</svg>

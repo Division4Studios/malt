@@ -1,46 +1,89 @@
-# Human-reviewed project management
+# Review ticket recommendations
 
-This is the accepted delivery scope for the dedicated project-management approval panel. The panel and general ticket-decision executor are not implemented yet. Current human skill decisions approve exact skill revisions only. Product/lead intake guidance already requires duplicate and related-ticket inspection; it does not authorize consolidation.
+A **recommendation** is a proposal to link, merge or change tickets: for example "issue #41 duplicates #37, keep #37". Recommendations come from the supervisor's overlap check and from the product owner and team lead. Only a human decides them, on **Project → Recommendations**. An approved duplicate or consolidation is then carried out by the unpaid supervisor, through the same durable effect journal it uses for every other GitHub change.
 
-## Implemented foundations
+This keeps two rules intact: agents never close or merge tickets on their own judgement, and no ticket changes without a human approving the exact proposal.
 
-The [recommendation store](recommendation-store.md) is merged (#51 / PR #93), as is the [deterministic duplicate/related classifier](duplicate-detection.md) (#52 / PR #94). Neither is connected to the complete human decision/execution lifecycle below. The repository-wide observed-revision corpus, scoped submission/read/decision routes, intake hook, executor, notifications and browser pane remain open under [#50](https://github.com/Division4Studios/malt/issues/50). Dispatcher task triage and exact skill approval are separate existing controls; they must not be presented as this recommendation panel. See [current capabilities](current-status.md).
+## Where recommendations come from
 
-## Intake and recommendation
+- **Intake overlap check.** Before a new objective is planned, the supervisor compares it, without a paid model turn, with the repository's open and relevant closed issues, local objectives and unresolved operations. If it finds evidence-backed overlap, it records a `related` recommendation and parks only that objective. Unrelated work keeps running. See [how overlap is detected](#how-overlap-is-detected).
+- **Product owner and team lead.** During a managed assignment, these roles can submit a proposal with `mesh_factory_recommendation_propose`. It must carry evidence and the exact observed revision of every ticket it names. Agents can submit and read recommendations; they can never approve or execute them.
+- **Interrupted operations are not recommendations.** If an exact interrupted operation identity exists, MALT resumes it automatically instead of proposing anything.
 
-Before new feature/bug planning, scope changes and ticket creation, search the selected repository's open and relevant closed issues, native parent/child relationships, local objectives and unresolved remote operations. Exact interrupted-operation recovery reuses its existing identity automatically. Semantic similarity produces a recommendation, not automatic closure. Compare behavior, acceptance, reproduction, component and dependencies; retain contrary evidence and distinguish related work from a true duplicate.
+Each recommendation has one of these kinds:
 
-Proposals identify the target project, exact issue IDs/links and observed revisions, overlap evidence, proposed survivor, transferred acceptance/dependencies, affected active assignments, proposed labels/status changes and a readable before/after preview. Preserve comments and source history. Consolidation must not silently discard distinct requirements, edits or defects.
+| Kind                  | Meaning                                                    | What approval does                                                       |
+| --------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `duplicate`           | Tickets describe the same work; one survives.              | Comments on every ticket and closes the others as not planned.           |
+| `consolidate`         | Tickets merge into one survivor with transferred criteria. | Same as `duplicate`, with the transferred acceptance and dependencies.   |
+| `related`             | Tickets overlap but are distinct.                          | Records the decision and notifies the affected roles. No ticket changes. |
+| `scope_change`        | A change to an objective's scope.                          | Records the decision and notifies the affected roles. No ticket changes. |
+| `guidance_suggestion` | Reusable guidance for future work.                         | Proposes an inactive skill candidate (see below).                        |
 
-## Durable decision queue
+## Review and decide
 
-```mermaid
-stateDiagram-v2
-  [*] --> Proposed
-  Proposed --> AwaitingHuman: Evidence and exact action revision
-  AwaitingHuman --> Rejected: Human rejects with rationale
-  AwaitingHuman --> Approved: Human approves exact revision
-  Approved --> Stale: Ticket or scope changed
-  Approved --> Applying: Recheck authorization and current state
-  Applying --> Completed: Confirm remote result and receipt
-  Applying --> Reconciling: Ambiguous remote response
-  Reconciling --> Completed: Existing effect confirmed
-  Reconciling --> Applying: Safe bounded retry
-  Stale --> Proposed: Revised proposal needs new approval
-```
+Open **Project → Recommendations**. The **Project** navigation button shows a count when recommendations are pending or unread.
 
-This is the queued panel's required behavior. Waiting is durable state, with no resident model process. A ticket decision does not approve a separate reusable skill revision.
+![Project → Recommendations: lanes by state, and a proposal's detail with tickets, survivor, evidence, before and after preview, a rationale field and Approve and Reject buttons](images/screenshots/recommendations.png)
 
-Expose pending, approved, rejected, stale, applying, completed and failed recommendations in a project-management pane reachable from the existing Project section. Show unread/pending counts without another permanent top-level navigation section. Read-only discovery and the durable queue require no resident model process. Unaffected deliveries continue; only work actually dependent on clarification is blocked.
+1. Pick a recommendation from a lane: **Pending**, **Approved**, **Applying**, **Completed**, **Rejected**, **Stale** or **Failed**.
+2. Read the detail: **Tickets**, **Survivor**, **Revision**, **Transferred acceptance**, **Transferred dependencies**, **Affected assignments**, **Evidence**, and the **Before** and **After** preview. Proposal text is shown exactly as written and is never translated.
+3. Write a **Rationale (required)**.
+4. Choose **Approve** or **Reject**.
 
-Human controls approve or reject an exact proposal revision with a rationale. Agents cannot approve. Check project authorization, current ticket state and proposal freshness at decision time and execution time. Changed tickets, dependencies or affected work invalidate approval rather than silently widening it. Deduplicate repeated clicks, reconnects and retries using stable operation identities and checkpoints. Reconcile ambiguous remote effects without duplicating comments or replaying a paid implementation turn.
+What happens when you decide:
 
-Approved decisions queue bounded work for the responsible product owner/lead or execute narrowly authorized deterministic ticket operations through the existing supervisor. The pane owns neither a second scheduler nor a parallel ticket-state database. Preserve the audit trail and notify affected roles durably; spun-down roles read the decision on their next relevant assignment. Rejecting has no proposed side effects and remains visible to future intake to avoid repeatedly presenting unchanged rejected advice.
+- **The decision covers one exact revision.** If the proposal changed since you opened it, the console says so; choose **Refresh** and review the current revision.
+- **Freshness is checked again.** Before recording the decision, MALT re-reads every named issue and local objective. If any changed, the recommendation becomes **Stale** instead of approved, and nothing happens. A stale proposal needs a new revision and a new decision.
+- **Repeats are safe.** Each decision has a stable operation ID. Repeated clicks, reconnects and retries return the original result, and reusing an ID with a different decision is refused.
+- **Only the paired console can decide.** Approve and reject are not MCP tools or broker RPC operations, so no agent can call them.
+
+Reading a recommendation in the console marks that revision read. A read receipt never approves anything.
+
+### Release a parked objective
+
+An objective parked by the intake check resumes when its `related` recommendation is **rejected** (it proceeds as independent work) or **completed**. Approving a `related` recommendation records your agreement that the work overlaps but runs no effects, so the objective stays parked until it is resolved another way, for example by recovering or replacing its scope.
+
+## What approval executes
+
+Approved `duplicate` and `consolidate` recommendations are executed by the unpaid supervisor on its next reconcile:
+
+1. It re-reads every observed issue. If any changed after approval, the recommendation becomes **Stale** and nothing is changed.
+2. It queues ordinary outbox effects with deterministic IDs: a comment on the survivor listing the retired tickets, transferred acceptance and dependencies; then, for each retired ticket, a comment pointing at the survivor and a "closed as not planned" closure.
+3. Each comment carries a marker, and closures check the closed state, so a retry after a lost response never posts twice or closes twice.
+4. When every effect is confirmed, the recommendation is **Completed** and the affected roles are notified.
+
+Local deliveries move with the tickets. Every delivery that depended on a retired ticket's delivery now depends on the survivor's delivery. Retired deliveries are held, never deleted: their worktrees, branches, uncommitted edits, attempts and history stay as they were, and a running attempt finishes normally. The transfer is refused, with nothing changed, if the recorded deliveries no longer match, a retired delivery is already merging or merged, a dependent has no local survivor, or the change would create a cycle.
+
+If GitHub refuses an effect for permissions (401 or 403), or an effect fails five times, the recommendation becomes **Failed** and its remaining effects stop. The operator-only `factory_recommendation_retry` operation re-reads the tickets no effect has touched yet and re-queues the same idempotent effects, so tickets already changed are not changed twice. The console has no retry button yet.
+
+The comments and closures are made through the delivery adapter, which is not capability-checked yet. See [enforcement](capability-policy.md#enforcement).
+
+### Guidance suggestions become skill candidates
+
+A ticket decision never changes skills. When a `guidance_suggestion` is approved, the supervisor records one project lesson with the recommendation's evidence and provenance, proposes one inactive skill candidate from it, and queues one skill request. Activating that candidate still needs the independent lead review and your approval of its exact revision, as for any other skill. Running assignments keep their frozen context. Each step happens once across retries and restarts.
+
+### Notifications
+
+When a recommendation is approved, rejected, goes stale, completes or fails, MALT records one durable notice per affected role. A role that is not running reads the notice on its next relevant assignment. Notices are data for fresh assignments; they never patch a running prompt.
+
+## How overlap is detected
+
+`detectDuplicates` (`src/factory/duplicate-detection.ts`) is a pure, deterministic classifier over the objective, observed issues, local objectives and operations. It makes no network calls and stores nothing.
+
+- **Evidence, not titles.** A match needs concrete behavioural, acceptance, reproduction, component or dependency evidence. Titles alone never establish a duplicate. Contradictory evidence is kept.
+- **Duplicate versus related.** Closed issues remain related references. When several open tickets are comparably strong duplicates, no survivor is proposed.
+- **Interrupted operations first.** An exact unresolved operation identity takes precedence: the result contains reusable operations, no matches and no survivor. This holds even when the interrupted operation has no known issue, or several issues would otherwise match. Resolved operations and different identities do not suppress classification.
+- **Hostile text stays data.** Free text is reduced to bounded normalized word tokens, so markup or instructions in an issue cannot reach the output structure. Echoed identities are bounded and sanitized, and ranking uses locale-independent ordering. Consumers must still render returned data safely.
+
+The detector only classifies. Recording, deciding and executing are the steps described above. The lifecycle and storage rules are in the [recommendation store](recommendation-store.md), and the agent-facing operations are in the [API reference](api.md#managed-recommendation-submissions).
 
 ## Ticket decisions and skill changes
 
-A one-off ticket consolidation is not a skill override. If a decision suggests reusable guidance, create a separate tailored candidate with evidence, provenance and exact content hash. Independent lead review and explicit human approval of that exact revision precede activation in `.malt/skills/`. Preserve prior revisions and adoption history. Notify affected roles; already running assignments retain frozen context. Unknown or conflicting local changes must not be overwritten.
+A one-off ticket consolidation is not a skill override. Reusable guidance goes through a separate candidate with evidence, provenance and an exact content hash. An independent lead review and your explicit approval of that exact revision come before activation in `.malt/skills/`. Prior revisions and adoption history are kept, and unknown or conflicting local changes are never overwritten.
 
-## Verification
+## Not done yet
 
-Cover true duplicates versus related tickets, differing acceptance, closed duplicates, missing permissions, active/dirty work, stale proposals and approvals, rejected recommendations, double submission, broker restart, ambiguous remote completion, provider switching and durable notifications. Verify real browser approve/reject controls against fixture GitHub operations with no paid inference. Add hostile-text, project-isolation and keyboard tests. Live consolidation requires a concrete approved proposal; do not close real tickets to manufacture a demonstration.
+- A loopback end-to-end proof of the whole flow against fixture GitHub operations, and reconciled documentation, is open as [#64](https://github.com/Division4Studios/malt/issues/64) under [#50](https://github.com/Division4Studios/malt/issues/50).
+- A console control for retrying a failed recommendation.
+- Live consolidation needs a concrete approved proposal. Do not close real tickets to manufacture a demonstration.

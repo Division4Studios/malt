@@ -4,22 +4,20 @@ MALT can run its whole delivery loop on one machine. Issues, pull requests, revi
 
 ## What runs where
 
-```text
-Your machine                                         Leaves the machine
------------------------------------------------      ----------------------------
-Supervisor + delivery manager + broker + console
-  product owner → lead → developer → 2 × QA →        model turns, through each
-  final tester → merge → verify on main              CLI's own subscription login
-.malt/local/hub.git      protected bare hub
-.malt/local/tracker.json issues and pull requests
-owned worktrees          one per delivery
-                                                      optional: Codex Cloud tasks
-                                                      (see "Cloud developer sessions")
-```
+![GitHub delivery compared with the local hub and optional Codex Cloud tasks](images/diagrams/delivery-modes.svg)
+
+| Part                                                 | Local hub                                                         | GitHub delivery                      |
+| ---------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------ |
+| Issues and pull requests                             | `.malt/local/tracker.json`, shown in **Workflow → Pull requests** | GitHub issues, sub-issues and PRs    |
+| Branches and merges                                  | `.malt/local/hub.git`, a protected bare repository                | Your GitHub repository and its rules |
+| Planning, development, QA, final check, verification | Supervisor and managed roles on your machine                      | The same                             |
+| What leaves the machine                              | Model turns, through each CLI's subscription login                | Model turns, plus GitHub API calls   |
+
+Codex Cloud developer tasks are optional in either mode; see [Cloud developer sessions](#cloud-developer-sessions). To choose between the modes for your own repository, see [Choose a delivery mode](using-malt-in-your-project.md#choose-a-delivery-mode).
 
 ## Turn it on
 
-Pause the factory, then apply a policy with `"delivery": "local"`. In the console use **Project → Setup & capacity → Configure factory policy**; from a terminal:
+Pause the factory, then apply a policy with `"delivery": "local"`. In the console use **Project → Setup & capacity → Edit factory configuration**, which opens the **Configure factory policy** editor; from a terminal:
 
 ```json
 {
@@ -34,9 +32,9 @@ Pause the factory, then apply a policy with `"delivery": "local"`. In the consol
 node src/cli.ts factory-setup --project "C:\work\app" --file policy.json
 ```
 
-Setup creates `.malt/local/hub.git`, pushes your current base branch into it, registers it as the `malt-hub` Git remote and installs a receive hook that rejects every push to the base branch. If `malt-hub` already points elsewhere, setup fails and nothing is saved. Repeating setup reuses the existing hub.
+Setup creates `.malt/local/hub.git`, pushes your current base branch into it, registers it as the Git remote named by `remote` (here `malt-hub`) and installs a receive hook that rejects every push to the base branch. Set `remote` explicitly: the default is `origin`, which usually already points at a hosted repository. If the named remote already points elsewhere, setup fails and nothing is saved. Repeating setup reuses the existing hub, and re-applying the policy restores a missing or modified hook. The factory refuses to deliver while the hub or its base branch is missing, or, with `requireBranchProtection` (the default), while the hook is missing.
 
-Existing projects keep `"delivery": "github"` until you change it. The console's starting template for a new project proposes local delivery.
+Existing projects keep `"delivery": "github"` until you change it. The console's starting template for a new project proposes local delivery. Local mode needs no GitHub connection; the console's **Get started** step **Connect the GitHub repository and Project** stays at **Next** and can be skipped.
 
 ## How a local delivery flows
 
@@ -69,6 +67,8 @@ Sync fast-forwards your local base branch from the hub. If the base is checked o
 
 ## Manage issues and pull requests
 
+![Workflow → Pull requests with a local pull request's checks and diff](images/screenshots/pull-requests.png)
+
 The console's **Workflow → Pull requests** view shows:
 
 - pull requests (open first) with checks, discussion and a line-numbered, collapsible diff;
@@ -93,7 +93,11 @@ Every mutation goes through the broker, which is the ledger's only writer. Write
 Copilot is off by default. Enable it in the policy:
 
 ```json
-{ "providers": { "copilot": { "executable": "copilot", "enabled": true, "models": { "standard": "gpt-5.4" } } } }
+{
+  "providers": {
+    "copilot": { "executable": "copilot", "enabled": true, "models": { "standard": "your-copilot-model" } }
+  }
+}
 ```
 
 Managed Copilot assignments run like the Codex and Claude ones:
@@ -104,7 +108,7 @@ Managed Copilot assignments run like the Codex and Claude ones:
 - Review roles cannot write files or run shell commands. Workspace developers are confined to their worktree; `developerAccess: "full-access"` lifts the path restriction.
 - `COPILOT_PROVIDER_*` (bring-your-own-key, API billing) and `COPILOT_OTEL_*` variables are removed from the environment.
 
-Copilot has no output-schema flag, so the final message must be a single JSON object. It is validated by the same result schema as the other providers; anything else fails the attempt. Copilot reports premium requests rather than tokens, so token usage stays "unknown" rather than estimated. Copilot has no unpaid login check, so readiness reports "proven by first assignment". Interactive scratch terminals still support Codex and Claude only.
+Copilot has no output-schema flag, so the final message must be a single JSON object. It is validated by the same result schema as the other providers; anything else fails the attempt. Copilot reports premium requests rather than tokens, so token usage stays "unknown" rather than estimated, so its attempts cannot be estimated from the price table and count as unpriced for [spend caps](operator-console.md#spend-caps). Copilot has no unpaid login check, so readiness reports "proven by first assignment". Interactive scratch terminals, role-type provider choices and the delivery manager support Codex and Claude only.
 
 ## Cloud developer sessions
 
@@ -150,7 +154,7 @@ Compared with OpenHands (Agent Canvas and the software agent SDK, read on 2026-1
 | Cloud runtime / cloud conversations                       | Codex Cloud developer sessions with local review and merge; Claude cloud not automated (see above)                      |
 | Confirmation mode and security analyzers                  | Least-privilege role tools, two independent QA reviews, final gate, protected base, expected-old merges                 |
 | Skills (`AGENTS.md`, `SKILL.md`), MCP                     | Shared project skill library with reviewed adoption, `AGENTS.md`/`CLAUDE.md` context, MCP broker                        |
-| Usage tab and budgets                                     | Measured subscription windows, cooldowns and optional caps; unknown quota is never invented                             |
+| Usage tab and budgets                                     | Measured subscription windows, cooldowns and optional USD spend caps; unknown quota is never invented                   |
 | Terminal, files and VS Code drawers                       | Interactive scratch terminals and worker artifacts; no embedded editor                                                  |
 
 ## Verification

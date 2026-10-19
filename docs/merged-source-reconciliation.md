@@ -1,5 +1,7 @@
 # Merged-source reconciliation — 2026-10-16
 
+> **Historical snapshot (2026-10-16).** This record describes main as it was on that date and is not updated. For the current state, read [current status](current-status.md).
+
 Main [`ee75c10`](https://github.com/Division4Studios/malt/tree/ee75c10fce11d1cd41bd26f437fa9f067cef277f) contains all 15 PRs in recovery/Activity Stack #213. Its tree is identical to final stack source `de9c5e6`. This record supersedes pending-merge descriptions of that stack; it does not rewrite historical audits or certify the entire roadmap.
 
 ## Delivered source and tracking

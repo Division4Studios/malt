@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="584" viewBox="0 0 880 584" role="img" aria-labelledby="title desc">
+  <title id="title">Cooperative check-in and wait for attached sessions</title>
+  <desc id="desc">State machine of a worker's coordination phase, stored in SQLite. A worker that joins with mesh_join starts in CHECKIN_REQUIRED and checks in automatically when its inbox is empty. mesh_check_in moves CHECKIN_REQUIRED to AWAITING_LEAD. From AWAITING_LEAD the lead's mesh_answer_check_in decision either assigns work, giving WORK_ASSIGNED, or grants idle, giving IDLE_APPROVED. A worker in WORK_ASSIGNED checks in with its results and returns to AWAITING_LEAD; messages that arrive while it works do not cancel the assignment. A new message, or a change of lead, returns a worker in AWAITING_LEAD or IDLE_APPROVED to CHECKIN_REQUIRED. Presence is WAITING in CHECKIN_REQUIRED and AWAITING_LEAD, WORKING in WORK_ASSIGNED and IDLE in IDLE_APPROVED. Only the lead's explicit idle decision grants idle; a timeout, no lead or an offline lead never does.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .nm{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}.sys{fill:var(--sys);stroke:var(--sysl)}
+    .agt{fill:var(--agt);stroke:var(--agtl)}
+    .at{fill:var(--agtt)}
+    .sep{stroke:var(--line)}
+    .wk{fill:none;stroke:var(--agtl);stroke-width:1.75}.ak{fill:var(--agtl)}
+    .ld{fill:none;stroke:var(--ink);stroke-width:1.75}.al{fill:var(--ink)}
+    .nw{fill:none;stroke:var(--wire);stroke-width:1.5;stroke-dasharray:6 4}.an{fill:var(--wire)}
+    .lb{font-size:13px;fill:var(--mut);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+    .lbm{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;fill:var(--agtt);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+    .lbl{font-size:13px;font-weight:600;fill:var(--ink);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+  </style>
+  <defs>
+    <marker id="ak" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ak" d="M0 1L10 5L0 9z"/></marker>
+    <marker id="al" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="al" d="M0 1L10 5L0 9z"/></marker>
+    <marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="an" d="M0 1L10 5L0 9z"/></marker>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="583" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · ATTACHED SESSIONS</text>
+  <text class="ttl" x="32" y="68">Cooperative check-in and wait</text>
+  <text class="s mut" x="32" y="92">Each worker's coordination phase is stored in SQLite. The lead decides; silence never grants idle.</text>
+
+  <!-- Join -->
+  <circle cx="132" cy="128" r="6" fill="var(--agtl)"/>
+  <path class="wk" d="M132 134V169" marker-end="url(#ak)"/>
+  <text class="lbm" x="142" y="156">mesh_join</text>
+
+  <!-- States -->
+  <g transform="translate(32 170)">
+    <rect class="card" width="200" height="134" rx="10"/>
+    <text class="nm" x="16" y="30">CHECKIN_REQUIRED</text>
+    <text class="s mut" x="16" y="56">New information arrived.</text>
+    <text class="s mut" x="16" y="75">Read and acknowledge</text>
+    <text class="s mut" x="16" y="94">the inbox, then check in.</text>
+    <path class="sep" d="M16 106H184"/>
+    <text class="s mut" x="16" y="124">presence <tspan class="m" fill="var(--ink)">WAITING</tspan></text>
+  </g>
+  <g transform="translate(340 170)">
+    <rect class="card" width="200" height="134" rx="10"/>
+    <text class="nm" x="16" y="30">AWAITING_LEAD</text>
+    <text class="s mut" x="16" y="56">A request is pending.</text>
+    <text class="s mut" x="16" y="75">Keep a held wait open;</text>
+    <text class="s mut" x="16" y="94">silence is not consent.</text>
+    <path class="sep" d="M16 106H184"/>
+    <text class="s mut" x="16" y="124">presence <tspan class="m" fill="var(--ink)">WAITING</tspan></text>
+  </g>
+  <g transform="translate(648 170)">
+    <rect class="agt" width="200" height="134" rx="10"/>
+    <text class="nm at" x="16" y="30">WORK_ASSIGNED</text>
+    <text class="s mut" x="16" y="56">The lead sent work.</text>
+    <text class="s mut" x="16" y="75">Do it, then check in.</text>
+    <text class="s mut" x="16" y="94">Messages never cancel it.</text>
+    <path class="sep" d="M16 106H184"/>
+    <text class="s mut" x="16" y="124">presence <tspan class="m" fill="var(--ink)">WORKING</tspan></text>
+  </g>
+  <g transform="translate(340 380)">
+    <rect class="sys" width="200" height="134" rx="10"/>
+    <text class="nm" x="16" y="30">IDLE_APPROVED</text>
+    <text class="s mut" x="16" y="56">No work needed now.</text>
+    <text class="s mut" x="16" y="75">Keep a wait open; a</text>
+    <text class="s mut" x="16" y="94">message wakes it.</text>
+    <path class="sep" d="M16 106H184"/>
+    <text class="s mut" x="16" y="124">presence <tspan class="m" fill="var(--ink)">IDLE</tspan></text>
+  </g>
+
+  <!-- Transitions -->
+  <path class="wk" d="M232 214H339" marker-end="url(#ak)"/>
+  <text class="lbm" x="286" y="205" text-anchor="middle">mesh_check_in</text>
+  <path class="nw" d="M340 256H233" marker-end="url(#an)"/>
+  <text class="lb" x="286" y="276" text-anchor="middle">new message</text>
+  <text class="lb" x="286" y="293" text-anchor="middle">or lead change</text>
+
+  <path class="ld" d="M540 214H647" marker-end="url(#al)"/>
+  <text class="lbl" x="594" y="205" text-anchor="middle">lead: work</text>
+  <path class="wk" d="M648 256H541" marker-end="url(#ak)"/>
+  <text class="lbm" x="594" y="276" text-anchor="middle">mesh_check_in</text>
+  <text class="lb" x="594" y="293" text-anchor="middle">with results</text>
+
+  <path class="ld" d="M440 304V379" marker-end="url(#al)"/>
+  <text class="lbl" x="431" y="346" text-anchor="end">lead: idle</text>
+
+  <path class="nw" d="M340 447H132V305" marker-end="url(#an)"/>
+  <text class="lb" x="236" y="440" text-anchor="middle">new message or lead change</text>
+
+  <path class="nw" d="M728 170C728 128 768 128 768 169" marker-end="url(#an)"/>
+  <text class="lb" x="748" y="122" text-anchor="middle">messages: work stays</text>
+
+  <!-- Rules -->
+  <g transform="translate(600 380)">
+    <rect class="card" width="248" height="134" rx="10"/>
+    <text class="b" x="16" y="28">Rules the broker enforces</text>
+    <text class="s mut" x="16" y="54">Only the lead's explicit idle</text>
+    <text class="s mut" x="16" y="73">decision grants idle.</text>
+    <text class="s mut" x="16" y="98">Timeouts, no lead or an offline</text>
+    <text class="s mut" x="16" y="117">lead never create an idle grant.</text>
+  </g>
+
+  <!-- Legend -->
+  <g transform="translate(32 556)">
+    <path class="wk" d="M0 -4H28"/><text class="s mut" x="38">worker action</text>
+    <path class="ld" d="M160 -4H188"/><text class="s mut" x="198">lead decision (mesh_answer_check_in)</text>
+    <path class="nw" d="M478 -4H506"/><text class="s mut" x="516">new information revokes the request or idle grant</text>
+  </g>
+</svg>
