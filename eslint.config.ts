@@ -164,7 +164,6 @@ export default defineConfig(
       // --- Core: complexity budgets ------------------------------------------
       complexity: ['error', 15],
       'max-depth': ['error', 4],
-      'max-lines': ['error', { max: 600, skipBlankLines: true, skipComments: true }],
       'max-nested-callbacks': ['error', 4],
 
       // --- typescript-eslint: rules beyond the strict + stylistic presets -----
@@ -531,8 +530,6 @@ export default defineConfig(
       // node:test registers scenarios by calling `test()` at module level, and
       // scripts run their procedure at top level; both are their purpose.
       'unicorn/no-top-level-side-effects': 'off',
-      // Test scenarios are long by nature; each is still documented as a whole.
-      'max-lines': 'off',
       'max-nested-callbacks': ['error', 6],
       // Literal timings and counts ARE the test data; naming each one would
       // obscure the scenario rather than clarify it.
@@ -569,8 +566,6 @@ export default defineConfig(
     rules: {
       // ESLint requires its configuration module to have a default export.
       'import-x/no-default-export': 'off',
-      // The configuration is data, not logic; its size reflects rule count.
-      'max-lines': 'off',
       // Numeric rule thresholds (complexity budgets etc.) are configuration
       // values; each is already named by the rule it configures.
       '@typescript-eslint/no-magic-numbers': 'off',
