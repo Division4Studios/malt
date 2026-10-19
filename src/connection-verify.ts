@@ -179,6 +179,9 @@ export async function verifyConnection(
       repositoryId: source.repositoryId ?? undefined,
       owner: tracker.owner,
       projectNumber: isGitHubTracker ? tracker.projectNumber : undefined,
+      // The saved Project and Status field are read by ID, so neither needs to be on the first listed page.
+      projectId: isGitHubTracker ? tracker.projectId : undefined,
+      fieldIds: isGitHubTracker ? [tracker.workflowField.id] : undefined,
     },
     now,
   );
