@@ -70,6 +70,20 @@ export interface ClientResults
   readonly github_label_apply: unknown;
   /** The created, edited or deleted label. */
   readonly github_label_manage: unknown;
+  /** Repository milestones. */
+  readonly github_milestones: unknown;
+  /** An issue and its assigned milestone. */
+  readonly github_milestone_assign: unknown;
+  /** The created, edited, closed or deleted milestone. */
+  readonly github_milestone_manage: unknown;
+  /** Saved Project views and how they are reached. */
+  readonly github_views: unknown;
+  /** The created or adopted saved view. */
+  readonly github_view_create: unknown;
+  /** The created, changed or deleted Project field. */
+  readonly github_field_manage: unknown;
+  /** The changed or deleted saved view. */
+  readonly github_view_manage: unknown;
   /** Verified GitHub Project connection. */
   readonly github_connect: unknown;
   /** Bounded GitHub board snapshot. */

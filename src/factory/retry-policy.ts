@@ -86,6 +86,18 @@ export interface AttemptFacts {
 }
 
 /**
+ * Whether an attempt stopped at a gate rather than failing.
+ *
+ * @param facts - Settlement evidence.
+ * @returns True for a gate error or a recorded wait.
+ */
+function isGateWait(facts: AttemptFacts): boolean {
+  // A provider turn that returned no usable result was paid for, even when completion reports it as a gate error.
+  const isGated = !facts.isResultMissing && facts.error instanceof MeshError && facts.error.code === 'FACTORY_GATED';
+  return isGated || facts.waiting !== null;
+}
+
+/**
  * Classify a settled attempt.
  *
  * @param facts - Settlement evidence.
@@ -95,9 +107,7 @@ export function classifyAttempt(facts: AttemptFacts): FailureClass | null {
   if (facts.state === 'succeeded') {
     return null;
   }
-  // A provider turn that returned no usable result was paid for, even when completion reports it as a gate error.
-  const isGated = !facts.isResultMissing && facts.error instanceof MeshError && facts.error.code === 'FACTORY_GATED';
-  if (isGated || facts.waiting !== null) {
+  if (isGateWait(facts)) {
     return 'gate';
   }
   if (facts.stopReason?.startsWith(HOLD_PREFIX) === true) {
