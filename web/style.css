@@ -880,6 +880,21 @@ h3 {
   background: var(--state-bad);
   color: var(--red);
 }
+.capability-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.capability-table th,
+.capability-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.capability-history {
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
 .settings-theme {
   display: flex;
   flex-wrap: wrap;
@@ -2461,4 +2476,36 @@ summary {
   font-family: var(--font-terminal);
   font-size: 0.85em;
   color: var(--muted);
+}
+
+/* Project → Recommendations: rows are full-width buttons so the keyboard opens them. */
+.recommendation-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.recommendation {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.recommendation.unread {
+  border-color: var(--accent-line);
+}
+.recommendation-open {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.recommendation-detail dd {
+  margin: 0 0 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }

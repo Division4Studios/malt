@@ -66,6 +66,8 @@ async function history(root: string): Promise<{ base: string; head: string }> {
   put(root, 'bin.dat', Buffer.from([0, 1, 2, 3, 0, 255]));
   put(root, 'tool.sh', 'echo tool\n');
   put(root, '.env.local', 'TOKEN=old\n');
+  const settings = Array.from({ length: RENAME_LINES }, (_, index) => `setting ${String(index)}`).join('\n');
+  put(root, 'config', `${settings}\n`);
   await git('add', '-A');
   await git('commit', '-m', 'Base');
   const base = await git('rev-parse', 'HEAD');
@@ -75,6 +77,10 @@ async function history(root: string): Promise<{ base: string; head: string }> {
   put(root, 'renamed.txt', `${lines}\n`);
   // The renamed-away path becomes a directory holding a private file.
   put(root, 'rename-me.txt/.env', 'TOKEN=hidden\n');
+  // A file renamed into a directory at its own former path, beside a private file.
+  rmSync(path.join(root, 'config'));
+  put(root, 'config/default.json', `${settings}\nnested edit\n`);
+  put(root, 'config/.env', 'TOKEN=sibling\n');
   put(root, 'bin.dat', Buffer.from([0, 9, 9, 9, 0, 255]));
   put(root, 'café.txt', 'accent\n');
   put(root, 'wide.txt', `${Array.from({ length: 1000 }, () => 'x'.repeat(WIDE_LINE)).join('\n')}\n`);
@@ -163,9 +169,19 @@ await test('the summary reports every change kind and hides private paths', asyn
   assert.equal(summary.head, head);
   assert.deepEqual(
     new Set(summary.files.map((file) => file.path)),
-    new Set(['bin.dat', 'café.txt', 'huge.txt', 'keep.txt', 'remove.txt', 'renamed.txt', 'tool.sh', 'wide.txt']),
+    new Set([
+      'bin.dat',
+      'café.txt',
+      'config/default.json',
+      'huge.txt',
+      'keep.txt',
+      'remove.txt',
+      'renamed.txt',
+      'tool.sh',
+      'wide.txt',
+    ]),
   );
-  assert.equal(summary.privateChanges, 2);
+  assert.equal(summary.privateChanges, 3);
   assert.equal(summary.isTruncated, false);
   const keep = listed(summary.files, 'keep.txt');
   assert.deepEqual([keep.status, keep.additions, keep.deletions, keep.isBinary], ['modified', 2, 1, false]);
@@ -198,6 +214,10 @@ await test('patches are generated per listed path, bounded and refused for anyth
   assert.ok(renamed.state === 'ready');
   assert.match(renamed.patch, /^rename from rename-me\.txt$/mv);
   assert.doesNotMatch(renamed.patch, /hidden|\.env/v, 'a directory under the old path is not part of the pair');
+  const nested = await read('config/default.json');
+  assert.ok(nested.state === 'ready');
+  assert.match(nested.patch, /^\+nested edit$/mv, 'a file renamed beneath its old path keeps its contents and edits');
+  assert.doesNotMatch(nested.patch, /sibling|\.env/v, 'its private sibling stays out');
   const accent = await read('café.txt');
   assert.ok(accent.state === 'ready');
   assert.match(accent.patch, /^\+accent$/mv);

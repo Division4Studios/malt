@@ -35,6 +35,7 @@ const PROVIDER_SUPPORT: Readonly<Record<Capability, readonly CapabilityName[]>> 
   relationships: ['sub_issues', 'dependencies'],
   membership: [],
   transition: [],
+  comment: [],
   'label-use': ['labels'],
   'label-manage': ['labels'],
   'milestone-use': ['milestones'],

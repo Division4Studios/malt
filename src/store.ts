@@ -32,6 +32,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { z } from 'zod/v3';
 
+import { cleanBacklog } from './backlog-cleanup.ts';
+import { BINDING_OPERATIONS } from './connector-schemas.ts';
 import { Coordination, isDisconnected } from './coordination.ts';
 import {
   AGENT_PUBLIC_COLUMNS,
@@ -49,7 +51,10 @@ import {
 } from './database.ts';
 import { readEvents } from './event-log.ts';
 import { TERMINAL_OPERATIONS } from './factory/terminal-schema.ts';
+import { retireExpiredSessions, SESSION_RETIRE_MS } from './identity-retirement.ts';
+import { ensureInboxReads, recordRead } from './inbox-reads.ts';
 import { log } from './log.ts';
+import { broadcastOnce, ensureDedupTables, messageDedupWindow, sendOnce } from './message-dedup.ts';
 import {
   AGENT_STATES,
   FACTORY_OPERATIONS,
@@ -92,6 +97,7 @@ const NON_STORE_OPERATIONS = [
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,
   ...CAPABILITY_OPERATIONS,
+  ...BINDING_OPERATIONS,
   'list_teams',
   'open_team',
   'register',
@@ -185,6 +191,10 @@ export interface HeartbeatResult {
 export interface BroadcastResult {
   /** One delivered message per recipient. */
   readonly messages: SentMessage[];
+  /** Present when an identical broadcast inside the window was folded into the original. */
+  readonly collapsed?: true | undefined;
+  /** Repeats folded into the original so far. */
+  readonly repeats?: number | undefined;
 }
 
 /** Confirmation that a message is acknowledged. */
@@ -265,10 +275,10 @@ type Handlers = {
 // -----------------------------------------------------------------------------
 
 /** The SQLite schema version this code writes. */
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '4';
 
 /** Every schema version this code can open (older ones are migrated). */
-const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', SCHEMA_VERSION]);
+const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', '3', SCHEMA_VERSION]);
 
 /** SQLite lock wait before reporting SQLITE_BUSY, in milliseconds. */
 const BUSY_TIMEOUT_MS = 5000;
@@ -317,6 +327,8 @@ export type PresentedCredentials = { readonly [K in keyof Credentials]?: Credent
 export interface StoreOptions {
   /** Clock override, used by tests to control time. */
   readonly now?: (() => number) | undefined;
+  /** Same-sender broadcast collapse window; defaults to `AGENTMESH_MESSAGE_DEDUP_MS` or 60 s. */
+  readonly messageDedupMs?: number | undefined;
 }
 
 // -----------------------------------------------------------------------------
@@ -340,6 +352,9 @@ export class Store implements CoordinationHost {
   /** Operation handlers, built once per store. */
   private readonly handlers: Handlers;
 
+  /** Window in which an identical broadcast from the same sender collapses. */
+  private readonly dedupMs: number;
+
   /**
    * Open (creating or migrating as needed) the project's database.
    *
@@ -352,16 +367,17 @@ export class Store implements CoordinationHost {
     this.config = config;
     this.clock = options.now ?? Date.now;
     this.db = new DatabaseSync(config.database);
+    this.dedupMs = options.messageDedupMs ?? messageDedupWindow();
     this.createBaseSchema();
+    ensureDedupTables(this.db);
+    ensureInboxReads(this.db);
     this.verifyProject();
     const version = this.schemaVersion();
     this.coordination = new Coordination(this);
     this.handlers = this.createHandlers();
     this.migrate(version);
-    log('info', 'storage', 'database_ready', {
-      schemaVersion: Number(SCHEMA_VERSION),
-      migrated: version !== SCHEMA_VERSION,
-    });
+    const wasMigrated = version !== SCHEMA_VERSION;
+    log('info', 'storage', 'database_ready', { schemaVersion: Number(SCHEMA_VERSION), migrated: wasMigrated });
   }
 
   /**
@@ -529,6 +545,7 @@ export class Store implements CoordinationHost {
         run(this.db, "UPDATE agents SET status = 'OFFLINE' WHERE id = ?", id);
         this.event('AGENT_DISCONNECTED', id, { reason: 'heartbeat_timeout' });
       }
+      retireExpiredSessions(this.db, this.now() - this.config.offlineMs - SESSION_RETIRE_MS, (id) => this.depart(id));
       return stale.length;
     });
   }
@@ -677,18 +694,30 @@ export class Store implements CoordinationHost {
       answer_check_in: (input, actor) => this.coordination.answer(requireActor(actor), input),
       list_agents: (input) => this.listAgents(input.status),
       team_status: () => this.teamStatus(),
-      send_message: (input, actor) => this.send(requireActor(actor), this.recipient(input.to), input),
+      send_message: (input, actor) => {
+        const sender = requireActor(actor);
+        const request = { sender, operation: 'send_message', input, now: this.now() } as const;
+        return sendOnce(this.db, request, () => this.send(sender, this.recipient(input.to), input));
+      },
       broadcast: (input, actor) => {
         const sender = requireActor(actor);
-        const recipients = selectAll(
-          this.db,
-          idRowSchema,
-          "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' ORDER BY name",
-          sender,
-        );
-        return { messages: recipients.map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })) };
+        const now = this.now();
+        const window = { sender, body: input.body, now, windowMs: this.dedupMs };
+        return sendOnce(this.db, { sender, operation: 'broadcast', input, now }, () => {
+          return broadcastOnce(this.db, window, () => {
+            return {
+              messages: selectAll(
+                this.db,
+                idRowSchema,
+                "SELECT id FROM agents WHERE id != ? AND lifetime != 'ended' AND role != 'observer' ORDER BY name",
+                sender,
+              ).map(({ id }) => this.send(sender, id, { body: input.body, type: 'broadcast' })),
+            };
+          });
+        });
       },
-      get_messages: (input, actor) => this.inbox(requireActor(actor), input),
+      get_messages: (input, actor) =>
+        recordRead(this.db, requireActor(actor), this.inbox(requireActor(actor), input), this.now()),
       ack_message: (input, actor) => this.acknowledge(requireActor(actor), input.id),
       reply: (input, actor) => {
         const id = requireActor(actor);
@@ -821,20 +850,15 @@ export class Store implements CoordinationHost {
    * @param status - The presence state to filter by, if any.
    * @returns The matching agents' public rows.
    */
-  private listAgents(status: AgentStatus | undefined): AgentRow[] {
+  private listAgents(status: AgentStatus | null = null): AgentRow[] {
     // Ended sessions can never return, so they are history, not team members.
-    return status === undefined
-      ? selectAll(
-          this.db,
-          agentRowSchema,
-          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE lifetime != 'ended' ORDER BY name`,
-        )
-      : selectAll(
-          this.db,
-          agentRowSchema,
-          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE status = ? AND lifetime != 'ended' ORDER BY name`,
-          status,
-        );
+    return selectAll(
+      this.db,
+      agentRowSchema,
+      `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE lifetime != 'ended' AND (? IS NULL OR status = ?) ORDER BY name`,
+      status,
+      status,
+    );
   }
 
   /**
@@ -1018,6 +1042,7 @@ export class Store implements CoordinationHost {
       if (version === '1') {
         this.coordination.migrate();
       }
+      cleanBacklog(this.db, this.now(), this.config.offlineMs + SESSION_RETIRE_MS, (id) => this.depart(id));
       run(this.db, "UPDATE metadata SET value = ? WHERE key = 'schema_version'", SCHEMA_VERSION);
     });
   }

@@ -172,6 +172,21 @@ export class FakeElement {
     this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]);
   }
 
+  /** Make this the document's focused element, as the DOM method does. */
+  public focus(): void {
+    Reflect.set(Reflect.get(globalThis, 'document') ?? {}, 'activeElement', this);
+  }
+
+  /**
+   * Whether a node is this element or inside it.
+   *
+   * @param node - Candidate descendant.
+   * @returns True for this element and its descendants.
+   */
+  public contains(node: unknown): boolean {
+    return node === this || (node instanceof FakeElement && this.descendants().includes(node));
+  }
+
   /**
    * Every descendant element, depth first in document order.
    *
@@ -203,14 +218,16 @@ export class FakeElement {
 }
 
 /**
- * A predicate for a tag name or one `[attribute]` selector.
+ * A predicate for a tag name, `#id` or one `[attribute]` selector.
  *
- * @param selector - `tag` or `[name]`.
+ * @param selector - `tag`, `#id` or `[name]`.
  * @returns Whether an element matches.
  */
 function matcher(selector: string): (node: FakeElement) => boolean {
   const attribute = /^\[(?<name>[\w\-]+)\]$/v.exec(selector)?.groups?.['name'];
-  return (node) => (attribute === undefined ? node.tagName === selector.toUpperCase() : node.attributes.has(attribute));
+  return selector.startsWith('#')
+    ? (node) => node.attributes.get('id') === selector.slice(1)
+    : (node) => (attribute === undefined ? node.tagName === selector.toUpperCase() : node.attributes.has(attribute));
 }
 
 /**
@@ -232,6 +249,8 @@ export interface FakeDocument {
   readonly createElement: (tag: string) => FakeElement;
   /** Document-level lookup over the body. */
   readonly querySelector: (selector: string) => FakeElement | null;
+  /** Element that last received focus. */
+  readonly activeElement: FakeElement | null;
 }
 
 /**
@@ -248,9 +267,17 @@ export function installDom(t: { after: (callback: () => void) => void }): FakeDo
     body,
     createElement: (tag) => new FakeElement(tag),
     querySelector: (selector) => body.querySelector(selector),
+    activeElement: null,
   };
   Object.defineProperty(globalThis, 'document', { value: installed, configurable: true, writable: true });
+  const element = Object.getOwnPropertyDescriptor(globalThis, 'HTMLElement');
+  Object.defineProperty(globalThis, 'HTMLElement', { value: FakeElement, configurable: true, writable: true });
   t.after(() => {
+    if (element === undefined) {
+      Reflect.deleteProperty(globalThis, 'HTMLElement');
+    } else {
+      Object.defineProperty(globalThis, 'HTMLElement', element);
+    }
     if (previous === undefined) {
       Reflect.deleteProperty(globalThis, 'document');
     } else {
