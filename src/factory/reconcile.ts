@@ -13,11 +13,17 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
+import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
+import { hasFailedCheck } from './ci-logs.ts';
+import { deliveryTask } from './delivery-task.ts';
+import { didAdoptExternalMerge } from './external-merge.ts';
 import { objectiveGates } from './gate-controls.ts';
+import { didRefreshOntoMain } from './main-refresh.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
+import { advanceRecommendations } from './recommendation-execution.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
@@ -28,7 +34,6 @@ import { reconcileSuperseded } from './supersession.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
-import type { ReadyIssue } from './scheduler.ts';
 import type { FactoryTask, Feature } from './schema.ts';
 
 /** Commit id characters shown in progress log entries. */
@@ -44,62 +49,7 @@ function shortSha(sha: string): string {
   return sha.slice(0, SHORT_SHA);
 }
 
-/**
- * Build one ledger task from a GitHub atomic issue.
- *
- * @param context - Project ledger and clock.
- * @param issue - Native delivery issue.
- * @param featureId - Owning product request.
- * @returns Initial dependency-ready task state.
- */
-export function deliveryTask(
-  context: Pick<FactoryContext, 'repository'>,
-  issue: ReadyIssue,
-  featureId: string | null,
-): FactoryTask {
-  const feature = context.repository.features().find((candidate) => candidate.id === featureId);
-  return {
-    id: randomUUID(),
-    featureId,
-    issue: issue.issue,
-    parentIssue: issue.parentIssue,
-    key: `issue-${String(issue.issue)}`,
-    title: issue.title,
-    description: issue.description,
-    acceptanceCriteria: [...issue.acceptanceCriteria],
-    dependencies: [],
-    capabilityTier: null,
-    skills: [],
-    phase: 'ready',
-    developer: null,
-    branch: null,
-    worktree: null,
-    head: null,
-    base: null,
-    pr: null,
-    prUrl: null,
-    merge: null,
-    reviews: [],
-    feedback: [],
-    finalReview: null,
-    verifiedMain: null,
-    attempts: 0,
-    version: 0,
-    error: null,
-    approvals: [],
-    implementation: null,
-    stepResults: [],
-    hold: null,
-    archive: null,
-    repairs: [],
-    revalidation: null,
-    workflow: feature?.workflow,
-    // Always frozen, so a later change to the objective's gate affects only deliveries provisioned after it.
-    gates: { merge: feature?.gates?.merge ?? false },
-    ...(feature?.stepOverrides !== undefined && { stepOverrides: feature.stepOverrides }),
-    updatedAt: context.repository.store.now(),
-  };
-}
+export { deliveryTask } from './delivery-task.ts';
 
 /**
  * Provision reviewed plans and resume partial native issue creation.
@@ -120,6 +70,10 @@ async function provision(context: FactoryContext): Promise<void> {
     } catch (error) {
       const current = context.repository.features().find((candidate) => candidate.id === feature.id);
       if (current === undefined || current.scopeReplacement !== undefined) {
+        continue;
+      }
+      if (isCapabilityDenied(error)) {
+        parkFeature(context.repository, current, error);
         continue;
       }
       context.repository.saveFeature({
@@ -234,14 +188,10 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     return;
   }
   if (pr.state === 'MERGED') {
-    recoverMerge(context, task, pr);
+    await recoverMerge(context, task, pr);
     return;
   }
-  if (pr.headRefOid !== record.head || pr.baseRefOid !== record.base) {
-    refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
-    return;
-  }
-  if (await didHandleFailedChecks(context, record, pr)) {
+  if ((await didHandleMovedSource(context, record, pr)) || (await didHandleFailedChecks(context, record, pr))) {
     return;
   }
   if (record.phase === 'merge_ready') {
@@ -254,6 +204,40 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
   if (record.phase === 'merging') {
     await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Disarm a stale auto-merge, then refresh a reviewed source whose base moved, or return it to its developer.
+ *
+ * @param context - Project Git, ledger and GitHub.
+ * @param task - Delivery at its recorded head and base.
+ * @param pr - Current PR state.
+ * @returns True when the head or base moved and this pass handled it.
+ */
+async function didHandleMovedSource(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<boolean> {
+  const isSourceMoved = pr.headRefOid !== task.head || pr.baseRefOid !== task.base;
+  // A reworked or refreshed head, or one with any failed check even while others still run, must never be
+  // merged by an earlier auto-merge request: optional checks pending would not stop GitHub.
+  if (isAutoMergeArmed(pr) && (isSourceMoved || hasFailedCheck(pr.statusCheckRollup))) {
+    await context.remote.disarm?.(pr.number);
+  }
+  if (!isSourceMoved) {
+    return false;
+  }
+  if (!(await didRefreshOntoMain(context, task, pr))) {
+    refreshRequired(context, task, 'The remote PR head or main advanced. Previous approvals are invalid.');
+  }
+  return true;
+}
+
+/**
+ * Whether GitHub auto-merge or the merge queue is set to merge this PR.
+ *
+ * @param pr - Current PR state.
+ * @returns True while an auto-merge request is armed.
+ */
+function isAutoMergeArmed(pr: PullRequest): boolean {
+  return pr.autoMergeRequest !== null && pr.autoMergeRequest !== undefined;
 }
 
 /**
@@ -283,6 +267,11 @@ async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: Pu
     return;
   }
   const merge = await context.remote.merge(record, context.settings);
+  if (typeof merge !== 'string') {
+    // GitHub merges later (auto-merge or queue) or a person acts first; the merged PR is adopted on a later pass.
+    context.repository.editTask(record.id, (current) => ({ ...current, error: merge.pending }));
+    return;
+  }
   context.repository.editTask(record.id, (current) => {
     return {
       ...current,
@@ -418,6 +407,10 @@ async function flushEffects(context: FactoryContext): Promise<void> {
       await context.remote.effect(effect);
       context.repository.settleEffect(effect, null);
     } catch (error) {
+      if (isCapabilityDenied(error)) {
+        parkEffect(context.repository, effect, error);
+        continue;
+      }
       context.repository.settleEffect(effect, Error.isError(error) ? error.message : 'GitHub synchronization failed.');
     }
   }
@@ -513,8 +506,11 @@ export async function closeParents(context: FactoryContext): Promise<void> {
  * @param context - Current workspace factory.
  */
 export async function reconcile(context: FactoryContext): Promise<void> {
+  resumeCapabilityBlocks(context.repository);
   await importReady(context);
   await provision(context);
+  // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
+  await advanceRecommendations(context);
   blockExhausted(context.repository, context.settings.reconcileMs);
   for (const task of context.repository.tasks()) {
     try {
@@ -706,9 +702,12 @@ async function reconcileTask(context: FactoryContext, task: FactoryTask): Promis
  * @param task - Reviewed source.
  * @param pr - Actual GitHub state.
  */
-function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): void {
+async function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<void> {
   const record = task;
   if (!hasApprovals(record) || !hasFinalApproval(record) || record.head !== pr.headRefOid || pr.mergeCommit === null) {
+    if (await didAdoptExternalMerge(context, record, pr)) {
+      return;
+    }
     context.repository.editTask(record.id, (current) => {
       return {
         ...current,

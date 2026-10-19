@@ -32,7 +32,9 @@
           <button data-group="workflow" data-view="workflow" class="nav"><span>◎</span> Workflow</button>
           <button data-group="workers" data-view="sessions" class="nav"><span>▣</span> Sessions</button>
           <button data-group="costs" data-view="costs" class="nav"><span>◔</span> Costs</button>
-          <button data-group="project" data-view="setup" class="nav"><span>⚙</span> Project</button>
+          <button data-group="project" data-view="setup" class="nav">
+            <span>⚙</span> Project <span id="recommendation-count" class="nav-count" hidden></span>
+          </button>
         </nav>
         <div class="rail-note">
           <span class="signal-dot"></span> LOCAL FIRST
@@ -71,6 +73,7 @@
         <nav class="context-navigation" aria-label="Section views">
           <div data-navigation="mission">
             <button data-view="overview" class="nav">Overview</button
+            ><button data-view="manager" class="nav">Manager</button
             ><button data-view="activity" class="nav">Activity</button>
           </div>
           <div data-navigation="workflow" hidden>
@@ -93,8 +96,10 @@
           <div data-navigation="project" hidden>
             <button data-view="setup" class="nav">Setup & capacity</button
             ><button data-view="settings" class="nav">Settings</button
+            ><button data-view="recommendations" class="nav">Recommendations</button
             ><button data-view="learning" class="nav">Learning & skills</button
             ><button data-view="secrets" class="nav">Secrets</button
+            ><button data-view="capabilities" class="nav">Capabilities</button
             ><button data-view="onboarding" class="nav">Get started</button>
           </div>
         </nav>
@@ -109,7 +114,7 @@
         </div>
         <footer class="footer">
           <span id="project-path">Project-local coordination · .malt</span
-          ><span>CODEX + CLAUDE / HUMAN IN CONTROL</span>
+          ><span>CODEX + CLAUDE + COPILOT / HUMAN IN CONTROL</span>
         </footer>
       </main>
     </div>
