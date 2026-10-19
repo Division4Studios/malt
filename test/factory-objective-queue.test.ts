@@ -269,8 +269,13 @@ await test('blocked objective recovery is revision fenced, durable and does not 
     action: 'lead',
     note: 'Inspect existing tickets, preserve their scopes.',
   };
+  const recoveredAt = store.now();
   recoverObjective(repository, input);
   assert.equal(repository.features()[0]?.phase, 'refining');
+  assert.ok(
+    (repository.features()[0]?.retriesResetAt ?? 0) >= recoveredAt,
+    'Recovery restarts the planning retry count.',
+  );
   assert.equal(repository.features()[0]?.productPlan?.summary.includes('Need retained evidence'), true);
   assert.equal(repository.instructions('team-lead', null).length, 0, 'Recovery must not become role-global guidance.');
   const otherFeature = queueObjective(repository, { objective: 'Another outcome' }).featureId;

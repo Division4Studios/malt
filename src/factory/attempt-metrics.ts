@@ -107,6 +107,9 @@ export function attemptMetrics(job: FactoryJob, source: DigestRead, prices: Pric
     cost = { usd: digest.reportedCostUsd, source: 'reported' };
   } else if (estimate !== null) {
     cost = { usd: estimate, source: 'estimated' };
+  } else if (job.usageTokens === 0 && digest.tokens === null && (digest.turns ?? 0) === 0) {
+    // Settlement records zero usage only when no provider ran, as at an unpaid gate; it cost nothing.
+    cost = { usd: 0, source: 'estimated' };
   }
   return {
     tokens,

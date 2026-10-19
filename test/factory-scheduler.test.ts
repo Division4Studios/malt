@@ -410,3 +410,26 @@ await test('objective priority preserves verification/review precedence and deve
     [a.id, b.id, c.id],
   );
 });
+
+await test('an operator retry restarts the retry count of an objective planning step', () => {
+  const queued = feature(1, { phase: 'queued' });
+  const failures = [1, 2, 3].map((finishedAt) => {
+    return job({
+      kind: 'plan',
+      role: 'product-owner',
+      featureId: queued.id,
+      state: 'failed',
+      startedAt: finishedAt,
+      finishedAt,
+      failureClass: 'invalid_output',
+    });
+  });
+  const planning = (objective: Feature): JobIntent[] =>
+    schedule([objective], [], failures).filter((intent) => intent.featureId === objective.id);
+  assert.deepEqual(planning(queued), [], 'Three invalid outputs exhaust the step.');
+  assert.deepEqual(
+    planning({ ...queued, retriesResetAt: 4 }).map((intent) => intent.kind),
+    ['plan'],
+    'Attempts before the retry no longer count.',
+  );
+});

@@ -329,6 +329,19 @@ await test('unpriced attempts block a capped scope only under the block policy, 
   assert.equal(await refreshSpend(repository, context.mesh), 1, 'A new price table re-estimates unpriced spend.');
 });
 
+await test('an attempt that ran no provider costs nothing and never blocks as unpriced', async (t) => {
+  const context = project(t);
+  const { repository } = context;
+  const feature = queueObjective(repository, { objective: 'Waits for CI' });
+  const task = delivery(repository, { featureId: feature.featureId });
+  // An unpaid gate settles with zero usage and no provider stream.
+  attempt(context, { taskId: task.id, state: 'failed', usageTokens: 0 });
+  await refreshSpend(repository, context.mesh);
+  saveCaps(repository, { caps: { objectiveDefault: 5, unpriced: 'block' }, expectedRevision: 0 });
+  assert.equal(spendGate(repository).block({ taskId: task.id, featureId: null }), null);
+  assert.equal(spendGate(repository).block({ taskId: null, featureId: feature.featureId }), null);
+});
+
 await test('the definition of done fences completion and every change is logged', (t) => {
   const { repository } = project(t);
   const { featureId } = queueObjective(repository, { objective: 'Checkout redesign' });
