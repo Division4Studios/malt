@@ -98,6 +98,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'automations-model',
     'automations-ui',
     'diff-parse',
+    'pulls-ui',
+    'pulls-controller',
     'diff-model',
     'diff-ui',
     'onboarding-model',

@@ -24,13 +24,15 @@ import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { t } from './i18n.js';
-import { skillDialog, maintenanceDialog } from './learning-ui.js';
+import { maintenanceDialog, reviewSkill } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
 import { ProjectViews } from './project-views.js';
+import { PullController } from './pulls-controller.js';
+import { pullsView } from './pulls-ui.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -195,7 +197,7 @@ const actions: Actions = {
     void readLogs();
   },
   skillDecision: (requestId, shouldApprove) => {
-    void reviewSkill(requestId, shouldApprove);
+    void reviewSkill(requestId, shouldApprove, { project: () => state.project, editor, notice });
   },
   maintenance: (requestId) => {
     const dialog = maintenanceDialog(requestId);
@@ -246,6 +248,9 @@ const actions: Actions = {
   },
 };
 
+/** Local pull-request selection, diffs and ledger controls. */
+const pulls = new PullController({ project: () => state.project, control, editor, render });
+
 /** Get started and Settings; both reuse the shell's dialogs. */
 const projectViews = new ProjectViews({
   project: () => state.project,
@@ -257,25 +262,6 @@ const projectViews = new ProjectViews({
   control,
 });
 
-/**
- * Inspect a scoped immutable comparison before asking for an explicit decision.
- *
- * @param requestId - Reviewed proposal identity.
- * @param shouldApprove - Operator-selected approval or rejection.
- */
-async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<void> {
-  const projectId = state.project;
-  try {
-    const response = await request(`${scoped(projectId, '/api/skill')}&requestId=${encodeURIComponent(requestId)}`);
-    if (state.project !== projectId) {
-      return;
-    }
-    const dialog = skillDialog(data(response), requestId, shouldApprove);
-    editor(dialog.description, dialog.action);
-  } catch (error) {
-    notice(error instanceof Error ? error.message : t('Could not retrieve the skill proposal.'));
-  }
-}
 /** Render the selected native view without touching an open operator editor. */
 function render(): void {
   syncTerminals();
@@ -301,6 +287,8 @@ function render(): void {
     isConnected: state.view === 'activity' ? state.isConnected : null,
     learning: observed.learning,
     github: observed.github,
+    local: observed.local,
+    pull: pulls.selection,
   });
   if (renderKey === state.renderKey) {
     return;
@@ -317,6 +305,7 @@ function render(): void {
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
+    pulls: () => pullsView(observed.local, pulls.selection, pulls.actions, pulls.detail()),
     workers: () => (terminalWorkspace.selected ? element('div') : workerView(observed, panes)),
     activity: () => {
       return activityPanel(
@@ -412,6 +401,7 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  pulls.observe(observed.local);
   if (state.view === 'overview' && projectViews.offer(observed, projectId)) {
     state.view = 'onboarding';
   }

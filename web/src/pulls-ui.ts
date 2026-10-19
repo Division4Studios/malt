@@ -1,17 +1,80 @@
 /**
- * Unified diff review for local pull requests. Every value is untrusted plain
- * text; nothing is parsed as HTML.
+ * Local pull requests, issue board and diff review for GitHub-free delivery.
+ * Every value is untrusted plain text; nothing is parsed as HTML. Mutations are
+ * routed by the controller through the single broker-owned ledger writer.
  *
  * @file
  */
+import { child, number, records, text } from './api.js';
 import { parseDiff } from './diff-parse.js';
-import { t } from './i18n.js';
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
+import type { Data } from './api.js';
 import type { DiffRow } from './diff-parse.js';
 
+/** Board columns in delivery order. */
+const COLUMNS = [
+  'Backlog',
+  'Ready',
+  'Development',
+  'QA / Review',
+  'Merge Ready',
+  'Final Verification',
+  'Done',
+  'Blocked',
+] as const;
+/** Display names of the board columns; the ledger keeps the English status. */
+const COLUMN_LABELS: Readonly<Record<(typeof COLUMNS)[number], string>> = translated({
+  Backlog: phrase('Backlog'),
+  Ready: phrase('Ready'),
+  Development: phrase('Development'),
+  'QA / Review': phrase('QA / Review'),
+  'Merge Ready': phrase('Merge Ready'),
+  'Final Verification': phrase('Final Verification'),
+  Done: phrase('Done'),
+  Blocked: phrase('Blocked'),
+});
+
+/**
+ * The display name of a board column.
+ *
+ * @param column - Ledger status.
+ * @returns Translated column name.
+ */
+function columnLabel(column: (typeof COLUMNS)[number]): string {
+  return COLUMN_LABELS[column];
+}
+/** Short commit identity for display only. */
+const SHORT_HEAD = 8;
 /** Diff lines rendered per file before collapsing the rest behind a toggle. */
 const FILE_LINE_LIMIT = 400;
+
+/** Controller-owned local delivery interactions. */
+export interface PullActions {
+  /** Select a pull request and load its diff. */
+  readonly select: (pull: number) => void;
+  /** Fast-forward the operator checkout from the hub. */
+  readonly sync: () => void;
+  /** Create a feature parent. */
+  readonly createFeature: () => void;
+  /** Create a Ready delivery under a feature. */
+  readonly createDelivery: (parent: number) => void;
+  /** Comment on an issue or pull request. */
+  readonly comment: (target: number) => void;
+  /** Move an issue to another column. */
+  readonly move: (issue: number, status: string) => void;
+}
+
+/** Selected pull-request detail, loaded on demand. */
+export interface PullSelection {
+  /** Selected pull-request number. */
+  readonly number: number | null;
+  /** Loaded detail, null while loading or unavailable. */
+  readonly detail: Data | null;
+  /** Load failure text. */
+  readonly error: string;
+}
 
 /**
  * Create a native button.
@@ -115,4 +178,272 @@ export function diffView(diff: string, isTruncated: boolean): HTMLElement {
     );
   }
   return container;
+}
+
+/**
+ * Render comments as a timeline.
+ *
+ * @param comments - Ledger comments.
+ * @returns Timeline element.
+ */
+function timeline(comments: readonly Data[]): HTMLElement {
+  const list = element('ol', 'pull-timeline');
+  for (const entry of comments) {
+    const item = element('li');
+    const at = new Date(number(entry, 'at'));
+    item.append(element('time', 'subtle', at.toLocaleString()), element('p', '', text(entry, 'body')));
+    list.append(item);
+  }
+  return list;
+}
+
+/**
+ * Render gate checks.
+ *
+ * @param evidence - Gate snapshot.
+ * @returns Check list.
+ */
+function checks(evidence: Data): HTMLElement {
+  const list = element('ul', 'pull-checks');
+  const rollup = records(evidence['statusCheckRollup']);
+  for (const check of rollup) {
+    const isPassing = text(check, 'conclusion') === 'SUCCESS';
+    const item = element('li', isPassing ? 'check-pass' : 'check-fail');
+    item.append(
+      element('span', 'check-mark', isPassing ? '✓' : '✗'),
+      element('span', '', text(check, 'name')),
+      element('span', 'subtle', isPassing ? 'passing' : 'failing'),
+    );
+    list.append(item);
+  }
+  if (rollup.length === 0) {
+    list.append(element('li', 'subtle', t('Settled pull requests carry no live merge checks.')));
+  }
+  return list;
+}
+
+/**
+ * Render the selected pull request.
+ *
+ * @param selection - Selected record and loaded detail.
+ * @param actions - Controller callbacks.
+ * @returns Detail pane.
+ */
+export function detailView(selection: PullSelection, actions: PullActions): HTMLElement {
+  const pane = element('section', 'panel pull-detail');
+  if (selection.number === null) {
+    pane.append(element('p', 'subtle', t('Select a pull request to review its checks, discussion and diff.')));
+    return pane;
+  }
+  if (selection.detail === null) {
+    pane.append(
+      element(
+        'p',
+        selection.error === '' ? 'subtle' : 'error',
+        selection.error === '' ? t('Loading diff…') : selection.error,
+      ),
+    );
+    return pane;
+  }
+  const pull = child(selection.detail, 'pull');
+  const evidence = child(selection.detail, 'evidence');
+  const head = element('header', 'pull-head');
+  const state = text(pull, 'state');
+  const pullNumber = number(pull, 'number');
+  head.append(
+    element('h2', '', `#${String(pullNumber)} ${text(pull, 'title')}`),
+    element('span', `pill pull-state-${state.toLowerCase()}`, state.toLowerCase()),
+  );
+  const branch = element(
+    'p',
+    'pull-branch',
+    `${text(pull, 'head')} → ${text(pull, 'base')} · merge ${text(evidence, 'mergeStateStatus').toLowerCase()}`,
+  );
+  const merged = text(pull, 'mergeCommit');
+  if (merged !== '') {
+    branch.append(element('span', 'subtle', ` · merged as ${merged.slice(0, SHORT_HEAD)}`));
+  }
+  const toolbar = element('div', 'ticket-actions');
+  toolbar.append(
+    button(t('Comment'), () => {
+      actions.comment(pullNumber);
+    }),
+  );
+  pane.append(
+    head,
+    branch,
+    element('p', 'pull-body', text(pull, 'body')),
+    element('h3', '', t('Checks')),
+    checks(evidence),
+    element('h3', '', t('Discussion')),
+    timeline(records(pull['comments'])),
+    toolbar,
+    element('h3', '', t('Changes')),
+    diffView(text(selection.detail, 'diff'), selection.detail['truncated'] === true),
+  );
+  return pane;
+}
+
+/**
+ * Render the pull-request list, open first.
+ *
+ * @param pulls - Ledger pull requests.
+ * @param selected - Selected number.
+ * @param actions - Controller callbacks.
+ * @returns List element.
+ */
+function pullList(pulls: readonly Data[], selected: number | null, actions: PullActions): HTMLElement {
+  const list = element('ul', 'pull-list');
+  const ordered = pulls.toSorted((left, right) => {
+    const leftRank = text(left, 'state') === 'OPEN' ? 0 : 1;
+    const rightRank = text(right, 'state') === 'OPEN' ? 0 : 1;
+    return leftRank === rightRank ? number(right, 'updatedAt') - number(left, 'updatedAt') : leftRank - rightRank;
+  });
+  for (const pull of ordered) {
+    const pullNumber = number(pull, 'number');
+    const item = element('li');
+    const choose = button(
+      `#${String(pullNumber)} ${text(pull, 'title')}`,
+      () => {
+        actions.select(pullNumber);
+      },
+      'pull-row',
+    );
+    choose.setAttribute('aria-pressed', String(pullNumber === selected));
+    choose.append(element('span', `pill pull-state-${text(pull, 'state').toLowerCase()}`, text(pull, 'state')));
+    item.append(choose);
+    list.append(item);
+  }
+  if (ordered.length === 0) {
+    list.append(element('li', 'subtle', t('No pull requests yet. Developers open them after validation.')));
+  }
+  return list;
+}
+
+/**
+ * Render one issue card with its column controls.
+ *
+ * @param issue - Ledger issue.
+ * @param actions - Controller callbacks.
+ * @returns Card element.
+ */
+function issueCard(issue: Data, actions: PullActions): HTMLElement {
+  const card = element('article', `issue-card issue-${text(issue, 'state')}`);
+  const issueNumber = number(issue, 'number');
+  const parent = String(number(issue, 'parent'));
+  const kind = text(issue, 'kind') === 'feature' ? t('Feature') : t('Delivery of #{parent}', { parent });
+  card.append(element('h4', '', `#${String(issueNumber)} ${text(issue, 'title')}`), element('p', 'subtle', kind));
+  const tools = element('div', 'ticket-actions');
+  if (text(issue, 'kind') === 'feature' && text(issue, 'state') === 'open') {
+    tools.append(
+      button(t('Add delivery'), () => {
+        actions.createDelivery(issueNumber);
+      }),
+    );
+  }
+  if (text(issue, 'status') === 'Backlog' && text(issue, 'kind') === 'delivery') {
+    tools.append(
+      button(t('Mark Ready'), () => {
+        actions.move(issueNumber, 'Ready');
+      }),
+    );
+  }
+  tools.append(
+    button(t('Comment'), () => {
+      actions.comment(issueNumber);
+    }),
+  );
+  card.append(tools);
+  return card;
+}
+
+/**
+ * Render the issue board by workflow column, hiding empty columns.
+ *
+ * @param issues - Ledger issues.
+ * @param actions - Controller callbacks.
+ * @returns Board element.
+ */
+function board(issues: readonly Data[], actions: PullActions): HTMLElement {
+  const container = element('div', 'issue-board');
+  for (const column of COLUMNS) {
+    const members = issues.filter((issue) => text(issue, 'status') === column);
+    if (members.length === 0) {
+      continue;
+    }
+    const lane = element('section', 'issue-lane');
+    lane.setAttribute('aria-label', t('{column} issues', { column: columnLabel(column) }));
+    lane.append(
+      element('h3', '', `${columnLabel(column)} · ${String(members.length)}`),
+      ...members.map((issue) => issueCard(issue, actions)),
+    );
+    container.append(lane);
+  }
+  if (issues.length === 0) {
+    container.append(element('p', 'subtle', t('No local issues yet. Request an objective or create a feature.')));
+  }
+  return container;
+}
+
+/**
+ * Explain how to enable local delivery when the project uses GitHub.
+ *
+ * @returns Empty state.
+ */
+function disabled(): HTMLElement {
+  const node = element('div', 'empty');
+  node.append(
+    element('span', 'empty-mark', '◈'),
+    element('h2', '', t('Local delivery is off')),
+    element(
+      'p',
+      '',
+      t(
+        'This project delivers through GitHub. To keep issues, pull requests and merges on this machine, pause the factory and set "delivery": "local" and "remote": "malt-hub" in Project setup. MALT creates a protected local hub; only your model subscriptions leave the machine.',
+      ),
+    ),
+  );
+  return node;
+}
+
+/**
+ * Render the local delivery workspace.
+ *
+ * @param local - Ledger summary, null when local delivery is off.
+ * @param selection - Selected pull request.
+ * @param actions - Controller callbacks.
+ * @param detail - Selected pull-request pane, reused across live refreshes.
+ * @returns View element.
+ */
+export function pullsView(
+  local: Data | null,
+  selection: PullSelection,
+  actions: PullActions,
+  detail: HTMLElement,
+): HTMLElement {
+  if (local === null) {
+    return disabled();
+  }
+  const view = element('div', 'pulls-view');
+  const toolbar = element('div', 'pulls-toolbar');
+  const hub = t('Protected hub · {remote}/{base}', { remote: text(local, 'remote'), base: text(local, 'base') });
+  toolbar.append(
+    element('span', 'subtle', hub),
+    button(t('New feature'), actions.createFeature),
+    button(t('Sync my checkout'), actions.sync),
+  );
+  const pulls = records(local['pulls']);
+  const issues = records(local['issues']);
+  const columns = element('div', 'pulls-columns');
+  const listPanel = element('section', 'panel');
+  const listHead = element('div', 'panel-head');
+  listHead.append(element('h2', '', t('Pull requests')), element('span', 'count', String(pulls.length)));
+  listPanel.append(listHead, pullList(pulls, selection.number, actions));
+  columns.append(listPanel, detail);
+  const boardPanel = element('section', 'panel');
+  const boardHead = element('div', 'panel-head');
+  boardHead.append(element('h2', '', t('Issues')), element('span', 'count', String(issues.length)));
+  boardPanel.append(boardHead, board(issues, actions));
+  view.append(toolbar, columns, boardPanel);
+  return view;
 }

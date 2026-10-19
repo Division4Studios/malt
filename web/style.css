@@ -2003,6 +2003,106 @@ summary {
   }
 }
 /* Local pull requests, issue board and diff review. */
+.pulls-view {
+  display: grid;
+  gap: 16px;
+}
+.pulls-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.pulls-toolbar .subtle {
+  margin-right: auto;
+  font-family: var(--font-terminal);
+}
+.pulls-columns {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 2.6fr);
+  gap: 16px;
+  align-items: start;
+}
+.pull-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+.pull-row {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+}
+.pull-row:hover,
+.pull-row[aria-pressed='true'] {
+  border-color: var(--line);
+  background: var(--raised);
+}
+.pull-detail {
+  padding: 18px;
+  min-width: 0;
+}
+.pull-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.pull-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+.pull-branch {
+  font-family: var(--font-terminal);
+  color: var(--muted);
+}
+.pull-body {
+  white-space: pre-wrap;
+}
+.pull-state-open {
+  color: var(--green);
+}
+.pull-state-merged {
+  color: var(--violet);
+}
+.pull-state-closed {
+  color: var(--muted);
+}
+.pull-checks,
+.pull-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  gap: 6px;
+}
+.pull-checks li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+.check-pass .check-mark {
+  color: var(--green);
+}
+.check-fail .check-mark {
+  color: var(--red);
+}
+.pull-timeline li {
+  border-left: 2px solid var(--line);
+  padding-left: 12px;
+}
+.pull-timeline p {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
 .diff {
   display: grid;
   gap: 12px;
@@ -2072,6 +2172,51 @@ summary {
 .diff-hunk {
   background: rgb(232 166 52 / 0.08);
   color: var(--muted);
+}
+.issue-board {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(220px, 1fr);
+  gap: 12px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.issue-lane {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+.issue-lane h3 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.issue-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--raised);
+}
+.issue-card h4 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
+}
+.issue-card p {
+  margin: 0 0 8px;
+}
+.issue-closed {
+  opacity: 0.65;
+}
+@media (max-width: 900px) {
+  .pulls-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .issue-board {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+  }
 }
 
 .diff-meta {
