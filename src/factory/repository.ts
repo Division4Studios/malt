@@ -34,6 +34,7 @@ import {
   skillRequestSchema,
   taskSchema,
 } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
 
 import type { Store } from '../store.ts';
@@ -73,6 +74,31 @@ const BOARD_STATES = {
   blocked: 'Blocked',
 } as const;
 
+/**
+ * The stored record of a settled attempt.
+ *
+ * @param job - Running record.
+ * @param outcome - Settlement facts.
+ * @param outcome.state - Final state.
+ * @param outcome.usage - Actual usage, or null when unknown.
+ * @param outcome.finishedAt - Settlement time.
+ * @param outcome.settlement - Evidence carrying the failure class.
+ * @returns Finished record.
+ */
+function settledJob(
+  job: FactoryJob,
+  outcome: { state: FactoryJob['state']; usage: number | null; finishedAt: number; settlement: HandoffEvidence },
+): FactoryJob {
+  const failureClass = outcome.settlement.failureClass ?? undefined;
+  return {
+    ...job,
+    state: outcome.state,
+    usageTokens: outcome.usage,
+    finishedAt: outcome.finishedAt,
+    ...(failureClass !== undefined && { failureClass }),
+  };
+}
+
 /** Durable, transactional workspace factory state. */
 export class FactoryRepository {
   /** Durable instruction delivery and explicit native agent reports. */
@@ -107,6 +133,7 @@ export class FactoryRepository {
       CREATE TABLE IF NOT EXISTS factory_task_versions (task_id TEXT NOT NULL, version INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(task_id,version));
       CREATE TABLE IF NOT EXISTS factory_jobs (id TEXT PRIMARY KEY, role TEXT NOT NULL, state TEXT NOT NULL, data TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS factory_live_role ON factory_jobs(role) WHERE state = 'running';
+      CREATE INDEX IF NOT EXISTS factory_jobs_by_start ON factory_jobs(json_extract(data, '$.startedAt') DESC, id DESC);
       CREATE TABLE IF NOT EXISTS factory_capacity (provider TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effects (id TEXT PRIMARY KEY, issue INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS factory_effect_receipts (id TEXT PRIMARY KEY);
@@ -432,6 +459,30 @@ export class FactoryRepository {
   }
 
   /**
+   * Record an operator mark such as a hold or an archive choice without
+   * bumping the delivery's version, so a running attempt fenced on that version
+   * still publishes normally.
+   *
+   * @param id - Delivery identity.
+   * @param change - Pure edit that touches only operator marks.
+   * @returns Stored delivery.
+   */
+  public markTask(id: string, change: (task: FactoryTask) => FactoryTask): FactoryTask {
+    return this.store.transaction(() => {
+      const previous = this.task(id);
+      const task = taskSchema.parse({ ...change(previous), version: previous.version, updatedAt: previous.updatedAt });
+      this.putTask(task);
+      this.store.event('FACTORY_TASK_UPDATED', null, {
+        taskId: id,
+        issue: task.issue,
+        phase: task.phase,
+        head: task.head,
+      });
+      return task;
+    });
+  }
+
+  /**
    * Retrieve source/worktree history for safe cleanup after a repaired merge.
    *
    * @param id - Delivery identity.
@@ -575,7 +626,10 @@ export class FactoryRepository {
         live.some((candidate) => {
           return (
             candidate.role === record.role ||
-            (record.kind === 'develop' && candidate.taskId === record.taskId && candidate.kind === 'develop')
+            // Code-editing steps share the delivery's worktree, so at most one runs per delivery.
+            (CODE_JOB_KINDS.has(record.kind) &&
+              candidate.taskId === record.taskId &&
+              CODE_JOB_KINDS.has(candidate.kind))
           );
         })
       ) {
@@ -676,13 +730,8 @@ export class FactoryRepository {
         cooldownUntil: Math.max(capacity.cooldownUntil, settlement.cooldown ?? 0),
         updatedAt: this.store.now(),
       });
-      run(
-        this.store.db,
-        'UPDATE factory_jobs SET state=?,data=? WHERE id=?',
-        state,
-        JSON.stringify({ ...current, state, usageTokens: usage, finishedAt: this.store.now() }),
-        job.id,
-      );
+      const finished = settledJob(current, { state, usage, finishedAt: this.store.now(), settlement });
+      run(this.store.db, 'UPDATE factory_jobs SET state=?,data=? WHERE id=?', state, JSON.stringify(finished), job.id);
       retireManagedPresence(this.store, current);
       const manager = current.routing?.organization?.reportsTo;
       if (manager !== undefined && manager !== null) {
