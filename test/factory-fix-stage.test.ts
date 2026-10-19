@@ -18,7 +18,7 @@ import { runProcess } from '../src/factory/processes.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { builtinWorkflows, workflowDigest } from '../src/factory/workflows.ts';
-import { WorkspaceManager } from '../src/factory/workspaces.ts';
+import { WorkspaceManager, mergeMessage } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
@@ -37,12 +37,13 @@ interface Fixture {
 }
 
 /**
- * Build a repository with a bare origin and a delivery running the direct workflow.
+ * Build a repository with a bare origin and a delivery running a built-in workflow.
  *
  * @param t - Owns cleanup.
+ * @param workflowId - Built-in workflow the delivery runs.
  * @returns Context and delivery.
  */
-async function fixture(t: TestContext): Promise<Fixture> {
+async function fixture(t: TestContext, workflowId = 'direct'): Promise<Fixture> {
   const defer = createCleanup(t);
   const mesh = createProject(defer);
   const settings = factoryConfigSchema.parse({
@@ -69,7 +70,7 @@ async function fixture(t: TestContext): Promise<Fixture> {
   const repository = new FactoryRepository(store);
   repository.configure(settings);
   repository.prepareSender();
-  const direct = builtinWorkflows().find((workflow) => workflow.id === 'direct');
+  const direct = builtinWorkflows().find((workflow) => workflow.id === workflowId);
   assert.ok(direct !== undefined);
   const task = taskSchema.parse({
     id: randomUUID(),
@@ -306,6 +307,7 @@ await test('a fixer rules on every finding, regressions loop back, and verified 
   );
   assert.equal(failed.phase, 'review');
   assert.match(failed.feedback.join('\n'), /stray "!"/v);
+  assert.equal(failed.regressionFailures?.count, 1, 'failed rounds are counted durably');
   assert.deepEqual(startable(fix), ['fix']);
 
   await writeGreeting(fix, 'hello world');
@@ -353,4 +355,41 @@ await test('supervisor commits record the delivery, step, seat and attempt as tr
     log,
     /Deliver #4: Greeting file\nX-MALT-Delivery: #4\nX-MALT-Step: implement\nX-MALT-Role: developer-1/v,
   );
+});
+
+await test('documentation runs after every fix round, before the regression check', async (t) => {
+  const fix = await fixture(t, 'full-assurance');
+  await implementAndReview(fix);
+  const ruling = { id: 'review-1', decision: 'adopted' as const, reason: 'Typo', evidence: 'Fixed' };
+  await writeGreeting(fix, 'hello world!');
+  await perform(fix, { role: 'fixer', kind: 'adjudicate', step: 'fix' }, { dispositions: [ruling] });
+  publishPullRequest(fix);
+  assert.deepEqual(startable(fix), ['document']);
+  await perform(fix, { role: 'librarian', kind: 'document', step: 'document' }, {});
+  publishPullRequest(fix);
+  assert.deepEqual(startable(fix), ['regress']);
+  await perform(
+    fix,
+    { role: 'regression-verifier', kind: 'regress', step: 'regress' },
+    { outcome: 'changes_requested', findings: ['review-1: stray "!"'] },
+  );
+  assert.deepEqual(startable(fix), ['fix']);
+  await writeGreeting(fix, 'hello world');
+  await perform(fix, { role: 'fixer', kind: 'adjudicate', step: 'fix' }, { dispositions: [ruling] });
+  publishPullRequest(fix);
+  assert.deepEqual(startable(fix), ['document'], 'the second fix round is documented again');
+  await perform(fix, { role: 'librarian', kind: 'document', step: 'document' }, {});
+  publishPullRequest(fix);
+  const verified = await perform(fix, { role: 'regression-verifier', kind: 'regress', step: 'regress' }, {});
+  assert.equal(verified.phase, 'merge_ready');
+});
+
+await test('a merge that refreshes a delivery onto main carries the same provenance trailers', async (t) => {
+  const fix = await fixture(t);
+  const task = fix.context.repository.task(fix.taskId);
+  const provenance = { step: 'fix', kind: 'adjudicate', role: 'fixer', jobId: randomUUID() } as const;
+  const [, subject, , trailers = ''] = mergeMessage(task, provenance);
+  assert.equal(subject, 'Refresh #4 onto main: Greeting file');
+  assert.match(trailers, /X-MALT-Delivery: #4\nX-MALT-Step: fix\nX-MALT-Role: fixer/v);
+  assert.deepEqual(mergeMessage(task, null), []);
 });
