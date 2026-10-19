@@ -11,6 +11,7 @@ import { attemptDigest, attemptMetrics } from './attempt-metrics.ts';
 import { OBJECTIVE_MAX, attemptContext, attemptsSince, objectiveOf } from './attempts.ts';
 import { readPrices } from './price-table.ts';
 import { FACTORY_ROLES } from './seats.ts';
+import { refreshSpend, spendStatus } from './spend.ts';
 import { costsInputSchema } from './telemetry-schema.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -321,6 +322,7 @@ export async function costSummary(
     }
     jobs.push(job);
   }
+  await refreshSpend(repository, mesh, ATTEMPTS_MAX);
   const prices = readPrices(repository.store);
   const digests = await digestsFor(mesh, jobs);
   const attempts = jobs.map((job, index) => {
@@ -370,5 +372,6 @@ export async function costSummary(
       .toSorted((left, right) => left.localeCompare(right))
       .slice(0, UNPRICED_MODELS_MAX),
     prices,
+    spend: spendStatus(repository),
   };
 }
