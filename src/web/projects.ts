@@ -154,6 +154,8 @@ export const controlSchema = z
       'factory_secret_delete',
       'factory_local',
       'factory_manager',
+      'mcp_binding_propose',
+      'mcp_binding_approve',
       'github_connect',
       'github_verify',
       'github_section_save',
