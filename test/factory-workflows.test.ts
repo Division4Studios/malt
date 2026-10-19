@@ -127,6 +127,10 @@ await test('independence rules: whoever writes code never judges it', () => {
   step(selfReview, 'acceptance').roles = ['developer-1'];
   assertProblem(selfReview, 'cannot be performed by the implementer');
 
+  const earlyReview = draft();
+  step(earlyReview, 'acceptance').after = [];
+  assertProblem(earlyReview, 'so it has work to review');
+
   const authorFinal = draft();
   step(authorFinal, 'final').roles = ['developer-2'];
   assertProblem(authorFinal, 'final step must be independent');
@@ -271,6 +275,46 @@ await test('the library saves immutable revisions, fences stale edits and freeze
     () => library.freeze('missing'),
     (error: unknown) => error instanceof MeshError && error.code === 'NOT_FOUND',
   );
+});
+
+/**
+ * A valid workflow whose every step carries the longest allowed instructions.
+ *
+ * @param id - Workflow id.
+ * @returns Large definition.
+ */
+function bulky(id: string): Workflow {
+  const base = draft();
+  return {
+    ...base,
+    id,
+    delivery: base.delivery.map((entry) => ({ ...entry, instructions: 'x'.repeat(8000) })),
+    planning: base.planning.map((entry) => ({ ...entry, instructions: 'x'.repeat(8000) })),
+  };
+}
+
+await test('the project library stays small enough for every status snapshot', (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const library = new WorkflowLibrary(store);
+  const saved = Array.from({ length: 12 }, (_, index) => `bulky-${String(index)}`).filter((id) => {
+    try {
+      library.save({ workflow: bulky(id), expectedRevision: null });
+      return true;
+    } catch (error) {
+      assert.ok(error instanceof MeshError && error.code === 'TOO_LARGE');
+      return false;
+    }
+  });
+  assert.ok(saved.length > 0 && saved.length < 12, 'saves stop once the library would exceed its bound');
+  const bytes = library
+    .list()
+    .filter((entry) => entry.source === 'project')
+    .reduce((sum, entry) => sum + JSON.stringify(entry.workflow).length, 0);
+  assert.ok(bytes <= 393_216);
 });
 
 await test('organizations saved before specialist seats existed remain valid', () => {
