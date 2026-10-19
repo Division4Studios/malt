@@ -13,6 +13,7 @@ import { z } from 'zod/v3';
 
 import { loadConfig, loadIdentity } from '../config.ts';
 import { hasErrorCode } from '../errors.ts';
+import { isNativeKept, removedTools } from '../managed-tools.ts';
 import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
@@ -124,6 +125,64 @@ function codexSandbox(isDeveloper: boolean, access: 'workspace' | 'full-access')
   return access === 'full-access' ? 'danger-full-access' : 'workspace-write';
 }
 
+/** Native tools a launch keeps after the role policy. */
+interface NativeTools {
+  /** Whether the assignment may edit its owned worktree. */
+  readonly canEdit: boolean;
+  /** Whether the assignment may run shell commands. */
+  readonly canShell: boolean;
+  /** Claude tool names. */
+  readonly claude: string;
+}
+
+/**
+ * Narrow a seat's native tools by its role policy; nothing is ever added.
+ *
+ * @param job - Attempt with its frozen role policy.
+ * @returns Kept native capabilities and the Claude tool list.
+ */
+function nativeTools(job: FactoryJob): NativeTools {
+  // Implementation, fix and documentation steps edit their owned worktree; every other step reads only.
+  const isDeveloper = CODE_JOB_KINDS.has(job.kind);
+  const policy = job.routing?.organization?.tools;
+  const canEdit = isDeveloper && isNativeKept(policy, 'edit');
+  const canShell = isDeveloper && isNativeKept(policy, 'shell');
+  const claude = [
+    ...(isNativeKept(policy, 'read') ? ['Read', 'Glob', 'Grep'] : []),
+    ...(canEdit ? ['Write', 'Edit'] : []),
+    ...(canShell ? ['Bash'] : []),
+  ].join(',');
+  return { canEdit, canShell, claude };
+}
+
+/**
+ * Codex configuration for the role's own local MCP servers. Granted secrets
+ * reach them by name through Codex's environment forwarding, never as values
+ * on the command line.
+ *
+ * @param job - Attempt with its frozen role profile.
+ * @returns `-c` arguments.
+ */
+function codexServers(job: FactoryJob): string[] {
+  const secrets = job.routing?.organization?.secrets ?? [];
+  return (job.routing?.organization?.mcpServers ?? []).flatMap((server) => {
+    const key = `mcp_servers.${server.name}`;
+    return [
+      '-c',
+      `${key}.command=${JSON.stringify(server.command)}`,
+      '-c',
+      `${key}.args=${JSON.stringify(server.args)}`,
+      '-c',
+      `${key}.enabled=true`,
+      '-c',
+      `${key}.default_tools_approval_mode="approve"`,
+      '-c',
+      `${key}.startup_timeout_sec=30`,
+      ...(secrets.length === 0 ? [] : ['-c', `${key}.env_vars=${JSON.stringify(secrets)}`]),
+    ];
+  });
+}
+
 /**
  * Write this assignment's provider-specific MCP configuration and output schema.
  *
@@ -157,9 +216,12 @@ export function agentLaunch(
     '--role',
     record.role,
   ];
+  const denied = removedTools(`factory-${record.role}`, record.routing?.organization?.tools);
+  if (denied.length > 0) {
+    bridgeArguments.push('--deny-tools', denied.join(','));
+  }
   const limits = settings.providers[record.provider];
-  // Implementation, fix and documentation steps edit their owned worktree; every other step reads only.
-  const isDeveloper = CODE_JOB_KINDS.has(record.kind);
+  const native = nativeTools(record);
   if (record.provider === 'codex') {
     const codexArguments = [
       'exec',
@@ -167,7 +229,7 @@ export function agentLaunch(
       '--ephemeral',
       '--ignore-user-config',
       '--sandbox',
-      codexSandbox(isDeveloper, limits.developerAccess),
+      codexSandbox(native.canEdit, limits.developerAccess),
       '-c',
       'approval_policy="never"',
       '-c',
@@ -179,7 +241,7 @@ export function agentLaunch(
       '-c',
       'features.multi_agent=false',
       '-c',
-      `features.shell_tool=${String(isDeveloper)}`,
+      `features.shell_tool=${String(native.canShell)}`,
       '-c',
       `windows.sandbox=${JSON.stringify(limits.windowsSandbox)}`,
       '-c',
@@ -204,8 +266,9 @@ export function agentLaunch(
       'mcp_servers.agentmesh.startup_timeout_sec=30',
       '-c',
       'mcp_servers.agentmesh.tool_timeout_sec=120',
+      ...codexServers(record),
     ];
-    if (isDeveloper) {
+    if (native.canEdit) {
       codexArguments.push('--add-dir', record.artifact, '-c', 'sandbox_workspace_write.network_access=true');
     }
     codexArguments.push(...selectionArguments, '-');
@@ -214,17 +277,23 @@ export function agentLaunch(
   const mcpFile = path.join(record.artifact, 'claude-mcp.json');
   writeAtomic(
     mcpFile,
-    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments } } }, null, 2)}\n`,
+    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...roleServers(record) } }, null, 2)}\n`,
   );
-  const tools = isDeveloper ? 'Read,Write,Edit,Glob,Grep,Bash' : 'Read,Glob,Grep';
+  const tools = native.claude;
   const learningTools =
     'mcp__agentmesh__mesh_learning_status,mcp__agentmesh__mesh_learning_read_skill,mcp__agentmesh__mesh_learning_read_source,mcp__agentmesh__mesh_factory_read_source';
   const communicationTools =
     'mcp__agentmesh__mesh_whoami,mcp__agentmesh__mesh_get_messages,mcp__agentmesh__mesh_get_unread_messages,mcp__agentmesh__mesh_ack_message,mcp__agentmesh__mesh_send_message,mcp__agentmesh__mesh_github_status,mcp__agentmesh__mesh_github_sync,mcp__agentmesh__mesh_factory_progress,mcp__agentmesh__mesh_factory_ask,mcp__agentmesh__mesh_factory_objective_check';
-  const allowed =
+  const seatAllowed =
     record.kind === 'learn'
       ? `${tools},${learningTools},${communicationTools},mcp__agentmesh__mesh_learning_search,mcp__agentmesh__mesh_learning_record,mcp__agentmesh__mesh_learning_propose_skill`
       : `${tools},${learningTools},${communicationTools}`;
+  const allowed = [
+    ...seatAllowed
+      .split(',')
+      .filter((tool) => tool !== '' && denied.every((operation) => tool !== `mcp__agentmesh__mesh_${operation}`)),
+    ...(record.routing?.organization?.mcpServers ?? []).map((server) => `mcp__${server.name}`),
+  ].join(',');
   const args = [
     ...selectionArguments,
     '--setting-sources',
@@ -239,7 +308,7 @@ export function agentLaunch(
     mcpFile,
     '--strict-mcp-config',
     '--permission-mode',
-    isDeveloper && limits.developerAccess === 'full-access' ? 'bypassPermissions' : 'dontAsk',
+    native.canEdit && limits.developerAccess === 'full-access' ? 'bypassPermissions' : 'dontAsk',
     '--tools',
     tools,
     '--allowedTools',
@@ -249,6 +318,18 @@ export function agentLaunch(
     '--no-session-persistence',
   ];
   return { args, output };
+}
+
+/**
+ * Claude MCP configuration for the role's own local servers. Claude starts
+ * them with its own environment, which carries any granted secrets.
+ *
+ * @param job - Attempt with its frozen role profile.
+ * @returns Server entries keyed by name.
+ */
+function roleServers(job: FactoryJob): Record<string, { command: string; args: readonly string[] }> {
+  const servers = job.routing?.organization?.mcpServers ?? [];
+  return Object.fromEntries(servers.map((server) => [server.name, { command: server.command, args: server.args }]));
 }
 
 /**

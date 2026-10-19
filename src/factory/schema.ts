@@ -39,18 +39,23 @@ import { subscriptionWindowsSchema } from './quota-windows.ts';
 import { recommendationReadSchemas } from './recommendation-read-schema.ts';
 import { recommendationBodySchema } from './recommendation-schema.ts';
 import { repairPolicySchema, repairRoundSchema } from './repair-schema.ts';
+import { revalidationSchema } from './revalidation-schema.ts';
+import { ROLE_OPERATIONS, roleSchemas } from './role-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS, SPECIALIST_ROLES, keySchema } from './seats.ts';
 import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
+import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
 import {
   approvalSchema,
   approveRequestSchema,
   defaultWorkflowRequestSchema,
+  workflowHistoryRequestSchema,
   frozenWorkflowSchema,
   saveWorkflowRequestSchema,
   stepResultSchema,
   planningResultSchema,
+  planOutputSchema,
   dispositionsSchema,
 } from './workflow-schema.ts';
 
@@ -100,6 +105,8 @@ const FREE_MEMORY_MB = 1024;
 const CPU_PERCENT = 85;
 /** Default verified rate-limit cooldown. */
 export const COOLDOWN_MS = 300_000;
+/** Recent rejection request ids kept per delivery or objective for idempotent retries. */
+export const REJECTED_REQUESTS_MAX = 20;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
@@ -174,6 +181,8 @@ export const factoryConfigSchema = z
     organization: organizationSchema(FACTORY_ROLES, SPECIALIST_ROLES),
     /** Gates new objectives freeze unless they override them. */
     defaultGates: gatesSchema.default({}),
+    /** Recheck a dependent delivery's brief against its merged predecessors before it starts. */
+    briefRevalidation: z.boolean().default(false),
     requireBranchProtection: z.boolean().default(true),
     requireProjectAttachment: z.literal(true).default(true),
     baseBranch: keySchema.default('main'),
@@ -285,11 +294,17 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Gates frozen when the objective was filed; absent on older objectives, which have none. */
   gates: gatesSchema.optional(),
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
   planningResults: z.array(planningResultSchema).optional(),
+  /** Operator step overrides, copied onto each delivery when it is provisioned. */
+  stepOverrides: stepOverridesSchema.optional(),
+  /** Typed specification and plan outputs with the source each was planned against, oldest first. */
+  planOutputs: z.array(planOutputSchema).optional(),
   /** Operator-owned definition of done; agents propose or check items only with evidence. */
   definitionOfDone: z.array(doneItemSchema).max(DONE_ITEMS_MAX).optional(),
 });
@@ -369,6 +384,8 @@ export const taskSchema = z.object({
     .nullable()
     .default(null),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Source published by the implementation step; fixes and regressions build on it. */
   implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
   stepResults: z.array(stepResultSchema).default([]),
@@ -376,10 +393,18 @@ export const taskSchema = z.object({
   workflow: frozenWorkflowSchema.optional(),
   /** Merge gate frozen when the delivery was provisioned, or changed for it by the operator. */
   gates: deliveryGatesSchema.optional(),
+  /** Step overrides frozen from its objective at provisioning, or changed for it by the operator. */
+  stepOverrides: stepOverridesSchema.optional(),
   /** Operator hold: no new attempt starts while set. */
   hold: holdSchema.nullable().default(null),
+  /** The lead's verdict on this brief after its predecessors merged, when revalidated. */
+  revalidation: revalidationSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
   repairs: z.array(repairRoundSchema).default([]),
+  /** Failed regression rounds since the implementation it counts from, for the fix-round cap. */
+  regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
+  /** Last operator retry; repair rounds and failed attempts before it no longer count toward the caps. */
+  repairsResetAt: z.number().optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
@@ -501,9 +526,11 @@ export const factorySchemas = {
       requestId: z.string().uuid().optional(),
       workflowId: keySchema.optional(),
       gates: gateOverrideSchema.optional(),
+      stepOverrides: stepOverridesSchema.optional(),
     })
     .strict(),
   factory_gates: gatesControlSchema,
+  factory_step_overrides: stepOverridesControlSchema,
   factory_approve: approveRequestSchema,
   factory_queue: queueControlSchema,
   factory_reorder_objective: z
@@ -569,6 +596,7 @@ export const factorySchemas = {
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
+  factory_workflow_history: workflowHistoryRequestSchema,
   ...telemetrySchemas,
   ...diffSchemas,
   ...deliveryControlSchemas,
@@ -576,6 +604,7 @@ export const factorySchemas = {
   ...questionSchemas,
   ...spendSchemas,
   ...objectiveGoalSchemas,
+  ...roleSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
 };
 /** An exposed factory operation. */
@@ -607,6 +636,7 @@ export const FACTORY_OPERATIONS = [
   'factory_instruct',
   'factory_workflow_save',
   'factory_workflow_default',
+  'factory_workflow_history',
   'factory_approve',
   ...TELEMETRY_OPERATIONS,
   ...DIFF_OPERATIONS,
@@ -614,7 +644,9 @@ export const FACTORY_OPERATIONS = [
   ...AUTOMATION_OPERATIONS,
   ...QUESTION_OPERATIONS,
   'factory_gates',
+  'factory_step_overrides',
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
+  ...ROLE_OPERATIONS,
   'factory_reconcile_github',
 ] as const;

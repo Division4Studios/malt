@@ -42,6 +42,7 @@ import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
+import { assertManagedTool } from './managed-tools.ts';
 import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
@@ -508,6 +509,11 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  const gate = {
+    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
+    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
+  };
+  assertManagedTool(gate, operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
     assertFactoryAuthority(team, operation, credentials);

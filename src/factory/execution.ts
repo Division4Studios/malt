@@ -12,6 +12,7 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { attemptSecrets, launchEnvironment } from './attempt-secrets.ts';
 import { featureWorkflow, findingsToRule, planFindings, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
@@ -19,6 +20,7 @@ import { stepAnswers } from './questions.ts';
 import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
 import { openRepair, recordConflict } from './repairs.ts';
+import { revalidationEvidence } from './revalidation.ts';
 import { publicJobSchema } from './schema.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, PLANNING_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
@@ -26,7 +28,6 @@ import { sealSource } from './source-reader.ts';
 import { ensureProjectTracking } from './tracking.ts';
 import { isCurrentTriage, pendingTriage } from './triage.ts';
 import { validationEnvironment } from './validation-environment.ts';
-import { grantedEnvironment } from './vault.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
 import type { RepairRound } from './repair-schema.ts';
@@ -60,7 +61,10 @@ export function cancelStaleAssignments(
       }
       continue;
     }
-    if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
+    // A retried delivery that never started sits in development with no head, and still awaits its revalidation.
+    const isUnstarted = job.kind === 'revalidate' && task.phase === 'development' && task.developer === null;
+    const isStage = task.phase === JOB_PHASE[job.kind] || isUnstarted;
+    if (!isStage || task.head !== job.head || task.base !== job.base) {
       running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
     }
   }
@@ -100,7 +104,7 @@ export async function runChecks(
       input: '',
       artifact,
       // A role's granted secrets may surface in check output through files the attempt wrote.
-      secrets: [context.mesh.token, ...Object.values(attemptEnvironment(context, job))],
+      secrets: [context.mesh.token, ...attemptSecrets(context, job)],
       timeoutMs: context.settings.jobTimeoutMs,
       memoryMb: context.settings.resources.jobMemoryMb,
       cpuPercent: context.settings.resources.jobCpuPercent,
@@ -125,22 +129,6 @@ export async function runChecks(
     }
   }
   return evidence;
-}
-
-/**
- * Open the secrets granted to an attempt's role type, for its provider process only.
- *
- * @param context - Project ledger and private directory.
- * @param job - Attempt with the secret names frozen into its routing.
- * @returns Environment variables; empty when nothing is granted.
- */
-function attemptEnvironment(context: FactoryContext, job: FactoryJob): Record<string, string> {
-  const organization = job.routing?.organization;
-  return grantedEnvironment(
-    { store: context.repository.store, directory: context.mesh.directory },
-    organization?.secrets ?? [],
-    organization?.type,
-  );
 }
 
 /**
@@ -198,7 +186,7 @@ export async function executeJob(
   const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, repair: view.repair, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations, answers: stepAnswers(repository.store, record), repair: view.repair } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
-    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
+    `${JSON.stringify({ record: publicJobSchema.parse(record), task: view.task, feature: view.feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
   );
   writeAtomic(path.join(record.artifact, 'prompt.md'), prompt);
   controls.signal.throwIfAborted();
@@ -212,7 +200,7 @@ export async function executeJob(
     prompt,
     signal: controls.signal,
     onSpawn: controls.onSpawn,
-    environment: attemptEnvironment(context, record),
+    environment: launchEnvironment(context, record),
   });
   if (snapshot !== null) {
     await context.workspaces.assertUnchanged(snapshot);
@@ -275,6 +263,13 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
       };
     });
     if (await isConflicted(context, task, { directory: cwd, base: prepared.base })) {
+      if (record.kind !== 'develop') {
+        // The conflict round returned the delivery to its developer; this stage's turn would be discarded.
+        throw new MeshError(
+          'FACTORY_GATED',
+          'Refreshing onto main conflicted; the delivery returned to its developer to resolve it.',
+        );
+      }
       // Prepare commands may read conflicted manifests; the developer resolves first and publication reruns the checks.
       return { cwd, snapshot: null, checks: [{ stage: 'prepare', skipped: 'Unresolved merge conflicts with main.' }] };
     }
@@ -486,6 +481,8 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
         }),
       skillReviewHistory: repository.skillRequests().slice(-RECENT_EVIDENCE_COUNT),
     };
+  } else if (record.kind === 'revalidate' && record.taskId !== null) {
+    evidence = revalidationEvidence(repository, repository.task(record.taskId));
   }
   if (skill !== null && record.kind === 'skill') {
     evidence = readJsonFile(path.join(context.mesh.directory, 'knowledge', 'candidates', `${skill.revision}.json`));

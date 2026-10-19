@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 
 import { MeshError } from '../protocol.ts';
 
+import { objectiveGates } from './gate-controls.ts';
 import { deliveryTask } from './reconcile.ts';
 import { factorySchemas } from './schema.ts';
 
@@ -52,6 +53,7 @@ export async function enqueueDelivery(context: FactoryContext, input: unknown): 
       createdAt: now,
       updatedAt: now,
       approvals: [],
+      gates: objectiveGates(repository),
     };
     repository.saveFeature(feature);
   }
