@@ -127,6 +127,17 @@ await test('values are sealed, write-only, versioned and fingerprinted', (t) => 
   deleteSecret(vault, roleSchemas.factory_secret_delete.parse({ name: 'DOCS_TOKEN', expectedVersion: 3 }));
   assert.deepEqual(vaultStatus(vault.store).entries, []);
   assert.deepEqual(grantedEnvironment(vault, ['DOCS_TOKEN'], 'builder'), {}, 'A deleted secret is skipped at launch.');
+  const recreated = saveSecret(
+    vault,
+    save({ name: 'DOCS_TOKEN', value: VALUE, grants: [], expectedVersion: null }),
+    TYPES,
+  );
+  assert.equal(recreated.version, 4, 'A recreated secret never reuses a version of the deleted one.');
+  assert.throws(
+    () => deleteSecret(vault, roleSchemas.factory_secret_delete.parse({ name: 'DOCS_TOKEN', expectedVersion: 3 })),
+    { code: 'FACTORY_GATED' },
+    'An editor still holding the deleted secret cannot remove its replacement.',
+  );
 });
 
 await test('grants decide which role types receive a secret, at admission and again at launch', (t) => {

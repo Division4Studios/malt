@@ -130,7 +130,7 @@ class AutomationEditor {
   private editing: AutomationView | null = null;
   /** Whether a save is in flight. */
   private isSending = false;
-  /** Counts openings, so a pending save only finishes the opening that sent it. */
+  /** Counts openings, so a save finishing after the dialog was reopened leaves the new draft alone. */
   private opening = 0;
   /** Operator control path. */
   private readonly control: OperatorControl;
@@ -234,11 +234,9 @@ class AutomationEditor {
     editing: AutomationView | null,
     workflows: readonly (readonly [string, string])[],
   ): void {
-    this.opening += 1;
-    this.isSending = false;
-    this.save.disabled = false;
     this.kind = kind;
     this.editing = editing;
+    this.opening += 1;
     const draft = draftOf(editing);
     const isSchedule = kind === 'schedule';
     const blankTitle = t(isSchedule ? 'New schedule' : 'New trigger');
@@ -300,40 +298,41 @@ class AutomationEditor {
       return;
     }
     const { operation, input } = saveInput(this.kind, draft, this.editing);
-    const sent = this.opening;
     this.isSending = true;
     this.save.disabled = true;
     this.error.textContent = '';
     const issued: Issued = { value: null };
+    const started = this.opening;
     try {
       const isSaved = await this.control(operation, input, (result) => {
         issued.value = issuedSecret(result);
       });
-      this.finish(sent, isSaved, issued);
+      this.finish(isSaved, started === this.opening, issued);
     } finally {
-      if (sent === this.opening) {
-        this.isSending = false;
-        this.save.disabled = false;
-      }
+      this.isSending = false;
+      this.save.disabled = false;
     }
   }
 
   /**
-   * Finish a save. The operator may have closed this draft and opened another
-   * while it was pending; then only a newly issued secret is still shown.
+   * Apply a save's outcome; one finishing after the dialog was reopened leaves the new draft alone.
    *
-   * @param opening - Opening that sent the save.
-   * @param isSaved - Whether the control was applied.
-   * @param issued - Secret the save issued, if any.
+   * @param isSaved - Whether the save was applied.
+   * @param isCurrent - Whether the dialog still shows the draft that was saved.
+   * @param issued - Secret issued with a new trigger, if any.
    */
-  private finish(opening: number, isSaved: boolean, issued: Issued): void {
-    const isCurrent = opening === this.opening;
-    if (isCurrent && isSaved) {
-      this.element.close();
-    } else if (isCurrent) {
-      this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
+  private finish(isSaved: boolean, isCurrent: boolean, issued: Issued): void {
+    if (!isSaved) {
+      if (isCurrent) {
+        this.error.textContent = t('Not saved. The notice at the top of the console says why; your changes are kept.');
+      }
+      return;
     }
-    if (isSaved && issued.value !== null) {
+    if (isCurrent) {
+      this.element.close();
+    }
+    // A new trigger's secret is shown once, even when the editor has since moved on to another draft.
+    if (issued.value !== null) {
       this.saved(issued.value.secret, issued.value.trigger);
     }
   }
