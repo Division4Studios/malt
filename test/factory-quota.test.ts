@@ -186,6 +186,56 @@ await test('failed and cancelled observations cannot refresh prior windows or cl
   );
 });
 
+await test('a caller arriving during a refresh waits for it instead of reading stale capacity', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const settings = factoryConfigSchema.parse({
+    testCommands: [{ file: process.execPath }],
+    endToEndCommands: [{ file: process.execPath }],
+  });
+  repository.configure(settings);
+  const probe: { release: () => void; calls: number } = {
+    release: () => {
+      throw new Error('The probe has not started.');
+    },
+    calls: 0,
+  };
+  const observer = new QuotaObserver();
+  const context = {
+    mesh,
+    repository,
+    settings,
+    processes: async () => {
+      probe.calls += 1;
+      await new Promise<void>((resolve) => {
+        probe.release = resolve;
+      });
+      return { stdout: '', stderr: '', exitCode: 1, interrupted: false };
+    },
+  };
+  const first = observer.observe(context);
+  const order: string[] = [];
+  const waitForSecond = async (): Promise<void> => {
+    await observer.observe(context);
+    order.push('second');
+  };
+  const second = waitForSecond();
+  await new Promise<void>((resolve) => {
+    setImmediate(resolve);
+  });
+  assert.deepEqual(order, [], 'the second caller is still waiting');
+  probe.release();
+  await first;
+  await second;
+  assert.deepEqual(order, ['second']);
+  assert.equal(probe.calls, 1, 'one probe serves both callers');
+});
+
 await test('expired windows remain stale and scalar ties retain the later restrictive deadline', () => {
   const response = {
     rateLimits: { primary: { usedPercent: 100, resetsAt: 50 }, secondary: { usedPercent: 100, resetsAt: 80 } },

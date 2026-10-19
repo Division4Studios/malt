@@ -7,23 +7,40 @@
  * @file
  */
 
-import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { z } from 'zod/v3';
 
+import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
+import { savedSections } from './connection-sections.ts';
+import { isConnected, sectionStates, verifyConnection } from './connection-verify.ts';
 import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
+import { cachedProbe, connectionCredentials, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
+import { discoverGitHub } from './github-discovery.ts';
+import { STATUS_FIELD, fieldSchema, selectWorkflowField } from './github-fields.ts';
 import { createIssueReader } from './github-issues.ts';
+import { issueFingerprint, issueSchema, journalSchema } from './github-journal.ts';
+import {
+  createProjectOnce,
+  pendingCreationDecision,
+  projectSchema,
+  resolveCreationDecision,
+} from './github-project-create.ts';
+import { isResourceOperation, resourceOperation } from './github-resources.ts';
 import { githubRunner } from './github-runner.ts';
-import { MeshError, parseInput, schemas } from './protocol.ts';
+import { MeshError, parseInput } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
+import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
-import type { ConnectionV2, LegacyConnection, SavedConnection } from './connector.ts';
+import type { LegacyConnection, SavedConnection } from './connector.ts';
+import type { PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
+import type { IssueJournal } from './github-journal.ts';
+import type { ResourceContext } from './github-resources.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
@@ -39,9 +56,6 @@ export const DELIVERY_STATUSES = [
   'Blocked',
 ] as const;
 
-/** Name of MALT's field; existing user Status fields are left intact. */
-const STATUS_FIELD = 'MALT Status';
-
 /** A stable GitHub ID returned by a Project mutation. */
 const itemSchema = z.object({ id: z.string() });
 /** Response for adding an issue to a Project. */
@@ -50,86 +64,6 @@ const itemAdditionSchema = z.object({ addProjectV2ItemById: z.object({ item: ite
 const subIssueSchema = z.object({ id: z.number() });
 /** Pages of native sub-issue identities. */
 const subIssuesSchema = z.array(z.array(subIssueSchema));
-/** One select option in a workflow field. */
-const optionSchema = z.object({ id: z.string(), name: z.string() });
-
-/** A GitHub single-select field and its options. */
-const fieldSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  options: z.array(optionSchema).optional(),
-});
-
-/**
- * Select an operator-named existing field without silently creating another.
- *
- * @param fields - Verified remote field inventory.
- * @param name - Explicit existing field, or managed default.
- * @returns Existing field, absent only when the managed default needs creation.
- * @throws {MeshError} When an explicitly selected field does not exist.
- */
-function selectWorkflowField(
-  fields: z.output<typeof fieldSchema>[],
-  name: string | undefined,
-): z.output<typeof fieldSchema> | undefined {
-  if (name !== undefined) {
-    const selected = fields.find((field) => field.name === name);
-    if (selected === undefined) {
-      throw new MeshError('INVALID_INPUT', 'The requested workflow field does not exist in this Project.');
-    }
-    return selected;
-  }
-  return fields.find((field) => field.name === STATUS_FIELD) ?? fields.find((field) => field.name === 'MLT Status');
-}
-
-/** Verified project identity returned by the GitHub CLI. */
-const projectSchema = z.object({ id: z.string(), number: z.number().int().positive(), url: z.string().url() });
-
-/** Public repository issue details needed for board and parent linking. */
-const issueSchema = z.object({
-  id: z.number().int().positive(),
-  node_id: z.string(),
-  number: z.number().int().positive(),
-  html_url: z.string().url(),
-  body: z.string().nullable(),
-});
-
-/** Each issue-creation request is persisted before contacting GitHub. */
-const journalSchema = z.object({
-  fingerprint: z.string(),
-  input: schemas.github_create_issue,
-  phase: z.enum(['creating', 'created', 'attached', 'linked', 'complete']),
-  issue: issueSchema.optional(),
-  itemId: z.string().optional(),
-});
-
-/** Persisted issue-creation progress. */
-type IssueJournal = z.output<typeof journalSchema>;
-
-/**
- * Bind an issue intent to its repository identity, Project and exact input.
- *
- * @param input - Validated immutable request.
- * @param connection - Selected Project.
- * @param repository - Stable node ID, or a legacy repository name.
- * @returns Content fingerprint.
- */
-function issueFingerprint(
-  input: OperationInput<'github_create_issue'>,
-  connection: LegacyConnection,
-  repository: string,
-): string {
-  return createHash('sha256')
-    .update(JSON.stringify({ repository, project: connection.project.id, input }))
-    .digest('hex');
-}
-
-/** Explicit Project creation checkpoint, preventing blind duplicate setup. */
-const setupSchema = z.object({
-  fingerprint: z.string(),
-  phase: z.enum(['creating', 'created']),
-  project: projectSchema.optional(),
-});
 
 export { githubRunner, type GitHubRunner } from './github-runner.ts';
 
@@ -143,16 +77,32 @@ export class ProjectGitHub {
   private readonly directory: string;
   /** Tail of the per-project async operation queue. */
   private pending: Promise<undefined> = Promise.resolve(undefined);
+  /** The project's capability policy; mutations fail closed without one. */
+  private readonly policy: CapabilityGate;
+  /** Checks whether each section's credential is available, without reading it. */
+  private readonly presence: PresenceProbe;
 
   /**
    * Prepare project-specific integration without making network calls.
    *
    * @param config - The target workspace, not the broker's home project.
    * @param runner - Optional test adapter.
+   * @param policy - This same project's capability policy; the broker supplies it.
+   * @param presence - Credential presence probe; a fixture runner implies an unverified gh session.
    */
-  public constructor(config: MeshConfig, runner: GitHubRunner = githubRunner(config.root)) {
+  public constructor(
+    config: MeshConfig,
+    runner?: GitHubRunner,
+    policy: CapabilityGate = UNBOUND_GATE,
+    presence?: PresenceProbe,
+  ) {
     this.config = config;
-    this.runner = runner;
+    this.runner = runner ?? githubRunner(config.root);
+    this.policy = policy;
+    this.presence = presence ?? {
+      ghAuthenticated: runner === undefined ? cachedProbe(ghAuthProbe(config.root)) : null,
+      environment: process.env,
+    };
     this.directory = path.join(config.directory, 'github');
   }
 
@@ -166,18 +116,27 @@ export class ProjectGitHub {
 
   /**
    * Execute an operation after earlier operations for this project finish.
+   * Mutations are authorized for the principal immediately before dispatch,
+   * so a denial makes no remote call and writes no journal.
    *
+   * @param principal - Caller derived from authenticated context, never request data.
    * @param operation - Validated GitHub operation name.
    * @param input - Untrusted tool or RPC arguments.
    * @returns Validated GitHub details or saved local state.
+   * @throws {MeshError} CAPABILITY_DENIED when policy forbids it or none is bound.
    */
-  public async execute(operation: GitHubOperation, input: unknown): Promise<unknown> {
+  public async execute(principal: CapabilityPrincipal, operation: GitHubOperation, input: unknown): Promise<unknown> {
     const previous = this.pending;
     const { promise, resolve } = Promise.withResolvers<undefined>();
     this.pending = promise;
     await previous;
     try {
-      return await this.dispatch(operation, input);
+      this.policy.authorize(principal, githubCapabilities(operation, input));
+      const result = await this.dispatch(operation, input);
+      if (operation === 'github_connect') {
+        this.policy.grantConnectionDefaults(principal);
+      }
+      return result;
     } finally {
       resolve(undefined);
     }
@@ -191,10 +150,23 @@ export class ProjectGitHub {
    * @returns Validated local or remote result.
    */
   private async dispatch(operation: GitHubOperation, input: unknown): Promise<unknown> {
+    if (isResourceOperation(operation)) {
+      return await resourceOperation(this.resourceContext(), operation, input);
+    }
     switch (operation) {
       case 'github_status': {
         parseInput(operation, input);
-        return this.status();
+        return await this.status();
+      }
+      case 'github_section_save': {
+        return await this.saveSections(parseInput(operation, input));
+      }
+      case 'github_verify': {
+        parseInput(operation, input);
+        return await this.verify();
+      }
+      case 'github_discover': {
+        return discoverGitHub(this.runner, parseInput(operation, input));
       }
       case 'github_connect': {
         return this.connect(parseInput(operation, input));
@@ -212,38 +184,114 @@ export class ProjectGitHub {
   }
 
   /**
-   * Inspect a connection without returning secrets or calling GitHub.
+   * Inspect a connection without returning secrets or calling GitHub. Each
+   * section's credential presence is reported separately, so a logged-out gh
+   * session or an unset variable reads as missing rather than connected.
    *
-   * @returns Saved connection and unresolved creation journals.
+   * @returns Saved connection, credential presence and unresolved creation journals.
    * @throws {Error} For damaged saved state.
    */
-  private status(): unknown {
-    let connection: LegacyConnection | null = null;
-    let connectionV2: ConnectionV2 | null = null;
-    try {
-      ({ legacy: connection, v2: connectionV2 } = this.savedConnection());
-    } catch (error) {
-      if (!(error instanceof MeshError) || error.code !== 'GITHUB_NOT_CONNECTED') {
-        throw error;
-      }
-    }
+  private async status(): Promise<unknown> {
+    const saved = this.optionalConnection();
+    const connectionV2 = saved?.v2 ?? null;
     return {
       workspace: this.config.workspace ?? this.config.root,
-      connected: connection !== null,
-      connection,
+      connected: connectionV2 !== null && isConnected(connectionV2),
+      verification: connectionV2 === null ? null : sectionStates(connectionV2),
+      connection: saved?.legacy ?? null,
       connectionV2,
+      credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
+      projectCreation: pendingCreationDecision(this.directory),
     };
+  }
+
+  /**
+   * What label and milestone operations need: the connected repository and this project's directory.
+   *
+   * @returns Runner, connected repository and this project's integration directory.
+   */
+  private resourceContext(): ResourceContext {
+    const { repository, owner, project, statusField } = this.connection();
+    return {
+      runner: this.runner,
+      repository,
+      directory: this.directory,
+      owner,
+      projectId: project.id,
+      projectNumber: project.number,
+      workflowFieldId: statusField.id,
+    };
+  }
+
+  /**
+   * Save the tracker and/or source section unverified; pending ticket operations fence a switch.
+   *
+   * @param input - Sections chosen from discovery.
+   * @returns Status after the save.
+   */
+  private async saveSections(input: OperationInput<'github_section_save'>): Promise<unknown> {
+    const record = savedSections(this.optionalConnection()?.v2 ?? null, input, timestamp());
+    const { source, tracker } = record;
+    this.assertConnectionChange(source.repository, source.repositoryId, tracker.owner, tracker.projectNumber);
+    this.mkdir(this.directory);
+    writeAtomic(
+      path.join(this.directory, 'connection.json'),
+      `${JSON.stringify(record, null, 2)}
+`,
+    );
+    return await this.status();
+  }
+
+  /**
+   * Verify both saved sections with read-only discovery and record their states.
+   *
+   * @returns Status after verification.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED before anything is saved.
+   */
+  private async verify(): Promise<unknown> {
+    const verified = await verifyConnection(this.runner, this.savedConnection().v2, DELIVERY_STATUSES);
+    writeAtomic(
+      path.join(this.directory, 'connection.json'),
+      `${JSON.stringify(verified, null, 2)}
+`,
+    );
+    return await this.status();
+  }
+
+  /**
+   * Read the saved record, or null before anything is saved.
+   *
+   * @returns Validated connection views, if saved.
+   * @throws {Error} For damaged saved state.
+   */
+  private optionalConnection(): SavedConnection | null {
+    try {
+      return this.savedConnection();
+    } catch (error) {
+      if (error instanceof MeshError && error.code === 'GITHUB_NOT_CONNECTED') {
+        return null;
+      }
+      throw error;
+    }
   }
 
   /**
    * Read the validated project-local connection.
    *
    * @returns Verified connection metadata.
-   * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED until setup succeeds and both saved sections are verified.
    */
   private connection(): LegacyConnection {
-    return this.savedConnection().legacy;
+    const saved = this.savedConnection();
+    // A section saved but not yet verified may name the wrong repository or Project; never act on it.
+    if (!isConnected(saved.v2)) {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'The saved GitHub connection is not verified. Verify it (mesh_github_verify) before coordinating tickets.',
+      );
+    }
+    return saved.legacy;
   }
 
   /**
@@ -320,7 +368,12 @@ export class ProjectGitHub {
     const repositoryAliases = this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
     const project =
       input.projectNumber === undefined
-        ? await this.createProject(owner, repository, input.title ?? `${repository} — MALT`)
+        ? await createProjectOnce(
+            { runner: this.runner, directory: this.directory },
+            owner,
+            repository,
+            input.title ?? `${repository} — MALT`,
+          )
         : projectSchema.parse(
             await this.runner(['project', 'view', String(input.projectNumber), '--owner', owner, '--format', 'json']),
           );
@@ -385,6 +438,7 @@ export class ProjectGitHub {
         url: project.url,
         workflowField: statusField,
         capabilities: unverifiedCapabilities(),
+        credential: { kind: 'github-cli' },
         savedAt: now,
         verifiedAt: now,
       },
@@ -394,55 +448,17 @@ export class ProjectGitHub {
         repositoryId,
         repositoryAliases,
         capabilities: unverifiedCapabilities(),
+        credential: { kind: 'github-cli' },
         savedAt: now,
         verifiedAt: repositoryId === null ? null : now,
       },
     });
     this.mkdir(this.directory);
     writeAtomic(path.join(this.directory, 'connection.json'), `${JSON.stringify(record, null, 2)}\n`);
+    if (input.projectNumber !== undefined) {
+      resolveCreationDecision(this.directory, project);
+    }
     return flattenConnection(record);
-  }
-
-  /**
-   * Checkpoint explicit Project creation so retries cannot create duplicate boards.
-   *
-   * @param owner - Account or organization that will host the new board.
-   * @param repository - Canonical target repository.
-   * @param title - Desired Project title.
-   * @returns Created Project identity, reused after interrupted later setup steps.
-   * @throws {MeshError} When a prior creation needs remote reconciliation.
-   */
-  private async createProject(
-    owner: string,
-    repository: string,
-    title: string,
-  ): Promise<z.output<typeof projectSchema>> {
-    this.mkdir(this.directory);
-    const file = path.join(this.directory, 'project-creation.json');
-    const fingerprint = createHash('sha256').update(JSON.stringify({ owner, repository, title })).digest('hex');
-    const isFresh =
-      writeIfAbsent(file, `${JSON.stringify({ fingerprint, phase: 'creating' }, null, 2)}\n`) === 'created';
-    const saved = setupSchema.parse(readJsonFile(file));
-    if (saved.fingerprint !== fingerprint) {
-      throw new MeshError(
-        'INVALID_INPUT',
-        'A different Project creation is already recorded. Reuse an existing Project number.',
-      );
-    }
-    if (saved.project !== undefined) {
-      return saved.project;
-    }
-    if (!isFresh) {
-      throw new MeshError(
-        'GITHUB_OPERATION_PENDING',
-        "Project creation may have reached GitHub. Inspect the owner's Projects and reconnect using the existing projectNumber; do not blindly create another board.",
-      );
-    }
-    const project = projectSchema.parse(
-      await this.runner(['project', 'create', '--owner', owner, '--title', title, '--format', 'json']),
-    );
-    writeAtomic(file, `${JSON.stringify({ fingerprint, phase: 'created', project }, null, 2)}\n`);
-    return project;
   }
 
   /**
@@ -581,6 +597,7 @@ export class ProjectGitHub {
       complete: snapshot.items.length >= snapshot.totalCount,
       fetchedAt: timestamp(),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
+      projectCreation: pendingCreationDecision(this.directory),
     };
     writeAtomic(path.join(this.directory, 'board.json'), `${JSON.stringify(result, null, 2)}\n`);
     return result;
@@ -616,7 +633,7 @@ export class ProjectGitHub {
       const itemId = await this.addItem(connection, this.requireIssue(saved).node_id);
       const reconciled = { ...saved, itemId };
       this.saveJournal(reconciled);
-      return reconciled;
+      return { ...reconciled, outcome: { issue: 'existing', membership: 'attached', status: 'unchanged' } };
     }
     let journal = saved.issue === undefined ? await this.createRemoteIssue(saved, isFresh, connection) : saved;
     const issue = this.requireIssue(journal);
@@ -632,7 +649,10 @@ export class ProjectGitHub {
     await this.updateItem(connection, journal.itemId ?? '', 'Backlog');
     journal = { ...journal, phase: 'complete' };
     this.saveJournal(journal);
-    return journal;
+    return {
+      ...journal,
+      outcome: { issue: isFresh ? 'created' : 'resumed', membership: 'attached', status: 'Backlog' },
+    };
   }
 
   /**
