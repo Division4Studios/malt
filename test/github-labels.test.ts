@@ -172,6 +172,34 @@ await test('edit and delete run once per request and reconcile by name', async (
   assert.deepEqual(remote.changes, ['PATCH repos/example/app/labels/bug', 'DELETE repos/example/app/labels/defect']);
 });
 
+await test('a retried edit is performed until the label carries it, and stays bound to its repository', async (t) => {
+  const { context, remote } = fixture(t);
+  const recolor = { requestId: 'edit-2', action: 'edit' as const, name: 'bug', color: '0052cc' };
+  // The first PATCH fails before it reaches GitHub.
+  let isDown = true;
+  const flaky: typeof context.runner = async (args, input) => {
+    if (isDown && args.includes('PATCH')) {
+      isDown = false;
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Network unreachable.');
+    }
+    return await remote.run(args, input);
+  };
+  await assert.rejects(manageLabel({ ...context, runner: flaky }, recolor), { code: 'GITHUB_UNAVAILABLE' });
+  const retried = await manageLabel({ ...context, runner: flaky }, recolor);
+  assert.equal(retried.label?.color, '0052cc', 'the unchanged label is not adopted as the edit');
+  assert.equal(remote.labels.get('bug')?.color, '0052cc');
+  const pending = { requestId: 'delete-2', action: 'delete' as const, name: 'bug' };
+  const down: typeof context.runner = async (args, input) => {
+    if (args.includes('DELETE')) {
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Network unreachable.');
+    }
+    return await remote.run(args, input);
+  };
+  await assert.rejects(manageLabel({ ...context, runner: down }, pending), { code: 'GITHUB_UNAVAILABLE' });
+  await assert.rejects(manageLabel({ ...context, repository: 'example/other' }, pending), { code: 'INVALID_INPUT' });
+  assert.ok(remote.labels.has('bug'), 'a pending change never runs against another repository');
+});
+
 await test('applying needs label-use and every change needs label-manage', async (t) => {
   assert.deepEqual(githubCapabilities('github_labels', {}), []);
   assert.deepEqual(githubCapabilities('github_label_apply', { issue: 1, labels: ['bug'] }), ['label-use']);
