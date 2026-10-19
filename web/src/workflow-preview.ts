@@ -6,6 +6,7 @@
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 import { badge } from './workflow-dom.js';
 import { KIND_LABELS, layerGroups } from './workflow-model.js';
@@ -13,18 +14,10 @@ import { KIND_LABELS, layerGroups } from './workflow-model.js';
 import type { DraftStep, DraftWorkflow, SectionName } from './workflow-model.js';
 
 /** Section headings. */
-const SECTION_TITLES: Readonly<Record<SectionName, string>> = { planning: 'Planning', delivery: 'Each delivery' };
-
-/**
- * Plural-aware count.
- *
- * @param count - Quantity.
- * @param noun - Singular noun.
- * @returns Phrase such as "1 step" or "3 steps".
- */
-export function countLabel(count: number, noun: string): string {
-  return `${String(count)} ${noun}${count === 1 ? '' : 's'}`;
-}
+const SECTION_TITLES: Readonly<Record<SectionName, string>> = translated({
+  planning: phrase('Planning'),
+  delivery: phrase('Each delivery'),
+});
 
 /**
  * Badges that describe a step's special behaviour.
@@ -35,22 +28,22 @@ export function countLabel(count: number, noun: string): string {
 function stepBadges(step: DraftStep): HTMLElement[] {
   const badges: HTMLElement[] = [];
   if (step.kind === 'approve') {
-    badges.push(badge('Human approval', 'gate'));
+    badges.push(badge(t('Human approval'), 'gate'));
   }
   if (step.blind) {
-    badges.push(badge('Blind', 'blind'));
+    badges.push(badge(t('Blind'), 'blind'));
   }
   if (step.gate) {
-    badges.push(badge('Approval gate after', 'gate'));
+    badges.push(badge(t('Approval gate after'), 'gate'));
   }
   if (step.optional) {
-    badges.push(badge('Optional', 'optional'));
+    badges.push(badge(t('Optional'), 'optional'));
   }
   if (step.provider !== '') {
-    badges.push(badge(`Provider: ${step.provider}`, 'provider'));
+    badges.push(badge(t('Provider: {provider}', { provider: step.provider }), 'provider'));
   }
   if (step.profile !== '') {
-    badges.push(badge(`Profile: ${step.profile}`));
+    badges.push(badge(t('Profile: {profile}', { profile: step.profile })));
   }
   return badges;
 }
@@ -63,9 +56,9 @@ function stepBadges(step: DraftStep): HTMLElement[] {
  */
 function rolesText(step: DraftStep): string {
   if (step.kind === 'approve') {
-    return 'You, in the Inbox';
+    return t('You, in the Inbox');
   }
-  return step.roles.length === 0 ? 'No seat chosen' : step.roles.join(', ');
+  return step.roles.length === 0 ? t('No seat chosen') : step.roles.join(', ');
 }
 
 /**
@@ -78,16 +71,19 @@ function rolesText(step: DraftStep): string {
 function stepCard(step: DraftStep, flagged: ReadonlySet<string>): HTMLLIElement {
   const card = element('li', 'wf-step-card');
   const kind = element('span', 'wf-step-kind', KIND_LABELS[step.kind] ?? step.kind);
-  const title = element('strong', 'wf-step-title', step.title === '' ? `(untitled ${step.id})` : step.title);
+  const title = element(
+    'strong',
+    'wf-step-title',
+    step.title === '' ? t('(untitled {id})', { id: step.id }) : step.title,
+  );
   card.append(kind, title, element('span', 'wf-step-roles', rolesText(step)));
   if (step.inputs !== null) {
-    card.append(
-      element('span', 'wf-step-roles', `Reads: ${step.inputs.length === 0 ? 'nothing' : step.inputs.join(', ')}`),
-    );
+    const inputs = step.inputs.length === 0 ? t('nothing') : step.inputs.join(', ');
+    card.append(element('span', 'wf-step-roles', t('Reads: {inputs}', { inputs })));
   }
   const badges = stepBadges(step);
   if (flagged.has(step.uid)) {
-    badges.push(badge('Needs attention', 'problem'));
+    badges.push(badge(t('Needs attention'), 'problem'));
     card.classList.add('has-problem');
   }
   if (badges.length > 0) {
@@ -112,8 +108,11 @@ function sectionPreview(section: SectionName, steps: readonly DraftStep[], flagg
   const heading = element('h3', 'wf-pipeline-heading', SECTION_TITLES[section]);
   const summary =
     steps.length === 0
-      ? 'No planning: the objective is the single delivery.'
-      : `${countLabel(steps.length, 'step')} in ${countLabel(groups.length, 'layer')}`;
+      ? t('No planning: the objective is the single delivery.')
+      : t('{steps, plural, one {# step} other {# steps}} in {layers, plural, one {# layer} other {# layers}}', {
+          steps: steps.length,
+          layers: groups.length,
+        });
   node.append(heading, element('p', 'wf-hint', summary));
   if (steps.length === 0) {
     return node;
@@ -121,9 +120,11 @@ function sectionPreview(section: SectionName, steps: readonly DraftStep[], flagg
   const layers = element('ol', 'wf-layers');
   for (const [index, group] of groups.entries()) {
     const layer = element('li', 'wf-layer');
-    const parallel = group.length > 1 ? ` · ${String(group.length)} run in parallel` : '';
-    const join = index > 0 ? ' · after the previous layer' : '';
-    layer.append(element('p', 'wf-layer-label', `Layer ${String(index + 1)}${parallel}${join}`));
+    const parallel = group.length > 1 ? t(' · {length} run in parallel', { length: group.length }) : '';
+    const join = index > 0 ? t(' · after the previous layer') : '';
+    layer.append(
+      element('p', 'wf-layer-label', t('Layer {layer}{parallel}{join}', { layer: index + 1, parallel, join })),
+    );
     const cards = element('ul', 'wf-layer-steps');
     cards.append(...group.map((step) => stepCard(step, flagged)));
     layer.append(cards);

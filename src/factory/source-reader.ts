@@ -15,6 +15,7 @@ import { command } from './commands.ts';
 import { factorySchemas } from './schema.ts';
 
 import type { FactoryContext } from './context.ts';
+import type { Store } from '../store.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob } from './schema.ts';
 import type { SourceSnapshot } from './workspaces.ts';
@@ -50,6 +51,17 @@ export function sealSource(repository: FactoryRepository, job: FactoryJob, snaps
       snapshot.head,
     );
   });
+}
+
+/**
+ * The exact source commit one attempt was sealed to.
+ *
+ * @param store - Selected project's SQLite owner.
+ * @param jobId - Attempt identity.
+ * @returns Sealed commit, or `null` when the attempt read no sealed source.
+ */
+export function sealedHead(store: Store, jobId: string): string | null {
+  return selectOne(store.db, headSchema, 'SELECT head FROM factory_source_views WHERE job_id=?', jobId)?.head ?? null;
 }
 
 /**
@@ -258,7 +270,7 @@ function isUnsafeSourcePath(file: string): boolean {
  * @param value - Git-relative path.
  * @returns Whether any path segment is private.
  */
-function hasPrivatePath(value: string): boolean {
+export function hasPrivatePath(value: string): boolean {
   return value.split('/').some((part) => {
     return (
       PRIVATE_SEGMENTS.has(part.toLowerCase()) ||
