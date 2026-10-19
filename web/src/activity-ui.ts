@@ -3,6 +3,7 @@
  *
  * @file
  */
+import { t } from './i18n.js';
 import { activityView } from './views.js';
 import { element } from './worker-ui.js';
 
@@ -27,17 +28,22 @@ interface Controls {
  */
 export function activityStatus(view: HistoryView): string {
   if (view.isLoading) {
-    return 'Loading older activity.';
+    return t('Loading older activity.');
   }
   if (view.error !== null) {
-    return `History unavailable: ${view.error} Retry keeps your previous page.`;
+    return t('History unavailable: {error} Retry keeps your previous page.', { error: t(view.error) });
   }
   if (view.isOlder) {
-    return view.hasMore === false
-      ? `Beginning reached. Showing ${String(view.visible.length)} oldest events. Return to recent activity when ready.`
-      : `Showing ${String(view.visible.length)} older events. Recent activity continues separately.`;
+    return t(
+      view.hasMore === false
+        ? 'Beginning reached. Showing {length} oldest events. Return to recent activity when ready.'
+        : 'Showing {length} older events. Recent activity continues separately.',
+      {
+        length: String(view.visible.length),
+      },
+    );
   }
-  return 'Showing recent activity. Request older history when needed.';
+  return t('Showing recent activity. Request older history when needed.');
 }
 
 /**
@@ -50,12 +56,12 @@ export function activityStatus(view: HistoryView): string {
  */
 export function activityPanel(state: Snapshot, view: HistoryView, controls: Controls): HTMLElement {
   const body = element('section', 'panel-body');
-  body.setAttribute('aria-label', 'Activity history');
+  body.setAttribute('aria-label', t('Activity history'));
   body.setAttribute('aria-busy', String(view.isLoading));
   const toolbar = element('div', 'triage-actions');
-  let label = view.error === null ? 'Older activity' : 'Retry older activity';
+  let label = t(view.error === null ? 'Older activity' : 'Retry older activity');
   if (view.isLoading) {
-    label = 'Loading older activity…';
+    label = t('Loading older activity…');
   }
   const older = element('button', 'small-button', label);
   older.type = 'button';
@@ -67,7 +73,7 @@ export function activityPanel(state: Snapshot, view: HistoryView, controls: Cont
       void controls.older();
     }
   });
-  const recent = element('button', 'small-button', 'Return to recent');
+  const recent = element('button', 'small-button', t('Return to recent'));
   recent.type = 'button';
   recent.dataset['queueFocus'] = 'activity-recent';
   const canReturn = view.isOlder || view.isLoading || view.error !== null;
@@ -79,7 +85,7 @@ export function activityPanel(state: Snapshot, view: HistoryView, controls: Cont
   });
   const description = controls.isConnected
     ? activityStatus(view)
-    : 'Disconnected. Displayed activity is stale; reconnect to read history.';
+    : t('Disconnected. Displayed activity is stale; reconnect to read history.');
   const status = element('p', 'subtle', description);
   status.id = 'activity-page-status';
   older.setAttribute('aria-describedby', status.id);
@@ -99,14 +105,14 @@ export function activityPanel(state: Snapshot, view: HistoryView, controls: Cont
 function appendPages(body: HTMLElement, state: Snapshot, view: HistoryView): void {
   if (view.isOlder) {
     const older = element('section', 'history-page');
-    older.setAttribute('aria-label', 'Older history page');
+    older.setAttribute('aria-label', t('Older history page'));
     older.append(
-      element('h3', '', `Older history page · ${String(view.visible.length)} events`),
-      element('p', 'subtle', 'Only this older page is displayed. Intermediate pages are not a continuous timeline.'),
+      element('h3', '', t('Older history page · {length} events', { length: view.visible.length })),
+      element('p', 'subtle', t('Only this older page is displayed. Intermediate pages are not a continuous timeline.')),
     );
     if (view.visible.length === 0) {
       older.append(
-        element('p', 'notice', 'No earlier events. You have reached the beginning of this project’s history.'),
+        element('p', 'notice', t('No earlier events. You have reached the beginning of this project’s history.')),
       );
     } else {
       older.append(activityView({ ...state, events: view.visible }));
@@ -116,9 +122,16 @@ function appendPages(body: HTMLElement, state: Snapshot, view: HistoryView): voi
   const identities = new Set(view.isOlder ? view.visible.map((event) => event['seq']) : []);
   const recent = view.recent.filter((event) => !identities.has(event['seq']));
   const live = element('section', 'recent-activity');
-  live.setAttribute('aria-label', 'Recent live activity');
+  live.setAttribute('aria-label', t('Recent live activity'));
   live.append(
-    element('h3', '', `Recent live activity · ${String(recent.length)} shown / ${String(view.recent.length)} retained`),
+    element(
+      'h3',
+      '',
+      t('Recent live activity · {length} shown / {length2} retained', {
+        length: recent.length,
+        length2: view.recent.length,
+      }),
+    ),
     activityView({ ...state, events: recent }),
   );
   body.append(live);
@@ -157,7 +170,7 @@ export function activityControls(history: ActivityHistory, hooks: Hooks): Contro
       const scope = history.scope();
       const pending = history.load(hooks.read);
       hooks.render();
-      hooks.notice('Loading older activity.', true);
+      hooks.notice(t('Loading older activity.'), true);
       await pending;
       if (!history.isCurrent(scope) || !hooks.isReady()) {
         return;
