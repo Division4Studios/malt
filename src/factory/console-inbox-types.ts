@@ -16,6 +16,7 @@ export interface InboxItem {
     | 'approval'
     | 'plan_approval'
     | 'question'
+    | 'checkpoint'
     | 'blocked_delivery'
     | 'blocked_objective'
     | 'skill'
@@ -37,7 +38,7 @@ export interface InboxItem {
   readonly stepId: string | null;
   /** Head an approval binds, for delivery approvals. */
   readonly head: string | null;
-  /** Skill request, for skill decisions. */
+  /** Skill request, for skill decisions; the stopped attempt, for checkpoint decisions. */
   readonly requestId: string | null;
   /** Agent question, for questions. */
   readonly questionId: string | null;
