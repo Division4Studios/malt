@@ -13,6 +13,7 @@
  */
 
 import { logObjective } from './objective-log.ts';
+import { deliveryFocus } from './objective-queue-schema.ts';
 import { isBackingOff } from './retry-policy.ts';
 import { REVALIDATION_TEXT_MAX } from './revalidation-schema.ts';
 import { sealedHead } from './source-reader.ts';
@@ -112,7 +113,7 @@ export function revalidationIntents(
     jobs: readonly FactoryJob[];
     now: number;
     isSpendBlocked?: (target: { readonly taskId: string | null; readonly featureId: string | null }) => boolean;
-    objectiveQueue?: { readonly focusedFeatureId: string | null };
+    objectiveQueue?: { readonly focusedFeatureId: string | null; readonly existingOnly?: boolean };
   },
   live: readonly FactoryJob[],
 ): JobIntent[] {
@@ -129,7 +130,7 @@ export function revalidationIntents(
       since: candidate.repairsResetAt,
     };
     // Admission filters apply before choosing: an unfocused or spend-blocked delivery must not hold the only slot.
-    const focused = input.objectiveQueue?.focusedFeatureId ?? null;
+    const focused = deliveryFocus(input.objectiveQueue);
     return (
       isRevalidationDue(candidate, input.tasks, input.config) &&
       candidate.hold === null &&

@@ -27,6 +27,25 @@ export function launchBindings(directory: string, job: FactoryJob): Binding[] {
 }
 
 /**
+ * Values of the environment credentials the bindings forward, so the
+ * attempt's output redaction covers them; they never appear in arguments or
+ * configuration files.
+ *
+ * @param bindings - Approved bindings.
+ * @returns Non-empty credential values.
+ */
+export function boundCredentialValues(bindings: readonly Binding[]): string[] {
+  const values: string[] = [];
+  for (const binding of bindings) {
+    const value = binding.credential?.kind === 'env' ? process.env[binding.credential.name] : undefined;
+    if (value !== undefined && value !== '') {
+      values.push(value);
+    }
+  }
+  return values;
+}
+
+/**
  * Claude allowed-tool names for exactly the bound tools.
  *
  * @param bindings - Approved bindings.
