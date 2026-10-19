@@ -47,6 +47,12 @@ declare module '*/web/dist/goal-model.js' {
     readonly proposed: number;
     /** Whether every delivery is done but the checklist is not met. */
     readonly awaitsDefinition: boolean;
+    /** Step override editor state, while the objective has not started delivering. */
+    readonly customization: {
+      readonly version: number;
+      readonly steps: readonly { readonly id: string; readonly started: boolean }[];
+      readonly overrides: readonly { readonly stepId: string }[];
+    } | null;
   }
 
   /** One editor row as typed. */
@@ -100,4 +106,20 @@ declare module '*/web/dist/goal-model.js' {
     readonly total: number;
     readonly next: number | null;
   };
+
+  /** Document event asking the console to open one objective. */
+  export const OPEN_OBJECTIVE_EVENT: string;
+
+  /**
+   * Unfinished objectives that have a definition of done or wait on one.
+   *
+   * @param snapshot - Console snapshot.
+   * @returns Progress rows; objectives waiting on their definition come first.
+   */
+  export function goalProgress(snapshot: unknown): {
+    readonly featureId: string;
+    readonly title: string;
+    readonly progress: string;
+    readonly awaitsDefinition: boolean;
+  }[];
 }

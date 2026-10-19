@@ -7,6 +7,7 @@
  * @file
  */
 import { data, number, records, text } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 import { decodeWorkflow } from './workflow-model.js';
 
 import type { DraftStep, DraftWorkflow, SectionName } from './workflow-model.js';
@@ -72,19 +73,19 @@ export interface RevisionDiff {
 }
 
 /** Step fields compared, with plain labels. */
-const STEP_FIELDS: readonly (readonly [keyof DraftStep, string])[] = [
+const STEP_FIELDS: readonly (readonly [keyof DraftStep, string])[] = translated([
   ['kind', 'kind'],
   ['title', 'title'],
   ['roles', 'seats'],
   ['profile', 'profile'],
-  ['after', 'runs after'],
+  ['after', phrase('runs after')],
   ['inputs', 'inputs'],
-  ['blind', 'blind review'],
-  ['gate', 'approval gate'],
+  ['blind', phrase('blind review')],
+  ['gate', phrase('approval gate')],
   ['optional', 'optional'],
-  ['provider', 'preferred provider'],
+  ['provider', phrase('preferred provider')],
   ['instructions', 'instructions'],
-];
+]);
 
 /**
  * Plain text for one step field value.
@@ -94,7 +95,7 @@ const STEP_FIELDS: readonly (readonly [keyof DraftStep, string])[] = [
  */
 function shown(value: DraftStep[keyof DraftStep]): string {
   if (value === null) {
-    return 'its ancestors';
+    return t('its ancestors');
   }
   if (typeof value === 'boolean') {
     return value ? 'yes' : 'no';
@@ -162,7 +163,7 @@ export function parseHistory(value: unknown): History {
 function stepDetails(before: DraftStep, after: DraftStep): string[] {
   return STEP_FIELDS.filter(([key]) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).map(
     ([key, label]) =>
-      key === 'instructions' ? 'instructions changed' : `${label}: ${shown(before[key])} → ${shown(after[key])}`,
+      key === 'instructions' ? t('instructions changed') : `${label}: ${shown(before[key])} → ${shown(after[key])}`,
   );
 }
 
@@ -177,6 +178,9 @@ function stepDetails(before: DraftStep, after: DraftStep): string[] {
 function sectionChanges(section: SectionName, older: readonly DraftStep[], newer: readonly DraftStep[]): StepChange[] {
   const before = new Map(older.map((step) => [step.id, step]));
   const after = new Map(newer.map((step) => [step.id, step]));
+  // Order is part of the definition (startable steps are offered in it), so a move is a change too.
+  const olderOrder = older.filter((step) => after.has(step.id)).map((step) => step.id);
+  const newerOrder = newer.filter((step) => before.has(step.id)).map((step) => step.id);
   const changes: StepChange[] = [];
   for (const step of newer) {
     const previous = before.get(step.id);
@@ -184,7 +188,12 @@ function sectionChanges(section: SectionName, older: readonly DraftStep[], newer
       changes.push({ section, id: step.id, title: step.title, change: 'added', details: [] });
       continue;
     }
-    const details = stepDetails(previous, step);
+    const from = olderOrder.indexOf(step.id);
+    const to = newerOrder.indexOf(step.id);
+    const details = [
+      ...stepDetails(previous, step),
+      ...(from === to ? [] : [t('position: {from} → {to}', { from: from + 1, to: to + 1 })]),
+    ];
     if (details.length > 0) {
       changes.push({ section, id: step.id, title: step.title, change: 'changed', details });
     }
@@ -206,8 +215,8 @@ function sectionChanges(section: SectionName, older: readonly DraftStep[], newer
  */
 export function diffRevisions(older: DraftWorkflow, newer: DraftWorkflow): RevisionDiff {
   const workflow = [
-    ...(older.name === newer.name ? [] : [`name: ${older.name} → ${newer.name}`]),
-    ...(older.description === newer.description ? [] : ['description changed']),
+    ...(older.name === newer.name ? [] : [t('name: {name} → {name2}', { name: older.name, name2: newer.name })]),
+    ...(older.description === newer.description ? [] : [t('description changed')]),
   ];
   return {
     workflow,
@@ -228,6 +237,6 @@ export function usageText(revision: Revision): string {
   const objectives = `${String(revision.objectiveCount)} ${revision.objectiveCount === 1 ? 'objective' : 'objectives'}`;
   const deliveries = `${String(revision.deliveryCount)} ${revision.deliveryCount === 1 ? 'delivery' : 'deliveries'}`;
   return revision.objectiveCount === 0 && revision.deliveryCount === 0
-    ? 'No objective or delivery runs it.'
-    : `Frozen by ${objectives} and ${deliveries}.`;
+    ? t('No objective or delivery runs it.')
+    : t('Frozen by {objectives} and {deliveries}.', { objectives, deliveries });
 }
