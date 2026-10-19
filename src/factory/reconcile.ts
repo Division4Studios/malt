@@ -14,13 +14,16 @@ import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
-import { failedChecks } from './ci-logs.ts';
+import { hasFailedCheck } from './ci-logs.ts';
 import { deliveryTask } from './delivery-task.ts';
+import { didAdoptExternalMerge } from './external-merge.ts';
 import { objectiveGates } from './gate-controls.ts';
+import { didRefreshOntoMain } from './main-refresh.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
 import { featureWorkflow, isPlanningComplete } from './pipeline.ts';
 import { retainProvisionedIssues } from './provisioning-identity.ts';
+import { advanceRecommendations } from './recommendation-execution.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
@@ -185,19 +188,10 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
     return;
   }
   if (pr.state === 'MERGED') {
-    recoverMerge(context, task, pr);
+    await recoverMerge(context, task, pr);
     return;
   }
-  const isSourceMoved = pr.headRefOid !== record.head || pr.baseRefOid !== record.base;
-  if (isAutoMergeArmed(pr) && (isSourceMoved || (failedChecks(pr.statusCheckRollup) ?? []).length > 0)) {
-    // A reworked or refreshed head must never be merged by an earlier auto-merge request.
-    await context.remote.disarm?.(pr.number);
-  }
-  if (isSourceMoved) {
-    refreshRequired(context, record, 'The remote PR head or main advanced. Previous approvals are invalid.');
-    return;
-  }
-  if (await didHandleFailedChecks(context, record, pr)) {
+  if ((await didHandleMovedSource(context, record, pr)) || (await didHandleFailedChecks(context, record, pr))) {
     return;
   }
   if (record.phase === 'merge_ready') {
@@ -210,6 +204,30 @@ async function inspect(context: FactoryContext, task: FactoryTask): Promise<void
   if (record.phase === 'merging') {
     await serializeMerge(context, record, pr);
   }
+}
+
+/**
+ * Disarm a stale auto-merge, then refresh a reviewed source whose base moved, or return it to its developer.
+ *
+ * @param context - Project Git, ledger and GitHub.
+ * @param task - Delivery at its recorded head and base.
+ * @param pr - Current PR state.
+ * @returns True when the head or base moved and this pass handled it.
+ */
+async function didHandleMovedSource(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<boolean> {
+  const isSourceMoved = pr.headRefOid !== task.head || pr.baseRefOid !== task.base;
+  // A reworked or refreshed head, or one with any failed check even while others still run, must never be
+  // merged by an earlier auto-merge request: optional checks pending would not stop GitHub.
+  if (isAutoMergeArmed(pr) && (isSourceMoved || hasFailedCheck(pr.statusCheckRollup))) {
+    await context.remote.disarm?.(pr.number);
+  }
+  if (!isSourceMoved) {
+    return false;
+  }
+  if (!(await didRefreshOntoMain(context, task, pr))) {
+    refreshRequired(context, task, 'The remote PR head or main advanced. Previous approvals are invalid.');
+  }
+  return true;
 }
 
 /**
@@ -491,6 +509,8 @@ export async function reconcile(context: FactoryContext): Promise<void> {
   resumeCapabilityBlocks(context.repository);
   await importReady(context);
   await provision(context);
+  // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
+  await advanceRecommendations(context);
   blockExhausted(context.repository, context.settings.reconcileMs);
   for (const task of context.repository.tasks()) {
     try {
@@ -682,9 +702,12 @@ async function reconcileTask(context: FactoryContext, task: FactoryTask): Promis
  * @param task - Reviewed source.
  * @param pr - Actual GitHub state.
  */
-function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): void {
+async function recoverMerge(context: FactoryContext, task: FactoryTask, pr: PullRequest): Promise<void> {
   const record = task;
   if (!hasApprovals(record) || !hasFinalApproval(record) || record.head !== pr.headRefOid || pr.mergeCommit === null) {
+    if (await didAdoptExternalMerge(context, record, pr)) {
+      return;
+    }
     context.repository.editTask(record.id, (current) => {
       return {
         ...current,
