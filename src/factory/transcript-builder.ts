@@ -20,6 +20,8 @@ const TOOL_OUTPUT_MAX = 2000;
 const SUMMARY_MAX = 200;
 /** Longest node label. */
 const LABEL_MAX = 120;
+/** Longest model id kept, matching the longest model a price row may name. */
+const MODEL_MAX = 200;
 /** Most distinct files recorded as touched. */
 const FILES_MAX = 500;
 /** Most tool names reported in per-name counts. */
@@ -319,8 +321,9 @@ export class TranscriptBuilder {
    * Append a file change node and count each named path.
    *
    * @param changes - Paths and change kinds reported by the provider.
+   * @param _id - Provider item identity; the transcript shows every change event, so it is unused here.
    */
-  public fileChange(changes: readonly { path: string; kind: string }[]): void {
+  public fileChange(changes: readonly { path: string; kind: string }[], _id?: string): void {
     for (const change of changes) {
       this.touch(change.path);
     }
@@ -329,7 +332,7 @@ export class TranscriptBuilder {
       kind: 'file_change',
       label,
       text: '',
-      truncated: false,
+      truncated: changes.length > FILES_MAX,
       level: 'info',
       tool: null,
       changes: changes
@@ -339,11 +342,16 @@ export class TranscriptBuilder {
   }
 
   /**
-   * Count one edit of a path.
+   * Count one edit of a path, bounded like every other transcript text.
    *
-   * @param file - Path named by an edit tool or change event.
+   * @param path - Path named by an edit tool or change event.
    */
-  public touch(file: string): void {
+  public touch(path: string): void {
+    const clipped = clip(path, TEXT_MAX);
+    const file = clipped.text;
+    if (clipped.truncated) {
+      this.isFilesTruncated = true;
+    }
     const current = this.files.get(file);
     if (current !== undefined) {
       this.files.set(file, current + 1);
@@ -393,7 +401,17 @@ export class TranscriptBuilder {
    * @param model - Provider model identifier.
    */
   public setModel(model: string): void {
-    this.model ??= clip(model, LABEL_MAX).text;
+    this.model ??= clip(model, MODEL_MAX).text;
+  }
+
+  /**
+   * Show that the provider stopped to wait for a permission or an answer.
+   *
+   * @param reason - What it waits on.
+   * @param _id - Tool call that waits, if any; only progress tracking uses it.
+   */
+  public awaitInput(reason: string, _id: string | null): void {
+    this.text('status', 'Awaiting input', reason, 'warning');
   }
 
   /** Count one line that was not a JSON event object. */

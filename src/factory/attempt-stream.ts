@@ -9,7 +9,6 @@ import { Buffer } from 'node:buffer';
 import { createReadStream } from 'node:fs';
 import { open, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { createInterface } from 'node:readline';
 
 import { hasErrorCode } from '../errors.ts';
 
@@ -120,11 +119,39 @@ export async function readStreamLines(
   }
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The canonical file passed project-root containment.
   const input = createReadStream(version.file, { start: 0, end: limit - 1, encoding: 'utf8' });
-  const lines = createInterface({ input, crlfDelay: Infinity });
-  for await (const line of lines) {
-    consume(line);
+  let pending = '';
+  for await (const chunk of input) {
+    pending += String(chunk);
+    let end = pending.indexOf('\n');
+    while (end !== -1) {
+      consume(pending.slice(0, end).replace(/\r$/v, ''));
+      pending = pending.slice(end + 1);
+      end = pending.indexOf('\n');
+    }
+  }
+  // A cap or a live writer can cut the last event; pass it on only when it is a whole record.
+  if (isWholeRecord(pending)) {
+    consume(pending);
   }
   return { available: true, bytes: limit, truncated: version.size > STREAM_BYTES_MAX };
+}
+
+/**
+ * Whether a final unterminated line is a complete JSON record rather than a cut-off fragment.
+ *
+ * @param line - Text after the last newline.
+ * @returns True for a parseable, non-blank record.
+ */
+function isWholeRecord(line: string): boolean {
+  if (line.trim() === '') {
+    return false;
+  }
+  try {
+    JSON.parse(line);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
