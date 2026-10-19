@@ -33,6 +33,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod/v3';
 
 import { cleanBacklog } from './backlog-cleanup.ts';
+import { BINDING_OPERATIONS } from './connector-schemas.ts';
 import { Coordination, isDisconnected } from './coordination.ts';
 import {
   AGENT_PUBLIC_COLUMNS,
@@ -96,6 +97,7 @@ const NON_STORE_OPERATIONS = [
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,
   ...CAPABILITY_OPERATIONS,
+  ...BINDING_OPERATIONS,
   'list_teams',
   'open_team',
   'register',

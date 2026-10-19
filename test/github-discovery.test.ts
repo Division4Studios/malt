@@ -1,5 +1,7 @@
 /** @file Read-only GitHub discovery: fixture runs prove no mutation, step-scoped token-free errors and stable identifiers. */
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -7,6 +9,8 @@ import { z } from 'zod/v3';
 
 import { discoverGitHub } from '../src/github-discovery.ts';
 import { MeshError } from '../src/protocol.ts';
+
+import { OPERATOR, createCleanup, createProject, mechanicsGitHub } from './helpers.ts';
 
 import type { GitHubRunner } from '../src/github.ts';
 
@@ -25,6 +29,14 @@ interface Behaviour {
   readonly hidesRepository?: boolean;
   /** The selected Project was deleted. */
   readonly deletesProject?: boolean;
+  /** Reading Project views fails with this GraphQL error. */
+  readonly viewsError?: { readonly type?: string; readonly message: string };
+  /** The Project and its Status field are beyond the first listed page. */
+  readonly isPaged?: boolean;
+  /** The Project a field read by ID belongs to, when not the selected one. */
+  readonly fieldProject?: string;
+  /** Fields of the selected repository that differ from the default fixture. */
+  readonly repository?: { readonly viewerPermission?: string; readonly isArchived?: boolean };
 }
 
 /** GraphQL request body. */
@@ -73,7 +85,9 @@ function answerRepository(query: string, variables: Record<string, unknown>, beh
       : { data: { viewer: { repositories: { nodes: [repository] } } } };
   }
   if (query.includes('repository(owner: $owner')) {
-    return { data: { repository: behaviour.hidesRepository === true ? null : repository } };
+    return {
+      data: { repository: behaviour.hidesRepository === true ? null : { ...repository, ...behaviour.repository } },
+    };
   }
   if (query.includes('... on Repository { id nameWithOwner')) {
     return { data: { node: variables['id'] === 'R_1' ? { ...repository, nameWithOwner: 'example/renamed' } : null } };
@@ -89,8 +103,24 @@ function answerRepository(query: string, variables: Record<string, unknown>, beh
  * @returns Remote-shaped response; any other query is a readable capability probe.
  */
 function answerProject(query: string, behaviour: Behaviour): unknown {
+  const status = { id: 'F_1', name: 'Status', options: [{ id: 'o1', name: 'Backlog' }] };
+  const isListed = behaviour.deletesProject !== true && behaviour.isPaged !== true;
+  if (query.includes('projectV2(number')) {
+    return { data: { repositoryOwner: { projectV2: behaviour.deletesProject === true ? null : project } } };
+  }
   if (query.includes('repositoryOwner(')) {
-    return { data: { repositoryOwner: { projectsV2: { nodes: behaviour.deletesProject === true ? [] : [project] } } } };
+    return { data: { repositoryOwner: { projectsV2: { nodes: isListed ? [project] : [] } } } };
+  }
+  if (query.includes('fields(first')) {
+    return { data: { node: { fields: { nodes: behaviour.isPaged === true ? [{}] : [status, {}] } } } };
+  }
+  if (query.includes('... on ProjectV2SingleSelectField') && !query.includes('fields(')) {
+    return { data: { node: { ...status, project: { id: behaviour.fieldProject ?? 'PVT_4' } } } };
+  }
+  if (query.includes('views(first')) {
+    return behaviour.viewsError === undefined
+      ? { data: { node: { views: { totalCount: 2 } } } }
+      : { errors: [{ ...behaviour.viewsError, extra: LEAKED }] };
   }
   return { data: { node: { totalCount: 0 } } };
 }
@@ -151,6 +181,16 @@ await test('discovery returns the login, repositories, Projects, fields and prob
   assert.deepEqual(result.repository, repository);
   assert.equal(result.owner, 'example');
   assert.deepEqual(result.project, project);
+  assert.deepEqual(result.fields, [{ id: 'F_1', name: 'Status', options: [{ id: 'o1', name: 'Backlog' }] }]);
+  assert.deepEqual(result.capabilities, {
+    issue_create: 'supported',
+    sub_issues: 'supported',
+    dependencies: 'supported',
+    labels: 'supported',
+    milestones: 'supported',
+    views: 'supported',
+    pull_requests: 'supported',
+  });
   assert.deepEqual(result.errors, []);
 });
 
@@ -180,9 +220,10 @@ await test('a missing repo scope and an unreadable repository are separate repos
   assertReadOnlyAndClean(hidden.queries, selection);
   assert.equal(selection.repository, null);
   assert.match(selection.errors.at(0)?.message ?? '', /not found or this account cannot read it/v);
+  assert.equal(selection.capabilities.issue_create, 'unverified');
 });
 
-await test('a deleted Project fails the project step', async () => {
+await test('a deleted Project fails the project step and leaves its fields and views unverified', async () => {
   const { run, queries } = fixture({ deletesProject: true });
   const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4 }, () => VERIFIED);
   assertReadOnlyAndClean(queries, result);
@@ -190,6 +231,8 @@ await test('a deleted Project fails the project step', async () => {
     result.errors.map((error) => error.step),
     ['project'],
   );
+  assert.deepEqual(result.fields, []);
+  assert.equal(result.capabilities.views, 'unverified');
 });
 
 await test('a renamed repository resolves by its node ID', async () => {
@@ -199,4 +242,64 @@ await test('a renamed repository resolves by its node ID', async () => {
   assert.ok(result.repository !== null);
   assert.equal(result.repository.nameWithOwner, 'example/renamed');
   assert.equal(result.repository.id, 'R_1');
+});
+
+await test('views that cannot be read are unverified, and a schema without views is unsupported', async () => {
+  const forbidden = fixture({ viewsError: { type: 'FORBIDDEN', message: 'Resource not accessible' } });
+  const denied = await discoverGitHub(forbidden.run, { repository: 'example/app', projectNumber: 4 }, () => VERIFIED);
+  assertReadOnlyAndClean(forbidden.queries, denied);
+  assert.equal(denied.capabilities.views, 'unverified');
+  const missing = fixture({ viewsError: { message: "Field 'views' doesn't exist on type 'ProjectV2'" } });
+  const absent = await discoverGitHub(missing.run, { repository: 'example/app', projectNumber: 4 }, () => VERIFIED);
+  assert.equal(absent.capabilities.views, 'unsupported');
+});
+
+await test('github_discover runs through the project integration and saves nothing', async (t) => {
+  const config = createProject(createCleanup(t));
+  const { run, queries } = fixture();
+  const github = mechanicsGitHub(config, run);
+  const result = z
+    .object({ login: z.string(), errors: z.array(z.unknown()) })
+    .parse(await github.execute(OPERATOR, 'github_discover', { repository: 'example/app', projectNumber: 4 }));
+  assert.equal(result.login, 'octo');
+  assert.deepEqual(result.errors, []);
+  assertReadOnlyAndClean(queries, result);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture project's own private connection path.
+  assert.equal(existsSync(path.join(config.directory, 'github', 'connection.json')), false);
+  await assert.rejects(github.execute(OPERATOR, 'github_discover', { repository: 'not a repository' }), {
+    code: 'INVALID_INPUT',
+  });
+});
+
+await test('a Project and saved Status field beyond the first page are still found', async () => {
+  const { run, queries } = fixture({ isPaged: true });
+  const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4, fieldIds: ['F_1'] });
+  assert.equal(result.project?.id, 'PVT_4', 'read by number when the listed page lacks it');
+  assert.deepEqual(
+    result.fields.map((field) => field.id),
+    ['F_1'],
+    'the saved field is read by ID',
+  );
+  assert.deepEqual(result.errors, []);
+  assertReadOnlyAndClean(queries, result);
+});
+
+await test("a saved field another Project owns is not taken as the selected Project's", async () => {
+  const { run } = fixture({ isPaged: true, fieldProject: 'PVT_OTHER' });
+  const result = await discoverGitHub(run, { repository: 'example/app', projectNumber: 4, fieldIds: ['F_1'] });
+  assert.deepEqual(result.fields, [], 'the unrelated field is not merged into the selected Project');
+});
+
+await test('read access may open issues; an archived repository supports no change', async () => {
+  const reader = await discoverGitHub(fixture({ repository: { viewerPermission: 'READ' } }).run, {
+    repository: 'example/app',
+  });
+  assert.equal(reader.capabilities.issue_create, 'supported');
+  assert.equal(reader.capabilities.labels, 'unsupported');
+  const archived = await discoverGitHub(fixture({ repository: { isArchived: true } }).run, {
+    repository: 'example/app',
+  });
+  assert.equal(archived.capabilities.issue_create, 'unsupported');
+  assert.equal(archived.capabilities.labels, 'unsupported');
+  assert.equal(archived.capabilities.pull_requests, 'unsupported');
 });

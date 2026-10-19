@@ -577,6 +577,8 @@ async function start(): Promise<void> {
     state.view = requested;
   }
   state.project = parameters.get('project') ?? state.project;
+  // Activity history follows the same project from the first read.
+  history.select(state.project);
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {

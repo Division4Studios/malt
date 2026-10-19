@@ -263,6 +263,12 @@ await test('a long verdict is recorded bounded, and ineligible deliveries are no
     [],
     'Only the focused objective is revalidated.',
   );
+  assert.equal(
+    revalidationIntents({ ...state, objectiveQueue: { focusedFeatureId: 'another-objective', existingOnly: true } }, [])
+      .length,
+    1,
+    'Existing-delivery recovery revalidates retained deliveries of every objective.',
+  );
   await revalidate(context, { outcome: 'success', summary: 'x'.repeat(5000), findings: ['y'.repeat(5000)] });
   const verdict = context.repository.task(dependent.id).revalidation;
   assert.equal(verdict?.outcome, 'confirmed', 'A paid result longer than the record allows is kept, bounded.');
