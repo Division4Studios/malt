@@ -175,6 +175,17 @@ await test('objectives freeze the chosen workflow; planning-free workflows provi
     objective: '# Settings: dark mode\n\n## Acceptance\n- Toggle persists',
     workflowId: 'quick',
   });
+  assert.throws(
+    () => {
+      return queueObjective(repository, {
+        objective: '# Settings: dark mode\n\n## Acceptance\n- Toggle persists',
+        workflowId: 'full-assurance',
+        requestId: brief.featureId,
+      });
+    },
+    (error: unknown) => error instanceof MeshError && error.code === 'INVALID_INPUT',
+    'a retry with another workflow is not the same request',
+  );
   const quick = repository.features().find((feature) => feature.id === brief.featureId);
   assert.ok(quick !== undefined);
   assert.equal(quick.phase, 'provisioning');

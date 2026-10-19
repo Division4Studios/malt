@@ -114,7 +114,7 @@ select:focus-visible,
   outline-offset: 3px;
 }
 select {
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 7px;

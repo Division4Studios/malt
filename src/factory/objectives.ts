@@ -48,8 +48,9 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
   // A retry returns the objective it already filed, whatever the workflow library holds now.
   const filed = repository.features().find((feature) => feature.id === id);
   if (filed !== undefined) {
-    if (filed.objective !== objective) {
-      throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope.');
+    // A retry must repeat the request exactly; a different workflow is a new request, not a retry.
+    if (filed.objective !== objective || (workflowId !== null && filed.workflow?.id !== workflowId)) {
+      throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope or workflow.');
     }
     return { featureId: id };
   }
