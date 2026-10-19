@@ -281,6 +281,8 @@ function applyDisposition(repository: FactoryRepository, input: Input): void {
       finalReview: null,
       error: input.action === 'wait' ? note : null,
       feedback: [...current.feedback, `Operator ${input.action}: ${note}`],
+      // Resuming is an operator retry: earlier failed attempts and repair rounds no longer count toward the caps.
+      ...(input.action !== 'wait' && { repairsResetAt: repository.store.now() }),
     };
   });
   if (input.action === 'repair' && task.developer !== null) {

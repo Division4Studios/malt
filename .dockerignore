@@ -5,6 +5,7 @@
 !src/**
 !resources/
 !resources/factory-skills/**
+!resources/workflows/**
 !tsconfig.json
 !web/
 !web/**
