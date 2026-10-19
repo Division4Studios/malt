@@ -5,15 +5,22 @@
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 
 /** Theme choices in the order the toggle cycles through them. */
 export const THEMES = ['system', 'light', 'dark'] as const;
 /** One theme choice. */
 export type Theme = (typeof THEMES)[number];
+/** Document event announcing a new choice, so every theme control stays in step. */
+export const THEME_EVENT = 'malt-theme-change';
 /** Browser-local preference key; never shared with the backend. */
 const STORAGE_KEY = 'malt-theme-v1';
-/** Readable labels for the toggle. */
-const LABELS: Readonly<Record<Theme, string>> = { system: 'System', light: 'Light', dark: 'Dark' };
+/** Readable labels for theme controls. */
+export const THEME_LABELS: Readonly<Record<Theme, string>> = translated({
+  system: phrase('System'),
+  light: phrase('Light'),
+  dark: phrase('Dark'),
+});
 
 /**
  * Whether a stored value names a theme.
@@ -25,12 +32,18 @@ function isTheme(value: string | null): value is Theme {
   return value !== null && (THEMES as readonly string[]).includes(value);
 }
 
+/** The choice made on this page, which holds even when browser storage cannot remember it. */
+const page: { chosen: Theme | null } = { chosen: null };
+
 /**
- * The remembered choice, or the system default.
+ * The current choice: the one made on this page, else the remembered one, else the system default.
  *
  * @returns Current theme choice.
  */
 export function storedTheme(): Theme {
+  if (page.chosen !== null) {
+    return page.chosen;
+  }
   try {
     const value = localStorage.getItem(STORAGE_KEY);
     return isTheme(value) ? value : 'system';
@@ -58,12 +71,14 @@ export function applyTheme(theme: Theme): void {
  * @param theme - Choice selected by the operator.
  */
 export function chooseTheme(theme: Theme): void {
+  page.chosen = theme;
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {
     // The choice still applies for this page; it simply is not remembered.
   }
   applyTheme(theme);
+  document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: theme }));
 }
 
 /**
@@ -77,6 +92,17 @@ export function nextTheme(theme: Theme): Theme {
 }
 
 /**
+ * The choice a theme event announces.
+ *
+ * @param event - Document event.
+ * @returns Announced theme, or `null` for any other event.
+ */
+export function announcedTheme(event: Event): Theme | null {
+  const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+  return typeof detail === 'string' && isTheme(detail) ? detail : null;
+}
+
+/**
  * Bind a toggle button that cycles System → Light → Dark.
  *
  * @param id - Id of the native toggle button in the shell.
@@ -85,18 +111,26 @@ export function nextTheme(theme: Theme): Theme {
 export function bindThemeToggle(id: string): void {
   const button = document.querySelector<HTMLButtonElement>(`#${CSS.escape(id)}`);
   if (button === null) {
-    throw new Error(`The console shell has no ${id} button.`);
+    throw new Error(t('The console shell has no {id} button.', { id }));
   }
   const label = (theme: Theme): void => {
-    button.textContent = `Theme: ${LABELS[theme]}`;
-    button.setAttribute('aria-label', `Colour theme: ${LABELS[theme]}. Activate for ${LABELS[nextTheme(theme)]}.`);
+    button.textContent = t('Theme: {theme}', { theme: THEME_LABELS[theme] });
+    button.setAttribute(
+      'aria-label',
+      t('Colour theme: {theme}. Activate for {next}.', {
+        theme: THEME_LABELS[theme],
+        next: THEME_LABELS[nextTheme(theme)],
+      }),
+    );
   };
   let current = storedTheme();
   applyTheme(current);
   label(current);
   button.addEventListener('click', () => {
-    current = nextTheme(current);
-    chooseTheme(current);
+    chooseTheme(nextTheme(current));
+  });
+  document.addEventListener(THEME_EVENT, (event) => {
+    current = announcedTheme(event) ?? current;
     label(current);
   });
 }
