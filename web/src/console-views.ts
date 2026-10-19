@@ -3,8 +3,8 @@
  * once per console, so filters, open transcripts, expanded results, drafts and
  * dialogs survive every snapshot push; the shell only asks for an element.
  * Telemetry views (sessions, costs) read their own routes on a slower cadence;
- * console views (Inbox, Board, objectives, automations, delivery, workflows)
- * read each pushed snapshot.
+ * console views (Inbox, Board, objectives, automations, delivery, workflows,
+ * roles, secrets) read each pushed snapshot.
  *
  * @file
  */
@@ -13,9 +13,13 @@ import { createBoardView } from './board-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
+import { OPEN_OBJECTIVE_EVENT } from './goal-model.js';
 import { createGoalView } from './goal-ui.js';
+import { onLocaleChange, t, translateTree } from './i18n.js';
 import { InboxNotifier } from './inbox-notifier.js';
 import { createInboxView } from './inbox-ui.js';
+import { createRolesView } from './roles-ui.js';
+import { createSecretsView } from './secrets-ui.js';
 import { createSessionsView } from './sessions-ui.js';
 import { createWorkflowsView } from './workflows-ui.js';
 
@@ -36,7 +40,16 @@ type PushedView = (typeof PUSHED_VIEW_NAMES)[number];
 /** Views this module owns. */
 export type OwnedView = RefreshedView | PushedView;
 /** Snapshot-pushed view names. */
-const PUSHED_VIEW_NAMES = ['inbox', 'board', 'objective', 'automations', 'delivery', 'workflows'] as const;
+const PUSHED_VIEW_NAMES = [
+  'inbox',
+  'board',
+  'objective',
+  'automations',
+  'delivery',
+  'workflows',
+  'roles',
+  'secrets',
+] as const;
 /** Snapshot-pushed view names, for membership checks. */
 const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
 
@@ -44,7 +57,7 @@ const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
  * Whether an owned view reads pushed snapshots.
  *
  * @param view - Owned route.
- * @returns True for Inbox, Board, objectives, automations, delivery and workflows.
+ * @returns True for Inbox, Board, objectives, automations, delivery, workflows, roles and secrets.
  */
 const isPushed = (view: OwnedView): view is PushedView => PUSHED_VIEWS.has(view);
 
@@ -56,12 +69,16 @@ export interface ConsoleViewHooks {
   readonly control: OperatorControl;
   /** Route the console to another view. */
   readonly select: (view: string) => void;
+  /** Switch the console to another open project. */
+  readonly selectProject: (project: string) => void;
   /** Open the investigation dialog for a blocked delivery. */
   readonly triage: (taskId: string) => void;
   /** Show an objective's recovery choices. */
   readonly recover: (featureId: string) => void;
   /** Open a skill proposal for review. */
   readonly skill: (requestId: string) => void;
+  /** Re-render the shell, after a language change. */
+  readonly rerender: () => void;
 }
 
 /** A view with a stable root that refreshes from its own routes. */
@@ -107,6 +124,11 @@ export class ConsoleViews {
       this.goals.show(featureId);
       hooks.select('objective');
     };
+    document.addEventListener(OPEN_OBJECTIVE_EVENT, (event) => {
+      if (event instanceof CustomEvent && typeof event.detail === 'string') {
+        openObjective(event.detail);
+      }
+    });
     this.goals = createGoalView({ control: hooks.control, project: hooks.project });
     this.sessions = createSessionsView({ project: hooks.project });
     this.delivery = createDeliveryView({
@@ -121,9 +143,12 @@ export class ConsoleViews {
       },
     });
     this.workflows = createWorkflowsView({ control: hooks.control, project: hooks.project });
-    this.notifier = new InboxNotifier(() => {
+    this.notifier = new InboxNotifier((project) => {
+      if (project !== null && project !== hooks.project()) {
+        hooks.selectProject(project);
+      }
       hooks.select('inbox');
-    });
+    }, hooks.project);
     this.refreshed = new Map<RefreshedView, RefreshingView>([
       ['sessions', this.sessions],
       ['costs', createCostsView({ project: hooks.project, control: hooks.control })],
@@ -146,10 +171,31 @@ export class ConsoleViews {
       ],
       ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
       ['automations', createAutomationsView({ control: hooks.control })],
+      ['roles', createRolesView({ control: hooks.control, project: hooks.project })],
+      ['secrets', createSecretsView({ control: hooks.control })],
       ['delivery', this.delivery],
       ['objective', this.goals],
       ['workflows', this.workflows],
     ]);
+    // The static shell is written in English; show it in the stored language.
+    translateTree(document.body, 'en');
+    // Route-backed views (attempts, costs) rebuild their combined labels on their next read.
+    onLocaleChange(
+      () => [document.body, ...this.roots()],
+      () => {
+        this.reset();
+        hooks.rerender();
+      },
+    );
+  }
+
+  /**
+   * Every owned view's root, mounted or not, so a language change reaches them all.
+   *
+   * @returns Root elements.
+   */
+  public roots(): HTMLElement[] {
+    return [...this.pushed.values(), ...this.refreshed.values()].map((view) => view.element);
   }
 
   /**
@@ -167,6 +213,8 @@ export class ConsoleViews {
       automations: this.builder('automations'),
       delivery: this.builder('delivery'),
       workflows: this.builder('workflows'),
+      roles: this.builder('roles'),
+      secrets: this.builder('secrets'),
     };
   }
 
@@ -181,13 +229,13 @@ export class ConsoleViews {
     if (isPushed(view)) {
       const pushed = this.pushed.get(view);
       if (pushed === undefined) {
-        throw new Error(`No owned console view named ${view}.`);
+        throw new Error(t('No owned console view named {view}.', { view }));
       }
       return pushed.element;
     }
     const handle = this.refreshed.get(view);
     if (handle === undefined) {
-      throw new Error(`No owned console view named ${view}.`);
+      throw new Error(t('No owned console view named {view}.', { view }));
     }
     const now = Date.now();
     if (now - (this.reads.get(view) ?? 0) >= TELEMETRY_REFRESH_MS) {
@@ -251,6 +299,6 @@ export class ConsoleViews {
    */
   private deliveryLabel(taskId: string): string {
     const card = readConsole(this.snapshot).deliveries.find((delivery) => delivery.taskId === taskId);
-    return card === undefined ? 'this delivery' : `#${String(card.issue)} ${card.title}`;
+    return card === undefined ? t('this delivery') : `#${String(card.issue)} ${card.title}`;
   }
 }

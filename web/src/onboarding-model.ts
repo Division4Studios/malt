@@ -16,6 +16,7 @@
 import { capacityGate } from './admission-ui.js';
 import { child, firstText, hasFlag, number, records, text } from './api.js';
 import { asData } from './console-model.js';
+import { phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -98,15 +99,15 @@ function isStatus(value: string): value is PreflightCheck['status'] {
   return ['pass', 'fail', 'fix-it'].includes(value);
 }
 /** Readable assignment kinds. */
-const KIND_LABELS: Readonly<Record<string, string>> = {
+const KIND_LABELS: Readonly<Record<string, string>> = translated({
   plan: 'planning',
-  refine: 'plan refinement',
-  plan_review: 'plan review',
+  refine: phrase('plan refinement'),
+  plan_review: phrase('plan review'),
   develop: 'development',
   review: 'review',
-  final: 'final check',
-  verify: 'merge verification',
-};
+  final: phrase('final check'),
+  verify: phrase('merge verification'),
+});
 
 /**
  * Validate a preflight response.
@@ -186,8 +187,13 @@ function startedRole(factory: Data, featureId: string): FirstOutcome | null {
     state: 'started',
     text:
       running === undefined
-        ? `${role} ran ${kind} on ${provider} (${text(latest, 'state')}). Follow it on the Board and in Sessions.`
-        : `${role} started ${kind} on ${provider}. Follow it on the Board and in Sessions.`,
+        ? t('{role} ran {kind} on {provider} ({state}). Follow it on the Board and in Sessions.', {
+            role,
+            kind,
+            provider,
+            state: text(latest, 'state'),
+          })
+        : t('{role} started {kind} on {provider}. Follow it on the Board and in Sessions.', { role, kind, provider }),
   };
 }
 
@@ -201,31 +207,30 @@ function startedRole(factory: Data, featureId: string): FirstOutcome | null {
 function parkedReason(factory: Data, objective: Data): FirstOutcome | null {
   const parked = (reason: string): FirstOutcome => ({ state: 'parked', text: reason });
   if (!hasFlag(factory, 'configured')) {
-    return parked('Parked: the factory is not set up. Configure factory & validation first.');
+    return parked(t('Parked: the factory is not set up. Configure factory & validation first.'));
   }
   if (!hasFlag(factory, 'active')) {
-    return parked('Parked: the factory is paused. Start the factory to dispatch the first role.');
+    return parked(t('Parked: the factory is paused. Start the factory to dispatch the first role.'));
   }
   if (text(objective, 'phase') === 'blocked') {
-    return parked(
-      `Parked: the objective is blocked. ${firstText(text(objective, 'error'), 'Open Inbox for the decision it needs.')}`,
-    );
+    const reason = firstText(text(objective, 'error'), t('Open Inbox for the decision it needs.'));
+    return parked(t('Parked: the objective is blocked. {reason}', { reason }));
   }
   const error = text(factory, 'error');
   if (error !== '') {
-    return parked(`Parked: ${error}`);
+    return parked(t('Parked: {error}', { error }));
   }
   const admission = child(factory, 'admission');
   const gate = capacityGate(text(admission, 'blocker'));
   if (gate !== null) {
-    return parked(`Parked: ${gate}`);
+    return parked(t('Parked: {gate}', { gate }));
   }
   const providers = child(admission, 'providers');
   const gates = ['claude', 'codex']
     .map((name) => [name, text(providers, name)] as const)
     .filter(([, value]) => value !== '');
   const list = gates.map(([name, value]) => `${name}: ${value}`).join('; ');
-  return gates.length === 2 ? parked(`Parked: no provider is eligible (${list}).`) : null;
+  return gates.length === 2 ? parked(t('Parked: no provider is eligible ({list}).', { list })) : null;
 }
 
 /**
@@ -240,7 +245,7 @@ export function firstOutcome(factory: Data, now: number): FirstOutcome {
   if (objective === null) {
     return {
       state: 'waiting',
-      text: 'Submit an objective; this step then shows the first role that starts, or why none can.',
+      text: t('Submit an objective; this step then shows the first role that starts, or why none can.'),
     };
   }
   const started = startedRole(factory, text(objective, 'id'));
@@ -256,8 +261,11 @@ export function firstOutcome(factory: Data, now: number): FirstOutcome {
     state: 'waiting',
     text:
       waited > SLOW_START_MS
-        ? `No role has started for ${String(Math.floor(waited / MINUTE_MS))} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.`
-        : 'Queued. A role normally starts within one scheduling cycle, a few seconds.',
+        ? t(
+            'No role has started for {minutes} min and no gate is reported. Open Mission → Why work is running or parked for the full evidence.',
+            { minutes: String(Math.floor(waited / MINUTE_MS)) },
+          )
+        : t('Queued. A role normally starts within one scheduling cycle, a few seconds.'),
   };
 }
 
@@ -268,13 +276,13 @@ export function firstOutcome(factory: Data, now: number): FirstOutcome {
  * @returns Preflight step with its progress and summary.
  */
 function preflightStep(preflight: PreflightView | null): OnboardingStep {
-  const title = 'Check this machine';
+  const title = t('Check this machine');
   if (preflight === null) {
     return {
       id: 'preflight',
       title,
       progress: 'todo',
-      detail: 'Run the doctor checks inside the broker: Node.js, Git, provider logins, GitHub CLI and .malt.',
+      detail: t('Run the doctor checks inside the broker: Node.js, Git, provider logins, GitHub CLI and .malt.'),
     };
   }
   const failed = preflight.checks.filter((item) => item.status === 'fail').length;
@@ -285,15 +293,15 @@ function preflightStep(preflight: PreflightView | null): OnboardingStep {
       id: 'preflight',
       title,
       progress: 'blocked',
-      detail: `${failures} failed. Fix them on the broker's machine and run the checks again.`,
+      detail: t("{failures} failed. Fix them on the broker's machine and run the checks again.", { failures }),
     };
   }
-  const suggestions = `${String(fixes)} suggested fix${fixes === 1 ? '' : 'es'}`;
+  const suggestions = t('{fixes, plural, one {# suggested fix} other {# suggested fixes}}', { fixes });
   return {
     id: 'preflight',
     title,
     progress: 'done',
-    detail: fixes === 0 ? 'Every check passed.' : `Ready, with ${suggestions} below.`,
+    detail: fixes === 0 ? t('Every check passed.') : t('Ready, with {suggestions} below.', { suggestions }),
   };
 }
 
@@ -316,11 +324,16 @@ export function onboardingSteps(
   const connection = child(github, 'connection');
   const isConnected = hasFlag(github, 'connected');
   const isConfigured = hasFlag(factory, 'configured');
-  const policy =
-    Object.keys(child(child(factory, 'settings'), 'modelPolicy')).length > 0 ? 'saved' : 'uses the stage defaults';
+  const hasPolicy = Object.keys(child(child(factory, 'settings'), 'modelPolicy')).length > 0;
+  const policy = t(hasPolicy ? 'saved' : 'uses the stage defaults');
   const library = child(factory, 'workflows');
   const defaultId = text(library, 'defaultId');
   const workflow = records(library['items']).find((item) => text(item, 'id') === defaultId);
+  const chosenWorkflow = firstText(
+    text(child(workflow ?? {}, 'workflow'), 'name'),
+    defaultId,
+    t('the default workflow'),
+  );
   const hasObjective = records(factory['features']).length > 0;
   const isActive = hasFlag(factory, 'active');
   const outcome = firstOutcome(factory, now);
@@ -328,43 +341,49 @@ export function onboardingSteps(
     preflightStep(preflight),
     {
       id: 'connect',
-      title: 'Connect the GitHub repository and Project',
+      title: t('Connect the GitHub repository and Project'),
       progress: isConnected ? 'done' : 'todo',
       detail: isConnected
-        ? `Connected to ${firstText(text(connection, 'repository'), 'the selected repository')}.`
-        : 'Choose the repository and the GitHub Project its deliveries appear in.',
+        ? t('Connected to {repository}.', {
+            repository: firstText(text(connection, 'repository'), t('the selected repository')),
+          })
+        : t('Choose the repository and the GitHub Project its deliveries appear in.'),
     },
     {
       id: 'factory',
-      title: 'Choose providers, checks and model policy',
+      title: t('Choose providers, checks and model policy'),
       progress: isConfigured ? 'done' : 'todo',
       detail: isConfigured
-        ? `Factory configured; model policy ${policy}.`
-        : 'Enable Claude Code and/or Codex, set the project’s test commands and resource limits, then review the model policy.',
+        ? t('Factory configured; model policy {policy}.', { policy })
+        : t(
+            'Enable Claude Code and/or Codex, set the project’s test commands and resource limits, then review the model policy.',
+          ),
     },
     {
       id: 'workflow',
-      title: 'Pick how objectives are delivered',
+      title: t('Pick how objectives are delivered'),
       progress: 'done',
-      detail: `New objectives use ${firstText(text(child(workflow ?? {}, 'workflow'), 'name'), defaultId, 'the default workflow')}. Change it in the workflow library.`,
+      detail: t('New objectives use {workflow}. Change it in the workflow library.', { workflow: chosenWorkflow }),
     },
     {
       id: 'objective',
-      title: 'Submit a first objective',
+      title: t('Submit a first objective'),
       progress: hasObjective ? 'done' : 'todo',
-      detail: hasObjective
-        ? 'Objective queued for the product owner and lead.'
-        : 'Describe one outcome; the team plans it into small reviewed deliveries.',
+      detail: t(
+        hasObjective
+          ? 'Objective queued for the product owner and lead.'
+          : 'Describe one outcome; the team plans it into small reviewed deliveries.',
+      ),
     },
     {
       id: 'start',
-      title: 'Start the factory',
+      title: t('Start the factory'),
       progress: isActive ? 'done' : 'todo',
-      detail: isActive ? 'The supervisor is dispatching.' : 'Nothing is dispatched while the factory is paused.',
+      detail: t(isActive ? 'The supervisor is dispatching.' : 'Nothing is dispatched while the factory is paused.'),
     },
     {
       id: 'outcome',
-      title: 'See the first role start',
+      title: t('See the first role start'),
       progress: OUTCOME_PROGRESS[outcome.state],
       detail: outcome.text,
     },

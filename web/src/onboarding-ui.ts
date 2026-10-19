@@ -9,6 +9,7 @@
  */
 import { button, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { asData } from './console-model.js';
+import { phrase, t, translated } from './i18n.js';
 import { onboardingSteps, readPreflight } from './onboarding-model.js';
 import { element } from './worker-ui.js';
 
@@ -49,12 +50,12 @@ export interface OnboardingHandle extends ConsoleViewHandle {
 }
 
 /** Badge text per progress. */
-const PROGRESS_LABELS: Readonly<Record<StepProgress, string>> = {
-  done: 'Done',
-  current: 'Next',
-  todo: 'To do',
-  blocked: 'Needs attention',
-};
+const PROGRESS_LABELS: Readonly<Record<StepProgress, string>> = translated({
+  done: phrase('Done'),
+  current: phrase('Next'),
+  todo: phrase('To do'),
+  blocked: phrase('Needs attention'),
+});
 /** Badge styling per progress. */
 const PROGRESS_CLASSES: Readonly<Record<StepProgress, string>> = {
   done: 'state-ok',
@@ -91,7 +92,7 @@ class OnboardingView implements OnboardingHandle {
    */
   public constructor(hooks: OnboardingHooks) {
     this.hooks = hooks;
-    this.element.setAttribute('aria-label', 'Get started');
+    this.element.setAttribute('aria-label', t('Get started'));
   }
 
   /**
@@ -121,12 +122,12 @@ class OnboardingView implements OnboardingHandle {
     try {
       const report = readPreflight(await this.hooks.preflight());
       if (report === null) {
-        this.preflightErrors.set(project, 'The broker returned an unexpected preflight result.');
+        this.preflightErrors.set(project, t('The broker returned an unexpected preflight result.'));
       } else {
         this.preflights.set(project, report);
       }
     } catch (error) {
-      this.preflightErrors.set(project, error instanceof Error ? error.message : 'Preflight failed.');
+      this.preflightErrors.set(project, error instanceof Error ? error.message : t('Preflight failed.'));
     } finally {
       this.checking = null;
       this.render();
@@ -143,7 +144,10 @@ class OnboardingView implements OnboardingHandle {
     const intro = element(
       'p',
       'subtle',
-      `${String(done)} of ${String(steps.length)} done. Each step opens the same dialog you would use later; nothing here is a separate setting.`,
+      t(
+        '{done} of {length} done. Each step opens the same dialog you would use later; nothing here is a separate setting.',
+        { done: String(done), length: String(steps.length) },
+      ),
     );
     const list = element('ol', 'onboarding-steps');
     for (const step of steps) {
@@ -151,10 +155,10 @@ class OnboardingView implements OnboardingHandle {
     }
     const footer = element('div', 'onboarding-footer');
     footer.append(
-      element('p', 'subtle', 'Hide this guide for this project; reopen it any time from Project → Get started.'),
-      button('Hide guide', { cssClass: 'button ghost', key: 'onboarding-dismiss', action: this.hooks.dismiss }),
+      element('p', 'subtle', t('Hide this guide for this project; reopen it any time from Project → Get started.')),
+      button(t('Hide guide'), { cssClass: 'button ghost', key: 'onboarding-dismiss', action: this.hooks.dismiss }),
     );
-    this.element.replaceChildren(element('h2', '', 'Get started'), intro, list, footer);
+    this.element.replaceChildren(element('h2', '', t('Get started')), intro, list, footer);
     restoreFocus(this.element, focus);
   }
 
@@ -200,7 +204,7 @@ class OnboardingView implements OnboardingHandle {
     const report = this.preflights.get(project);
     const error = this.preflightErrors.get(project);
     if (this.checking === project) {
-      return element('p', 'subtle', 'Checking…');
+      return element('p', 'subtle', t('Checking…'));
     }
     if (error !== undefined) {
       return element('p', 'error', error);
@@ -214,7 +218,7 @@ class OnboardingView implements OnboardingHandle {
       const row = element('li', 'preflight-check');
       row.append(tag(label, style), element('span', '', `${item.label}: ${item.detail}`));
       if (item.fix !== null) {
-        row.append(element('p', 'subtle preflight-fix', `Fix: ${item.fix}`));
+        row.append(element('p', 'subtle preflight-fix', t('Fix: {fix}', { fix: item.fix })));
       }
       list.append(row);
     }
@@ -231,20 +235,21 @@ class OnboardingView implements OnboardingHandle {
   private actions(id: OnboardingStepId, project: string): HTMLButtonElement[] {
     const make = (label: string, action: () => void): HTMLButtonElement =>
       button(label, { cssClass: 'button secondary', key: `onboarding-${id}-${label}`, action });
+    const policyLabel = t('Model & effort policy');
     const choices: Readonly<Record<OnboardingStepId, () => HTMLButtonElement[]>> = {
       preflight: () => {
         return [
-          make(this.preflights.has(project) ? 'Run checks again' : 'Run checks', () => {
+          make(t(this.preflights.has(project) ? 'Run checks again' : 'Run checks'), () => {
             void this.check(true);
           }),
         ];
       },
-      connect: () => [make('Connect GitHub', this.hooks.connect)],
-      factory: () => [make('Configure factory', this.hooks.factory), make('Model & effort policy', this.hooks.policy)],
-      workflow: () => [make('Open workflow library', this.hooks.workflows)],
-      objective: () => [make('New objective', this.hooks.objective)],
-      start: () => [make('Start factory', this.hooks.start)],
-      outcome: () => [make('Open Board', this.hooks.board)],
+      connect: () => [make(t('Connect GitHub'), this.hooks.connect)],
+      factory: () => [make(t('Configure factory'), this.hooks.factory), make(policyLabel, this.hooks.policy)],
+      workflow: () => [make(t('Open workflow library'), this.hooks.workflows)],
+      objective: () => [make(t('New objective'), this.hooks.objective)],
+      start: () => [make(t('Start factory'), this.hooks.start)],
+      outcome: () => [make(t('Open Board'), this.hooks.board)],
     };
     return choices[id]();
   }
