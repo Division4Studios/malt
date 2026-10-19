@@ -781,6 +781,129 @@ h3 {
 .setup-card .button {
   margin-top: 14px;
 }
+/* Get started and Settings (Project group). */
+.onboarding,
+.settings {
+  display: grid;
+  gap: 18px;
+  max-width: 920px;
+}
+.onboarding-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding-left: 22px;
+}
+.onboarding-step,
+.settings-card {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.onboarding-step[data-progress='current'] {
+  border-color: var(--accent-line);
+  background: var(--accent-bg);
+}
+.onboarding-step[data-progress='blocked'] {
+  border-color: var(--red);
+}
+.onboarding-step-heading,
+.settings-provider-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.onboarding-step h3,
+.settings-provider h3,
+.settings-card h2 {
+  margin: 0;
+}
+.onboarding-actions,
+.settings-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.onboarding-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.preflight-checks {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.preflight-check {
+  overflow-wrap: anywhere;
+}
+.preflight-check > .console-tag {
+  margin-right: 8px;
+}
+.preflight-fix {
+  margin: 2px 0 0;
+}
+.console-tag.state-ok {
+  background: var(--state-ok);
+  color: var(--green);
+}
+.console-tag.state-info {
+  background: var(--state-info);
+  color: var(--cyan);
+}
+.console-tag.state-warn {
+  background: var(--state-warn);
+  color: var(--amber);
+}
+.console-tag.state-bad {
+  background: var(--state-bad);
+  color: var(--red);
+}
+.settings-theme {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin: 10px 0 0;
+  padding: 0;
+  border: 0;
+}
+.settings-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-providers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.settings-provider {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.settings-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 10px 0 0;
+}
+.settings-facts dt {
+  color: var(--muted);
+}
+.settings-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .notice {
   border: 1px solid var(--notice-line);
   background: var(--notice-bg);

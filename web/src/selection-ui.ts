@@ -1,5 +1,6 @@
 /** @file Immutable assignment request evidence; provider execution is not inferred. */
 import { child, displayText, text } from './api.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -18,32 +19,34 @@ export function selectionRows(job: Data): [string, string][] {
   const revision = selection['policyRevision'];
   const { effort } = routing;
   return [
-    ['Assignment', displayText(text(job, 'id'), 'No assignment was claimed')],
-    ['Requested provider', displayText(text(job, 'provider'), 'Unknown')],
-    ['Requested model', displayText(text(routing, 'model'), 'CLI default · model unknown')],
+    [t('Assignment'), displayText(text(job, 'id'), t('No assignment was claimed'))],
+    [t('Requested provider'), displayText(text(job, 'provider'), t('Unknown'))],
+    [t('Requested model'), displayText(text(routing, 'model'), t('CLI default · model unknown'))],
     [
-      'Requested effort',
+      t('Requested effort'),
       effort === null
-        ? 'No native effort override recorded'
-        : displayText(text(routing, 'effort'), 'Unknown · historical record has no effort evidence'),
+        ? t('No native effort override recorded')
+        : displayText(text(routing, 'effort'), t('Unknown · historical record has no effort evidence')),
     ],
-    ['Enforced capability floor', displayText(text(routing, 'tier'), 'Unknown')],
-    ['Policy revision', typeof revision === 'number' ? String(revision) : 'Legacy / not recorded'],
+    [t('Enforced capability floor'), displayText(text(routing, 'tier'), t('Unknown'))],
+    [t('Policy revision'), typeof revision === 'number' ? String(revision) : t('Legacy / not recorded')],
     [
-      'Reviewed recommendation',
+      t('Reviewed recommendation'),
       Object.keys(reviewed).length === 0
-        ? 'Not recorded for this assignment'
+        ? t('Not recorded for this assignment')
         : `${text(reviewed, 'tier')} / ${text(reviewed, 'effort')}; ${displayText(text(choice, 'entryId'), 'stage default')}`,
     ],
     [
-      'Reviewed policy revision',
-      typeof choice['policyRevision'] === 'number' ? String(choice['policyRevision']) : 'Not recorded / stage default',
+      t('Reviewed policy revision'),
+      typeof choice['policyRevision'] === 'number'
+        ? String(choice['policyRevision'])
+        : t('Not recorded / stage default'),
     ],
-    ['Review rationale', displayText(text(reviewed, 'reason'), 'Not recorded')],
-    ['Selection / override reason', displayText(text(routing, 'reason'), 'No routing evidence recorded')],
+    [t('Review rationale'), displayText(text(reviewed, 'reason'), t('Not recorded'))],
+    [t('Selection / override reason'), displayText(text(routing, 'reason'), t('No routing evidence recorded'))],
     [
-      'Execution confirmation',
-      'Requested CLI arguments only; provider-applied model/effort is not independently confirmed.',
+      t('Execution confirmation'),
+      t('Requested CLI arguments only; provider-applied model/effort is not independently confirmed.'),
     ],
   ];
 }
@@ -58,7 +61,7 @@ export function selectionRows(job: Data): [string, string][] {
 export function selectionDetails(job: Data, diagnostic: string): HTMLElement {
   const details = element('details', 'panel-body');
   details.dataset['selectionEvidence'] = '';
-  details.append(element('summary', '', 'Model selection evidence · requested launch'));
+  details.append(element('summary', '', t('Model selection evidence · requested launch')));
   const list = element('dl');
   for (const [label, value] of selectionRows(job)) {
     list.append(element('dt', 'subtle', label), element('dd', '', value));
@@ -66,7 +69,11 @@ export function selectionDetails(job: Data, diagnostic: string): HTMLElement {
   details.append(list);
   if (diagnostic !== '') {
     details.append(
-      element('p', 'subtle', `Current supervisor diagnostic (separate from this recorded job): ${diagnostic}`),
+      element(
+        'p',
+        'subtle',
+        t('Current supervisor diagnostic (separate from this recorded job): {diagnostic}', { diagnostic }),
+      ),
     );
   }
   return details;

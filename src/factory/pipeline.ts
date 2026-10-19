@@ -14,6 +14,7 @@
  */
 
 import { MERGE_GATE_STEP } from './gate-schema.ts';
+import { withOverrides } from './step-overrides.ts';
 import { DEFAULT_WORKFLOW_ID, ancestorIds, builtinWorkflows } from './workflows.ts';
 
 import type { FactoryJob, FactoryRole, FactoryTask, Feature } from './schema.ts';
@@ -128,15 +129,17 @@ export function withGates(workflow: Workflow, gates: { plan?: boolean; merge?: b
  * The workflow an objective runs.
  *
  * @param feature - Objective, possibly saved before workflows existed.
- * @returns Its frozen workflow with its gates, or the legacy pipeline.
+ * @returns Its frozen workflow with its step overrides and gates, or the legacy pipeline.
  */
 export function featureWorkflow(feature: Feature | null | undefined): Workflow {
-  return withGates(feature?.workflow?.workflow ?? legacyWorkflow(), feature?.gates ?? {});
+  const workflow = withOverrides(feature?.workflow?.workflow ?? legacyWorkflow(), feature?.stepOverrides);
+  return withGates(workflow, feature?.gates ?? {});
 }
 
 /**
  * The workflow one delivery runs: its own frozen copy, else its objective's,
- * with the merge gate the delivery froze (or its objective's, for older ones).
+ * with the step overrides and merge gate the delivery froze (or its
+ * objective's, for older ones).
  *
  * @param task - Delivery.
  * @param features - Known objectives, consulted for deliveries without a frozen copy.
@@ -144,7 +147,10 @@ export function featureWorkflow(feature: Feature | null | undefined): Workflow {
  */
 export function taskWorkflow(task: FactoryTask, features: readonly Feature[] = []): Workflow {
   const feature = features.find((candidate) => candidate.id === task.featureId);
-  const workflow = task.workflow?.workflow ?? feature?.workflow?.workflow ?? legacyWorkflow();
+  const workflow = withOverrides(
+    task.workflow?.workflow ?? feature?.workflow?.workflow ?? legacyWorkflow(),
+    task.stepOverrides ?? feature?.stepOverrides,
+  );
   return withGates(workflow, { merge: task.gates?.merge ?? feature?.gates?.merge ?? false });
 }
 
@@ -242,12 +248,15 @@ export function approvalSource(task: FactoryTask, workflow: Workflow, step: Work
  * @param task - Delivery.
  * @param workflow - Its workflow.
  * @param step - Gated or approval step.
- * @returns True when an approval names the bound head.
+ * @returns True when an approval names the bound head and base.
  */
 function isApproved(task: FactoryTask, workflow: Workflow, step: WorkflowStep): boolean {
   const source = approvalSource(task, workflow, step);
   return (
-    source !== null && task.approvals.some((approval) => approval.stepId === step.id && approval.head === source.head)
+    source !== null &&
+    task.approvals.some(
+      (approval) => approval.stepId === step.id && approval.head === source.head && approval.base === source.base,
+    )
   );
 }
 
@@ -534,36 +543,123 @@ export function isStepRunning(
   });
 }
 
+/** Assignment kind each planning model step runs as; approvals need no model. */
+const PLANNING_JOB_KIND: Readonly<Partial<Record<StepKind, 'plan' | 'refine' | 'plan_review'>>> = {
+  specify: 'plan',
+  plan: 'refine',
+  plan_review: 'plan_review',
+  plan_revise: 'refine',
+};
+
+/** How each planning step kind records its current result. */
+const PLANNING_RESULTS: Readonly<
+  Partial<Record<StepKind, (feature: Feature, workflow: Workflow, step: WorkflowStep) => boolean>>
+> = {
+  specify: (feature) => feature.productPlan !== null,
+  plan: (feature) => feature.plan !== null,
+  plan_review: (feature, _workflow, step) => feature.plan !== null && planReview(feature, step) !== undefined,
+  plan_revise: (feature, workflow, step) => feature.plan !== null && isRevised(feature, workflow, step),
+  approve: (feature, _workflow, step) => hasPlanningApproval(feature, step),
+};
+
 /**
- * The next planning step for an objective, mapped to its job kind.
+ * The next planning step for an objective, mapped to its job kind: the first
+ * model step without a current result whose predecessors are complete and
+ * approved. A gate or approval that is still waiting holds everything after it.
  *
  * @param feature - Objective in planning.
  * @param workflow - Its workflow.
- * @returns The step and job kind, or `null` when planning is complete or empty.
+ * @returns Step and kind, or `null` when planning is complete or waits for a decision.
  */
 export function planningStep(
   feature: Feature,
   workflow: Workflow,
 ): { step: WorkflowStep; kind: 'plan' | 'refine' | 'plan_review' } | null {
-  const specify = workflow.planning.find((step) => step.kind === 'specify');
-  if (specify !== undefined && feature.productPlan === null) {
-    return { step: specify, kind: 'plan' };
+  for (const step of workflow.planning) {
+    const kind = PLANNING_JOB_KIND[step.kind];
+    if (
+      kind !== undefined &&
+      !hasPlanningResult(feature, workflow, step) &&
+      isPlanningUnblocked(feature, workflow, step)
+    ) {
+      return { step, kind };
+    }
   }
-  const plan = workflow.planning.find((step) => step.kind === 'plan');
-  if (plan === undefined) {
-    return null;
-  }
-  if (feature.plan === null) {
-    return { step: plan, kind: 'refine' };
-  }
-  const review = workflow.planning.find(
-    (step) => step.kind === 'plan_review' && planReview(feature, step) === undefined,
-  );
-  if (review !== undefined) {
-    return { step: review, kind: 'plan_review' };
-  }
-  const revise = workflow.planning.find((step) => step.kind === 'plan_revise');
-  return revise === undefined || isRevised(feature, workflow, revise) ? null : { step: revise, kind: 'refine' };
+  return null;
+}
+
+/**
+ * Whether a planning step has its current result: the specification, the plan,
+ * a review of the current plan, a revision that answers those reviews, or an
+ * operator approval.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @param step - Step whose result to look for.
+ * @returns True once the step's work is recorded.
+ */
+export function hasPlanningResult(feature: Feature, workflow: Workflow, step: WorkflowStep): boolean {
+  return PLANNING_RESULTS[step.kind]?.(feature, workflow, step) ?? false;
+}
+
+/**
+ * Whether a planning step is complete: its result is recorded and, when gated, approved.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @param step - Step to check.
+ * @returns True when later steps may rely on it.
+ */
+export function isPlanningStepSatisfied(feature: Feature, workflow: Workflow, step: WorkflowStep): boolean {
+  return hasPlanningResult(feature, workflow, step) && (!step.gate || hasPlanningApproval(feature, step));
+}
+
+/**
+ * Whether every planning step is complete, so the plan may be provisioned.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @returns True when nothing in planning remains to run or decide.
+ */
+export function isPlanningComplete(feature: Feature, workflow: Workflow): boolean {
+  return workflow.planning.every((step) => isPlanningStepSatisfied(feature, workflow, step));
+}
+
+/**
+ * Whether every model step in planning has its result; only decisions may remain.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @returns True when no planning attempt is left to run.
+ */
+export function isPlanningWorkDone(feature: Feature, workflow: Workflow): boolean {
+  return workflow.planning.every((step) => step.kind === 'approve' || hasPlanningResult(feature, workflow, step));
+}
+
+/**
+ * Whether a planning step's predecessors are all complete.
+ *
+ * @param feature - Objective.
+ * @param workflow - Its workflow.
+ * @param step - Step to test.
+ * @returns True when the step may start or be decided.
+ */
+function isPlanningUnblocked(feature: Feature, workflow: Workflow, step: WorkflowStep): boolean {
+  return step.after.every((id) => {
+    const before = workflow.planning.find((candidate) => candidate.id === id);
+    return before !== undefined && isPlanningStepSatisfied(feature, workflow, before);
+  });
+}
+
+/**
+ * Whether the operator approved a planning step.
+ *
+ * @param feature - Objective.
+ * @param step - Gated or approval step.
+ * @returns True when an approval names the step.
+ */
+function hasPlanningApproval(feature: Feature, step: WorkflowStep): boolean {
+  return feature.approvals.some((approval) => approval.stepId === step.id);
 }
 
 /**
@@ -610,24 +706,30 @@ function isRevised(feature: Feature, workflow: Workflow, revise: WorkflowStep): 
   const isClean = reviews.every((review) => review?.outcome === 'success' && review.findings.length === 0);
   const latest = Math.max(0, ...reviews.map((review) => review?.at ?? 0));
   return (
-    isClean || (feature.planningResults ?? []).some((result) => result.stepId === revise.id && result.at >= latest)
+    isClean ||
+    (feature.planningResults ?? []).some(
+      (result) => result.stepId === revise.id && result.outcome === 'success' && result.at >= latest,
+    )
   );
 }
 
 /**
- * Planning steps that need a human decision before deliveries are created.
+ * Planning steps waiting for a human decision now: approval steps whose
+ * predecessors are complete, and gated steps whose result is recorded.
  *
- * @param feature - Objective whose plan is complete.
+ * @param feature - Objective being planned.
  * @param workflow - Its workflow.
  * @returns Approval and gated steps without a recorded approval.
  */
 export function planningApprovals(feature: Feature, workflow: Workflow): WorkflowStep[] {
-  return feature.plan === null
-    ? []
-    : workflow.planning.filter(
-        (step) =>
-          (step.kind === 'approve' || step.gate) && feature.approvals.every((approval) => approval.stepId !== step.id),
-      );
+  return workflow.planning.filter((step) => {
+    if (hasPlanningApproval(feature, step)) {
+      return false;
+    }
+    return step.kind === 'approve'
+      ? isPlanningUnblocked(feature, workflow, step)
+      : step.gate && hasPlanningResult(feature, workflow, step);
+  });
 }
 
 /**
@@ -670,7 +772,7 @@ export function stepEvidence(task: FactoryTask, workflow: Workflow, step: Workfl
     return task;
   }
   if (step.blind) {
-    return { ...task, reviews: [], stepResults: [], approvals: [], feedback: [] };
+    return { ...task, reviews: [], stepResults: [], approvals: [], feedback: [], repairs: [] };
   }
   const readable = new Set(step.inputs ?? ancestorIds(workflow.delivery, step.id));
   const visible = workflow.delivery.filter((candidate) => readable.has(candidate.id));
@@ -679,5 +781,7 @@ export function stepEvidence(task: FactoryTask, workflow: Workflow, step: Workfl
     reviews: task.reviews.filter((review) => visible.some((candidate) => isReviewOf(review, candidate))),
     stepResults: task.stepResults.filter((result) => readable.has(result.stepId)),
     approvals: task.approvals.filter((approval) => readable.has(approval.stepId)),
+    // Feedback names no step, so a step with an explicit input list does not receive it.
+    ...(step.inputs !== null && { feedback: [] }),
   };
 }
