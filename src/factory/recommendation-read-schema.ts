@@ -35,6 +35,10 @@ const inspectionSchema = z
     revision: recommendationAddress.optional(),
   })
   .strict();
+/** Operator retry of a failed duplicate or consolidation at its exact revision. */
+export const recommendationRetrySchema = z
+  .object({ id: recommendationAddress, revision: recommendationAddress })
+  .strict();
 /** Reading one exact current revision has no approval or execution authority. */
 export const recommendationReadSchemas = {
   factory_recommendations: inspectionSchema,

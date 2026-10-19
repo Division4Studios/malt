@@ -97,10 +97,33 @@ function pr(fields: Partial<PullRequest> = {}): PullRequest {
  */
 const unreadableProtection: GitHubRunner = async (args) => {
   await delay(0);
-  if (args[1]?.endsWith('/protection') === true) {
+  const route = args.at(-1) ?? '';
+  if (route.endsWith('/protection')) {
     throw new Error('HTTP 403: classic protection needs admin rights');
   }
-  return args[1] === 'repos/example/app' ? {} : [{ type: 'merge_queue', parameters: {} }];
+  return route === 'repos/example/app' ? {} : [[], [{ type: 'merge_queue', parameters: {} }]];
+};
+
+/**
+ * Two rulesets that each allow a single, different merge method.
+ *
+ * @param args - GitHub CLI arguments.
+ * @returns Settings, an empty classic protection, or one page with both rulesets.
+ */
+const layered: GitHubRunner = async (args) => {
+  await delay(0);
+  const route = args.at(-1) ?? '';
+  if (route === 'repos/example/app') {
+    return { allow_squash_merge: true, allow_rebase_merge: true, allow_merge_commit: true };
+  }
+  return route.endsWith('/protection')
+    ? {}
+    : [
+        [
+          { type: 'pull_request', parameters: { allowed_merge_methods: ['squash'] } },
+          { type: 'pull_request', parameters: { allowed_merge_methods: ['rebase'] } },
+        ],
+      ];
 };
 
 await test('the readiness gate waits on unmergeable or untested source but not on GitHub approval', () => {
@@ -128,7 +151,7 @@ await test('protection combines repository settings, rulesets and readable class
   const routes: string[] = [];
   const runner: GitHubRunner = async (args) => {
     await delay(0);
-    const route = args[1] ?? '';
+    const route = args.at(-1) ?? '';
     routes.push(route);
     if (route === 'repos/example/app') {
       return { allow_squash_merge: true, allow_rebase_merge: true, allow_merge_commit: true, allow_auto_merge: true };
@@ -140,12 +163,15 @@ await test('protection combines repository settings, rulesets and readable class
         required_linear_history: { enabled: true },
       };
     }
+    assert.ok(args.includes('--paginate'), 'every page of effective rules is read');
     return [
-      {
-        type: 'pull_request',
-        parameters: { required_approving_review_count: 2, allowed_merge_methods: ['squash', 'merge'] },
-      },
-      { type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'Quality gate' }] } },
+      [
+        {
+          type: 'pull_request',
+          parameters: { required_approving_review_count: 2, allowed_merge_methods: ['squash', 'merge'] },
+        },
+      ],
+      [{ type: 'required_status_checks', parameters: { required_status_checks: [{ context: 'Quality gate' }] } }],
     ];
   };
   const protection = await readProtection(runner, 'example/app', 'main');
@@ -165,6 +191,9 @@ await test('protection combines repository settings, rulesets and readable class
   assert.deepEqual(queued.methods, ['squash', 'rebase', 'merge']);
   assert.equal(queued.hasMergeQueue, true);
   assert.equal(queued.isAutoMergeAllowed, false, "GitHub's default is no auto-merge");
+
+  // Layered rulesets that allow only squash and only rebase leave no method in common.
+  assert.deepEqual((await readProtection(layered, 'example/app', 'main')).methods, []);
 });
 
 await test('the merge step merges, arms auto-merge, enqueues or waits with a precise reason', () => {
