@@ -9,6 +9,7 @@
 import { child, firstText, hasFlag, number, records, text } from './api.js';
 import { quotaUsage } from './capacity-details.js';
 import { asData } from './console-model.js';
+import { formatDateTime, phrase, t, translated } from './i18n.js';
 
 import type { Data } from './api.js';
 import type { PreflightView } from './onboarding-model.js';
@@ -16,10 +17,10 @@ import type { PreflightView } from './onboarding-model.js';
 /** Provider families in display order. */
 const PROVIDERS = ['claude', 'codex'] as const;
 /** Display names. */
-const PROVIDER_NAMES: Readonly<Record<(typeof PROVIDERS)[number], string>> = {
-  claude: 'Claude Code',
-  codex: 'Codex',
-};
+const PROVIDER_NAMES: Readonly<Record<(typeof PROVIDERS)[number], string>> = translated({
+  claude: phrase('Claude Code'),
+  codex: phrase('Codex'),
+});
 /** Characters of the shell cache revision shown. */
 const REVISION_SHOWN = 12;
 /** Cache Storage name prefix of the offline shell. */
@@ -69,7 +70,7 @@ export interface ProviderHealth {
 function cliHealth(preflight: PreflightView | null, provider: string): CliHealth {
   const check = preflight?.checks.find((item) => item.id === provider);
   return check === undefined
-    ? { status: 'unchecked', detail: 'Not checked yet. Run the provider checks.', fix: null }
+    ? { status: 'unchecked', detail: t('Not checked yet. Run the provider checks.'), fix: null }
     : { status: check.status, detail: check.detail, fix: check.fix };
 }
 
@@ -81,7 +82,7 @@ function cliHealth(preflight: PreflightView | null, provider: string): CliHealth
  */
 export function localTime(value: number): string {
   const date = new Date(value);
-  return date.toLocaleString();
+  return formatDateTime(date);
 }
 
 /**
@@ -94,12 +95,16 @@ function quotaLines(capacity: Data | undefined): string[] {
   const windows = records(capacity?.['subscriptionWindows']);
   if (windows.length === 0) {
     const used = capacity?.['subscriptionUsedPercent'];
-    return [`Subscription: ${quotaUsage(used)}`];
+    return [t('Subscription: {usage}', { usage: quotaUsage(used) })];
   }
   return windows.map((window) => {
     const reset = window['resetAt'];
     const resets = typeof reset === 'number' ? localTime(reset) : 'unknown';
-    return `${firstText(text(window, 'id'), 'Window')}: ${quotaUsage(window['usedPercent'])} · resets ${resets}`;
+    return t('{window}: {usage} · resets {resets}', {
+      window: firstText(text(window, 'id'), t('Window')),
+      usage: quotaUsage(window['usedPercent']),
+      resets,
+    });
   });
 }
 
@@ -117,7 +122,7 @@ function lastFailure(factory: Data, provider: string): ProviderHealth['lastFailu
   if (failed === undefined) {
     return null;
   }
-  const summary = firstText(text(failed, 'summary'), 'No summary recorded.');
+  const summary = firstText(text(failed, 'summary'), t('No summary recorded.'));
   return {
     at: number(failed, 'finishedAt'),
     summary: summary.length > SUMMARY_MAX ? `${summary.slice(0, SUMMARY_MAX - 1)}…` : summary,
@@ -166,14 +171,51 @@ export function buildRows(versions: unknown, cacheKeys: readonly string[]): [str
   const shell = cacheKeys.find((key) => key.startsWith(SHELL_PREFIX));
   return [
     ['MALT', firstText(text(value, 'malt'), 'unknown')],
-    ['Broker', firstText(text(value, 'broker'), 'not answering')],
-    ['Console Node.js', firstText(text(value, 'node'), 'unknown')],
-    ['Console platform', firstText(text(value, 'platform'), 'unknown')],
+    [t('Broker'), firstText(text(value, 'broker'), t('not answering'))],
+    [t('Console Node.js'), firstText(text(value, 'node'), 'unknown')],
+    [t('Console platform'), firstText(text(value, 'platform'), 'unknown')],
     [
-      'Offline shell cache',
+      t('Offline shell cache'),
       shell === undefined
-        ? 'not installed in this browser'
+        ? t('not installed in this browser')
         : shell.slice(SHELL_PREFIX.length, SHELL_PREFIX.length + REVISION_SHOWN),
     ],
   ];
+}
+
+/** The brief revalidation policy as the Settings view shows and edits it. */
+export interface RevalidationSetting {
+  /** Whether the saved policy rechecks dependent briefs. */
+  readonly isEnabled: boolean;
+  /** Why it cannot be changed now, or `null` when it can. */
+  readonly blocker: string | null;
+}
+
+/**
+ * The saved brief revalidation choice and whether it can change now.
+ *
+ * @param factory - Factory projection.
+ * @returns Current value, and why it is read-only when it is.
+ */
+export function revalidationSetting(factory: Data): RevalidationSetting {
+  const settings = asData(factory['settings']);
+  if (settings === null) {
+    return { isEnabled: false, blocker: t('Set up the factory first.') };
+  }
+  const isEnabled = settings['briefRevalidation'] === true;
+  return {
+    isEnabled,
+    blocker: hasFlag(factory, 'active') ? t('Pause the factory to change project policy.') : null,
+  };
+}
+
+/**
+ * The full saved policy with brief revalidation switched, for the existing setup control.
+ *
+ * @param factory - Factory projection holding the saved policy.
+ * @param isEnabled - Requested choice.
+ * @returns `factory_setup` input that keeps every other setting.
+ */
+export function revalidationInput(factory: Data, isEnabled: boolean): Data {
+  return { ...asData(factory['settings']), briefRevalidation: isEnabled };
 }

@@ -12,6 +12,7 @@ import { objectiveGates } from './gate-controls.ts';
 import { MAX_OBJECTIVES } from './objective-queue-schema.ts';
 import { unsupportedSteps } from './pipeline.ts';
 import { factorySchemas } from './schema.ts';
+import { overrideProblems } from './step-overrides.ts';
 import { DEFAULT_WORKFLOW_ID, workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -19,7 +20,8 @@ import type { FrozenWorkflow } from './workflows.ts';
 
 /**
  * Workflow for objectives the factory creates itself: the project default when
- * it can run, otherwise the built-in pipeline, so automatic work never stalls.
+ * it can run and plans its own deliveries, otherwise the built-in pipeline, so
+ * automatic work never stalls (these objectives are queued unplanned).
  *
  * @param repository - Selected project.
  * @returns Frozen runnable workflow.
@@ -27,7 +29,9 @@ import type { FrozenWorkflow } from './workflows.ts';
 export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow {
   const library = workflowLibrary(repository.store);
   const preferred = library.freeze();
-  return unsupportedSteps(preferred.workflow).length === 0 ? preferred : library.freeze(DEFAULT_WORKFLOW_ID);
+  return unsupportedSteps(preferred.workflow).length === 0 && preferred.workflow.planning.length > 0
+    ? preferred
+    : library.freeze(DEFAULT_WORKFLOW_ID);
 }
 
 /**
@@ -39,8 +43,17 @@ export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow
  * @throws {MeshError} If the same request ID denotes a different objective.
  */
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
-  const { objective, requestId, workflowId = null, gates } = factorySchemas.factory_request.parse(input);
+  const { objective, requestId, workflowId = null, gates, stepOverrides } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
+  // A retry returns the objective it already filed, whatever the workflow library holds now.
+  const filed = repository.features().find((feature) => feature.id === id);
+  if (filed !== undefined) {
+    // A retry must repeat the request exactly; a different workflow is a new request, not a retry.
+    if (filed.objective !== objective || (workflowId !== null && filed.workflow?.id !== workflowId)) {
+      throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope or workflow.');
+    }
+    return { featureId: id };
+  }
   const workflow = workflowLibrary(repository.store).freeze(workflowId);
   const unsupported = unsupportedSteps(workflow.workflow);
   if (unsupported.length > 0) {
@@ -48,6 +61,10 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       'FACTORY_GATED',
       `Workflow "${workflow.workflow.name}" uses steps this version cannot run yet: ${unsupported.join(', ')}.`,
     );
+  }
+  const overrideErrors = overrideProblems(workflow.workflow, stepOverrides ?? []);
+  if (overrideErrors.length > 0) {
+    throw new MeshError('INVALID_INPUT', overrideErrors.join(' '));
   }
   // Without planning steps the brief itself is the one delivery, ready to provision.
   const isBrief = workflow.workflow.planning.length === 0;
@@ -83,6 +100,7 @@ export function queueObjective(repository: FactoryRepository, input: unknown): {
       workflow,
       approvals: [],
       gates: objectiveGates(repository, gates),
+      ...(stepOverrides !== undefined && stepOverrides.length > 0 && { stepOverrides }),
     });
     repository.notify(`Product objective queued: ${objective}`);
     return { featureId: id };
