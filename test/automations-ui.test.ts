@@ -111,6 +111,9 @@ await test('cron expressions read as plain language and invalid ones explain the
     ['*/30 9-17 * * mon-fri', 'Every 30 minutes during 09:00 to 17:00, on Monday to Friday.'],
     // A day field starting with `*` stays unrestricted, as on the broker: Mondays only, not every day.
     ['0 0 */1 * mon', 'At 00:00, on Monday.'],
+    // A stepped day field still constrains: both day fields must match when one starts with `*`.
+    ['0 0 */2 * *', 'At 00:00, every 2 days from day 1 of the month.'],
+    ['0 0 */2 * mon', 'At 00:00, every 2 days from day 1 of the month and on Monday.'],
     ['0 9 * jan *', 'At 09:00, every day, in January.'],
   ];
   for (const [expression, text] of cases) {

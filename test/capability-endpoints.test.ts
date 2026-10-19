@@ -44,7 +44,7 @@ const viewSchema = z
   .object({
     connected: z.boolean(),
     provider: z.string().nullable(),
-    capabilities: z.array(capabilitySchema).length(15),
+    capabilities: z.array(capabilitySchema).length(16),
     history: z.array(historySchema),
     historyTruncated: z.boolean(),
   })
@@ -59,6 +59,19 @@ const grant = {
   capability: 'issue-create',
   policy: { mode: 'approved-agent-roles', roles: ['team-lead', 'developer-1', 'team-lead'] },
 };
+
+/** Capabilities every project grants to humans at initialization. */
+const HUMAN_SETUP = new Set(['project-create', 'project-connect']);
+
+/**
+ * Human edits in a view, excluding one-time initialization grants.
+ *
+ * @param view - Validated policy view.
+ * @returns History entries authored by a human.
+ */
+function edits(view: z.output<typeof viewSchema>): z.output<typeof historySchema>[] {
+  return view.history.filter((item) => item.kind === 'human');
+}
 
 /**
  * Read one capability from a view.
@@ -115,9 +128,14 @@ await test('the operator edits a policy over RPC; agents read it but can never c
   const { config } = await brokerFixture(t);
   const initial = await read(config);
   assert.equal(initial.connected, false);
-  assert.ok(initial.capabilities.every((item) => item.mode === 'disabled' && item.roles.length === 0));
+  assert.ok(
+    initial.capabilities.every(
+      (item) => item.mode === (HUMAN_SETUP.has(item.capability) ? 'human-only' : 'disabled') && item.roles.length === 0,
+    ),
+  );
   assert.ok(initial.capabilities.every((item) => item.support === 'unverified'));
-  assert.deepEqual(initial.history, []);
+  assert.equal(initial.history.length, HUMAN_SETUP.size);
+  assert.deepEqual(edits(initial), []);
 
   const updated = viewSchema.parse(await rpc(config, 'capability_policy_set', grant));
   assert.deepEqual(entry(updated, 'issue-create'), {
@@ -127,8 +145,8 @@ await test('the operator edits a policy over RPC; agents read it but can never c
     support: 'unverified',
     providerCapabilities: [{ name: 'issue_create', state: 'unverified' }],
   });
-  assert.equal(updated.history.length, 1);
-  assert.deepEqual(updated.history[0]?.actor, { kind: 'human', id: 'project-operator' });
+  assert.equal(edits(updated).length, 1);
+  assert.deepEqual(edits(updated)[0]?.actor, { kind: 'human', id: 'project-operator' });
   const events = eventsSchema.parse(await rpc(config, 'events', { after: 0, limit: 100 }));
   assert.ok(events.events.some((event) => event.type === 'CAPABILITY_POLICY_CHANGED'));
 
@@ -146,7 +164,7 @@ await test('the operator edits a policy over RPC; agents read it but can never c
   );
   const seen = viewSchema.parse(await rpc(config, 'capability_policy_status', {}, { credentials }));
   assert.equal(entry(seen, 'issue-create').mode, 'approved-agent-roles');
-  assert.equal(seen.history.length, 1, 'rejected agent edits append no history');
+  assert.equal(edits(seen).length, 1, 'rejected agent edits append no history');
 });
 
 await test('invalid capabilities, modes and roles are rejected without history', async (t) => {
@@ -161,7 +179,7 @@ await test('invalid capabilities, modes and roles are rejected without history',
   ]) {
     await assert.rejects(rpc(config, 'capability_policy_set', input), { code: 'INVALID_INPUT' });
   }
-  assert.deepEqual((await read(config)).history, []);
+  assert.deepEqual(edits(await read(config)), []);
 });
 
 await test('edits are fenced to the addressed project and provider support stays separate from mode', async (t) => {
@@ -198,11 +216,11 @@ await test('edits are fenced to the addressed project and provider support stays
   const betaView = await read(beta);
   assert.equal(betaView.connected, false);
   assert.equal(entry(betaView, 'label-manage').mode, 'disabled');
-  assert.equal(betaView.history.length, 0);
+  assert.deepEqual(edits(betaView), []);
   await assert.rejects(rpc({ ...beta, token: alpha.token }, 'capability_policy_set', grant), {
     code: 'UNAUTHORIZED',
   });
-  assert.equal((await read(beta)).history.length, 0);
+  assert.deepEqual(edits(await read(beta)), []);
 });
 
 await test('the factory CLI and paired console reach the same human-only policy authority', async (t) => {
@@ -226,7 +244,7 @@ await test('the factory CLI and paired console reach the same human-only policy 
   const readUrl = `${web.url}/api/capabilities?project=home`;
   assert.equal((await fetch(readUrl)).status, 401);
   const viewed = viewSchema.parse(await (await fetch(readUrl, { headers })).json());
-  assert.equal(viewed.history.length, 1);
+  assert.equal(edits(viewed).length, 1);
 
   const body = JSON.stringify({
     operation: 'capability_policy_set',
@@ -244,7 +262,7 @@ await test('the factory CLI and paired console reach the same human-only policy 
   const after = await read(config);
   assert.equal(entry(after, 'transition').mode, 'human-only');
   assert.deepEqual(
-    after.history.map((item) => [item.capability, item.actor.id]),
+    edits(after).map((item) => [item.capability, item.actor.id]),
     [
       ['issue-create', 'project-operator'],
       ['transition', 'project-operator'],
