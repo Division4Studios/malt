@@ -196,6 +196,16 @@ function attemptRow(job: FactoryJob, context: AttemptContext, metrics: AttemptRo
     task: task === undefined ? null : { issue: task.issue, title: task.title },
     objective: objective === undefined ? null : objective.slice(0, OBJECTIVE_MAX),
     metrics,
+    liveness:
+      job.liveness === undefined
+        ? null
+        : {
+            state: job.liveness.state,
+            lastSignal: job.liveness.lastSignal,
+            extensions: job.liveness.extensions,
+            stopReason: job.liveness.stopReason,
+          },
+    failureClass: job.failureClass ?? null,
   };
 }
 
