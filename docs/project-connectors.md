@@ -57,12 +57,53 @@ The operator also chooses which factory roles may perform the enabled mutations;
 
 `breakDownJiraIssue` (`src/jira/breakdown.ts`) creates a parent's planned children in order, each with a request ID derived from the parent key and the child's plan key. A failure stops the batch with what was created so far; running the same breakdown again reconciles those children and creates only the rest. Creating children needs the `issue-create` and `relationships` capabilities.
 
+### Traceability and the source of truth
+
+`src/jira/traceability.ts` posts progress, pull request and merged-main evidence as Jira comments, each once per stable request ID: the journal is written before Jira is called and the comment carries a `MALT evidence <project>:<request>` line, so a retry after a lost response reads every page of the issue's comments, finds the comment and does not post it again. A lock file beside the journal keeps a second attempt for the same request from running until the first ends. Branch names use the Jira key unchanged (`branchKey` in `src/factory/tracker-key.ts`) so Jira's development panel links them. Before a job starts, `recheckIssue` re-reads the issue and refuses to work it once it is done, resolved or assigned to someone else, and `credentialBlocker` turns a rejected (revoked, rotated or expired) token into one operator blocker instead of repeated failing turns.
+
 ### Authentication and deployment decisions for 1.0
 
 These decisions answer #329; revisit them only through their follow-up issues.
 
 - **API token, not OAuth 2.0 (3LO), for 1.0.** Jira Cloud is connected with an account email and an API token held as an opaque credential handle (#77). A three-legged OAuth app needs an operator-registered app in the Atlassian developer console (callback URL and client secret), a loopback callback listener on the paired console, the site `cloudid` lookup, and safe storage and rotation of refresh tokens. MALT stays local-first, so it will never route authorization through a hosted relay. Where an organisation's policy allows tokens only on dedicated accounts, create the token on a dedicated MALT account; where it disallows them entirely, Jira stays unavailable until the 3LO path ships in [#340](https://github.com/Division4Studios/malt/issues/340).
 - **Data Center and Server are unsupported in 1.0.** They serve REST v2 with bearer personal access tokens and differ from Cloud in discovery, permissions, transitions and rate limiting. The discovery client reports such sites as `unsupported` and never contacts them. Support is tracked in [#341](https://github.com/Division4Studios/malt/issues/341).
+
+## Jira admin guide
+
+This is for the Jira administrator who prepares a project for MALT. MALT only ever contacts the one Jira Cloud site you configure, over HTTPS, and changes nothing until the operator enables a mode other than `read-only`.
+
+### 1. Create the account and token
+
+1. Use a dedicated Atlassian account for MALT, so its comments and changes are easy to recognise and its access is easy to revoke.
+2. Signed in as that account, create an API token at [id.atlassian.com → Security → API tokens](https://id.atlassian.com/manage-profile/security/api-tokens). Give it an expiry you will track.
+3. Give the operator the site URL (`https://<name>.atlassian.net`), the account email and the token. The operator stores the token in an environment variable named by the credential handle; MALT never writes it to its state, logs, exports or the console.
+
+To revoke access, delete the token; MALT reports one blocker ("Jira rejected the MALT credential") and stops calling Jira until a new token is set.
+
+### 2. Grant the minimum permissions
+
+In the project's permission scheme (**Project settings → Permissions**), grant the MALT account:
+
+| Permission        | Needed for                                                            |
+| ----------------- | --------------------------------------------------------------------- |
+| Browse Projects   | Every read; without it MALT reports external setup required.          |
+| Create Issues     | Creating issues and sub-tasks (the operator must also enable `full`). |
+| Edit Issues       | Adding or removing existing labels.                                   |
+| Transition Issues | Moving issues through the workflow transitions mapped to MALT stages. |
+| Add Comments      | Progress, pull request and merged-main evidence comments.             |
+| Link Issues       | Dependencies between issues (issue linking must be enabled in Jira).  |
+
+Grant only what the chosen mode uses; MALT's verification lists every missing permission with the grant above. Sub-tasks need a sub-task issue type in the project's issue type scheme.
+
+### 3. What MALT reads and changes
+
+MALT reads the site's deployment type, its own account ID and display name (never the email), the selected project's issue types and workflow statuses, its own project permissions, the issues matching the intake filter (key, summary, status, assignee and resolution) and an issue's available transitions before moving it.
+
+What it changes depends on the mode the operator sets, and each change is a capability the operator can disable on its own: creating issues and sub-tasks, linking issues, transitioning issues along the mapping the operator chose, commenting evidence, and adding or removing existing labels. MALT never creates, edits or deletes projects, workflows, fields, screens, versions or labels, never deletes issues or comments, and never changes permissions.
+
+### 4. Workflow and live proof
+
+Map each MALT stage (Ready, Development, QA / Review, Final Verification, Done) to a status of the project's workflow. A transition whose screen requires fields without defaults blocks the move with the field names; give those fields defaults or map the stage elsewhere. Before relying on the connection, deliver one objective end to end against a test project and keep the issue links as evidence (#336).
 
 ## Independent work-tracker and source-control connections
 

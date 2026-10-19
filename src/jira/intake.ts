@@ -41,7 +41,7 @@ const fieldsSchema = z.object({
   resolution: z.object({ name: z.string() }).nullable().default(null),
 });
 /** One issue from the search response. */
-const searchIssueSchema = z.object({ id: z.string().min(1), key: jiraIssueKeySchema, fields: fieldsSchema });
+export const searchIssueSchema = z.object({ id: z.string().min(1), key: jiraIssueKeySchema, fields: fieldsSchema });
 /** One page of `GET /rest/api/3/search/jql`. */
 const searchPageSchema = z.object({
   issues: z.array(searchIssueSchema),
@@ -172,7 +172,7 @@ async function readPage(
  * @param issue - Validated search issue.
  * @returns The fields intake decides on.
  */
-function intakeIssue(issue: z.output<typeof searchIssueSchema>): IntakeIssue {
+export function intakeIssue(issue: z.output<typeof searchIssueSchema>): IntakeIssue {
   return {
     id: issue.id,
     key: issue.key,

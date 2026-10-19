@@ -18,6 +18,8 @@ import { MeshError, parseInput } from './protocol.ts';
 import type { GitHubRunner } from './github-runner.ts';
 import type { OperationInput } from './protocol.ts';
 
+/** Characters of an ISO date, `YYYY-MM-DD`. */
+const DATE_LENGTH = 10;
 /** One repository milestone. */
 const milestoneSchema = z.object({
   number: z.number().int().positive(),
@@ -112,7 +114,23 @@ function observed(milestones: readonly Milestone[], input: ManageInput): Change 
     return current?.state === 'closed' ? { action: 'close', milestone: current } : undefined;
   }
   const target = titled(milestones, input.action === 'edit' ? (input.retitle ?? input.title) : input.title);
-  return target === undefined ? undefined : { action: input.action, milestone: target };
+  // A retried edit counts as done only when the milestone already carries every requested field.
+  return target === undefined || !hasFields(target, input) ? undefined : { action: input.action, milestone: target };
+}
+
+/**
+ * Whether a milestone already has the requested description and due date.
+ * GitHub stores a due date with its own time of day, so only the date is compared.
+ *
+ * @param milestone - Remote milestone.
+ * @param input - Requested change.
+ * @returns True when every requested field matches.
+ */
+function hasFields(milestone: Milestone, input: ManageInput): boolean {
+  const isDescription = input.description === undefined || input.description === (milestone.description ?? '');
+  const isDue =
+    input.dueOn === undefined || (milestone.due_on ?? '').slice(0, DATE_LENGTH) === input.dueOn.slice(0, DATE_LENGTH);
+  return isDescription && isDue;
 }
 
 /**
