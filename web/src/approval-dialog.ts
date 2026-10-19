@@ -9,6 +9,7 @@
 import { NOTE_MAX, approvalInput, isPending } from './approval-model.js';
 import { button } from './console-dom.js';
 import { shortSha } from './console-model.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { ApprovalTarget } from './approval-model.js';
@@ -83,10 +84,13 @@ export class ApprovalDialog {
     this.error.setAttribute('role', 'alert');
     this.status.setAttribute('aria-live', 'polite');
     this.submit.type = 'submit';
-    const cancel = element('button', 'button ghost', 'Cancel');
+    const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
-      this.element.close();
+      // A decision in flight finishes in this dialog; closing it now could attach its outcome to another.
+      if (!this.isSending) {
+        this.element.close();
+      }
     });
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, this.submit);
@@ -97,6 +101,11 @@ export class ApprovalDialog {
       void this.send();
     });
     this.element.append(form);
+    this.element.addEventListener('cancel', (event) => {
+      if (this.isSending) {
+        event.preventDefault();
+      }
+    });
     this.element.addEventListener('close', () => {
       this.target = null;
       this.closed(this.returnKey);
@@ -111,6 +120,9 @@ export class ApprovalDialog {
    * @param returnKey - Focus key of the opening control.
    */
   public open(target: ApprovalTarget, isApproval: boolean, returnKey: string): void {
+    if (this.isSending) {
+      return;
+    }
     if (!this.element.isConnected) {
       document.body.append(this.element);
     }
@@ -118,19 +130,21 @@ export class ApprovalDialog {
     this.isApproval = isApproval;
     this.returnKey = returnKey;
     this.requestId = crypto.randomUUID();
-    this.heading.textContent = isApproval ? `Approve ${target.stepTitle}` : `Reject ${target.stepTitle}`;
+    this.heading.textContent = t(isApproval ? 'Approve {stepTitle}' : 'Reject {stepTitle}', {
+      stepTitle: target.stepTitle,
+    });
     this.context.replaceChildren();
-    describe(this.context, 'Step', target.stepTitle);
-    describe(this.context, target.scope === 'delivery' ? 'Delivery' : 'Objective', target.subject);
+    describe(this.context, t('Step'), target.stepTitle);
+    describe(this.context, t(target.scope === 'delivery' ? 'Delivery' : 'Objective'), target.subject);
     if (target.scope === 'delivery') {
-      describe(this.context, 'Bound head', shortSha(target.head));
+      describe(this.context, t('Bound head'), shortSha(target.head));
     }
-    this.noteLabel.textContent = isApproval ? 'Note (optional)' : 'What must change (required)';
+    this.noteLabel.textContent = t(isApproval ? 'Note (optional)' : 'What must change (required)');
     this.note.required = !isApproval;
     this.note.value = '';
     this.error.textContent = '';
     this.status.textContent = '';
-    this.submit.textContent = isApproval ? 'Approve' : 'Reject';
+    this.submit.textContent = t(isApproval ? 'Approve' : 'Reject');
     this.submit.disabled = false;
     this.element.showModal();
     this.note.focus();
@@ -147,14 +161,14 @@ export class ApprovalDialog {
     const approve = `${keyPrefix}:approve`;
     const reject = `${keyPrefix}:reject`;
     return [
-      button('Approve', {
+      button(t('Approve'), {
         cssClass: 'button primary',
         key: approve,
         action: () => {
           this.open(target, true, approve);
         },
       }),
-      button('Reject…', {
+      button(t('Reject…'), {
         cssClass: 'button secondary',
         key: reject,
         action: () => {
@@ -173,7 +187,7 @@ export class ApprovalDialog {
     if (this.target === null || this.isSending || isPending(this.target, open)) {
       return;
     }
-    this.status.textContent = 'This decision is no longer waiting. It may have been answered elsewhere.';
+    this.status.textContent = t('This decision is no longer waiting. It may have been answered elsewhere.');
     this.submit.disabled = true;
   }
 
@@ -190,11 +204,15 @@ export class ApprovalDialog {
       return;
     }
     this.error.textContent = '';
-    this.status.textContent = 'Sending…';
+    this.status.textContent = t('Sending…');
     this.isSending = true;
     this.submit.disabled = true;
+    const sent = this.requestId;
     const outcome = await this.apply(built.input);
     this.isSending = false;
+    if (!this.isOpening(sent)) {
+      return;
+    }
     if (outcome === true) {
       this.element.close();
       return;
@@ -202,6 +220,16 @@ export class ApprovalDialog {
     this.status.textContent = '';
     this.submit.disabled = false;
     this.error.textContent = outcome;
+  }
+
+  /**
+   * Whether the dialog still shows the opening a request was sent from.
+   *
+   * @param requestId - Request id of the sent decision.
+   * @returns True when no other decision was opened since.
+   */
+  private isOpening(requestId: string): boolean {
+    return requestId === this.requestId;
   }
 
   /**
@@ -215,9 +243,11 @@ export class ApprovalDialog {
       const outcome = await this.control('factory_approve', input);
       return outcome === true
         ? true
-        : 'The decision was not applied. Check that the console is connected and see its notice; your note is kept so you can try again.';
+        : t(
+            'The decision was not applied. Check that the console is connected and see its notice; your note is kept so you can try again.',
+          );
     } catch (error) {
-      return error instanceof Error ? error.message : 'The decision could not be applied.';
+      return error instanceof Error ? error.message : t('The decision could not be applied.');
     }
   }
 }
