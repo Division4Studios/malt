@@ -501,6 +501,13 @@ await test('failures are classified and retried with per-class backoff and caps'
   assert.equal(classifyAttempt({ ...base, state: 'interrupted', stopReason: 'stalled 30 min' }), 'stalled');
   assert.equal(classifyAttempt({ ...base, state: 'interrupted', isStopping: true }), 'cancelled');
   assert.equal(classifyAttempt({ ...base, state: 'failed', isResultMissing: true }), 'invalid_output');
+  const missing = {
+    ...base,
+    state: 'failed' as const,
+    isResultMissing: true,
+    error: new MeshError('FACTORY_GATED', 'No.'),
+  };
+  assert.equal(classifyAttempt(missing), 'invalid_output', 'a paid turn without a result is not an unpaid gate');
   assert.equal(classifyAttempt({ ...base, state: 'failed', reason: 'spawn ENOENT' }), 'transient');
 
   const taskId = randomUUID();
@@ -560,6 +567,7 @@ await test('failures are classified and retried with per-class backoff and caps'
     'exhausted retries stay stopped',
   );
   assert.ok(!isBackingOff(stalled, { ...scope, head: 'h2' }, timing), 'a new head resets retries');
+  assert.ok(!isBackingOff(stalled, { ...scope, since: 3 }, timing), 'an operator retry starts the count afresh');
   assert.ok(!isBackingOff([...stalled, attempt(3, undefined, 'succeeded')], scope, timing), 'a success resets retries');
   const gates = Array.from({ length: 10 }, (_, index) => attempt(index, 'gate'));
   assert.equal(
