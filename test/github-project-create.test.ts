@@ -1,5 +1,7 @@
 /** @file Project creation: a lost response yields one Project, ambiguity becomes a durable human decision, and creation is gated. */
 import assert from 'node:assert/strict';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -42,6 +44,8 @@ class FakeOwner {
   public creates = 0;
   /** Commit the next create, then lose its response. */
   public shouldLoseResponse = false;
+  /** Report more Projects beyond the listed page. */
+  public hasMore = false;
 
   /**
    * Answer one GitHub CLI call: a GraphQL list or a Project create.
@@ -53,7 +57,9 @@ class FakeOwner {
   public readonly run: GitHubRunner = async (args) => {
     await delay(0);
     if (args[0] === 'api') {
-      return { data: { repositoryOwner: { projectsV2: { nodes: this.projects } } } };
+      return {
+        data: { repositoryOwner: { projectsV2: { nodes: this.projects, pageInfo: { hasNextPage: this.hasMore } } } },
+      };
     }
     assert.deepEqual(args.slice(0, 2), ['project', 'create']);
     this.creates += 1;
@@ -158,4 +164,49 @@ await test('creating a Project needs project-create; connecting an existing one 
   assert.deepEqual(githubCapabilities('github_connect', { repository: 'example/app', projectNumber: 10 }), [
     'project-connect',
   ]);
+});
+
+/**
+ * An interrupted creation's checkpoint: the first attempt fails before GitHub answers.
+ *
+ * @param context - Creation context.
+ */
+async function interrupt(context: CreationContext): Promise<void> {
+  const failing: CreationContext = {
+    ...context,
+    runner: async () => {
+      await delay(0);
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Offline.');
+    },
+  };
+  await assert.rejects(createProjectOnce(failing, 'example', 'example/app', TITLE), { code: 'GITHUB_UNAVAILABLE' });
+}
+
+await test('an incomplete listing, a checkpoint without a start time, and an open decision never create or adopt', async (t) => {
+  const paged = fixture(t);
+  await interrupt(paged.context);
+  paged.owner.hasMore = true;
+  await assert.rejects(createProjectOnce(paged.context, 'example', 'example/app', TITLE), {
+    code: 'GITHUB_OPERATION_PENDING',
+  });
+  assert.equal(paged.owner.creates, 0, 'older Projects beyond the page may hold the creation');
+
+  const legacy = fixture(t);
+  await interrupt(legacy.context);
+  const file = path.join(legacy.context.directory, 'project-creation.json');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The checkpoint is inside the test's own project.
+  const saved = z.record(z.string(), z.unknown()).parse(JSON.parse(readFileSync(file, 'utf8')));
+  delete saved['startedAt'];
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The checkpoint is inside the test's own project.
+  writeFileSync(file, JSON.stringify(saved));
+  legacy.owner.add(TITLE, new Date('2020-01-01T00:00:00.000Z'));
+  await assert.rejects(createProjectOnce(legacy.context, 'example', 'example/app', TITLE), {
+    code: 'GITHUB_OPERATION_PENDING',
+  });
+  assert.equal(legacy.owner.creates, 0, 'an unrelated old board is not adopted');
+  legacy.owner.projects.length = 0;
+  await assert.rejects(createProjectOnce(legacy.context, 'example', 'example/app', TITLE), {
+    code: 'GITHUB_OPERATION_PENDING',
+  });
+  assert.equal(legacy.owner.creates, 0, 'the recorded decision stands even after its candidates are gone');
 });

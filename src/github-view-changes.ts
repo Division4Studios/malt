@@ -13,7 +13,7 @@ import path from 'node:path';
 
 import { z } from 'zod/v3';
 
-import { runIntent } from './connector-intents.ts';
+import { hasIntent, runIntent } from './connector-intents.ts';
 import { dataOf, readGraphQL } from './github-read.ts';
 import {
   VIEW_FIELDS,
@@ -133,6 +133,22 @@ async function perform(
 }
 
 /**
+ * The exact view a change names.
+ *
+ * @param views - Current views.
+ * @param input - Requested change.
+ * @returns The view.
+ * @throws {MeshError} INVALID_INPUT when no saved view has that number.
+ */
+function assertTarget(views: readonly ProjectView[], input: ChangeInput): ProjectView {
+  const target = views.find((view) => view.number === input.viewNumber);
+  if (target === undefined) {
+    throw new MeshError('INVALID_INPUT', `No saved view ${String(input.viewNumber)} exists on the connected Project.`);
+  }
+  return target;
+}
+
+/**
  * Change or delete one saved view by its exact number, once per request ID.
  *
  * @param context - Connected Project.
@@ -148,17 +164,15 @@ export async function manageView(context: ViewContext, input: ChangeInput): Prom
       `Views cannot be ${input.action === 'delete' ? 'deleted' : 'changed'} here: ${via.reason}`,
     );
   }
-  return runIntent(path.join(context.directory, 'intents', 'view-changes'), input.requestId, input, {
+  const directory = path.join(context.directory, 'intents', 'view-changes');
+  // An unknown view is refused before anything is recorded, so a retry cannot reconcile it into a success.
+  if (!hasIntent(directory, input.requestId)) {
+    assertTarget(await currentViews(context, via), input);
+  }
+  return runIntent(directory, input.requestId, input, {
     reconcile: async () => observed(await currentViews(context, via), input),
     perform: async () => {
-      const views = await currentViews(context, via);
-      const target = views.find((view) => view.number === input.viewNumber);
-      if (target === undefined) {
-        throw new MeshError(
-          'INVALID_INPUT',
-          `No saved view ${String(input.viewNumber)} exists on the connected Project.`,
-        );
-      }
+      const target = assertTarget(await currentViews(context, via), input);
       await perform(context, via, input, target);
       const confirmed = observed(await currentViews(context, via), input);
       if (confirmed === undefined) {

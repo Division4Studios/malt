@@ -6,7 +6,7 @@
  *
  * @file
  */
-import { connectionV2Schema, unverifiedCapabilities } from './connector.ts';
+import { REPOSITORY_ALIAS_MAX, connectionV2Schema, unverifiedCapabilities } from './connector.ts';
 import { MeshError } from './protocol.ts';
 
 import type { Verification } from './connection-state.ts';
@@ -63,11 +63,16 @@ function sourceSection(
 ): SourceConnection {
   const repositoryId = input.repositoryId ?? null;
   const isSameNode = repositoryId !== null && current?.repositoryId === repositoryId;
+  // A rename saved here keeps the previous name, so journals fingerprinted with it still resume.
+  const aliases = isSameNode ? current.repositoryAliases.filter((alias) => alias !== current.repository) : [];
+  if (isSameNode && current.repository !== input.repository) {
+    aliases.push(current.repository);
+  }
   return {
     provider: 'github',
     repository: input.repository,
     repositoryId,
-    repositoryAliases: isSameNode ? current.repositoryAliases : [],
+    repositoryAliases: aliases.slice(-REPOSITORY_ALIAS_MAX),
     capabilities: unverifiedCapabilities(),
     credential: { kind: 'github-cli' },
     savedAt: now,
