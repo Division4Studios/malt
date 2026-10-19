@@ -2,6 +2,8 @@
 
 Each worker's **Model selection evidence · requested launch** disclosure shows the immutable recorded assignment: reviewed recommendation/rationale, requested provider/model/effort, enforced capability floor, policy revision and selection/override reason. Older records with no effort evidence say unknown. Provider-applied effort is not independently confirmed by a requested CLI argument. Later task or policy changes cannot rewrite that historical evidence. The current supervisor diagnostic is shown separately: it can describe a policy no-launch gate, connection problem or attempt/reconciliation failure and is not automatically an admission decision. Correct an actual policy gate before resuming rather than resetting completed reviews.
 
+Selection ownership: the project's model policy, saved through **Project → Configure factory policy** while paused, owns which models and efforts are allowed. The product owner and team lead own each delivery's reviewed per-role choice. The supervisor owns the selection frozen on each attempt. A reviewed choice is honoured exactly while it names an entry of the current policy revision for the same provider with an adequate capability; otherwise the assignment does not launch and the no-launch reason is shown, rather than another model being substituted silently. Without a reviewed choice, the assigned role type's preferred model (**Workflow → Roles**) applies, and its preferred effort can only raise the effort floor; without either, the nearest adequate project default for the stage applies. Projects without a model policy keep legacy CLI-profile routing, shown as `Legacy / not recorded`. The trade-off is deliberate: a stale or inadequate choice costs a lead revision, never an unreviewed paid turn. `test/factory-lifecycle.test.ts` drives planning, supervisor dispatch and the native launch arguments with a fixture agent; `test/selection-loopback.test.ts` adds the console side through the paired console: a policy saved through the settings control, a delivery's reviewed choice, the claimed assignment's launch arguments and displayed evidence, then a blocked selection and a project switch.
+
 In **Project setup → Edit model and effort policy**, inspect and edit this project's allowed native models, declared capability floors, effort interfaces, evidence and provider/tier defaults. Pause the factory and wait for owned assignments and terminals to settle before saving. Unknown support is shown explicitly and cannot launch an explicit-policy assignment; the editor never invents available models or subscription quotas.
 
 Saving uses the observed policy revision and preserves unrelated factory settings. Server validation or revision conflicts retain the draft; inspect the message before refreshing and reopening against current server state. A draft opened for one project cannot be submitted to another selected project. These are requested native arguments, not a claim that the provider applied the effort or certified the model's capability.
@@ -123,6 +125,17 @@ Coordinated quality/scope feedback additionally queues focused acceptance clarif
 
 ## Docker startup and provider authentication
 
+**Image builds.** The runtime image is `node:24-bookworm-slim` with production dependencies, compiled browser assets, Git, `gh` and the two pinned provider CLIs; TypeScript, ESLint and Prettier stay in the build stage. Layers run from least to most frequently changed (system packages, provider CLIs, npm dependencies, MALT source), and BuildKit cache mounts keep apt and npm downloads between builds without adding them to the image. Measured on 2026-10-17 (Windows 10, Docker Desktop 29.8, BuildKit `docker-container` builder, 10 logical CPUs, home broadband):
+
+| Build                                 | Before | After |
+| ------------------------------------- | ------ | ----- |
+| Cold (empty builder cache)            | 98 s   | 82 s  |
+| Warm, nothing changed                 | 1 s    | 0 s   |
+| Warm, MALT source changed             | 2 s    | 2 s   |
+| Warm, `package.json`/lockfile changed | 49 s   | 22 s  |
+
+Cold builds are dominated by downloading the base image, apt packages and the provider CLIs, so they vary with the network. A dependency change no longer reinstalls the provider CLIs, and npm reuses its download cache. `docker compose up -d --build` uses the same cache.
+
 Compose runs both services in the same container so artifact reads use the same target paths as the supervisor. The image includes Git, GitHub CLI, Codex CLI 0.162.1 and Claude Code 2.1.296. Provider versions are build arguments, not browser dependencies. Claude's native binary is checked against its official release manifest; Codex's native CLI is installed through its official npm distribution at image build time. No frontend packages are fetched or installed at runtime.
 
 ```powershell
@@ -165,7 +178,7 @@ Explicit cancellation requires a currently live job owned by that supervisor. It
 
 The broker still rejects browser-origin RPC. The UI server binds to loopback and checks Host, Origin and Fetch Metadata. Pairing is rate-limited and produces an expiring HttpOnly/SameSite=Strict cookie. Cross-site API traffic is rejected; ordinary navigation to the public app shell is allowed. Private responses are `no-store`, and the service worker caches only fixed public assets.
 
-Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control`, `/api/terminals`, `/api/terminal-stream` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files. Terminal controls are operator-only and reject every managed-agent credential; terminal output uses bounded cursor SSE and is never service-worker-cached. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
+Authenticated routes are `/api/projects`, `/api/snapshot`, `/api/history`, `/api/stream`, `/api/artifact`, `/api/control`, `/api/terminals`, `/api/terminal-stream` and `/api/logout`. `/api/skill?project=<id>&requestId=<uuid>` provides a known proposal's exact comparison. Raw broker/project/provider credentials never enter browser storage or URLs. Artifact reads are confined to known jobs and allowlisted files, including `failure.json`, which records the exact supervisor step and command that failed after a successful agent ([details](software-factory.md)). Terminal controls are operator-only and reject every managed-agent credential; terminal output uses bounded cursor SSE and is never service-worker-cached. Offline controls are not replayed. `/api/history` reads older event pages backward with an exclusive `before` cursor; see [event history pages](api.md#event-history-pages).
 
 ## Verification limits
 
@@ -181,6 +194,22 @@ The regression suite exercises real MCP transports, SQLite, loopback HTTP, local
 
 **Installed-shell lifecycle (#307).** The service worker installs every shell asset with `cache: 'reload'`, past the HTTP cache, into one content-revisioned cache, and retires older `malt-public-shell-*` revisions on activation. Offline answers come only from its own revision. A window whose page loaded from that cache keeps loading every module from it after the network returns, so a page never mixes revisions; a reload, or **Update console** once a new worker is waiting, moves it to the new shell. The worker never intercepts `/api/*`, `/sw.js`, query strings, non-GET or cross-origin requests. The console serves shell assets `no-cache` and every API, pairing and SSE response `no-store`. The status line distinguishes browser offline, connecting, reconnecting and retries stopped, and says whether any state is loaded. After live retries stop, the console keeps polling, every 30 seconds and every five minutes after five failed reads, and the first successful read reopens the live stream. `test/service-worker.test.ts` runs the compiled worker with fake caches and network and checks the real loopback headers; `test/connection-status.test.ts` covers the wording. Still unverified: install and launch in Chrome and Edge on desktop and in a mobile browser, a real update and offline cycle in an installed window, and the WCAG pass.
 
+**Accessibility pass (#261, static).** On 2026-10-17 a WCAG 2.2 AA static pass covered every stylesheet, the shell and every script-built dialog; `test/accessibility.test.ts` keeps it from regressing. It found and fixed:
+
+- Light-theme accent, warning and decorative text (`--cyan`, `--amber`, `--violet`) fell to 3.9–4.4:1 on some surfaces. They are darkened to at least 4.6:1 on every surface, and accent buttons use white text (5.5:1).
+- Selects, inputs, step editors, error panels, cost tiles and badges in the Board, workflow and Costs views used fixed dark colours. In the light theme that put dark text on near-black fields. They now use theme tokens.
+- The workflow revision-history and step-override dialogs had no accessible name; both are now labelled by their headings. A role-type selector's label was not translated.
+
+It also confirmed:
+
+- Theme text meets 4.5:1 on every surface in the dark, system-light and chosen-light themes.
+- One global `prefers-reduced-motion: reduce` rule turns off every animation and transition.
+- Both places that remove an outline (workflow map nodes and board cards) replace it with a visible focus style.
+- Every shell control and button has an accessible name.
+- Every stylesheet has narrow-screen rules.
+
+Still unverified, and needing a real browser and a person: a keyboard-only walk-through of each view, a screen-reader spot check, and visual narrow-layout checks of the capacity, handoff, activity, board and Inbox views.
+
 Managed identity retirement is fenced by the current job token. A stopped assignment can reconnect immediately through the other provider without losing its inbox; replaying an old completion cannot detach that replacement. Both provider launch policies explicitly permit the scoped messaging tools while retaining QA's readonly implementation boundary.
 
 ## Public-shell updates
@@ -193,7 +222,7 @@ The separate **Workflow map** view renders backend-projected managed roles and r
 
 Spokes represent logical membership, directed arcs represent recent actual broker messages, and packet animation occurs once for newly observed durable message sequences. Initial history is static. Broker-origin handoffs use the central hub. The view bounds nodes, message paths and packets, respects reduced motion, and never acknowledges an agent inbox. Select a role with a pointer, Enter or Space to inspect its state and open its managed workspace where available.
 
-**Delivery signals** shows actual ticket stages and explicit conditional next gates: Development proceeds to two independent QA roles only after checks and PR publication; Review proceeds to the final tester only after exact-head/base approvals. Next-stage labels are plans, not completed checks. Recent text is rendered safely. The displayed graph and message window are bounded; full history remains durable in project state.
+**Delivery signals** shows actual ticket stages and explicit conditional next gates: Development proceeds to two independent QA roles only after checks and PR publication; Review proceeds to the final tester only after exact-head/base approvals. On a protected base branch a delivery may then wait in Merging with the exact reason, for example a missing GitHub approval; approve or merge the PR on GitHub, or enable auto-merge, and the next reconcile adopts the merge ([protected-branch merge path](software-factory.md#protected-branch-merge-path)). Next-stage labels are plans, not completed checks. Recent text is rendered safely. The displayed graph and message window are bounded; full history remains durable in project state.
 
 **Team & organization** provides a durable, backend-validated organization editor while the factory is paused. Define reusable type profiles with focused instructions, prioritized skills and minimum model tiers, and bind the eight managed seats to those types and reporting parents. Reference and cycle validation rejects invalid hierarchies. Each assignment freezes its exact organization revision; completed jobs send durable reporting handoffs to the frozen manager. Each report names its sender, intended manager, assignment, delivery issue/title or objective, process state, the agent-reported outcome (never independent verification) and the bounded recorded summary or failure/cancellation reason, stating explicitly when any is unavailable. Existing assignments retain their original context. These profiles specialize the eight execution seats; new managed specialist seats and configurable workflow transitions remain future work.
 
@@ -221,7 +250,7 @@ The delivery view's **Changes** section compares the delivery's exact head with 
 
 ## Sampling regression fixture
 
-After `npm run build:web`, serve the repository root with a local static server and open `test/fixtures/capacity-sample.html`. It checks actual node identity, keyboard focus, editor/scroll retention, refreshed process figures, hostile text and changed admission limits using the production sampling helpers. It uses no provider session or private project data. This focused fixture complements the DOM-free regressions; it does not claim a complete browser accessibility audit.
+After `npm run build:web`, serve the repository root with a local static server and open `test/fixtures/capacity-sample.html`. It checks actual node identity, keyboard focus, editor/scroll retention, refreshed process figures, hostile text and changed admission limits using the production sampling helpers. It uses no provider session or private project data. This focused fixture complements the DOM-free regressions; it does not claim a complete browser accessibility audit. `test/admission-panel.test.ts` renders the **Why work is running or parked** section into a text-only DOM on every `npm test` run, from synthetic overlap, parked and unknown states and from a real paired loopback snapshot: hostile labels stay text, other projects appear only as a count, the section is a native disclosure with no extra focus stops or scripts, and opening it makes no request.
 
 Browser verification (2026-10-14): inspected the source console and an isolated `.malt/validation/` fixture with real broker clients and no inference/GitHub calls. Verified a QA-to-developer directed message route, hostile script text rendered as text, a Development ticket's conditional QA destinations, and its association with a spun-down developer. Keyboard Enter and the compact native roster selector open role details. Stopping the fixture daemon and reloading served the cached public shell with an explicit stale/disconnected notice and disabled objective/dispatch controls. Native installed-window behavior remains separately unverified.
 
@@ -312,7 +341,7 @@ Recovery decisions are operator-only. Recovery guidance is bound to the selected
 
 The capacity panel presents **Subscription limits**, **Diagnostic usage**, then **Local machine** in DOM and visual order. Disabled providers remain visible but are not eligible for dispatch. Each window names its observed percentage, reset, observation time, freshness and source; unknown utilization is never rendered as zero. Reached limits have readable text. Legacy scalar summaries do not infer window durations or absolute allowances. Token counts are diagnostics, not API credits or subscription remaining. Locally launched subscription CLIs still use provider-hosted models.
 
-After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks real browser reading order, multiple windows, zero, saturation, stale and missing data, disabled providers, hostile labels, legacy summaries and project replacement. This fixture uses public synthetic state, not account telemetry.
+After `npm run build:web`, `test/fixtures/subscription-capacity.html` checks real browser reading order, multiple windows, zero, saturation, stale and missing data, disabled providers, hostile labels, legacy summaries and project replacement. This fixture uses public synthetic state, not account telemetry. `test/capacity-panel.test.ts` renders the same panel into a text-only DOM on every `npm test` run: section and reading order, each observation state, disabled providers, hostile labels as text, in-place sample refreshes and project replacement; the narrow-screen rules (wrapping observations, a scrolling process table) are asserted against `web/style.css`. A real screen-reader pass belongs to the installed-PWA audit (#261).
 
 ### Why local work is parked
 
@@ -340,6 +369,10 @@ Local machine includes a keyboard-accessible **Why work is running or parked** d
 - **Delivery checks**: whether the team lead rechecks a dependent delivery's brief once its predecessors merge (`briefRevalidation`, off by default). The checkbox saves the full factory policy through the same setup control as the policy editor, so it is read-only until the factory is set up and while it runs; pause first.
 - **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
 - **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.
+
+## Recommendations
+
+**Project → Recommendations** lists the product owner's and team lead's ticket proposals (duplicates, related or consolidated tickets, scope changes and guidance) in Pending, Approved, Applying, Completed, Rejected, Stale and Failed lanes, with their tickets, an evidence summary and an **Unread** marker. Each row is a button: opening it shows the evidence and the before/after preview and records a read receipt for that exact revision. The Project entry shows pending and unread counts, re-read at most every 15 seconds; a poll of an unchanged page leaves the pane and focus alone. Proposal text is always shown as text. An opened proposal shows its exact revision, survivor, transferred acceptance and dependencies, and affected assignments. While it awaits a human decision, **Approve** or **Reject** sends that exact revision with your required rationale and one operation identity: repeated clicks send one request, a failed request keeps your rationale and retries with the same identity, and a revision that changed meanwhile asks you to refresh instead of showing it as decided. Results are announced to assistive technology.
 
 ## Schedules and triggers
 

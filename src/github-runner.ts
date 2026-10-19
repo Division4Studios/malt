@@ -6,6 +6,7 @@
  */
 import { execFile } from 'node:child_process';
 
+import { trustedExecutable } from './executables.ts';
 import { MeshError } from './protocol.ts';
 
 /** Largest buffered GitHub CLI response. */
@@ -26,8 +27,7 @@ export function githubRunner(root: string): GitHubRunner {
   return async (args, input) =>
     new Promise<unknown>((resolve, reject) => {
       const child = execFile(
-        // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-        'gh',
+        trustedExecutable('gh'),
         [...args],
         {
           cwd: root,
