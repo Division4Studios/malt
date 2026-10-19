@@ -13,6 +13,7 @@ import { startBroker } from '../src/broker.ts';
 import { AgentClient } from '../src/client.ts';
 import { consoleView } from '../src/factory/console-view.ts';
 import { refundUnpaidAttempt } from '../src/factory/controls.ts';
+import { canAsk } from '../src/factory/organization.ts';
 import { assignmentPrompt } from '../src/factory/prompts.ts';
 import {
   MAX_OPEN_QUESTIONS,
@@ -167,7 +168,7 @@ await test('a managed question holds its step, sets the attempt aside and return
   const ask = {
     key: 'format',
     question: `JSON or SQLite for the export? Secret: ${f.mesh.token}`,
-    choices: ['JSON', 'SQLite'],
+    choices: ['JSON', 'SQLite', `Ask ${f.mesh.token}`],
     allowText: true,
   };
   const asked = await factory.execute('factory_ask', ask, actor.id);
@@ -190,6 +191,10 @@ await test('a managed question holds its step, sets the attempt aside and return
   const question = questionAskedBy(store, job.id);
   assert.ok(question !== undefined);
   assert.ok(!question.question.includes(f.mesh.token), 'secrets are redacted before storage');
+  assert.ok(
+    question.choices.every((choice) => !choice.includes(f.mesh.token)),
+    'and so are choices',
+  );
   assert.equal(isAwaitingAnswer(store, implementIntent(f)), true);
   assert.equal(isAwaitingAnswer(store, implementIntent(f, 'document')), false, 'other steps are not held');
 
@@ -208,7 +213,7 @@ await test('a managed question holds its step, sets the attempt aside and return
   assert.ok(item !== undefined);
   assert.equal(item.lane, 'reply');
   assert.equal(item.questionId, question.id);
-  assert.deepEqual(item.choices, ['JSON', 'SQLite']);
+  assert.deepEqual(item.choices.slice(0, 2), ['JSON', 'SQLite']);
 
   const requestId = randomUUID();
   await assert.rejects(factory.execute('factory_answer', { questionId: question.id, requestId }), {
@@ -246,6 +251,29 @@ await test('a managed question holds its step, sets the attempt aside and return
   const { inbox } = consoleView(factory.repository);
   assert.ok(inbox.open.every((candidate) => candidate.kind !== 'question'));
   assert.match(inbox.answered[0]?.note ?? '', /SQLite — Keep one file per project/v);
+});
+
+await test('a role type without inbox.ask cannot ask, and its prompt omits the question rule', async (t) => {
+  const f = fixture(t);
+  const { factory, store } = f;
+  const actor = store.register({ ...registration('factory-developer-1'), runtime: 'factory-managed' });
+  const job = claimDeveloper(f);
+  const organization = { revision: 'r', type: 'builder', label: 'Builder', instructions: '', reportsTo: null };
+  factory.repository.saveJob({
+    ...job,
+    routing: {
+      tier: 'standard',
+      model: null,
+      reason: 'Test.',
+      skillNames: [],
+      organization: { ...organization, permissions: [] },
+    },
+  });
+  const ask = { key: 'q', question: 'May I?', choices: ['Yes'], allowText: false };
+  await assert.rejects(factory.execute('factory_ask', ask, actor.id), { code: 'TOOL_DENIED' });
+  assert.equal(canAsk([]), false);
+  assert.equal(canAsk(['inbox.ask']), true);
+  assert.equal(canAsk(undefined), true, 'attempts frozen before roles keep the question tool');
 });
 
 await test('open questions per delivery and questions per step are bounded', async (t) => {
