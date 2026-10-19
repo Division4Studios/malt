@@ -7,6 +7,7 @@
  * @file
  */
 import { STATE_LABELS, relativeAge, stepStrip } from './console-model.js';
+import { formatDateTime, t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Step, StepState } from './console-model.js';
@@ -79,11 +80,13 @@ export function button(
  * @returns `<time>` element with the absolute time as its tooltip.
  */
 export function ageStamp(since: number, now: number): HTMLTimeElement {
-  const node = element('time', 'console-age', relativeAge(since, now));
-  if (since > 0) {
-    const date = new Date(since);
+  const date = new Date(since);
+  // Untrusted snapshots can carry finite numbers outside the Date range; those show as unknown.
+  const isValid = since > 0 && !Number.isNaN(date.getTime());
+  const node = element('time', 'console-age', relativeAge(isValid ? since : 0, now));
+  if (isValid) {
     node.dateTime = date.toISOString();
-    node.title = date.toLocaleString();
+    node.title = formatDateTime(date);
     node.dataset['since'] = String(since);
   }
   return node;
@@ -141,7 +144,7 @@ export function stepStripNode(steps: readonly Step[]): HTMLElement {
   const { segments, caption } = stepStrip(steps);
   const wrapper = element('div', 'step-strip');
   const list = element('ol', 'step-strip-segments');
-  list.setAttribute('aria-label', 'Step progress');
+  list.setAttribute('aria-label', t('Step progress'));
   for (const segment of segments) {
     const item = element('li', 'step-segment');
     item.dataset['state'] = segment.state;
@@ -163,13 +166,13 @@ export function stepStripNode(steps: readonly Step[]): HTMLElement {
 export function externalLink(url: string, label: string): HTMLElement {
   const parsed = URL.parse(url);
   if (parsed === null || !SAFE_PROTOCOLS.has(parsed.protocol)) {
-    return element('span', 'subtle', `${label} (link unavailable)`);
+    return element('span', 'subtle', t('{label} (link unavailable)', { label }));
   }
   const link = element('a', 'console-link', label);
   link.href = parsed.href;
   link.target = '_blank';
   link.rel = 'noopener noreferrer';
-  link.append(element('span', 'sr-only', ' (opens in a new tab)'));
+  link.append(element('span', 'sr-only', t(' (opens in a new tab)')));
   return link;
 }
 

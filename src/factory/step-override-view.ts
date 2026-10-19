@@ -1,15 +1,23 @@
 /**
- * What the console needs to edit a delivery's step overrides: its frozen
- * steps before overrides, which of them already started, and the overrides
- * in effect. Deliveries past the steps overrides can change have none.
+ * What the console needs to edit a delivery's or an objective's step
+ * overrides: its frozen steps before overrides, which of them already
+ * started, and the overrides in effect. Deliveries past the steps overrides
+ * can change, and objectives already delivering, have none.
  *
  * @file
  */
 
-import { frozenDeliveryWorkflow, startedDeliverySteps } from './step-override-controls.ts';
+import { legacyWorkflow, withGates } from './pipeline.ts';
+import {
+  OPEN_OBJECTIVE_PHASES,
+  frozenDeliveryWorkflow,
+  startedDeliverySteps,
+  startedPlanningSteps,
+} from './step-override-controls.ts';
 
 import type { FactoryTask, Feature } from './schema.ts';
 import type { StepOverride } from './step-override-schema.ts';
+import type { WorkflowStep } from './workflows.ts';
 
 /** Delivery phases whose steps the console offers to customize. */
 const CUSTOMIZABLE_PHASES: ReadonlySet<string> = new Set(['ready', 'development', 'publishing', 'review', 'blocked']);
@@ -65,18 +73,48 @@ export function customizationView(
   const started = startedDeliverySteps(task, workflow, attempted);
   return {
     version: task.version,
-    steps: workflow.delivery.map((step) => {
-      return {
-        id: step.id,
-        title: step.title,
-        kind: step.kind,
-        optional: step.optional,
-        roles: step.roles,
-        profile: step.profile,
-        provider: step.provider,
-        started: started.has(step.id),
-      };
-    }),
+    steps: workflow.delivery.map((step) => stepView(step, started)),
     overrides: task.stepOverrides ?? feature?.stepOverrides ?? [],
+  };
+}
+
+/**
+ * The override editor state of one objective: its planning steps and the
+ * delivery steps its future deliveries copy.
+ *
+ * @param feature - Objective whose steps are listed.
+ * @param attempted - Steps any attempt ran, from `attemptedSteps`.
+ * @returns Editor state, or `null` once the objective is delivering or finished.
+ */
+export function objectiveCustomizationView(feature: Feature, attempted: ReadonlySet<string>): CustomizationView | null {
+  if (!OPEN_OBJECTIVE_PHASES.has(feature.phase)) {
+    return null;
+  }
+  const workflow = withGates(feature.workflow?.workflow ?? legacyWorkflow(), feature.gates ?? {});
+  const started = startedPlanningSteps(attempted, feature, workflow);
+  return {
+    version: feature.updatedAt,
+    steps: [...workflow.planning, ...workflow.delivery].map((step) => stepView(step, started)),
+    overrides: feature.stepOverrides ?? [],
+  };
+}
+
+/**
+ * One frozen step as the editor shows it.
+ *
+ * @param step - Frozen step.
+ * @param started - Ids of steps that already started.
+ * @returns What the editor shows for it.
+ */
+function stepView(step: WorkflowStep, started: ReadonlySet<string>): CustomStepView {
+  return {
+    id: step.id,
+    title: step.title,
+    kind: step.kind,
+    optional: step.optional,
+    roles: step.roles,
+    profile: step.profile,
+    provider: step.provider,
+    started: started.has(step.id),
   };
 }

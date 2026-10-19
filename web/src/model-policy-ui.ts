@@ -1,5 +1,6 @@
 /** @file Native project-scoped model policy fields; the backend remains authoritative. */
 import { data, records, text, displayText } from './api.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -33,9 +34,10 @@ export function modelPolicyDialog(
   let read: (() => Data) | null = null;
   return {
     description: {
-      title: 'Model and effort policy',
-      explanation:
+      title: t('Model and effort policy'),
+      explanation: t(
         'Pause and settle before saving. Use subscription-available models; declared capability and interface evidence are checked before dispatch.',
+      ),
       initial: '',
       mount: () => {
         read = mountModelPolicy(body, policy);
@@ -45,7 +47,7 @@ export function modelPolicyDialog(
       operation: 'factory_model_policy',
       input: () => {
         if (read === null) {
-          throw new Error('Open the policy editor before saving.');
+          throw new Error(t('Open the policy editor before saving.'));
         }
         return read();
       },
@@ -85,7 +87,7 @@ function select(parent: HTMLElement, caption: string, choices: readonly string[]
   const label = element('label', '', caption);
   const field = element('select');
   for (const choice of choices) {
-    const option = element('option', '', choice === '' ? 'No effort override' : choice);
+    const option = element('option', '', choice === '' ? t('No effort override') : choice);
     option.value = choice;
     field.append(option);
   }
@@ -103,18 +105,18 @@ function select(parent: HTMLElement, caption: string, choices: readonly string[]
  * @returns Current draft reader.
  */
 function modelFields(row: HTMLFieldSetElement, entry: Data): () => Data {
-  const id = input(row, 'Policy entry ID', text(entry, 'id'), ID_MAX);
-  const provider = select(row, 'Provider', ['codex', 'claude'], displayText(text(entry, 'provider'), 'codex'));
-  const model = input(row, 'Literal model identifier', text(entry, 'model'));
-  const capability = select(row, 'Declared capability', TIERS, displayText(text(entry, 'capability'), 'standard'));
+  const id = input(row, t('Policy entry ID'), text(entry, 'id'), ID_MAX);
+  const provider = select(row, t('Provider'), ['codex', 'claude'], displayText(text(entry, 'provider'), 'codex'));
+  const model = input(row, t('Literal model identifier'), text(entry, 'model'));
+  const capability = select(row, t('Declared capability'), TIERS, displayText(text(entry, 'capability'), 'standard'));
   const support = select(
     row,
-    'Verified effort interface',
+    t('Verified effort interface'),
     ['unknown', 'none', 'codex-config', 'claude-effort'],
     displayText(text(entry, 'effortSupport'), 'unknown'),
   );
   const effortInputs = EFFORTS.map((effort) => {
-    const label = element('label', '', `Allow ${effort} effort`);
+    const label = element('label', '', t('Allow {effort} effort', { effort }));
     const field = element('input');
     field.type = 'checkbox';
     field.checked = Array.isArray(entry['efforts']) && entry['efforts'].includes(effort);
@@ -123,11 +125,11 @@ function modelFields(row: HTMLFieldSetElement, entry: Data): () => Data {
     return { effort, field };
   });
   const evidence = entry['evidence'] === null || entry['evidence'] === undefined ? {} : data(entry['evidence']);
-  const source = input(row, 'Interface evidence source / notes', text(evidence, 'source'), NOTE_MAX);
-  const version = input(row, 'Exact verified CLI version', text(evidence, 'version'));
+  const source = input(row, t('Interface evidence source / notes'), text(evidence, 'source'), NOTE_MAX);
+  const version = input(row, t('Exact verified CLI version'), text(evidence, 'version'));
   const observed = input(
     row,
-    'Evidence timestamp (Unix milliseconds)',
+    t('Evidence timestamp (Unix milliseconds)'),
     typeof evidence['observedAt'] === 'number' ? String(evidence['observedAt']) : '',
   );
   observed.type = 'number';
@@ -143,9 +145,11 @@ function modelFields(row: HTMLFieldSetElement, entry: Data): () => Data {
     for (const field of [source, version, observed]) {
       field.required = isKnown;
     }
-    status.textContent = isKnown
-      ? 'Evidence must match the installed CLI. Saving does not certify model capability or available quota.'
-      : 'Unknown support: this entry cannot launch an explicit-policy assignment.';
+    status.textContent = t(
+      isKnown
+        ? 'Evidence must match the installed CLI. Saving does not certify model capability or available quota.'
+        : 'Unknown support: this entry cannot launch an explicit-policy assignment.',
+    );
   };
   support.addEventListener('change', refresh);
   refresh();
@@ -182,19 +186,22 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
   panel.dataset['editorFields'] = '';
   panel.dataset['modelPolicy'] = '';
   const revision = typeof policy['revision'] === 'number' ? policy['revision'] : null;
+  const shownRevision = revision ?? t('none');
   panel.append(
     element(
       'p',
       'subtle',
-      `Editing revision ${String(revision ?? 'none')}. Save requires a paused, settled factory. Unknown quota stays unknown.`,
+      t('Editing revision {revision}. Save requires a paused, settled factory. Unknown quota stays unknown.', {
+        revision: shownRevision,
+      }),
     ),
   );
   const readers = new Map<HTMLFieldSetElement, () => Data>();
   const defaults = new Map<HTMLFieldSetElement, () => Data>();
   const modelsHost = element('section');
   const defaultsHost = element('section');
-  const modelButton = element('button', 'button secondary', 'Add allowed model');
-  const defaultButton = element('button', 'button secondary', 'Add provider/tier default');
+  const modelButton = element('button', 'button secondary', t('Add allowed model'));
+  const defaultButton = element('button', 'button secondary', t('Add provider/tier default'));
   modelButton.type = 'button';
   defaultButton.type = 'button';
   const append = (kind: 'model' | 'default', value: Data): void => {
@@ -203,20 +210,20 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
       return;
     }
     const row = element('fieldset');
-    row.append(element('legend', '', kind === 'model' ? 'Allowed model' : 'Provider/tier default'));
+    row.append(element('legend', '', t(kind === 'model' ? 'Allowed model' : 'Provider/tier default')));
     if (kind === 'model') {
       map.set(row, modelFields(row, value));
     } else {
       const provider = select(
         row,
-        'Default provider',
+        t('Default provider'),
         ['codex', 'claude'],
         displayText(text(value, 'provider'), 'codex'),
       );
-      const tier = select(row, 'Default capability floor', TIERS, displayText(text(value, 'tier'), 'standard'));
-      const entry = input(row, 'Allowed policy entry ID', text(value, 'entryId'), ID_MAX);
+      const tier = select(row, t('Default capability floor'), TIERS, displayText(text(value, 'tier'), 'standard'));
+      const entry = input(row, t('Allowed policy entry ID'), text(value, 'entryId'), ID_MAX);
       entry.required = true;
-      const effort = select(row, 'Default requested effort', ['', ...EFFORTS], text(value, 'effort'));
+      const effort = select(row, t('Default requested effort'), ['', ...EFFORTS], text(value, 'effort'));
       map.set(row, () => {
         return {
           provider: provider.value,
@@ -226,7 +233,7 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
         };
       });
     }
-    const remove = element('button', 'button secondary', 'Remove this entry');
+    const remove = element('button', 'button secondary', t('Remove this entry'));
     remove.type = 'button';
     remove.addEventListener('click', () => {
       map.delete(row);
@@ -257,10 +264,10 @@ export function mountModelPolicy(body: HTMLTextAreaElement, policy: Data): () =>
     defaultsHost.lastElementChild?.querySelector('select')?.focus();
   });
   panel.append(
-    element('h3', '', 'Allowed models'),
+    element('h3', '', t('Allowed models')),
     modelsHost,
     modelButton,
-    element('h3', '', 'Defaults'),
+    element('h3', '', t('Defaults')),
     defaultsHost,
     defaultButton,
   );

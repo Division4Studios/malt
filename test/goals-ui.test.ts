@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { checklistInput, definitionText, readGoals, readLogPage } from '../web/dist/goal-model.js';
+import { checklistInput, definitionText, goalProgress, readGoals, readLogPage } from '../web/dist/goal-model.js';
 import { NO_CAP, capProgress, capsInput, overrideText, readSpend } from '../web/dist/spend-model.js';
 
 /** Objective ids. */
@@ -56,8 +56,55 @@ void test('objectives read from the snapshot with checklist progress', () => {
   );
   assert.equal(goal.awaitsDefinition, true);
   assert.equal(definitionText(goal), '1 of 1 criteria met · 1 proposed');
+  assert.equal(goal.customization, null, 'an objective without editor state is not customizable');
+  const [editable] = readGoals({
+    factory: {
+      console: {
+        goals: [
+          {
+            ...snapshot.factory.console.goals[0],
+            customization: {
+              version: 7,
+              steps: [
+                { id: 'plan', title: 'Plan', kind: 'plan', optional: false, roles: ['team-lead'], started: true },
+              ],
+              overrides: [{ stepId: 'plan', provider: 'codex' }],
+            },
+          },
+        ],
+      },
+    },
+  });
+  assert.ok(editable?.customization !== null && editable?.customization !== undefined);
+  assert.equal(editable.customization.version, 7);
+  assert.deepEqual(editable.customization.overrides, [{ stepId: 'plan', provider: 'codex' }]);
+  assert.equal(editable.customization.steps[0]?.started, true);
   assert.equal(definitionText({ items: [], met: 0, proposed: 0 }), 'No definition of done yet');
   assert.deepEqual(readGoals({}), []);
+});
+
+void test('the Mission overview lists unfinished objectives with a definition of done, waiting ones first', () => {
+  const { goals } = snapshot.factory.console;
+  const plain = {
+    ...goals[0],
+    featureId: DELIVERY,
+    title: 'Plain',
+    awaitsDefinition: false,
+    definition: { items: [], met: 0, proposed: 0 },
+  };
+  const finished = { ...goals[0], featureId: PROPOSAL, title: 'Shipped', phase: 'done' };
+  const later = { ...goals[0], featureId: ITEM, title: 'Later', awaitsDefinition: false };
+  const rows = goalProgress({ factory: { console: { goals: [later, plain, finished, goals[0]] } } });
+  assert.deepEqual(
+    rows.map((row) => [row.title, row.awaitsDefinition]),
+    [
+      ['Checkout redesign', true],
+      ['Later', false],
+    ],
+    'objectives without a checklist and finished ones are left out',
+  );
+  assert.equal(rows[0]?.progress, '1 of 1 criteria met · 1 proposed');
+  assert.deepEqual(goalProgress({}), []);
 });
 
 void test('checklist rows validate into a version-fenced save, dismissing absent proposals', () => {

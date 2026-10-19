@@ -8,7 +8,7 @@
  * @file
  */
 
-import { isArchived } from './delivery-controls.ts';
+import { AUTO_ARCHIVE_MS, isArchived } from './delivery-controls.ts';
 import { livenessView, retryView } from './liveness-view.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import {
@@ -17,6 +17,7 @@ import {
   currentReview,
   featureWorkflow,
   isStepSatisfied,
+  isPlanningStepSatisfied,
   planningApprovals,
   planningStep,
   startableSteps,
@@ -25,9 +26,10 @@ import {
 import { questionsStatus } from './questions.ts';
 import { openBlocks, spendGate } from './spend.ts';
 import { attemptedSteps } from './step-override-controls.ts';
-import { customizationView } from './step-override-view.ts';
+import { customizationView, objectiveCustomizationView } from './step-override-view.ts';
 import { stepLayers } from './workflows.ts';
 
+import type { AnsweredItem, InboxItem } from './console-inbox-types.ts';
 import type { LivenessView, RetryView } from './liveness-view.ts';
 import type { DoneItem } from './objective-goal-schema.ts';
 import type { Question } from './question-schema.ts';
@@ -35,6 +37,8 @@ import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { CustomizationView } from './step-override-view.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
+
+export type { AnsweredItem, InboxItem, InboxLane } from './console-inbox-types.ts';
 
 /** Reconcile interval assumed before a project is configured. */
 const RECONCILE_FALLBACK_MS = 30_000;
@@ -147,6 +151,8 @@ export interface DeliveryView {
   readonly isKept: boolean;
   /** Step override editor state, while its steps can still change. */
   readonly customization: CustomizationView | null;
+  /** The lead's brief revalidation verdict, when one was recorded. */
+  readonly revalidation: { readonly outcome: string; readonly summary: string; readonly at: number } | null;
   /** Last change time. */
   readonly updatedAt: number;
 }
@@ -189,8 +195,6 @@ export interface ObjectiveView {
   readonly createdAt: number;
 }
 
-/** Inbox lane: decisions that need a reply, or notices to look into. */
-export type InboxLane = 'reply' | 'notice';
 /** An objective with its definition of done, for the objective view. */
 export interface GoalView {
   /** Objective id. */
@@ -214,58 +218,8 @@ export interface GoalView {
   };
   /** Whether every delivery is done but the checklist is not met yet. */
   readonly awaitsDefinition: boolean;
-}
-
-/** Something waiting on the human. */
-export interface InboxItem {
-  /** Stable item id. */
-  readonly id: string;
-  /** What kind of decision it is. */
-  readonly kind:
-    | 'approval'
-    | 'plan_approval'
-    | 'question'
-    | 'blocked_delivery'
-    | 'blocked_objective'
-    | 'skill'
-    | 'spend_cap'
-    | 'done_criteria';
-  /** Lane it is listed in. */
-  readonly lane: InboxLane;
-  /** Headline. */
-  readonly title: string;
-  /** Context the operator needs. */
-  readonly detail: string;
-  /** When it started waiting. */
-  readonly since: number;
-  /** Delivery, when it concerns one. */
-  readonly taskId: string | null;
-  /** Objective, when it concerns one. */
-  readonly featureId: string | null;
-  /** Step to decide, for approvals. */
-  readonly stepId: string | null;
-  /** Head an approval binds, for delivery approvals. */
-  readonly head: string | null;
-  /** Skill request, for skill decisions. */
-  readonly requestId: string | null;
-  /** Agent question, for questions. */
-  readonly questionId: string | null;
-  /** Offered answers, for questions. */
-  readonly choices: readonly string[];
-  /** Whether a question accepts a written answer. */
-  readonly allowText: boolean;
-}
-
-/** A decision already made. */
-export interface AnsweredItem {
-  /** Stable item id. */
-  readonly id: string;
-  /** What was decided. */
-  readonly title: string;
-  /** Operator note. */
-  readonly note: string;
-  /** Decision time. */
-  readonly at: number;
+  /** Step override editor state, while the objective has not started delivering. */
+  readonly customization: CustomizationView | null;
 }
 
 /** Complete console projection. */
@@ -348,17 +302,23 @@ function deliveryResult(task: FactoryTask, workflow: Workflow, step: WorkflowSte
  * @param task - Delivery whose step is described.
  * @param workflow - Workflow the delivery runs.
  * @param step - The step whose state to compute.
- * @param context - Live attempt and the steps waiting on the human or ready to start.
- * @param context.running - The delivery's live attempt, if any.
+ * @param context - Live attempts and the steps waiting on the human or ready to start.
+ * @param context.running - The delivery's live attempts.
  * @param context.waiting - Steps waiting on a human decision.
  * @param context.startable - Review-stage steps that may start now.
+ * @param context.isAdmissible - Whether a ready delivery may start: not held, dependencies done.
  * @returns State for display.
  */
 function deliveryState(
   task: FactoryTask,
   workflow: Workflow,
   step: WorkflowStep,
-  context: { running: FactoryJob | undefined; waiting: ReadonlySet<string>; startable: ReadonlySet<string> },
+  context: {
+    running: readonly FactoryJob[];
+    waiting: ReadonlySet<string>;
+    startable: ReadonlySet<string>;
+    isAdmissible: boolean;
+  },
 ): StepState {
   if (context.waiting.has(step.id)) {
     return 'needs_you';
@@ -366,11 +326,12 @@ function deliveryState(
   if (isStepSatisfied(task, workflow, step)) {
     return 'done';
   }
-  if (context.running !== undefined && (context.running.step === step.id || context.running.kind === step.kind)) {
+  // Attempts saved before workflows carry no step and match by kind; others match their exact step.
+  if (context.running.some((job) => (job.step === null ? job.kind === step.kind : job.step === step.id))) {
     return 'running';
   }
   const spine: Partial<Record<string, boolean>> = {
-    implement: task.phase === 'ready' || BUILDING_PHASES.has(task.phase),
+    implement: (task.phase === 'ready' && context.isAdmissible) || BUILDING_PHASES.has(task.phase),
     final: task.phase === 'merge_ready' || task.phase === 'merging',
     verify: task.phase === 'verifying' || task.phase === 'closing',
   };
@@ -441,19 +402,21 @@ function deliveryView(
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
   const layers = stepLayers(workflow.delivery);
-  const running = context.live.find((job) => job.taskId === task.id);
+  const runningJobs = context.live.filter((job) => job.taskId === task.id);
+  const [running] = runningJobs;
   const waiting = new Set(awaitingApproval(task, workflow).map((step) => step.id));
   const startable = new Set(task.phase === 'review' ? startableSteps(task, workflow).map((step) => step.id) : []);
-  const steps = workflow.delivery.map((step) => {
-    return {
-      ...stepShape(step, layers),
-      state: deliveryState(task, workflow, step, { running, waiting, startable }),
-      result: deliveryResult(task, workflow, step),
-    };
-  });
   const waitingOn = context.tasks
     .filter((candidate) => task.dependencies.includes(candidate.id) && candidate.phase !== 'done')
     .map((dependency) => dependency.issue);
+  const isAdmissible = task.hold === null && waitingOn.length === 0;
+  const steps = workflow.delivery.map((step) => {
+    return {
+      ...stepShape(step, layers),
+      state: deliveryState(task, workflow, step, { running: runningJobs, waiting, startable, isAdmissible }),
+      result: deliveryResult(task, workflow, step),
+    };
+  });
   return {
     taskId: task.id,
     issue: task.issue,
@@ -487,6 +450,10 @@ function deliveryView(
     }),
     isKept: task.archive?.state === 'kept',
     customization: customizationView(task, context.features, context.attempted),
+    revalidation:
+      task.revalidation === null
+        ? null
+        : { outcome: task.revalidation.outcome, summary: task.revalidation.summary, at: task.revalidation.at },
     updatedAt: task.updatedAt,
   };
 }
@@ -512,13 +479,10 @@ function planningState(
   if (running?.step === step.id) {
     return 'running';
   }
-  const next = planningStep(feature, workflow);
-  if (next?.step.id === step.id) {
+  if (planningStep(feature, workflow)?.step.id === step.id) {
     return 'ready';
   }
-  const order = workflow.planning.findIndex((candidate) => candidate.id === step.id);
-  const current = next === null ? workflow.planning.length : workflow.planning.indexOf(next.step);
-  return order < current ? 'done' : 'waiting';
+  return isPlanningStepSatisfied(feature, workflow, step) ? 'done' : 'waiting';
 }
 
 /**
@@ -555,9 +519,10 @@ function objectiveView(feature: Feature, tasks: readonly FactoryTask[], live: re
  *
  * @param feature - Objective to describe.
  * @param tasks - Current deliveries.
+ * @param attempted - Steps any attempt ran, for the override editor.
  * @returns Objective view entry.
  */
-function goalView(feature: Feature, tasks: readonly FactoryTask[]): GoalView {
+function goalView(feature: Feature, tasks: readonly FactoryTask[], attempted: ReadonlySet<string>): GoalView {
   const children = tasks.filter((task) => task.featureId === feature.id);
   const done = children.filter((task) => task.phase === 'done').length;
   return {
@@ -570,6 +535,7 @@ function goalView(feature: Feature, tasks: readonly FactoryTask[]): GoalView {
     definition: { items: feature.definitionOfDone ?? [], ...definitionProgress(feature) },
     awaitsDefinition:
       feature.phase === 'active' && children.length > 0 && done === children.length && !isDefinitionMet(feature),
+    customization: objectiveCustomizationView(feature, attempted),
   };
 }
 
@@ -766,7 +732,8 @@ function openItems(
     ...questions,
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
-    ...current.flatMap((feature) => definitionItems(goalView(feature, tasks))),
+    // Inbox items read only the checklist, so no attempted-step lookup is needed.
+    ...current.flatMap((feature) => definitionItems(goalView(feature, tasks, new Set()))),
     ...spendItems(repository),
     ...skills,
   ].toSorted((left, right) => left.since - right.since);
@@ -849,6 +816,16 @@ function answeredItems(
 }
 
 /**
+ * When a delivery left the board: its explicit archive mark, or when it expired automatically.
+ *
+ * @param task - Archived delivery.
+ * @returns Epoch milliseconds, for ordering the restorable list.
+ */
+function archivedAt(task: FactoryTask): number {
+  return task.archive?.at ?? task.updatedAt + AUTO_ARCHIVE_MS;
+}
+
+/**
  * Build the complete console projection.
  *
  * @param repository - Project ledger.
@@ -862,8 +839,15 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const now = repository.store.now();
   const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
   const attempted = attemptedSteps(repository);
-  const archived = tasks.filter((task) => isArchived(task, now));
-  const done = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now)).slice(-DONE_ON_BOARD);
+  const archived = tasks
+    .filter((task) => isArchived(task, now))
+    .toSorted((left, right) => archivedAt(left) - archivedAt(right));
+  // Explicitly kept deliveries always stay; the board limit applies to completions that expire on their own.
+  const finished = tasks.filter((task) => task.phase === 'done' && !isArchived(task, now));
+  const done = [
+    ...finished.filter((task) => task.archive?.state === 'kept'),
+    ...finished.filter((task) => task.archive?.state !== 'kept').slice(-DONE_ON_BOARD),
+  ];
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
   const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
@@ -873,7 +857,7 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
     goals: [
       ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),
       ...current.filter((feature) => feature.phase !== 'done'),
-    ].map((feature) => goalView(feature, tasks)),
+    ].map((feature) => goalView(feature, tasks, attempted)),
     archived: {
       total: archived.length,
       recent: archived

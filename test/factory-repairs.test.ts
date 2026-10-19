@@ -19,7 +19,7 @@ import { MergeConflictError } from '../src/factory/merge-conflict.ts';
 import { runProcess } from '../src/factory/processes.ts';
 import { assignmentPrompt } from '../src/factory/prompts.ts';
 import { reconcile } from '../src/factory/reconcile.ts';
-import { REPAIR_FINDING_MAX, attemptBudget } from '../src/factory/repair-schema.ts';
+import { REPAIR_FINDING_MAX, attemptBudget, countedRepairs } from '../src/factory/repair-schema.ts';
 import { openRepair, recordConflict } from '../src/factory/repairs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
@@ -235,6 +235,7 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
     `2026-10-17T01:02:04.0000000Z token=${LEAKED}`,
     'fetch https://bot:hunter2@github.com/fixture/app.git',
     'Authorization: Bearer abc.def.ghi',
+    'authorization: Basic dXNlcjpwYXNzd29yZA== trailing',
     'mesh-secret-value appears here',
     'Unexpected token in JSON at position 4',
   ].join('\n');
@@ -244,7 +245,8 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
   assert.ok(!clean.includes(LEAKED));
   assert.doesNotMatch(clean, /hunter2|abc\.def\.ghi|mesh-secret-value/v);
   assert.match(clean, /https:\/\/\[REDACTED\]@github\.com/v);
-  assert.match(clean, /^Authorization: \[REDACTED\]/mv);
+  assert.match(clean, /^Authorization: \[REDACTED\]$/mv);
+  assert.match(clean, /^authorization: \[REDACTED\]$/mv, 'a non-Bearer credential is redacted whole');
   assert.match(clean, /^Running npm test$/mv);
   assert.match(clean, /Unexpected token in JSON/v, 'ordinary prose keeps its words');
 });
@@ -260,6 +262,12 @@ await test('excerpts keep the first error with context and the final lines, with
   assert.match(excerpt, /lines omitted/v);
   const huge = excerptLog(`${'x'.repeat(390)} error\n`.repeat(2000), 500);
   assert.ok(huge.length <= 500);
+  const verbose = Array.from({ length: 200 }, (_value, index) => `${String(index)} ${'v'.repeat(195)}`);
+  verbose[20] = 'src/app.ts(3,1): error TS2304: Cannot find name';
+  const bounded = excerptLog(verbose.join('\n'));
+  assert.ok(bounded.length <= REPAIR_FINDING_MAX);
+  assert.match(bounded, /error TS2304/v, 'the first error survives a verbose log');
+  assert.match(bounded, /^199 v+$/mv);
   const check = checkState(FAILED_CHECK);
   const finding = ciFinding(check, 'error everywhere\n'.repeat(5000), 'a'.repeat(40));
   assert.ok(finding.length <= REPAIR_FINDING_MAX);
@@ -504,6 +512,14 @@ await test('each repair round grants the developer one more attempt', () => {
   };
   assert.deepEqual(intents([exhausted]), []);
   assert.deepEqual(intents([repaired]), ['developer-1']);
+});
+
+await test('an operator retry starts the repair caps and the extra attempts afresh', () => {
+  const rounds = [{ at: 10 }, { at: 20 }, { at: 30 }];
+  assert.equal(countedRepairs({ repairs: rounds }).length, 3);
+  assert.deepEqual(countedRepairs({ repairs: rounds, repairsResetAt: 20 }), [{ at: 30 }]);
+  assert.equal(attemptBudget({ repairs: rounds }, { maxAttempts: 2 }), 5);
+  assert.equal(attemptBudget({ repairs: rounds, repairsResetAt: 30 }, { maxAttempts: 2 }), 2);
 });
 
 await test('conflict errors keep a bounded path list for the round', () => {

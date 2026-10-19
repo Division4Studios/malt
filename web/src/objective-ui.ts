@@ -9,6 +9,7 @@
  * @file
  */
 import { child, hasFlag, records, text } from './api.js';
+import { t } from './i18n.js';
 import { libraryWorkflowSteps, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideFields } from './step-override-ui.js';
 
@@ -16,22 +17,28 @@ import type { Data } from './api.js';
 import type { OperatorEdit } from './recovery-ui.js';
 import type { EditorDescription } from './worker-ui.js';
 
-/** A suggested brief for workflows that skip planning. */
-export const BRIEF_TEMPLATE = [
-  '# Area: what exists after this change',
-  '',
-  '## Goal',
-  'One sentence describing the outcome.',
-  '',
-  '## Changes',
-  '1. Each change can be checked against the diff.',
-  '',
-  '## Out of scope',
-  '- What this delivery must not touch.',
-  '',
-  '## Acceptance',
-  '- A mechanically checkable result.',
-].join('\n');
+/**
+ * A suggested brief for workflows that skip planning, in the language in force.
+ *
+ * @returns Markdown brief skeleton.
+ */
+export function briefTemplate(): string {
+  return [
+    t('# Area: what exists after this change'),
+    '',
+    t('## Goal'),
+    t('One sentence describing the outcome.'),
+    '',
+    t('## Changes'),
+    t('1. Each change can be checked against the diff.'),
+    '',
+    t('## Out of scope'),
+    t('- What this delivery must not touch.'),
+    '',
+    t('## Acceptance'),
+    t('- A mechanically checkable result.'),
+  ].join('\n');
+}
 
 /** One workflow the operator can choose. */
 interface WorkflowChoice {
@@ -101,7 +108,7 @@ function pickerNodes(): {
     mergeGate === null ||
     overrides === null
   ) {
-    throw new Error('The objective workflow picker is missing from the console shell.');
+    throw new Error(t('The objective workflow picker is missing from the console shell.'));
   }
   return { field, select, description, body, planGate, mergeGate, overrides };
 }
@@ -136,7 +143,7 @@ export function mountWorkflowPicker(factory: Data): void {
     ...choices.map((choice) => {
       const option = document.createElement('option');
       option.value = choice.id;
-      option.textContent = choice.id === defaultId ? `${choice.name} (project default)` : choice.name;
+      option.textContent = choice.id === defaultId ? t('{name} (project default)', { name: choice.name }) : choice.name;
       return option;
     }),
   );
@@ -146,8 +153,8 @@ export function mountWorkflowPicker(factory: Data): void {
     description.textContent = choice?.description ?? '';
     stepFields.render(libraryWorkflowSteps(factory, select.value), [], options);
     if (choice !== undefined && !choice.isPlanned && body.value.trim() === '') {
-      body.value = BRIEF_TEMPLATE;
-    } else if (choice?.isPlanned === true && body.value === BRIEF_TEMPLATE) {
+      body.value = briefTemplate();
+    } else if (choice?.isPlanned === true && body.value === briefTemplate()) {
       body.value = '';
     }
   };
@@ -203,9 +210,10 @@ export function objectiveEditor(factory: () => Data | null): [EditorDescription,
   const requestId = crypto.randomUUID();
   return [
     {
-      title: 'Define the next mission',
-      explanation:
+      title: t('Define the next mission'),
+      explanation: t(
         'Describe the outcome and boundaries, then choose how it is delivered. Planned workflows turn it into small, reviewable deliveries; direct workflows treat it as one brief.',
+      ),
       initial: '',
       mount: () => {
         const current = factory();
