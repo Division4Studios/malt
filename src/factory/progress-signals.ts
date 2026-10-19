@@ -124,13 +124,13 @@ export class ProgressSink implements TranscriptSink {
   }
 
   /**
-   * Count a provider-reported file change. The provider item identity keeps
-   * consecutive patches to the same file distinct.
+   * Count a provider-reported file change. Separate patches to the same paths
+   * count separately when the provider names them.
    *
    * @param changes - Changed paths.
-   * @param id - Provider item identity.
+   * @param id - Provider item identity, when known.
    */
-  public fileChange(changes: readonly { path: string; kind: string }[], id: string): void {
+  public fileChange(changes: readonly { path: string; kind: string }[], id = ''): void {
     const first = changes[0];
     if (first !== undefined) {
       this.count(`edit ${first.path}`, `edit\0${id}\0${JSON.stringify(changes)}`);
@@ -461,9 +461,10 @@ export class ProgressSampler {
    */
   public async sample(): Promise<ProgressObservation> {
     const signals: string[] = [];
-    const log = await this.pollLog();
-    if (log.signal !== null) {
-      signals.push(log.signal);
+    const before = this.sink.meaningful;
+    await this.tail.poll();
+    if (this.sink.meaningful > before && this.sink.lastSignal !== null) {
+      signals.push(this.sink.lastSignal);
     }
     const cwd = this.source.worktree();
     if (cwd !== null) {
@@ -482,27 +483,11 @@ export class ProgressSampler {
     }
     this.checkInCount = recorded.count;
     const progress = signals.at(-1) ?? null;
-    if (progress !== null && !log.isWaitRaised) {
+    // Stream events clear a wait in order as they are decoded, so a wait that followed them stays; only
+    // progress seen outside the stream (edits, commits, check-ins) shows an older wait is over.
+    if (progress !== null && this.sink.meaningful === before) {
       this.sink.resume();
     }
     return { progress: progress === null ? null : label(progress), awaiting: this.sink.awaiting };
-  }
-
-  /**
-   * Decode new log lines. Decoded progress already clears a wait in stream
-   * order, so a wait that is still set after new progress, or a new wait, was
-   * raised later in this poll and must survive out-of-band progress.
-   *
-   * @returns The newest decoded signal, if any, and whether a wait was raised in this poll.
-   */
-  private async pollLog(): Promise<{ signal: string | null; isWaitRaised: boolean }> {
-    const before = this.sink.meaningful;
-    const waitBefore = this.sink.awaiting;
-    await this.tail.poll();
-    const hasProgress = this.sink.meaningful > before;
-    return {
-      signal: hasProgress ? this.sink.lastSignal : null,
-      isWaitRaised: this.sink.awaiting !== null && (hasProgress || this.sink.awaiting !== waitBefore),
-    };
   }
 }

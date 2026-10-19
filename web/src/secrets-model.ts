@@ -7,6 +7,7 @@
  * @file
  */
 import { asData } from './console-model.js';
+import { t } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -190,12 +191,12 @@ export function readSecrets(snapshot: unknown): SecretsModel {
  */
 export function nameProblem(name: string, existing: readonly string[]): string | null {
   if (!NAME.test(name)) {
-    return 'Use an environment variable name: capital letters, digits and underscores, starting with a letter.';
+    return t('Use an environment variable name: capital letters, digits and underscores, starting with a letter.');
   }
   if (RESERVED_NAMES.has(name) || RESERVED_PREFIXES.some((prefix) => name.startsWith(prefix))) {
-    return 'This name is reserved for the runtime, a provider CLI, Git or GitHub.';
+    return t('This name is reserved for the runtime, a provider CLI, Git or GitHub.');
   }
-  return existing.includes(name) ? 'A secret with this name already exists; rotate it instead.' : null;
+  return existing.includes(name) ? t('A secret with this name already exists; rotate it instead.') : null;
 }
 
 /**
@@ -206,9 +207,12 @@ export function nameProblem(name: string, existing: readonly string[]): string |
  */
 export function valueProblem(value: string): string | null {
   if (value.length < VALUE_MIN || value.length > VALUE_MAX) {
-    return `Values are ${String(VALUE_MIN)} to ${String(VALUE_MAX)} characters; shorter ones would hide ordinary output when redacted.`;
+    return t('Values are {valueMin} to {valueMax} characters; shorter ones would hide ordinary output when redacted.', {
+      valueMin: VALUE_MIN,
+      valueMax: VALUE_MAX,
+    });
   }
-  return value.includes('\0') ? 'Values cannot contain NUL characters.' : null;
+  return value.includes('\0') ? t('Values cannot contain NUL characters.') : null;
 }
 
 /**
@@ -260,10 +264,10 @@ export function secretDeleteInput(secret: SecretView): {
  */
 export function grantText(secret: SecretView, types: SecretsModel['types']): string {
   if (secret.grants.length === 0) {
-    return 'Not granted to any role type yet.';
+    return t('Not granted to any role type yet.');
   }
   const labels = secret.grants.map((grant) => types.find((type) => type.name === grant)?.label ?? `${grant} (removed)`);
-  return `Injected into ${labels.join(', ')}.`;
+  return t('Injected into {targets}.', { targets: labels.join(', ') });
 }
 
 /**
@@ -273,7 +277,12 @@ export function grantText(secret: SecretView, types: SecretsModel['types']): str
  * @returns Readable line.
  */
 export function auditText(entry: AuditView): string {
-  const grants = entry.grants.length === 0 ? 'no role types' : entry.grants.join(', ');
-  const verbs = { created: 'Created', rotated: 'Rotated', regranted: 'Changed grants of', deleted: 'Deleted' } as const;
+  const grants = entry.grants.length === 0 ? t('no role types') : entry.grants.join(', ');
+  const verbs = {
+    created: t('Created'),
+    rotated: t('Rotated'),
+    regranted: t('Changed grants of'),
+    deleted: t('Deleted'),
+  } as const;
   return `${verbs[entry.action]} ${entry.name} (${grants})`;
 }

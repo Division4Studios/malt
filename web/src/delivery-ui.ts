@@ -23,6 +23,7 @@ import {
   shortSha,
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
+import { keepLiteral, phrase, t, translated } from './i18n.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -46,6 +47,40 @@ export interface DeliveryHooks {
 
 /** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
 const TITLE_KEY = 'delivery-title';
+/** How often relative times (liveness checkpoint, retry wait) are recomputed. */
+const CLOCK_MS = 1000;
+
+/**
+ * The relative-time facts of a delivery, by the `data-clock` name of their element.
+ *
+ * @param delivery - Delivery shown.
+ * @param now - Current time.
+ * @returns Text per clocked fact the delivery has.
+ */
+function clockedFacts(delivery: Delivery, now: number): ReadonlyMap<string, string> {
+  const facts = new Map<string, string>();
+  const liveness = delivery.running?.liveness ?? null;
+  if (liveness !== null) {
+    facts.set('liveness', livenessText(liveness, now));
+  }
+  if (delivery.retry !== null) {
+    facts.set('retry', retryText(delivery.retry, now));
+  }
+  return facts;
+}
+
+/**
+ * A fact value that the view's clock keeps current.
+ *
+ * @param name - Clocked fact name.
+ * @param value - Text at render time.
+ * @returns Value element.
+ */
+function clocked(name: string, value: string): HTMLElement {
+  const span = element('span', '', value);
+  span.dataset['clock'] = name;
+  return span;
+}
 
 /** A mounted delivery view. */
 export interface DeliveryHandle extends ConsoleViewHandle {
@@ -69,7 +104,7 @@ function fact(list: HTMLDListElement, term: string, value: string | HTMLElement)
 }
 
 /**
- * Describe the delivery's step overrides, when it has them.
+ * Describe the delivery's step overrides and brief revalidation, when it has them.
  *
  * @param facts - Header facts.
  * @param delivery - Delivery shown.
@@ -78,8 +113,14 @@ function customizedFact(facts: HTMLDListElement, delivery: Delivery): void {
   const custom = delivery.customization;
   const summary = custom === null ? '' : overrideSummary(custom.steps, custom.overrides);
   if (summary !== '') {
-    fact(facts, 'Customized', summary);
+    fact(facts, t('Customized'), summary);
   }
+  const verdict = delivery.revalidation;
+  if (verdict === null) {
+    return;
+  }
+  const label = t(verdict.outcome === 'confirmed' ? 'Confirmed' : 'Needs revising');
+  fact(facts, t('Brief revalidation'), verdict.summary === '' ? label : `${label}: ${verdict.summary}`);
 }
 
 /**
@@ -94,37 +135,39 @@ function header(delivery: Delivery): HTMLElement {
   heading.tabIndex = -1;
   heading.dataset['focusKey'] = TITLE_KEY;
   const facts = element('dl', 'delivery-facts');
-  fact(facts, 'Phase', delivery.phase === '' ? '—' : delivery.phase);
-  fact(facts, 'Workflow', delivery.workflow.name === '' ? '—' : delivery.workflow.name);
-  fact(facts, 'Developer', delivery.developer ?? '—');
-  fact(facts, 'Attempts', String(delivery.attempts));
-  fact(facts, 'Head', shortSha(delivery.head));
-  fact(facts, 'Base', shortSha(delivery.base));
-  fact(facts, 'Pull request', delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, 'Open pull request'));
-  fact(facts, 'Running now', runningText(delivery) ?? 'Nothing');
-  const liveness = delivery.running?.liveness ?? null;
-  if (liveness !== null) {
-    fact(facts, 'Liveness', livenessText(liveness, Date.now()));
+  fact(facts, t('Phase'), delivery.phase === '' ? '—' : delivery.phase);
+  fact(facts, t('Workflow'), delivery.workflow.name === '' ? '—' : delivery.workflow.name);
+  fact(facts, t('Developer'), delivery.developer ?? '—');
+  fact(facts, t('Attempts'), String(delivery.attempts));
+  fact(facts, t('Head'), shortSha(delivery.head));
+  fact(facts, t('Base'), shortSha(delivery.base));
+  fact(facts, t('Pull request'), delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, t('Open pull request')));
+  fact(facts, t('Running now'), runningText(delivery) ?? t('Nothing'));
+  const timed = clockedFacts(delivery, Date.now());
+  const liveness = timed.get('liveness');
+  if (liveness !== undefined) {
+    fact(facts, t('Liveness'), clocked('liveness', liveness));
   }
-  if (delivery.retry !== null) {
-    fact(facts, 'Retry', retryText(delivery.retry, Date.now()));
+  const retry = timed.get('retry');
+  if (retry !== undefined) {
+    fact(facts, t('Retry'), clocked('retry', retry));
   }
   if (delivery.held !== null) {
     fact(
       facts,
-      'Held',
-      delivery.held.reason === '' ? 'No new attempt starts until you resume it.' : delivery.held.reason,
+      t('Held'),
+      delivery.held.reason === '' ? t('No new attempt starts until you resume it.') : delivery.held.reason,
     );
   }
   customizedFact(facts, delivery);
   if (delivery.waitingOn.length > 0) {
-    fact(facts, 'Waiting on', delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
+    fact(facts, t('Waiting on'), delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
   }
   node.append(heading, facts);
   if (delivery.error !== null) {
     const error = element('div', 'delivery-error');
     error.setAttribute('role', 'note');
-    error.append(element('p', 'delivery-error-label', 'Blocker or last error'), element('pre', '', delivery.error));
+    error.append(element('p', 'delivery-error-label', t('Blocker or last error')), element('pre', '', delivery.error));
     node.append(error);
   }
   return node;
@@ -160,9 +203,9 @@ function findingsList(findings: readonly string[]): HTMLElement {
  */
 function dispositionsTable(result: StepResult): HTMLElement {
   const table = element('table', 'step-dispositions');
-  table.append(element('caption', '', 'Rulings on findings'));
+  table.append(element('caption', '', t('Rulings on findings')));
   const head = element('tr');
-  for (const column of ['Finding', 'Decision', 'Reason', 'Evidence']) {
+  for (const column of [t('Finding'), t('Decision'), t('Reason'), t('Evidence')]) {
     const cell = element('th', '', column);
     cell.scope = 'col';
     head.append(cell);
@@ -194,11 +237,15 @@ function dispositionsTable(result: StepResult): HTMLElement {
 function resultBody(result: StepResult): HTMLElement {
   const body = element('div', 'step-result-body');
   if (result.role !== '') {
-    body.append(element('p', 'subtle', `Reported by ${result.role}`));
+    body.append(element('p', 'subtle', t('Reported by {role}', { role: result.role })));
   }
-  body.append(element('p', 'step-summary', result.summary === '' ? 'No summary recorded.' : result.summary));
+  body.append(
+    result.summary === ''
+      ? element('p', 'step-summary', t('No summary recorded.'))
+      : keepLiteral(element('p', 'step-summary', result.summary)),
+  );
   if (result.findings.length > 0) {
-    body.append(element('h5', 'step-subheading', 'Findings'), findingsList(result.findings));
+    body.append(element('h5', 'step-subheading', t('Findings')), keepLiteral(findingsList(result.findings)));
   }
   if (result.dispositions.length > 0) {
     body.append(dispositionsTable(result));
@@ -207,31 +254,57 @@ function resultBody(result: StepResult): HTMLElement {
 }
 
 /** Visible label per repair kind. */
-const REPAIR_LABELS: Readonly<Record<RepairRound['kind'], string>> = {
-  ci: 'CI repair',
-  conflict: 'Merge-conflict repair',
-};
+const REPAIR_LABELS: Readonly<Record<RepairRound['kind'], string>> = translated({
+  ci: phrase('CI repair'),
+  conflict: phrase('Merge-conflict repair'),
+});
+
+/**
+ * Keep a collapsible panel's open state across re-renders.
+ *
+ * @param details - Panel.
+ * @param id - Stable panel identity.
+ * @param expanded - Identities of the panels the operator opened.
+ */
+function rememberOpen(details: HTMLDetailsElement, id: string, expanded: Set<string>): void {
+  details.toggleAttribute('open', expanded.has(id));
+  details.addEventListener('toggle', () => {
+    if (details.open) {
+      expanded.add(id);
+    } else {
+      expanded.delete(id);
+    }
+  });
+}
 
 /**
  * Build the repair rounds section: each failed CI run or conflicted refresh the
  * supervisor returned to the developer, with its redacted evidence.
  *
  * @param delivery - Delivery shown.
+ * @param expanded - Panels the operator opened, kept across live updates.
  * @returns Section element, or `null` when the delivery had no repair round.
  */
-function repairsSection(delivery: Delivery): HTMLElement | null {
+function repairsSection(delivery: Delivery, expanded: Set<string>): HTMLElement | null {
   if (delivery.repairs.length === 0) {
     return null;
   }
   const section = element('section', 'delivery-repairs');
-  section.append(element('h3', 'delivery-section-title', 'Repair rounds'));
+  section.append(element('h3', 'delivery-section-title', t('Repair rounds')));
   const list = element('ol', 'repair-rounds');
   for (const [index, round] of delivery.repairs.entries()) {
     const item = element('li', 'repair-round');
     item.dataset['kind'] = round.kind;
     const details = element('details', 'step-result');
-    const label = `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`;
-    details.append(element('summary', '', label), element('p', 'step-summary', round.summary));
+    const id = `${delivery.taskId}:repair:${String(index)}`;
+    rememberOpen(details, id, expanded);
+    const summary = element(
+      'summary',
+      '',
+      `${REPAIR_LABELS[round.kind]} ${String(index + 1)} · ${shortSha(round.head)}`,
+    );
+    summary.dataset['focusKey'] = `result:${id}`;
+    details.append(summary, element('p', 'step-summary', round.summary));
     if (round.findings.length > 0) {
       const findings = element('ul', 'step-findings');
       findings.append(...round.findings.map((finding) => element('li', 'repair-finding', finding)));
@@ -286,14 +359,14 @@ class DeliveryView {
     this.dialog = new ApprovalDialog(hooks.control, (key) => {
       restoreFocus(this.root, key, this.root.querySelector<HTMLElement>('.delivery-title'));
     });
-    const back = button('← Back', {
+    const back = button(t('← Back'), {
       cssClass: 'button ghost',
       key: 'back',
       action: () => {
         hooks.back();
       },
     });
-    this.attempts = button('View attempts', {
+    this.attempts = button(t('View attempts'), {
       cssClass: 'button secondary',
       key: 'attempts',
       action: () => {
@@ -302,14 +375,14 @@ class DeliveryView {
     });
     this.control = hooks.control;
     this.diff = new DeliveryDiff(hooks.project);
-    this.lifecycle = button('Hold', {
+    this.lifecycle = button(t('Hold'), {
       cssClass: 'button secondary',
       key: 'lifecycle',
       action: () => {
         void this.applyLifecycle();
       },
     });
-    this.mergeGate = button('Require merge approval', {
+    this.mergeGate = button(t('Require merge approval'), {
       cssClass: 'button secondary',
       key: 'merge-gate',
       action: () => {
@@ -319,7 +392,7 @@ class DeliveryView {
     this.overrides = new StepOverrideDialog(hooks.control, () => {
       restoreFocus(this.root, 'customize', this.root.querySelector<HTMLElement>('.delivery-title'));
     });
-    this.customize = button('Customize steps', {
+    this.customize = button(t('Customize steps'), {
       cssClass: 'button secondary',
       key: 'customize',
       action: () => {
@@ -331,6 +404,10 @@ class DeliveryView {
     actions.append(this.customize, this.mergeGate, this.lifecycle, this.attempts);
     toolbar.append(back, actions);
     this.root.append(toolbar, this.body);
+    // Snapshots skip unchanged deliveries, so relative times advance on their own clock.
+    setInterval(() => {
+      this.tick();
+    }, CLOCK_MS);
   }
 
   /**
@@ -360,6 +437,24 @@ class DeliveryView {
     this.render();
   }
 
+  /** Recompute the shown delivery's relative times. */
+  private tick(): void {
+    if (!this.root.isConnected) {
+      return;
+    }
+    const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
+    if (delivery === undefined) {
+      return;
+    }
+    const facts = clockedFacts(delivery, Date.now());
+    for (const node of this.body.querySelectorAll<HTMLElement>('[data-clock]')) {
+      const value = facts.get(node.dataset['clock'] ?? '');
+      if (value !== undefined && node.textContent !== value) {
+        node.textContent = value;
+      }
+    }
+  }
+
   /** Re-render when the shown delivery or its approvals changed. */
   private render(): void {
     const delivery = this.model.deliveries.find((candidate) => candidate.taskId === this.taskId);
@@ -372,15 +467,17 @@ class DeliveryView {
     const focused = focusedKey(this.root);
     this.attempts.disabled = delivery === undefined;
     this.lifecycle.disabled = delivery === undefined;
-    this.lifecycle.textContent = delivery === undefined ? 'Hold' : lifecycleControl(delivery).label;
+    this.lifecycle.textContent = delivery === undefined ? t('Hold') : lifecycleControl(delivery).label;
     const gate = delivery === undefined ? null : mergeGateControl(delivery);
     this.mergeGate.hidden = gate === null;
-    this.mergeGate.textContent = gate?.label ?? 'Require merge approval';
+    this.mergeGate.textContent = gate?.label ?? t('Require merge approval');
     this.customize.hidden = (delivery?.customization ?? null) === null;
     if (delivery === undefined) {
       const empty = emptyState(
-        'This delivery is not on the board',
-        'It may have finished long ago, been replaced by a scope change, or belong to another project. Go back to choose another delivery.',
+        t('This delivery is not on the board'),
+        t(
+          'It may have finished long ago, been replaced by a scope change, or belong to another project. Go back to choose another delivery.',
+        ),
       );
       empty.tabIndex = -1;
       empty.dataset['focusKey'] = TITLE_KEY;
@@ -389,12 +486,13 @@ class DeliveryView {
       return;
     }
     const pipeline = element('section', 'delivery-pipeline');
-    const title = element('h3', 'delivery-section-title', 'Pipeline');
+    const title = element('h3', 'delivery-section-title', t('Pipeline'));
     const layers = element('ol', 'pipeline-layers');
     for (const group of layerGroups(delivery.steps)) {
       const layer = element('li', 'pipeline-layer');
-      const label =
-        group.steps.length > 1 ? `Stage ${String(group.layer)} · in parallel` : `Stage ${String(group.layer)}`;
+      const label = t(group.steps.length > 1 ? 'Stage {layer} · in parallel' : 'Stage {layer}', {
+        layer: group.layer,
+      });
       const steps = element('ul', 'pipeline-steps');
       steps.append(...group.steps.map((step) => this.stepNode(delivery, step)));
       layer.append(element('p', 'pipeline-layer-label', label), steps);
@@ -402,7 +500,7 @@ class DeliveryView {
     }
     pipeline.append(title, layers);
     const top = header(delivery);
-    const repairs = repairsSection(delivery);
+    const repairs = repairsSection(delivery, this.expanded);
     this.diff.show(delivery.taskId, delivery.head, delivery.base);
     this.body.replaceChildren(top, pipeline, ...(repairs === null ? [] : [repairs]), this.diff.element);
     restoreFocus(this.root, focused, top.querySelector('h2'));
@@ -430,7 +528,7 @@ class DeliveryView {
     if (delivery === undefined || customization === null) {
       return;
     }
-    this.overrides.open(delivery.taskId, customization, {
+    this.overrides.open({ taskId: delivery.taskId }, customization, {
       seats: seatNames(this.factory),
       profiles: profileNames(this.factory),
     });
@@ -464,15 +562,15 @@ class DeliveryView {
     const head = element('div', 'pipeline-step-head');
     head.append(element('h4', 'pipeline-step-title', step.title), stateBadge(step.state));
     const badges = element('div', 'card-badges');
-    badges.append(tag(step.roles.length === 0 ? 'You decide' : step.roles.join(', '), 'tag-roles'));
+    badges.append(tag(step.roles.length === 0 ? t('You decide') : step.roles.join(', '), 'tag-roles'));
     if (step.blind) {
-      badges.append(tag('Blind review'));
+      badges.append(tag(t('Blind review')));
     }
     if (step.gate) {
-      badges.append(tag('Approval gate'));
+      badges.append(tag(t('Approval gate')));
     }
     if (step.provider !== null) {
-      badges.append(tag(`Prefers ${step.provider}`));
+      badges.append(tag(t('Prefers {provider}', { provider: step.provider })));
     }
     item.append(head, badges);
     if (step.result !== null) {
@@ -495,17 +593,14 @@ class DeliveryView {
   private resultNode(delivery: Delivery, step: Step, result: StepResult): HTMLElement {
     const id = `${delivery.taskId}:${step.id}`;
     const details = element('details', 'step-result');
-    details.open = this.expanded.has(id);
-    const summary = element('summary', '', `Latest result: ${result.outcome === '' ? 'recorded' : result.outcome}`);
+    rememberOpen(details, id, this.expanded);
+    const summary = element(
+      'summary',
+      '',
+      t('Latest result: {outcome}', { outcome: result.outcome === '' ? t('recorded') : result.outcome }),
+    );
     summary.dataset['focusKey'] = `result:${id}`;
     details.append(summary, resultBody(result));
-    details.addEventListener('toggle', () => {
-      if (details.open) {
-        this.expanded.add(id);
-      } else {
-        this.expanded.delete(id);
-      }
-    });
     return details;
   }
 

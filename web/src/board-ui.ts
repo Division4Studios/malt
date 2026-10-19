@@ -12,6 +12,7 @@ import { BoardActions } from './board-actions.js';
 import { COLUMN_COPY, DEFAULT_PREFS, groupBoard, parsePrefs, tabTarget, workflowChoices } from './board-model.js';
 import { button, externalLink, focusedKey, restoreFocus, stepStripNode, tag } from './console-dom.js';
 import { COLUMNS, EMPTY_CONSOLE, STATE_LABELS, excerpt, readConsole, runningText } from './console-model.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { ControlSender } from './approval-dialog.js';
@@ -131,19 +132,21 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
     const line = element('p', 'card-running');
     const glyph = element('span', 'state-glyph', STATE_LABELS.running.glyph);
     glyph.setAttribute('aria-hidden', 'true');
-    line.append(glyph, ` Running: ${running}`);
+    line.append(glyph, t(' Running: {running}', { running }));
     card.append(line);
   }
   const badges = element('div', 'card-badges');
   if (delivery.held !== null) {
-    badges.append(tag(delivery.held.reason === '' ? 'Held' : `Held: ${delivery.held.reason}`, 'tag-held'));
+    badges.append(
+      tag(delivery.held.reason === '' ? t('Held') : t('Held: {reason}', { reason: delivery.held.reason }), 'tag-held'),
+    );
   }
-  badges.append(...delivery.waitingOn.map((issue) => tag(`Waiting on #${String(issue)}`, 'tag-waiting')));
+  badges.append(...delivery.waitingOn.map((issue) => tag(t('Waiting on #{issue}', { issue }), 'tag-waiting')));
   if (delivery.attempts > 0) {
     badges.append(tag(`${String(delivery.attempts)} attempt${delivery.attempts === 1 ? '' : 's'}`));
   }
   if (delivery.prUrl !== null) {
-    badges.append(externalLink(delivery.prUrl, 'Pull request'));
+    badges.append(externalLink(delivery.prUrl, t('Pull request')));
   }
   if (badges.childElementCount > 0) {
     card.append(badges);
@@ -160,7 +163,7 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
  */
 function criteriaLine(objective: Objective): HTMLElement[] {
   const { met, total } = objective.definition;
-  return total === 0 ? [] : [element('p', 'card-progress', `${String(met)} of ${String(total)} done criteria met`)];
+  return total === 0 ? [] : [element('p', 'card-progress', t('{met} of {total} done criteria met', { met, total }))];
 }
 
 /**
@@ -182,7 +185,7 @@ function objectiveCard(objective: Objective, key: string, hooks: BoardHooks): HT
           openObjective(objective.featureId);
         };
   const chips = element('ul', 'step-chips');
-  chips.setAttribute('aria-label', 'Planning steps');
+  chips.setAttribute('aria-label', t('Planning steps'));
   for (const step of objective.steps) {
     const chip = element('li', 'step-chip');
     chip.dataset['state'] = step.state;
@@ -199,13 +202,13 @@ function objectiveCard(objective: Objective, key: string, hooks: BoardHooks): HT
     meter.max = total;
     meter.value = done;
     meter.setAttribute('aria-hidden', 'true');
-    progress.append(meter, ` ${String(done)} of ${String(total)} deliveries done`);
+    progress.append(meter, t(' {done} of {total} deliveries done', { done, total }));
   } else {
-    progress.textContent = 'No deliveries yet';
+    progress.textContent = t('No deliveries yet');
   }
   card.append(
-    element('p', 'card-kind', 'Objective'),
-    cardHeading(objective.title === '' ? 'Untitled objective' : objective.title, key, open),
+    element('p', 'card-kind', t('Objective')),
+    cardHeading(objective.title === '' ? t('Untitled objective') : objective.title, key, open),
     element('p', 'card-workflow', objective.workflow.name),
     chips,
     progress,
@@ -259,7 +262,7 @@ class BoardView {
     const prefix = `board-${crypto.randomUUID()}`;
     this.phone = matchMedia(PHONE_QUERY);
     this.query.type = 'search';
-    this.query.placeholder = 'Title or #issue';
+    this.query.placeholder = t('Title or #issue');
     this.query.value = this.prefs.query;
     this.showDone.type = 'checkbox';
     this.showDone.checked = this.prefs.showDone;
@@ -275,15 +278,15 @@ class BoardView {
     });
     const toolbar = element('div', 'board-toolbar');
     toolbar.append(
-      field('Filter', this.query),
-      field('Workflow', this.workflow),
-      field('Show done', this.showDone, 'board-field board-toggle'),
+      field(t('Filter'), this.query),
+      field(t('Workflow'), this.workflow),
+      field(t('Show done'), this.showDone, 'board-field board-toggle'),
       this.status,
     );
     this.tabs.setAttribute('role', 'tablist');
-    this.tabs.setAttribute('aria-label', 'Board columns');
+    this.tabs.setAttribute('aria-label', t('Board columns'));
     this.region.setAttribute('role', 'region');
-    this.region.setAttribute('aria-label', 'Board columns (scroll sideways to see all)');
+    this.region.setAttribute('aria-label', t('Board columns (scroll sideways to see all)'));
     this.region.tabIndex = 0;
     for (const column of COLUMNS) {
       this.buildColumn(column, prefix);
@@ -425,7 +428,7 @@ class BoardView {
     }
     restoreFocus(this.root, focused);
     if (isFilterChange) {
-      this.status.textContent = `${String(shown)} card${shown === 1 ? '' : 's'} shown.`;
+      this.status.textContent = t('{shown, plural, one {# card shown.} other {# cards shown.}}', { shown });
     }
   }
 
@@ -460,11 +463,13 @@ class BoardView {
     }
     const isHidden = column === 'done' && groups.hiddenDone > 0;
     const isFiltered = this.prefs.query.trim() !== '' || this.prefs.workflow !== '';
-    let message = 'Nothing here right now.';
+    let message = t('Nothing here right now.');
     if (isHidden) {
-      message = `${String(groups.hiddenDone)} finished hidden. Turn on Show done to list them.`;
+      message = t('{hiddenDone} finished hidden. Turn on Show done to list them.', {
+        hiddenDone: groups.hiddenDone,
+      });
     } else if (isFiltered) {
-      message = 'No cards match the filters.';
+      message = t('No cards match the filters.');
     }
     return [element('li', 'kanban-empty', message)];
   }
@@ -481,7 +486,7 @@ class BoardView {
     const current = [...this.workflow.options].map((option) => option.value);
     if (JSON.stringify(current) !== JSON.stringify(values)) {
       this.workflow.replaceChildren(
-        new Option('All workflows', ''),
+        new Option(t('All workflows'), ''),
         ...choices.map((choice) => new Option(choice.name, choice.id)),
       );
     }

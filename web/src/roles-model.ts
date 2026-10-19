@@ -8,6 +8,7 @@
  * @file
  */
 import { asData } from './console-model.js';
+import { t } from './i18n.js';
 
 import type { Data } from './api.js';
 
@@ -67,6 +68,8 @@ export interface TypeDraft {
   readonly effort: string | null;
   /** How the tool list applies. */
   readonly toolMode: 'deny' | 'allow';
+  /** Deny rules saved beside an allow list; the editor keeps them unchanged. */
+  readonly keptDeny: readonly string[];
   /** Tools the mode lists. */
   readonly tools: readonly string[];
   /** Local MCP servers. */
@@ -205,6 +208,7 @@ function typeDraft(name: string, record: Data): TypeDraft {
     effort: optionalText(model, 'effort'),
     toolMode: allow.length > 0 ? 'allow' : 'deny',
     tools: allow.length > 0 ? allow : strings(tools?.['deny']),
+    keptDeny: allow.length > 0 ? strings(tools?.['deny']) : [],
     servers: objects(record['mcpServers']).map((server) => {
       return {
         name: textOf(server, 'name'),
@@ -361,6 +365,7 @@ export function blankType(name: string): TypeDraft {
     effort: null,
     toolMode: 'deny',
     tools: [],
+    keptDeny: [],
     servers: [],
     canAsk: false,
   };
@@ -405,7 +410,11 @@ export function argumentLines(text: string): string[] {
 function serverProblems(server: ServerDraft): string[] {
   const problems: string[] = [];
   if (!SERVER_NAME.test(server.name) || server.name === 'agentmesh') {
-    problems.push(`MCP server name "${server.name}" must be lower case letters, digits, - or _, and not agentmesh.`);
+    problems.push(
+      t('MCP server name "{name}" must be lower case letters, digits, - or _, and not agentmesh.', {
+        name: server.name,
+      }),
+    );
   }
   const isLiteral =
     server.command !== '' &&
@@ -413,7 +422,7 @@ function serverProblems(server: ServerDraft): string[] {
     SHELL_CHARACTERS.every((character) => !server.command.includes(character));
   if (!isLiteral) {
     const label = server.name === '' ? '(unnamed)' : server.name;
-    problems.push(`MCP server ${label}: give one executable, not a shell command.`);
+    problems.push(t('MCP server {label}: give one executable, not a shell command.', { label }));
   }
   return problems;
 }
@@ -431,14 +440,27 @@ function modelProblems(type: TypeDraft, models: readonly ModelChoice[]): string[
   }
   const model = models.find((candidate) => candidate.id === type.modelId);
   if (model === undefined) {
-    return [`${type.name}: the chosen model is no longer allowed by the model policy.`];
+    return [t('{name}: the chosen model is no longer allowed by the model policy.', { name: type.name })];
   }
   if (type.provider !== null && type.provider !== model.provider) {
-    return [`${type.name}: ${model.model} is a ${model.provider} model, but the role waits for ${type.provider}.`];
+    return [
+      t('{name}: {model} is a {provider} model, but the role waits for {provider2}.', {
+        name: type.name,
+        model: model.model,
+        provider: model.provider,
+        provider2: type.provider,
+      }),
+    ];
   }
   return type.effort === null || model.efforts.includes(type.effort)
     ? []
-    : [`${type.name}: ${model.model} does not offer ${type.effort} effort.`];
+    : [
+        t('{name}: {model} does not offer {effort} effort.', {
+          name: type.name,
+          model: model.model,
+          effort: type.effort,
+        }),
+      ];
 }
 
 /**
@@ -451,24 +473,26 @@ function modelProblems(type: TypeDraft, models: readonly ModelChoice[]): string[
 export function typeProblems(type: TypeDraft, model: RolesModel): string[] {
   const problems: string[] = [];
   if (!NAME.test(type.name)) {
-    problems.push('Type names use lower case letters, digits, - or _ and start with a letter or digit.');
+    problems.push(t('Type names use lower case letters, digits, - or _ and start with a letter or digit.'));
   }
   if (type.label.trim() === '' || type.label.length > LABEL_MAX) {
-    problems.push(`${type.name}: give a label of at most ${String(LABEL_MAX)} characters.`);
+    problems.push(
+      t('{name}: give a label of at most {labelMax} characters.', { name: type.name, labelMax: LABEL_MAX }),
+    );
   }
   if (type.skills.length > MAX_SKILLS) {
-    problems.push(`${type.name}: prioritize at most ${String(MAX_SKILLS)} skills.`);
+    problems.push(t('{name}: prioritize at most {maxSkills} skills.', { name: type.name, maxSkills: MAX_SKILLS }));
   }
   const unknown = type.skills.filter((skill) => !model.catalog.skills.includes(skill));
   if (unknown.length > 0) {
-    problems.push(`${type.name}: ${unknown.join(', ')} is not a reviewed skill.`);
+    problems.push(t('{name}: {skills} is not a reviewed skill.', { name: type.name, skills: unknown.join(', ') }));
   }
   if (type.servers.length > MAX_SERVERS) {
-    problems.push(`${type.name}: at most ${String(MAX_SERVERS)} MCP servers.`);
+    problems.push(t('{name}: at most {maxServers} MCP servers.', { name: type.name, maxServers: MAX_SERVERS }));
   }
   const serverNames = new Set(type.servers.map((server) => server.name));
   if (serverNames.size !== type.servers.length) {
-    problems.push(`${type.name}: MCP server names must be unique.`);
+    problems.push(t('{name}: MCP server names must be unique.', { name: type.name }));
   }
   return [
     ...problems,
@@ -493,11 +517,11 @@ export function organizationProblems(
   const names = new Set(types.map((type) => type.name));
   const problems = types.flatMap((type) => typeProblems(type, model));
   if (names.size !== types.length) {
-    problems.push('Type names must be unique.');
+    problems.push(t('Type names must be unique.'));
   }
   for (const member of members) {
     if (!names.has(member.type)) {
-      problems.push(`${member.role} uses a type that no longer exists.`);
+      problems.push(t('{role} uses a type that no longer exists.', { role: member.role }));
     }
   }
   return problems;
@@ -517,11 +541,41 @@ function savedType(type: TypeDraft): Data {
     minimumTier: type.minimumTier,
     provider: type.provider,
     model: type.modelId === null ? null : { entryId: type.modelId, effort: type.effort },
-    tools: type.toolMode === 'allow' ? { allow: type.tools, deny: [] } : { allow: [], deny: type.tools },
+    // Deny rules kept beside an allow list still apply, and still apply when the operator switches to a deny list.
+    tools:
+      type.toolMode === 'allow'
+        ? { allow: type.tools, deny: type.keptDeny }
+        : { allow: [], deny: union(type.tools, type.keptDeny) },
     mcpServers: type.servers.map((server) => ({ name: server.name, command: server.command, args: server.args })),
     permissions: type.canAsk ? ['inbox.ask'] : [],
   };
 }
+
+/**
+ * Both lists' entries once, in order.
+ *
+ * @param first - Entries kept first.
+ * @param second - Entries added after them.
+ * @returns Distinct entries.
+ */
+function union(first: readonly string[], second: readonly string[]): string[] {
+  const all = new Set(first);
+  for (const entry of second) {
+    all.add(entry);
+  }
+  return [...all];
+}
+
+/** An empty model before the first snapshot. */
+export const EMPTY_ROLES: RolesModel = {
+  isConfigured: false,
+  isPaused: false,
+  types: [],
+  members: [],
+  catalog: { revision: null, skills: [], tools: [], native: [] },
+  models: [],
+  secrets: {},
+};
 
 /**
  * The revision-checked organization save.
@@ -559,10 +613,15 @@ export function rolesSaveInput(
  */
 export function modelSummary(type: TypeDraft, models: readonly ModelChoice[]): string {
   const model = models.find((candidate) => candidate.id === type.modelId);
-  const provider = type.provider === null ? 'any provider' : `waits for ${type.provider}`;
-  const chosen = model === undefined ? 'stage default model' : model.model;
-  const effort = type.effort === null ? '' : `, ${type.effort} effort or higher`;
-  return `${chosen}${effort} · ${provider} · at least ${type.minimumTier}`;
+  const provider = type.provider === null ? t('any provider') : t('waits for {provider}', { provider: type.provider });
+  const chosen = model === undefined ? t('stage default model') : model.model;
+  const effort = type.effort === null ? '' : t(', {effort} effort or higher', { effort: type.effort });
+  return t('{chosen}{effort} · {provider} · at least {minimumTier}', {
+    chosen,
+    effort,
+    provider,
+    minimumTier: type.minimumTier,
+  });
 }
 
 /**
@@ -573,9 +632,10 @@ export function modelSummary(type: TypeDraft, models: readonly ModelChoice[]): s
  */
 export function toolSummary(type: TypeDraft): string {
   if (type.tools.length === 0) {
-    return 'Every tool its seats have';
+    return t('Every tool its seats have');
   }
-  return type.toolMode === 'allow'
-    ? `Only ${type.tools.join(', ')} of the kinds listed (MALT or native)`
-    : `All seat tools except ${type.tools.join(', ')}`;
+  return t(
+    type.toolMode === 'allow' ? 'Only {tools} of the kinds listed (MALT or native)' : 'All seat tools except {tools}',
+    { tools: type.tools.join(', ') },
+  );
 }

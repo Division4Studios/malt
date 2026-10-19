@@ -79,6 +79,11 @@ export const spendUsageSchema = z
 /** Spend against one scope. */
 export type SpendUsage = z.output<typeof spendUsageSchema>;
 
+/** An open objective or delivery without a cap of its own, which the operator can cap. */
+export const spendChoiceSchema = z
+  .object({ scope: z.enum(['objective', 'delivery']), id: z.string(), label: z.string() })
+  .strict();
+
 /** Caps and current spend, carried in the cost summary. */
 export const spendStatusSchema = z
   .object({
@@ -86,8 +91,12 @@ export const spendStatusSchema = z
     caps: spendCapsSchema,
     /** The project and every open objective or delivery that has a cap. */
     usage: z.array(spendUsageSchema),
+    /** Open objectives and deliveries that have no cap yet, including ones that have not run. */
+    choices: z.array(spendChoiceSchema),
   })
   .strict();
+/** An uncapped open scope. */
+export type SpendChoice = z.output<typeof spendChoiceSchema>;
 /** Caps and current spend. */
 export type SpendStatus = z.output<typeof spendStatusSchema>;
 
