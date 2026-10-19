@@ -328,7 +328,7 @@ Human stop/pause instructions always take precedence. These prompts guide partic
 
 ## Run without Docker
 
-Requires Node.js 24.15 or newer. Node executes backend TypeScript through built-in type stripping; `npm run build:web` separately compiles the browser application and service worker. The backend uses built-in `node:sqlite`; some Node 24 releases display an experimental-feature warning on stderr.
+Requires Node.js 24.15 or newer. Node executes backend TypeScript through built-in type stripping; `npm run build:web` separately compiles the browser application and service worker. The backend uses built-in `node:sqlite`; some Node 24 releases display an experimental-feature warning on stderr, which is harmless (see [compatibility](docs/compatibility.md)).
 
 ```sh
 npm ci --ignore-scripts

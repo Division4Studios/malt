@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { queueComment } from './comments.ts';
 import { runChecks } from './execution.ts';
 import { MergeConflictError } from './merge-conflict.ts';
+import { MERGE_GATE_PENDING } from './merge-path.ts';
 import {
   boundSource,
   dispositionProblems,
@@ -22,6 +23,7 @@ import {
   stepOf,
   taskWorkflow,
 } from './pipeline.ts';
+import { publishDelivery } from './post-agent.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { recordConflict } from './repairs.ts';
 import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
@@ -132,8 +134,9 @@ async function publishFix(
   }
   const pushed: { head: string | null } = { head: null };
   try {
-    await context.workspaces.publish(
-      task,
+    await publishDelivery(
+      { workspaces: context.workspaces, mesh: context.mesh, now: () => context.repository.store.now() },
+      { job, task, signal, provenance: { step: step.id, kind: step.kind, role: job.role, jobId: job.id } },
       async (source) => {
         signal.throwIfAborted();
         const snapshot = await context.workspaces.snapshot(worktree);
@@ -161,7 +164,6 @@ async function publishFix(
         });
         pushed.head = published.head;
       },
-      { step: step.id, kind: step.kind, role: job.role, jobId: job.id },
     );
     // Announce only once the push succeeded; a size or push failure never claims publication.
     queueComment(
@@ -259,7 +261,9 @@ function completeRegression(
         : current.feedback,
       error: null,
     };
-    return isReviewComplete(recorded, workflow) ? { ...recorded, phase: 'merge_ready' } : recorded;
+    return isReviewComplete(recorded, workflow)
+      ? { ...recorded, phase: 'merge_ready', error: MERGE_GATE_PENDING }
+      : recorded;
   });
   queueComment(
     context,

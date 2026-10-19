@@ -5,8 +5,11 @@
  *
  * @file
  */
+import { MeshError } from '../protocol.ts';
+
 import { decideApproval } from './approvals.ts';
 import * as automation from './automations.ts';
+import { decideCheckpoint } from './checkpoint-decisions.ts';
 import { archiveDeliveries, holdDeliveries } from './delivery-controls.ts';
 import { changeGates } from './gate-controls.ts';
 import { noteObjective, saveDefinition } from './objective-goals.ts';
@@ -14,6 +17,7 @@ import { readObjectiveLog } from './objective-log.ts';
 import { answerQuestion } from './questions.ts';
 import { saveCaps } from './spend.ts';
 import * as telemetry from './telemetry-controls.ts';
+import { adoptWorktrees } from './worktree-owner.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -21,6 +25,7 @@ import type { FactoryRepository } from './repository.ts';
 /** Operations this module handles. */
 type LedgerOperation =
   | 'factory_answer'
+  | 'factory_checkpoint_decide'
   | 'factory_gates'
   | 'factory_approve'
   | 'factory_attempts'
@@ -36,7 +41,8 @@ type LedgerOperation =
   | 'factory_schedule_save'
   | 'factory_trigger_save'
   | 'factory_automation_delete'
-  | 'factory_automation_run';
+  | 'factory_automation_run'
+  | 'factory_worktrees_adopt';
 
 /**
  * Handlers for ledger-only operator controls.
@@ -53,6 +59,7 @@ export function ledgerHandlers(
 ): Record<LedgerOperation, () => unknown> {
   return {
     factory_answer: () => answerQuestion(repository, input),
+    factory_checkpoint_decide: () => decideCheckpoint(repository, input),
     factory_gates: () => changeGates(repository, input),
     factory_approve: () => decideApproval(repository, input),
     factory_attempts: async () => telemetry.attempts(repository, mesh, input),
@@ -69,5 +76,11 @@ export function ledgerHandlers(
     factory_trigger_save: () => automation.saveTrigger(repository, input),
     factory_automation_delete: () => automation.deleteAutomation(repository, input),
     factory_automation_run: () => automation.runAutomation(repository, input),
+    factory_worktrees_adopt: () => {
+      if (repository.active()) {
+        throw new MeshError('FACTORY_GATED', 'Pause the factory before handing .malt/worktrees to this environment.');
+      }
+      return adoptWorktrees(mesh, repository.store.now());
+    },
   };
 }

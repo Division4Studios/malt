@@ -9,7 +9,8 @@
  *
  * HTTP surface:
  *
- * - `GET /health` returns `{ ok: true, version }` for health checks.
+ * - `GET /health` returns `{ ok: true, version, revision }` for health checks;
+ *   `revision` is the source commit this broker was started from.
  * - `POST /rpc` takes `{ operation, input, credentials }` and returns either
  *   `{ result }` or `{ error: { code, message } }` with a matching status.
  *   An `x-agentmesh-team` header addresses a workspace team; without it the
@@ -30,13 +31,15 @@
 
 import { Buffer } from 'node:buffer';
 import { timingSafeEqual } from 'node:crypto';
-import { once } from 'node:events';
 import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { boundPortOf, closeServer, listen } from './broker-server.ts';
 import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
 import { CapabilityPolicyStore } from './capability-policy.ts';
+import { handleBindingOperation } from './connector-bindings.ts';
+import { isBindingOperation } from './connector-schemas.ts';
 import { fireTrigger } from './factory/automations.ts';
 import {
   AGENT_OPERATIONS,
@@ -63,6 +66,9 @@ import {
   isOperation,
   parseInput,
 } from './protocol.ts';
+import { sweepRetention } from './retention.ts';
+import { redactResolvedSecrets } from './secrets.ts';
+import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
 import { TRIGGER_PATH, triggerCall } from './trigger-request.ts';
@@ -70,6 +76,7 @@ import { Waiters } from './waiters.ts';
 
 import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
+import type { BindingOperation } from './connector-schemas.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
@@ -104,8 +111,17 @@ const HTTP_OK = 200;
 /** Mutations requiring the current workspace's designated lead. */
 const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
   'github_connect',
+  'github_section_save',
+  'github_verify',
   'github_create_issue',
   'github_set_status',
+  'github_label_apply',
+  'github_label_manage',
+  'github_milestone_assign',
+  'github_milestone_manage',
+  'github_view_create',
+  'github_view_manage',
+  'github_field_manage',
   'learning_set_skill_state',
 ]);
 
@@ -578,7 +594,7 @@ function assertFactoryAuthority(
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - Capability policy, GitHub or learning operation.
+ * @param operation - MCP binding, capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -586,10 +602,13 @@ function assertFactoryAuthority(
  */
 async function handleProjectOperation(
   team: Team,
-  operation: CapabilityOperation | GitHubOperation | LearningOperation,
+  operation: BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isBindingOperation(operation)) {
+    return handleBindingOperation(team, operation, input, credentials);
+  }
   if (isCapabilityOperation(operation)) {
     return handleCapabilityOperation(team, operation, input, credentials);
   }
@@ -694,7 +713,7 @@ async function respond(
     throw new MeshError('FORBIDDEN_ORIGIN', 'Browser requests are not supported.');
   }
   if (record.method === 'GET' && record.url === '/health') {
-    sendJson(response, HTTP_OK, { ok: true, version: VERSION });
+    sendJson(response, HTTP_OK, { ok: true, version: VERSION, revision: SOURCE_REVISION });
     return;
   }
   const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
@@ -728,7 +747,7 @@ async function handleRequest(
     const code = isKnown ? error.code : 'INTERNAL';
     log(isKnown ? 'warn' : 'error', 'broker', 'rpc_failed', { operation: operationName, code });
     sendJson(response, isKnown ? error.status : errorStatus('INTERNAL'), {
-      error: { code, message: isKnown ? error.message : 'Internal broker error.' },
+      error: { code, message: isKnown ? redactResolvedSecrets(error.message) : 'Internal broker error.' },
     });
   } finally {
     if (request.url !== '/health') {
@@ -797,22 +816,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
 
   // Periodically expire silent agents even when no requests arrive, and wake
   // anyone waiting on a presence-dependent state.
-  const sweep = setInterval(
-    () => {
-      for (const team of allTeams()) {
-        try {
-          team.store.expire();
-          team.waiters.notify();
-        } catch (error) {
-          log('error', 'broker', 'presence_sweep_failed', {
-            team: team.config.team,
-            code: error instanceof MeshError ? error.code : 'ERROR',
-          });
-        }
+  const sweepMs = Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS);
+  const sweep = setInterval(() => {
+    for (const team of allTeams()) {
+      try {
+        team.store.expire();
+        sweepRetention(team.store);
+        team.waiters.notify();
+      } catch (error) {
+        log('error', 'broker', 'presence_sweep_failed', {
+          team: team.config.team,
+          code: error instanceof MeshError ? error.code : 'ERROR',
+        });
       }
-    },
-    Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS),
-  );
+    }
+  }, sweepMs);
   // The sweep alone must never keep the process alive.
   sweep.unref();
 
@@ -871,49 +889,4 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       }
     },
   };
-}
-
-/**
- * Start listening, resolving once bound or rejecting on a bind error.
- *
- * @param server - The HTTP server.
- * @param port - The port to bind.
- * @param host - The interface to bind.
- * @returns A promise settled when listening starts or fails.
- */
-async function listen(server: http.Server, port: number, host: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<undefined>();
-  server.once('error', reject);
-  server.listen(port, host, () => {
-    server.removeListener('error', reject);
-    resolve(undefined);
-  });
-  return promise;
-}
-
-/**
- * Stop accepting connections and wait for in-flight requests to finish.
- *
- * @param server - The HTTP server.
- */
-async function closeServer(server: http.Server): Promise<void> {
-  // Subscribe before closing so the 'close' event cannot be missed.
-  const closed = once(server, 'close');
-  server.close();
-  await closed;
-}
-
-/**
- * Read the TCP port a listening server is bound to.
- *
- * @param server - The broker's server, after `listen` succeeded.
- * @returns The TCP port number, which the OS chose when port 0 was requested.
- * @throws {Error} When the server is not bound to a TCP address.
- */
-function boundPortOf(server: http.Server): number {
-  const address = server.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('Broker is not listening on a TCP port.');
-  }
-  return address.port;
 }
