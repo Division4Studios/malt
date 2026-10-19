@@ -29,6 +29,7 @@ export const CAPABILITIES = [
   'relationships',
   'membership',
   'transition',
+  'comment',
   'label-use',
   'label-manage',
   'milestone-use',
@@ -138,10 +139,10 @@ function describe(principal: z.output<typeof principalSchema>): string {
 /** Operations whose capabilities do not depend on their input. */
 type FixedOperation = Exclude<
   GitHubOperation,
-  'github_connect' | 'github_create_issue' | 'github_set_status' | 'github_field_manage'
+  'github_connect' | 'github_create_issue' | 'github_set_status' | 'github_field_manage' | 'github_view_manage'
 >;
 
-/** Field changes are gated by what they do: creating, changing and deleting are separate. */
+/** View and field changes are gated by what they do: creating, changing and deleting are separate. */
 const FIELD_CAPABILITIES = {
   create: 'view-field-create',
   change: 'view-field-change',
@@ -197,6 +198,9 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
       return parseInput(operation, input).parent === undefined ? needed : [...needed, 'relationships'];
     }
     case 'github_field_manage': {
+      return [FIELD_CAPABILITIES[parseInput(operation, input).action]];
+    }
+    case 'github_view_manage': {
       return [FIELD_CAPABILITIES[parseInput(operation, input).action]];
     }
     case 'github_set_status': {

@@ -44,8 +44,8 @@ interface Draft {
   readonly key: string;
   /** Rationale typed so far. */
   rationale: string;
-  /** Identity reused by every retry of one decision. */
-  operation: { readonly decision: 'approve' | 'reject'; readonly id: string } | null;
+  /** Identity reused by every retry of one exact decision and rationale. */
+  operation: { readonly decision: 'approve' | 'reject'; readonly rationale: string; readonly id: string } | null;
   /** A request is in flight. */
   isBusy: boolean;
   /** Announcement for assistive technology. */
@@ -156,28 +156,31 @@ export class RecommendationDecision {
       return;
     }
     draft.rationale = field.value;
-    if (draft.rationale.trim() === '') {
-      this.announce(t('Write a rationale before deciding.'));
+    const rationale = draft.rationale.trim();
+    if (rationale === '') {
+      this.announce(draft, t('Write a rationale before deciding.'));
       return;
     }
-    if (draft.operation?.decision !== decision) {
-      draft.operation = { decision, id: (this.hooks.identity ?? (() => crypto.randomUUID()))() };
+    // A retry replays the identical request; an edited rationale is a new decision with its own identity.
+    if (draft.operation?.decision !== decision || draft.operation.rationale !== rationale) {
+      draft.operation = { decision, rationale, id: (this.hooks.identity ?? (() => crypto.randomUUID()))() };
     }
     draft.isBusy = true;
-    this.announce(t('Sending decision…'));
+    this.announce(draft, t('Sending decision…'));
     try {
       const receipt: unknown = await this.hooks.decide({
         operationId: draft.operation.id,
         id: detail.id,
         revision: detail.revision,
         decision,
-        rationale: draft.rationale.trim(),
+        rationale,
       });
       this.settle(draft, receipt);
     } catch (error) {
       draft.isBusy = false;
       const reason = error instanceof Error ? error.message : t('The decision could not be sent.');
       this.announce(
+        draft,
         t('Not decided: {reason} Your rationale is kept; try again.', { reason: reason.slice(0, ERROR_MAX) }),
       );
     }
@@ -195,27 +198,32 @@ export class RecommendationDecision {
     target.isBusy = false;
     if (outcome === 'stale') {
       target.isStale = true;
-      this.announce(t('This proposal changed since you opened it. Refresh to review the current revision.'));
+      this.announce(target, t('This proposal changed since you opened it. Refresh to review the current revision.'));
       return;
     }
     let message = t('Rejected.');
     if (outcome === 'approved') {
       message = t('Approved.');
     }
-    this.announce(message);
-    this.hooks.reload();
+    this.announce(target, message);
+    // Another recommendation, or project, may be open by now; it is not reloaded for this answer.
+    if (target === this.draft) {
+      this.hooks.reload();
+    }
   }
 
   /**
-   * Record an announcement and ask the shell to show it.
+   * Record an announcement on the draft it belongs to, and show it while that draft is open.
    *
+   * @param draft - Draft the message concerns.
    * @param message - Text for the live region.
    */
-  private announce(message: string): void {
-    if (this.draft !== null) {
-      this.draft.message = message;
+  private announce(draft: Draft, message: string): void {
+    const target = draft;
+    target.message = message;
+    if (target === this.draft) {
+      this.hooks.redraw();
     }
-    this.hooks.redraw();
   }
 }
 

@@ -7,6 +7,7 @@
 import { labelOperation } from './github-labels.ts';
 import { milestoneOperation } from './github-milestones.ts';
 import { fieldOperation } from './github-project-fields.ts';
+import { viewChangeOperation } from './github-view-changes.ts';
 import { viewOperation } from './github-views.ts';
 
 import type { GitHubRunner } from './github-runner.ts';
@@ -23,6 +24,7 @@ const RESOURCE_OPERATIONS = [
   'github_views',
   'github_view_create',
   'github_field_manage',
+  'github_view_manage',
 ] as const;
 /** A repository resource operation. */
 type ResourceOperation = (typeof RESOURCE_OPERATIONS)[number];
@@ -85,6 +87,9 @@ export async function resourceOperation(
     }
     case 'github_field_manage': {
       return fieldOperation(context, input);
+    }
+    case 'github_view_manage': {
+      return viewChangeOperation(context, input);
     }
   }
 }
