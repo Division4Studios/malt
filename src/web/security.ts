@@ -35,10 +35,18 @@ function isSameSecret(left: string, right: string): boolean {
   const expected = Buffer.from(right);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
+
+/**
+ * A random pairing code held only in memory.
+ *
+ * @returns Hex pairing code.
+ */
+function memoryCode(): string {
+  return randomBytes(PAIR_BYTES).toString('hex');
+}
+
 /** Authenticated loopback-only control boundary. */
 export class OperatorSessions {
-  /** Displayed only in the owning CLI, never in a browser URL. */
-  public readonly pairingCode = randomBytes(PAIR_BYTES).toString('hex');
   /** Trusted server origin established after binding. */
   public origin = '';
   /** Session secrets remain only in HttpOnly cookies and server memory. */
@@ -47,6 +55,27 @@ export class OperatorSessions {
   private attempts = 0;
   /** Current rate window. */
   private windowAt = 0;
+  /** Reads the current pairing code; a persisted source honours rotation without a restart. */
+  private readonly code: () => string;
+
+  /**
+   * Create the session boundary.
+   *
+   * @param code - Current pairing code source; defaults to one random code kept in memory.
+   */
+  public constructor(code?: () => string) {
+    const fixed = memoryCode();
+    this.code = code ?? ((): string => fixed);
+  }
+
+  /**
+   * The current code, displayed only by the owning CLI and never in a browser URL.
+   *
+   * @returns Code a browser must present to pair.
+   */
+  public get pairingCode(): string {
+    return this.code();
+  }
 
   /**
    * Validate host, origin and Fetch Metadata before any control request.
@@ -103,7 +132,7 @@ export class OperatorSessions {
       this.attempts = 0;
     }
     this.attempts += 1;
-    if (this.attempts > ATTEMPT_LIMIT || !isSameSecret(code, this.pairingCode)) {
+    if (this.attempts > ATTEMPT_LIMIT || !this.matches(code)) {
       return false;
     }
     for (const [expiredSecret, expires] of this.sessions) {
@@ -141,6 +170,22 @@ export class OperatorSessions {
       ?.slice(prefix.length);
     this.sessions.delete(secret ?? '');
     response.setHeader('Set-Cookie', `${prefix}; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+  }
+
+  /**
+   * Compare a presented code with the current one; an unreadable code source fails closed.
+   *
+   * @param presented - Code entered by the operator.
+   * @returns Whether it matches.
+   */
+  private matches(presented: string): boolean {
+    let expected: string;
+    try {
+      expected = this.code();
+    } catch {
+      return false;
+    }
+    return isSameSecret(presented, expected);
   }
 
   /**
