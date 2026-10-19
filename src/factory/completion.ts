@@ -14,10 +14,15 @@ import { queueComment } from './comments.ts';
 import { canApplyInstructionStage } from './controls.ts';
 import { runChecks } from './execution.ts';
 import { completeFixStage } from './fix-stage.ts';
+import { objectiveGates } from './gate-controls.ts';
+import { MergeConflictError } from './merge-conflict.ts';
 import { automaticWorkflow } from './objectives.ts';
 import { isAdjudicated, isReviewOf, reviewStepOf, taskWorkflow } from './pipeline.ts';
 import { completePlanning } from './planning-stage.ts';
 import { PublicationSizeError } from './publication-size.ts';
+import { attemptBudget } from './repair-schema.ts';
+import { recordConflict } from './repairs.ts';
+import { completeRevalidation } from './revalidation.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, isPlanningKind } from './seats.ts';
 import { completeTriage } from './triage.ts';
@@ -95,7 +100,7 @@ export async function rejectDelivery(
   finding: string,
 ): Promise<FactoryTask> {
   const wasMerged = task.merge !== null;
-  const isExhausted = task.attempts >= context.settings.maxAttempts;
+  const isExhausted = task.attempts >= attemptBudget(task, context.settings);
   const returned = context.repository.editTask(task.id, (current) => {
     return {
       ...current,
@@ -176,6 +181,10 @@ async function applyOutcome(
   }
   if (record.kind === 'learn') {
     completeLearning(context, result);
+    return;
+  }
+  if (record.kind === 'revalidate') {
+    completeRevalidation(context, record, result);
     return;
   }
   if (record.kind === 'skill') {
@@ -300,6 +309,16 @@ async function completeDevelopment(
       { step: job.step ?? 'implement', kind: 'implement', role: job.role, jobId: job.id },
     );
   } catch (error) {
+    if (error instanceof MergeConflictError) {
+      signal.throwIfAborted();
+      await recordConflict(context, record, {
+        files: error.files,
+        head: error.head,
+        base: error.base,
+        directory: worktree,
+      });
+      return;
+    }
     if (!(error instanceof PublicationSizeError)) {
       throw error;
     }
@@ -516,6 +535,7 @@ function completeLearning(context: FactoryContext, result: AgentResult): void {
     updatedAt: context.repository.store.now(),
     workflow: automaticWorkflow(context.repository),
     approvals: [],
+    gates: objectiveGates(context.repository),
   });
 }
 
