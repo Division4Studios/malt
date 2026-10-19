@@ -7,7 +7,9 @@
  * @file
  */
 import { child, data, number, records, request, scoped, text } from './api.js';
+import { formatTime, locale, t } from './i18n.js';
 import {
+  ATTEMPT_KINDS,
   browserTimeZone,
   formatCost,
   formatDuration,
@@ -24,8 +26,6 @@ import type { Data } from './api.js';
 const PAGE_SIZE = 50;
 /** Filterable roles: core seats followed by specialist seats. */
 const ROLES = [...ROLE_SLOTS.keys(), 'plan-reviewer', 'fixer', 'librarian', 'regression-verifier'];
-/** Filterable attempt kinds. */
-const KINDS = ['plan', 'refine', 'develop', 'review', 'final', 'verify', 'learn', 'skill', 'triage'];
 /** Filterable providers. */
 const PROVIDERS = ['claude', 'codex'];
 /** Filterable lifecycle states. */
@@ -58,16 +58,33 @@ export interface SessionsHandle {
  *
  * @param name - Query parameter name.
  * @param label - Visible label.
- * @param options - Allowed values.
+ * @param options - Allowed values, each shown as itself or with a readable label.
  * @returns Label wrapping the select.
  */
-function filterSelect(name: string, label: string, options: readonly string[]): HTMLLabelElement {
+function filterSelect(
+  name: string,
+  label: string,
+  options: readonly string[] | Readonly<Record<string, string>>,
+): HTMLLabelElement {
   const wrapper = element('label', 'sessions-filter', label);
   const select = element('select');
   select.name = name;
-  select.append(new Option('All', ''), ...options.map((option) => new Option(option, option)));
+  const choices = Array.isArray(options)
+    ? options.map((option: string) => [option, option] as const)
+    : Object.entries(options);
+  select.append(new Option(t('All'), ''), ...choices.map(([value, shown]) => new Option(shown, value)));
   wrapper.append(select);
   return wrapper;
+}
+
+/**
+ * The readable label of an attempt kind.
+ *
+ * @param kind - Recorded kind.
+ * @returns Its label, or the kind itself when this console does not know it.
+ */
+function kindLabel(kind: string): string {
+  return ATTEMPT_KINDS[kind] ?? kind;
 }
 
 /**
@@ -82,11 +99,11 @@ function rowFields(row: Data): string[] {
   const cost = child(metrics, 'cost');
   const startedAt = new Date(number(row, 'startedAt'));
   return [
-    startedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    `${text(row, 'role')} · ${text(row, 'kind')}`,
-    `${text(row, 'provider')} · ${text(row, 'model') === '' ? 'default model' : text(row, 'model')}`,
+    formatTime(startedAt, { hour: '2-digit', minute: '2-digit' }),
+    `${text(row, 'role')} · ${kindLabel(text(row, 'kind'))}`,
+    `${text(row, 'provider')} · ${text(row, 'model') === '' ? t('default model') : text(row, 'model')}`,
     formatDuration(optionalNumber(metrics, 'durationMs')),
-    `${formatTokens(optionalNumber(tokens, 'total'))} tok`,
+    t('{tokens} tok', { tokens: formatTokens(optionalNumber(tokens, 'total')) }),
     formatCost(optionalNumber(cost, 'usd'), text(cost, 'source')),
   ];
 }
@@ -101,11 +118,13 @@ function livenessLine(row: Data): string {
   const liveness = child(row, 'liveness');
   const state = text(liveness, 'state');
   const parts = [
-    state === '' ? 'not recorded' : state.replace('_', ' '),
+    state === '' ? t('not recorded') : state.replace('_', ' '),
     text(liveness, 'stopReason'),
-    number(liveness, 'extensions') > 0 ? `extended ${String(number(liveness, 'extensions'))}×` : '',
-    text(liveness, 'lastSignal') === '' ? '' : `last signal ${text(liveness, 'lastSignal')}`,
-    text(row, 'failureClass') === '' ? '' : `retry class ${text(row, 'failureClass').replace('_', ' ')}`,
+    number(liveness, 'extensions') > 0 ? t('extended {count}×', { count: number(liveness, 'extensions') }) : '',
+    text(liveness, 'lastSignal') === '' ? '' : t('last signal {signal}', { signal: text(liveness, 'lastSignal') }),
+    text(row, 'failureClass') === ''
+      ? ''
+      : t('retry class {failureClass}', { failureClass: text(row, 'failureClass').replace('_', ' ') }),
   ];
   return parts.filter((part) => part !== '').join(' · ');
 }
@@ -125,19 +144,25 @@ function metricsPanel(row: Data): HTMLElement {
     .map((tool) => `${text(tool, 'name')} ×${String(number(tool, 'calls'))}`)
     .join(', ');
   const entries: [string, string][] = [
-    ['Summary', text(row, 'summary') === '' ? '—' : text(row, 'summary')],
-    ['Delivery', number(task, 'issue') > 0 ? `#${String(number(task, 'issue'))} ${text(task, 'title')}` : '—'],
-    ['Objective', text(row, 'objective') === '' ? '—' : text(row, 'objective')],
-    ['Overview', metricsLine(metrics)],
+    [t('Summary'), text(row, 'summary') === '' ? '—' : text(row, 'summary')],
+    [t('Delivery'), number(task, 'issue') > 0 ? `#${String(number(task, 'issue'))} ${text(task, 'title')}` : '—'],
+    [t('Objective'), text(row, 'objective') === '' ? '—' : text(row, 'objective')],
+    [t('Overview'), metricsLine(metrics)],
     [
-      'Tokens',
-      `input ${formatTokens(optionalNumber(tokens, 'input'))} · cache read ${formatTokens(optionalNumber(tokens, 'cacheRead'))} · cache write ${formatTokens(optionalNumber(tokens, 'cacheWrite'))} · output ${formatTokens(optionalNumber(tokens, 'output'))} · reasoning ${formatTokens(optionalNumber(tokens, 'reasoning'))}`,
+      t('Tokens'),
+      t('input {input} · cache read {cacheRead} · cache write {cacheWrite} · output {output} · reasoning {reasoning}', {
+        input: formatTokens(optionalNumber(tokens, 'input')),
+        cacheRead: formatTokens(optionalNumber(tokens, 'cacheRead')),
+        cacheWrite: formatTokens(optionalNumber(tokens, 'cacheWrite')),
+        output: formatTokens(optionalNumber(tokens, 'output')),
+        reasoning: formatTokens(optionalNumber(tokens, 'reasoning')),
+      }),
     ],
-    ['Cost source', text(child(metrics, 'cost'), 'source')],
-    ['Turns', optionalNumber(metrics, 'turns') === null ? '—' : String(number(metrics, 'turns'))],
-    ['API time', formatDuration(optionalNumber(metrics, 'apiDurationMs'))],
-    ['Tools', toolNames === '' ? 'none' : toolNames],
-    ['Liveness', livenessLine(row)],
+    [t('Cost source'), text(child(metrics, 'cost'), 'source')],
+    [t('Turns'), optionalNumber(metrics, 'turns') === null ? '—' : String(number(metrics, 'turns'))],
+    [t('API time'), formatDuration(optionalNumber(metrics, 'apiDurationMs'))],
+    [t('Tools'), toolNames === '' ? 'none' : toolNames],
+    [t('Liveness'), livenessLine(row)],
   ];
   const list = element('dl', 'attempt-metrics');
   for (const [term, value] of entries) {
@@ -167,7 +192,7 @@ class SessionsView {
   /** Day-grouped attempt list. */
   private readonly list = element('div', 'sessions-list');
   /** Next page control. */
-  private readonly more = element('button', 'small-button', 'Load older attempts');
+  private readonly more = element('button', 'small-button', t('Load older attempts'));
   /** Transcript viewer. */
   private readonly transcript: TranscriptViewer;
   /** Loaded rows, newest first. */
@@ -194,24 +219,24 @@ class SessionsView {
     this.timeZone = hooks.timeZone ?? browserTimeZone();
     this.transcript = new TranscriptViewer(this.read);
     this.status.setAttribute('aria-live', 'polite');
-    const search = element('label', 'sessions-filter', 'Search');
+    const search = element('label', 'sessions-filter', t('Search'));
     const input = element('input');
     input.name = 'query';
     input.type = 'search';
     input.maxLength = 200;
     search.append(input);
-    const apply = element('button', 'button secondary', 'Apply filters');
+    const apply = element('button', 'button secondary', t('Apply filters'));
     apply.type = 'submit';
-    this.form.setAttribute('aria-label', 'Filter attempts');
+    this.form.setAttribute('aria-label', t('Filter attempts'));
     this.delivery.type = 'hidden';
     this.delivery.name = 'taskId';
     this.deliveryChip.hidden = true;
     this.form.append(
       this.delivery,
-      filterSelect('role', 'Role', ROLES),
-      filterSelect('kind', 'Kind', KINDS),
-      filterSelect('provider', 'Provider', PROVIDERS),
-      filterSelect('state', 'State', STATES),
+      filterSelect('role', t('Role'), ROLES),
+      filterSelect('kind', t('Kind'), ATTEMPT_KINDS),
+      filterSelect('provider', t('Provider'), PROVIDERS),
+      filterSelect('state', t('State'), STATES),
       search,
       apply,
     );
@@ -241,12 +266,12 @@ class SessionsView {
     this.syncProject();
     this.delivery.value = taskId ?? '';
     this.deliveryChip.hidden = taskId === null;
-    const clear = element('button', 'small-button', 'Show all attempts');
+    const clear = element('button', 'small-button', t('Show all attempts'));
     clear.type = 'button';
     clear.addEventListener('click', () => {
       this.focusDelivery(null, '');
     });
-    this.deliveryChip.replaceChildren(`Attempts for ${label} `, clear);
+    this.deliveryChip.replaceChildren(t('Attempts for {label} ', { label }), clear);
     void this.load(false);
   }
 
@@ -267,6 +292,11 @@ class SessionsView {
     this.deliveryChip.hidden = true;
     this.expanded.clear();
     this.transcript.close();
+    // The previous project's attempts never show under this one, even if the next read fails.
+    this.rows = [];
+    this.nextCursor = null;
+    this.renderKey = '';
+    this.render();
   }
 
   /**
@@ -308,9 +338,15 @@ class SessionsView {
         this.accept(page, isOlder);
       }
     } catch (error) {
-      this.status.textContent = error instanceof Error ? error.message : 'Attempts could not be read.';
+      if (project === this.project) {
+        this.status.textContent = error instanceof Error ? error.message : t('Attempts could not be read.');
+      }
     } finally {
       this.isLoading = false;
+      // The project changed while this read was in flight: read the current one now.
+      if (project !== this.project) {
+        void this.load(false);
+      }
     }
   }
 
@@ -325,13 +361,14 @@ class SessionsView {
     this.rows = isOlder ? [...this.rows, ...incoming] : incoming;
     const cursor = text(page, 'nextCursor');
     this.nextCursor = cursor === '' ? null : cursor;
-    this.status.textContent = this.rows.length === 0 ? 'No attempts match these filters.' : '';
+    this.status.textContent = this.rows.length === 0 ? t('No attempts match these filters.') : '';
     this.render();
   }
 
   /** Render day groups, keeping focus on the same attempt when possible. */
   private render(): void {
-    const key = JSON.stringify([this.rows, [...this.expanded]]);
+    // Row labels combine translated words with data, so a language change must rebuild them.
+    const key = JSON.stringify([this.rows, [...this.expanded], locale()]);
     this.more.hidden = this.nextCursor === null;
     if (key === this.renderKey) {
       return;
@@ -386,7 +423,7 @@ class SessionsView {
     const panel = element('div', 'attempt-panel');
     panel.id = `attempt-${id}`;
     panel.hidden = !isOpen;
-    const open = element('button', 'small-button', 'Open transcript');
+    const open = element('button', 'small-button', t('Open transcript'));
     open.type = 'button';
     open.addEventListener('click', () => {
       void this.transcript.open(this.project, id, `${text(row, 'role')} · ${text(row, 'kind')}`);

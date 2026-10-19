@@ -17,6 +17,7 @@ import { runProcess } from '../src/factory/processes.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { sealSource } from '../src/factory/source-reader.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
@@ -137,9 +138,14 @@ function nextIntent(context: FactoryContext): JobIntent {
  *
  * @param context - Project ledger.
  * @param result - Result fields to apply.
+ * @param source - Commit the attempt read, sealed as it would be before execution.
  * @returns The intent that ran.
  */
-async function perform(context: FactoryContext, result: Partial<AgentResult>): Promise<JobIntent> {
+async function perform(
+  context: FactoryContext,
+  result: Partial<AgentResult>,
+  source: string | null = null,
+): Promise<JobIntent> {
   const intent = nextIntent(context);
   const job = jobSchema.parse({
     ...intent,
@@ -158,6 +164,9 @@ async function perform(context: FactoryContext, result: Partial<AgentResult>): P
     target: null,
   });
   assert.equal(context.repository.claim(job, context.settings), true);
+  if (source !== null) {
+    sealSource(context.repository, job, { directory: context.mesh.root, head: source, status: '' });
+  }
   const execution: ExecutedJob = {
     completion: {
       result: {
@@ -197,9 +206,10 @@ async function specifyAndPlan(context: FactoryContext): Promise<JobIntent> {
   const plan = await perform(context, { deliveries: [delivery] });
   assert.deepEqual([plan.role, plan.kind, plan.step], ['team-lead', 'refine', 'plan']);
   const review = nextIntent(context);
+  // The fixture plans on Codex, so the review prefers the other family.
   assert.deepEqual(
     [review.role, review.kind, review.step, review.preferredProvider],
-    ['plan-reviewer', 'plan_review', 'plan-review', 'codex'],
+    ['plan-reviewer', 'plan_review', 'plan-review', 'claude'],
   );
   return review;
 }
@@ -243,4 +253,30 @@ await test('a clean plan review skips the revision', async (t) => {
   await specifyAndPlan(context);
   await perform(context, { outcome: 'success', findings: [] });
   assert.equal(objective(context, featureId).phase, 'provisioning');
+});
+
+await test('specification, plan and revision outputs are typed and bound to the source each attempt read', async (t) => {
+  const { context, featureId } = fixture(t);
+  const specHead = 'a'.repeat(40);
+  const planHead = 'b'.repeat(40);
+  await perform(context, { deliveries: [delivery] }, specHead);
+  await perform(context, { deliveries: [delivery, { ...delivery, key: 'farewell', title: 'Farewell' }] }, planHead);
+  await perform(context, { outcome: 'changes_requested', findings: ['[P2] name the check'] });
+  await perform(context, {
+    deliveries: [delivery],
+    dispositions: [{ id: 'plan-review-1', decision: 'adopted', reason: 'Valid', evidence: 'Named' }],
+  });
+  const outputs = objective(context, featureId).planOutputs ?? [];
+  assert.deepEqual(
+    outputs.map((output) => [output.schemaVersion, output.kind, output.stepId, output.source, output.deliveries]),
+    [
+      [1, 'specify', 'specify', specHead, 1],
+      [1, 'plan', 'plan', planHead, 2],
+      [1, 'plan_revise', 'plan-revise', null, 1],
+    ],
+  );
+  assert.deepEqual(
+    objective(context, featureId).planningResults?.map((result) => result.schemaVersion),
+    [1, 1],
+  );
 });
