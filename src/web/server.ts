@@ -14,6 +14,7 @@ import { z } from 'zod/v3';
 import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
+import { ensurePairingCode, readPairingCode } from './pairing.ts';
 import { ProjectGateway } from './projects.ts';
 import { recommendationQuery } from './recommendation-query.ts';
 import { OperatorSessions } from './security.ts';
@@ -71,6 +72,14 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'cost-chart',
     'price-editor',
     'costs-ui',
+    'i18n',
+    'catalog-zh',
+    'catalog-zh-shell',
+    'catalog-zh-factory',
+    'catalog-zh-board',
+    'catalog-zh-workflows',
+    'catalog-zh-project',
+    'catalog-zh-costs',
     'theme',
     'objective-ui',
     'console-views',
@@ -88,8 +97,29 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'board-ui',
     'automations-model',
     'automations-ui',
+    'diff-parse',
+    'diff-model',
+    'diff-ui',
+    'onboarding-model',
+    'onboarding-ui',
+    'settings-model',
+    'settings-ui',
+    'project-views',
+    'roles-model',
+    'roles-dom',
+    'roles-ui',
+    'secrets-model',
+    'secrets-ui',
+    'step-override-model',
+    'workflow-history-model',
+    'workflow-history-ui',
+    'step-override-ui',
     'delivery-ui',
     'goal-model',
+    'checklist-dialog',
+    'goal-ui',
+    'spend-model',
+    'spend-editor',
     'workflow-model',
     'workflow-checks',
     'workflow-dom',
@@ -339,7 +369,7 @@ function canWriteStream(response: ServerResponse): boolean {
 export interface WebConsole {
   /** Local browser origin. */
   readonly url: string;
-  /** Local pairing code, shown by the owning CLI. */
+  /** Local pairing code at startup, shown by the owning CLI; `pairing-code --rotate` may replace it later. */
   readonly pairingCode: string;
   /** Stop only the UI server, keeping factory ownership with the broker. */
   readonly close: () => Promise<void>;
@@ -365,7 +395,8 @@ export async function startWebConsole(
       .strict()
       .parse(binding);
   }
-  const sessions = new OperatorSessions();
+  ensurePairingCode(config.directory);
+  const sessions = new OperatorSessions(() => readPairingCode(config.directory));
   const capabilities = typeof operators === 'function' ? { terminal: operators } : operators;
   const gateway = new ProjectGateway(config, capabilities?.terminal, capabilities?.recommendation);
   const streams = new Streams();
@@ -529,6 +560,14 @@ async function inspectApi(
     }
     case '/api/stream': {
       await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/version': {
+      json(response, HTTP.ok, await gateway.versions(project));
+      return;
+    }
+    case '/api/preflight': {
+      json(response, HTTP.ok, await gateway.preflight(project));
       return;
     }
     case '/api/artifact': {

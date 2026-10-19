@@ -35,7 +35,7 @@ interface CachedDigest {
   readonly value: DigestRead;
 }
 
-/** Bounded insertion-ordered digest cache keyed by job id. */
+/** Bounded insertion-ordered digest cache keyed by project and job id. */
 const digests = new Map<string, CachedDigest>();
 
 /**
@@ -47,15 +47,17 @@ const digests = new Map<string, CachedDigest>();
  */
 export async function attemptDigest(mesh: MeshConfig, job: FactoryJob): Promise<DigestRead> {
   const version = await streamVersion(mesh, job.artifact);
-  const key = `${job.state}:${String(version?.size ?? -1)}:${String(version?.mtimeMs ?? -1)}`;
-  const cached = digests.get(job.id);
+  // Projects cloned from one another can share job ids, so the cache is scoped by stream file.
+  const id = `${mesh.directory}:${job.id}`;
+  const key = `${job.state}:${version?.file ?? ''}:${String(version?.size ?? -1)}:${String(version?.mtimeMs ?? -1)}`;
+  const cached = digests.get(id);
   if (cached?.key === key) {
     return cached.value;
   }
   const { parse, read } = await parseAttempt(mesh, job, { isCollecting: false, version });
   const value = { digest: parse.digest, read };
-  digests.delete(job.id);
-  digests.set(job.id, { key, value });
+  digests.delete(id);
+  digests.set(id, { key, value });
   for (const stale of digests.keys()) {
     if (digests.size <= DIGEST_CACHE_MAX) {
       break;
