@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 
 import { applyTransfer, planTransfer } from './recommendation-graph.ts';
 import { advanceGuidance } from './recommendation-guidance.ts';
+import { areObjectivesCurrent } from './recommendation-objectives.ts';
 import { recommendationRetrySchema } from './recommendation-read-schema.ts';
 
 import type { ObservedIssue } from '../github-issues.ts';
@@ -264,6 +265,27 @@ function start(context: ExecutionContext, record: Recommendation): void {
 }
 
 /**
+ * Advance one guidance record; an error it cannot recover from settles it as
+ * failed with the error, so one record never stalls the reconcile pass.
+ *
+ * @param context - Project ledger and learning service.
+ * @param record - Applying guidance recommendation.
+ */
+async function guarded(context: ExecutionContext, record: Recommendation): Promise<void> {
+  try {
+    await advanceGuidance(context, record);
+  } catch (error) {
+    context.repository.recommendations.transition({
+      id: record.id,
+      revision: record.revision,
+      state: 'applying',
+      next: 'failed',
+      reason: (Error.isError(error) ? error.message : 'Skill candidate could not be created.').slice(0, REASON_MAX),
+    });
+  }
+}
+
+/**
  * Start fresh approved records and settle applying ones. Rejected, stale and
  * pending records, and kinds without remote ticket operations, are never read
  * or changed.
@@ -279,14 +301,20 @@ export async function advanceRecommendations(context: ExecutionContext): Promise
         settle(context, record);
       } else {
         // eslint-disable-next-line no-await-in-loop -- Bridge steps write the learning library one record at a time.
-        await advanceGuidance(context, record);
+        await guarded(context, record);
       }
       continue;
     }
     // eslint-disable-next-line no-await-in-loop -- Records execute one at a time so remote reads stay serialized.
     const fresh = await freshness(context, record);
     const fence = { id: record.id, revision: record.revision, state: 'approved' as const };
-    if (fresh.state === 'stale') {
+    if (!areObjectivesCurrent(repository, record.body.observedObjectives)) {
+      repository.recommendations.transition({
+        ...fence,
+        next: 'stale',
+        reason: 'Local objective scope changed after approval; nothing was changed. Refresh the proposal.',
+      });
+    } else if (fresh.state === 'stale') {
       repository.recommendations.transition({
         ...fence,
         next: 'stale',
@@ -318,18 +346,21 @@ export async function retryRecommendation(context: ExecutionContext, input: unkn
   const { repository } = context;
   const request = recommendationRetrySchema.parse(input);
   const record = repository.recommendations.get(request.id);
-  if (record?.revision !== request.revision || record.state !== 'failed' || !isTicketOperation(record)) {
-    throw new MeshError('FACTORY_GATED', 'Only a failed duplicate or consolidation can be retried at its revision.');
+  if (record?.revision !== request.revision || record.state !== 'failed' || !isExecutable(record)) {
+    throw new MeshError('FACTORY_GATED', 'Only a failed recommendation can be retried at its revision.');
   }
   const fence = { id: record.id, revision: record.revision, state: 'failed' as const };
-  const effects = plannedEffects(record);
-  const touched = new Set(
-    effects.filter((effect) => repository.effectCompleted(effect.id)).map((effect) => effect.issue),
-  );
-  if (touched.size === 0) {
+  // A guidance record changed nothing locally, so it is fully revalidated from approved. A ticket operation
+  // already moved its local edges at start; revalidating its objectives would see that change as staleness.
+  if (!isTicketOperation(record)) {
     repository.recommendations.transition({ ...fence, next: 'approved', reason: 'Operator retry; revalidating.' });
     return { state: 'approved' };
   }
+  const touched = new Set(
+    plannedEffects(record)
+      .filter((effect) => repository.effectCompleted(effect.id))
+      .map((effect) => effect.issue),
+  );
   const untouched = record.body.observedIssues.filter((observed) => !touched.has(observed.issue));
   const fresh = await freshness(context, { ...record, body: { ...record.body, observedIssues: untouched } });
   if (fresh.state !== 'fresh') {

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import { z } from 'zod/v3';
 
 import { selectAll } from '../src/database.ts';
-import { advanceRecommendations } from '../src/factory/recommendation-execution.ts';
+import { advanceRecommendations, retryRecommendation } from '../src/factory/recommendation-execution.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
@@ -164,4 +164,37 @@ await test('oversized fields are clipped, a crash before the receipt reuses the 
   for (const part of [record.id, record.revision, '#1, #2']) {
     assert.ok(lesson.includes(part), `the lesson names ${part}`);
   }
+});
+
+await test('a changed local objective makes guidance stale, and a learning failure fails only its record', async (t) => {
+  const { repository, learning } = project(t);
+  const failing: NonNullable<ExecutionContext['learning']> = {
+    execute: async () => {
+      await Promise.resolve();
+      throw new Error('candidate directory is read-only');
+    },
+    recordLesson: (input, actor, id) => learning.recordLesson(input, actor, id),
+    skillLibrary: () => learning.skillLibrary(),
+  };
+  const context: ExecutionContext = { repository, remote: { observedIssue: readObservation }, learning: failing };
+  const objective = { id: '00000000-0000-4000-8000-000000000001', revision: 'b'.repeat(64) };
+  const scoped = decide(
+    repository,
+    {
+      ...guidance,
+      tickets: [3],
+      observedIssues: [{ issue: 3, revision: 'a'.repeat(64) }],
+      observedObjectives: [objective],
+    },
+    'approved',
+  );
+  const broken = decide(repository, guidance, 'approved');
+  await advanceRecommendations(context);
+  await advanceRecommendations(context);
+  assert.equal(repository.recommendations.get(scoped.id)?.state, 'stale');
+  const failed = repository.recommendations.get(broken.id);
+  assert.equal(failed?.state, 'failed');
+  assert.match(failed.audit.at(-1)?.reason ?? '', /read-only/v);
+  const retried = await retryRecommendation(context, { id: broken.id, revision: broken.revision });
+  assert.deepEqual(retried, { state: 'approved' });
 });
