@@ -46,7 +46,28 @@ const lessonSchema = schemas.learning_record.extend({
   id: z.string().uuid(),
   actor: z.string(),
   recordedAt: z.string().datetime(),
+  /** How often the supervisor saw this same cause; absent on lessons recorded once. */
+  occurrences: z.number().int().positive().optional(),
+  /** When the cause was last seen again. */
+  lastRecordedAt: z.string().datetime().optional(),
 });
+/** Most evidence items kept on a lesson seen repeatedly. */
+const REPEATED_EVIDENCE_MAX = 10;
+
+/**
+ * Earlier and new evidence without duplicates, newest kept when bounded.
+ *
+ * @param earlier - Evidence already on the lesson.
+ * @param added - Evidence from this occurrence.
+ * @returns Bounded, de-duplicated evidence.
+ */
+function mergedEvidence(earlier: readonly string[], added: readonly string[]): string[] {
+  const merged = new Set(earlier);
+  for (const item of added) {
+    merged.add(item);
+  }
+  return [...merged].slice(-REPEATED_EVIDENCE_MAX);
+}
 
 /** Source snapshot pinned to an actual GitHub commit, with license provenance. */
 const sourceSchema = z.object({
@@ -174,12 +195,77 @@ export class ProjectLearning {
   }
 
   /**
+   * Record a lesson under a caller-chosen stable identity, once. Replaying
+   * the same identity returns the lesson already on disk, so a crash between
+   * writing it and the caller's own receipt never leaves a duplicate.
+   *
+   * @param input - Lesson fields, validated like `learning_record`.
+   * @param actor - Public author identity, never a credential.
+   * @param id - Stable lesson identity.
+   * @returns The recorded lesson.
+   * @throws {MeshError} For invalid lesson fields or an unreadable existing lesson.
+   */
+  public recordLesson(input: unknown, actor: string, id: string): z.output<typeof lessonSchema> {
+    const lessonId = z.string().uuid().parse(id);
+    const file = path.join(this.directory, 'lessons', `${lessonId}.json`);
+    try {
+      return lessonSchema.parse(readJsonFile(file));
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) {
+        throw error;
+      }
+    }
+    const lesson = { ...parseInput('learning_record', input), id: lessonId, actor, recordedAt: timestamp() };
+    this.mkdir(path.dirname(file));
+    writeAtomic(file, `${JSON.stringify(lesson, null, 2)}\n`);
+    return lesson;
+  }
+
+  /**
    * Expose only reviewed revision selectors for runtime routing.
    *
    * @returns Active and explicitly retired project overrides.
    */
   public skillLibrary(): z.output<typeof librarySchema> {
     return this.library();
+  }
+
+  /**
+   * Record a supervisor lesson once per cause: seeing the same key again updates
+   * that lesson's count and evidence instead of adding a duplicate.
+   *
+   * @param input - Evidence and lesson.
+   * @param key - Stable identity of the cause, such as the delivery and its normalized finding.
+   * @returns Persisted lesson.
+   * @throws {Error} When an existing lesson file cannot be read or parsed.
+   */
+  public recordOnce(input: OperationInput<'learning_record'>, key: string): unknown {
+    const value = parseInput('learning_record', input);
+    const digest = createHash('sha256').update(key).digest('hex');
+    const id = digest.replace(/^(?<a>.{8})(?<b>.{4})(?<c>.{4})(?<d>.{4})(?<e>.{12}).*$/v, '$<a>-$<b>-$<c>-$<d>-$<e>');
+    const directory = path.join(this.directory, 'lessons');
+    const file = path.join(directory, `${id}.json`);
+    let previous: z.output<typeof lessonSchema> | null = null;
+    try {
+      previous = lessonSchema.parse(readJsonFile(file));
+    } catch (error) {
+      if (!hasErrorCode(error, 'ENOENT')) {
+        throw error;
+      }
+    }
+    this.mkdir(directory);
+    const now = timestamp();
+    const lesson =
+      previous === null
+        ? { ...value, id, actor: 'factory-runtime', recordedAt: now }
+        : {
+            ...previous,
+            evidence: mergedEvidence(previous.evidence, value.evidence),
+            occurrences: (previous.occurrences ?? 1) + 1,
+            lastRecordedAt: now,
+          };
+    writeAtomic(file, `${JSON.stringify(lesson, null, 2)}\n`);
+    return lesson;
   }
 
   /**

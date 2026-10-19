@@ -17,6 +17,8 @@ export const DEFAULT_MAX_MS = 7_200_000;
 export const DEFAULT_SAMPLE_MS = 60_000;
 /** Smallest accepted sample interval, so sampling never becomes a busy loop. */
 const MIN_SAMPLE_MS = 1000;
+/** Full subscription usage. */
+const PERCENT_MAX = 100;
 
 /** Optional project liveness policy; `jobTimeoutMs` is the checkpoint interval. */
 export const livenessSettingsSchema = z
@@ -24,13 +26,15 @@ export const livenessSettingsSchema = z
     stallMs: z.number().int().positive().optional(),
     maxMs: z.number().int().positive().optional(),
     sampleMs: z.number().int().min(MIN_SAMPLE_MS).optional(),
+    /** Subscription headroom an extension needs, per running attempt sharing the provider. */
+    quotaMarginPercent: z.number().min(0).max(PERCENT_MAX).optional(),
   })
   .strict();
 /** Saved liveness policy. */
 export type LivenessSettings = z.output<typeof livenessSettingsSchema>;
 
 /** What an assignment's latest signals say about it. */
-export const LIVENESS_STATES = ['progressing', 'idle', 'awaiting_input', 'stalled', 'ceiling'] as const;
+export const LIVENESS_STATES = ['progressing', 'idle', 'awaiting_input', 'stalled', 'ceiling', 'held'] as const;
 /** One liveness state. */
 export type LivenessState = (typeof LIVENESS_STATES)[number];
 
@@ -51,8 +55,64 @@ export const jobLivenessSchema = z
 /** Recorded attempt liveness. */
 export type JobLiveness = z.output<typeof jobLivenessSchema>;
 
+/** Shortest continuation the operator may grant at a checkpoint. */
+export const CONTINUE_MIN_MINUTES = 5;
+/** Longest continuation the operator may grant at a checkpoint. */
+export const CONTINUE_MAX_MINUTES = 240;
+
+/**
+ * The operator decision a productive attempt asked for when a checkpoint held
+ * it or it reached the ceiling: `pending` until answered, then `continue` (a
+ * bounded fresh session from the preserved worktree), `wait` (normal retry
+ * rules) or `stale` (the source or stage moved on, so it no longer applies).
+ */
+export const checkpointSchema = z
+  .object({
+    state: z.enum(['pending', 'continue', 'wait', 'stale']),
+    /** Recorded stop reason the operator decides on. */
+    reason: z.string().max(LIVENESS_TEXT_MAX),
+    /** Newest meaningful signal and when it happened, as evidence. */
+    lastSignal: z.string().max(LIVENESS_TEXT_MAX).nullable(),
+    lastProgressAt: z.number(),
+    extensions: z.number().int().nonnegative(),
+    askedAt: z.number(),
+    /** Granted continuation, for `continue`. */
+    minutes: z.number().int().min(CONTINUE_MIN_MINUTES).max(CONTINUE_MAX_MINUTES).nullable(),
+    requestId: z.string().uuid().nullable(),
+    decidedAt: z.number().nullable(),
+    /** The attempt that used a `continue` grant; a grant is used once. */
+    consumedBy: z.string().nullable(),
+  })
+  .strict();
+/** One checkpoint decision. */
+export type Checkpoint = z.output<typeof checkpointSchema>;
+
+/** Operator input deciding one checkpoint, fenced by attempt and source. */
+export const checkpointDecideSchema = z
+  .object({
+    jobId: z.string().uuid(),
+    requestId: z.string().uuid(),
+    action: z.enum(['continue', 'wait']),
+    minutes: z.number().int().min(CONTINUE_MIN_MINUTES).max(CONTINUE_MAX_MINUTES).optional(),
+    /** The delivery head the operator saw; a moved head makes the decision stale. */
+    expectedHead: z.string().nullable().optional(),
+  })
+  .strict();
+/** Checkpoint operations. */
+export const CHECKPOINT_OPERATIONS = ['factory_checkpoint_decide'] as const;
+/** Their input schemas. */
+export const checkpointSchemas = { factory_checkpoint_decide: checkpointDecideSchema };
+
 /** Why an attempt did not succeed, which decides when its step may run again. */
-export const FAILURE_CLASSES = ['rate_limit', 'transient', 'stalled', 'invalid_output', 'gate', 'cancelled'] as const;
+export const FAILURE_CLASSES = [
+  'rate_limit',
+  'transient',
+  'stalled',
+  'held',
+  'invalid_output',
+  'gate',
+  'cancelled',
+] as const;
 /** One failure class. */
 export type FailureClass = (typeof FAILURE_CLASSES)[number];
 /** Recorded failure class. */

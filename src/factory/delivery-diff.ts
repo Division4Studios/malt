@@ -303,15 +303,26 @@ async function patch(
   const sides = [file.oldPath, file.path].filter((value) => value !== null);
   // A literal pathspec also selects everything beneath a directory of the same name (a renamed-away file
   // replaced by a directory), which may hold private files; exclude those so only this file pair is read.
-  const paths = [...sides.map((value) => `:(literal)${value}`), ...sides.map((value) => `:(exclude,literal)${value}/`)];
+  // Git applies exclusions last, so a file renamed beneath its own old path is read one side at a time.
+  const isNested = sides.some((outer) => sides.some((inner) => inner.startsWith(`${outer}/`)));
+  const groups = isNested ? sides.map((value) => [value]) : [sides];
   let text: string;
   try {
-    text = await command(
-      'git',
-      [...DIFF_OPTIONS, '--patch', `${source.base}...${source.head}`, '--', ...paths],
-      source.cwd,
-      false,
+    const parts = await Promise.all(
+      groups.map(async (group) => {
+        const paths = [
+          ...group.map((value) => `:(literal)${value}`),
+          ...group.map((value) => `:(exclude,literal)${value}/`),
+        ];
+        return command(
+          'git',
+          [...DIFF_OPTIONS, '--patch', `${source.base}...${source.head}`, '--', ...paths],
+          source.cwd,
+          false,
+        );
+      }),
     );
+    text = parts.join('');
   } catch (error) {
     if (error instanceof CommandFailureError) {
       // The output exceeded the command buffer; report it as too large rather than failing the view.
