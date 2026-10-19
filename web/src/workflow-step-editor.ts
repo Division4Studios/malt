@@ -3,10 +3,12 @@
  * review/gate/optional flags, provider, profile and instructions. The form
  * only reports intents through `act`; the draft editor owns the data. Fields a
  * kind does not support are not rendered. Labels that name other steps carry
- * `data-title-of` / `data-id-of` so renames update them in place.
+ * `data-title-of` so title edits update them in place; an id rename re-renders
+ * the section, so every reference control names the new id.
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 import { button, checkbox, field, keyed, select } from './workflow-dom.js';
 import {
@@ -60,11 +62,11 @@ export interface StepContext {
 }
 
 /** Explanations of each step setting. */
-const FLAG_TEXT: Readonly<Record<FlagField, string>> = {
-  blind: 'Blind review: sees no other reviewer’s findings or notes',
-  gate: 'Gate: wait for a human approval in the Inbox after this step succeeds',
-  optional: 'Optional: the operator may skip this step for one delivery',
-};
+const FLAG_TEXT: Readonly<Record<FlagField, string>> = translated({
+  blind: phrase('Blind review: sees no other reviewer’s findings or notes'),
+  gate: phrase('Gate: wait for a human approval in the Inbox after this step succeeds'),
+  optional: phrase('Optional: the operator may skip this step for one delivery'),
+});
 
 /**
  * A text label naming another step, kept current by renames.
@@ -76,7 +78,7 @@ const FLAG_TEXT: Readonly<Record<FlagField, string>> = {
 function referenceLabel(target: DraftStep | undefined, id: string): HTMLElement {
   const label = element('span');
   if (target === undefined) {
-    label.append(element('code', '', id), element('span', '', ' (not an earlier step)'));
+    label.append(element('code', '', id), element('span', '', t(' (not an earlier step)')));
     return label;
   }
   const title = element('span', '', target.title);
@@ -142,8 +144,8 @@ function referenceChecks(
  */
 function afterGroup(context: StepContext, step: DraftStep): HTMLFieldSetElement {
   const checks = referenceChecks(context, step, 'after', step.after);
-  const empty = element('p', 'wf-hint', 'Nothing earlier in this section; it starts the section.');
-  return group('Runs after', ...(checks.length === 0 ? [empty] : checks));
+  const empty = element('p', 'wf-hint', t('Nothing earlier in this section; it starts the section.'));
+  return group(t('Runs after'), ...(checks.length === 0 ? [empty] : checks));
 }
 
 /**
@@ -168,14 +170,14 @@ function inputsGroup(context: StepContext, step: DraftStep): HTMLFieldSetElement
     return wrapper;
   };
   const node = group(
-    'Reads outputs of',
-    radio('Every step it runs after, directly or indirectly (default)', false),
-    radio('Only the steps selected below', true),
+    t('Reads outputs of'),
+    radio(t('Every step it runs after, directly or indirectly (default)'), false),
+    radio(t('Only the steps selected below'), true),
   );
   if (step.inputs !== null) {
     const checks = referenceChecks(context, step, 'inputs', step.inputs);
     const list = element('div', 'wf-subgroup');
-    list.append(...(checks.length === 0 ? [element('p', 'wf-hint', 'No earlier steps to read.')] : checks));
+    list.append(...(checks.length === 0 ? [element('p', 'wf-hint', t('No earlier steps to read.'))] : checks));
     node.append(list);
   }
   return node;
@@ -190,7 +192,7 @@ function inputsGroup(context: StepContext, step: DraftStep): HTMLFieldSetElement
  */
 function rolesGroup(context: StepContext, step: DraftStep): HTMLFieldSetElement {
   const node = group(
-    'Seats that may take this step',
+    t('Seats that may take this step'),
     ...SEATS.map((role) => {
       return checkbox(role, step.roles.includes(role), `${step.uid}:role:${role}`, (isOn) => {
         context.act(step.uid, { type: 'role', role, value: isOn });
@@ -215,7 +217,7 @@ function flagsGroup(context: StepContext, step: DraftStep): HTMLFieldSetElement 
     return null;
   }
   return group(
-    'Behaviour',
+    t('Behaviour'),
     ...fields.map((name) => {
       return checkbox(FLAG_TEXT[name], step[name], `${step.uid}:${name}`, (isOn) => {
         context.act(step.uid, { type: 'flag', field: name, value: isOn });
@@ -247,19 +249,23 @@ function identityFields(context: StepContext, step: DraftStep): HTMLElement {
     context.act(step.uid, { type: 'rename', value: id.value });
   });
   const derive = button(
-    'Use title',
+    t('Use title'),
     () => {
       context.act(step.uid, { type: 'derive' });
     },
     { variant: 'ghost wf-inline-button', focusKey: `${step.uid}:derive` },
   );
-  const idField = field('Step id', id, 'Lowercase letters, digits, "_" or "-". Renaming updates every reference.');
+  const idField = field(
+    t('Step id'),
+    id,
+    t('Lowercase letters, digits, "_" or "-". Renaming updates every reference.'),
+  );
   idField.append(derive);
   const kind = select(kindOptions(context.section), step.kind, `${step.uid}:kind`, (value) => {
     context.act(step.uid, { type: 'kind', value });
   });
   const providers: [string, string][] = [
-    ['', 'Normal routing'],
+    ['', t('Normal routing')],
     ...PROVIDERS.map((name): [string, string] => [name, name]),
   ];
   const provider = select(providers, step.provider, `${step.uid}:provider`, (value) => {
@@ -274,11 +280,11 @@ function identityFields(context: StepContext, step: DraftStep): HTMLElement {
   });
   const grid = element('div', 'wf-field-grid');
   grid.append(
-    field('Title', title),
+    field(t('Title'), title),
     idField,
-    field('Kind', kind),
-    field('Preferred provider', provider),
-    field('Profile', profile, 'Optional organization profile key; empty uses the seat’s own.'),
+    field(t('Kind'), kind),
+    field(t('Preferred provider'), provider),
+    field(t('Profile'), profile, t('Optional organization profile key; empty uses the seat’s own.')),
   );
   return grid;
 }
@@ -293,7 +299,7 @@ function identityFields(context: StepContext, step: DraftStep): HTMLElement {
 function stepToolbar(context: StepContext, step: DraftStep): HTMLElement {
   const bar = element('div', 'wf-step-toolbar');
   const up = button(
-    'Move up',
+    t('Move up'),
     () => {
       context.act(step.uid, { type: 'move', offset: -1 });
     },
@@ -301,7 +307,7 @@ function stepToolbar(context: StepContext, step: DraftStep): HTMLElement {
   );
   up.disabled = context.index === 0;
   const down = button(
-    'Move down',
+    t('Move down'),
     () => {
       context.act(step.uid, { type: 'move', offset: 1 });
     },
@@ -309,7 +315,7 @@ function stepToolbar(context: StepContext, step: DraftStep): HTMLElement {
   );
   down.disabled = context.index === context.steps.length - 1;
   const remove = button(
-    'Remove step',
+    t('Remove step'),
     () => {
       context.act(step.uid, { type: 'remove' });
     },
@@ -335,7 +341,11 @@ export function stepEditor(context: StepContext): HTMLFieldSetElement {
   const legend = element('legend', 'wf-step-legend');
   const title = element('span', '', step.title);
   title.dataset['titleOf'] = step.uid;
-  legend.append(`Step ${String(context.index + 1)}: `, title, ` · ${KIND_LABELS[step.kind] ?? step.kind}`);
+  legend.append(
+    t('Step {number}: ', { number: context.index + 1 }),
+    title,
+    ` · ${KIND_LABELS[step.kind] ?? step.kind}`,
+  );
   const problems = element('ul', 'wf-problems');
   problems.dataset['problemsFor'] = step.uid;
   problems.id = `wf-${step.uid}-problems`;
@@ -357,6 +367,6 @@ export function stepEditor(context: StepContext): HTMLFieldSetElement {
   instructions.addEventListener('input', () => {
     context.act(step.uid, { type: 'text', field: 'instructions', value: instructions.value });
   });
-  node.append(field('Extra instructions', instructions, 'Added to the seat’s role prompt for this step only.'));
+  node.append(field(t('Extra instructions'), instructions, t('Added to the seat’s role prompt for this step only.')));
   return node;
 }

@@ -32,6 +32,20 @@ await test('weekday mornings fire in the schedule time zone, across daylight sav
   assert.deepEqual(iso([kolkata]), ['2026-03-09T03:30:00.000Z']);
 });
 
+await test('a wall time skipped when clocks spring forward fires after the gap, and a repeated one fires once', () => {
+  // New York springs forward at 02:00 on 2026-03-08 (07:00 UTC) and falls back at 02:00 on 2026-11-01 (06:00 UTC).
+  const skipped = upcomingFires(parseCron('30 2 * * *'), 'America/New_York', Date.UTC(2026, 2, 7, 12), 2);
+  assert.deepEqual(iso(skipped), ['2026-03-08T07:00:00.000Z', '2026-03-09T06:30:00.000Z']);
+  const repeated = upcomingFires(parseCron('30 1 * * *'), 'America/New_York', Date.UTC(2026, 9, 31, 12), 2);
+  assert.deepEqual(iso(repeated), ['2026-11-01T05:30:00.000Z', '2026-11-02T06:30:00.000Z']);
+  const hourly = upcomingFires(parseCron('0 * * * *'), 'America/New_York', Date.UTC(2026, 10, 1, 4, 30), 3);
+  assert.deepEqual(
+    iso(hourly),
+    ['2026-11-01T05:00:00.000Z', '2026-11-01T06:00:00.000Z', '2026-11-01T07:00:00.000Z'],
+    'Every-hour schedules keep firing every real hour through the repeated hour.',
+  );
+});
+
 await test('fields accept steps, lists, names and shorthands', () => {
   const quarter = parseCron('*/15 * * * *');
   assert.deepEqual([...quarter.minute], [0, 15, 30, 45]);
@@ -58,4 +72,15 @@ await test('malformed or impossible schedules are explained or never fire', () =
   assert.equal(nextFire(parseCron('0 0 30 feb *'), 'UTC', 0), null);
   assert.equal(isTimeZone('Europe/Berlin'), true);
   assert.equal(isTimeZone('Mars/Olympus'), false);
+});
+
+await test('a day jump across a spring-forward night keeps the next midnight fire', () => {
+  const after = Date.parse('2026-03-07T12:00:00Z');
+  assert.equal(nextFire(parseCron('0 0 * * mon'), 'America/New_York', after), Date.parse('2026-03-09T04:00:00Z'));
+});
+
+await test('stepped wildcards in a day field stay unrestricted, as in classic cron', () => {
+  const wednesday = Date.parse('2026-10-14T12:00:00Z');
+  assert.equal(nextFire(parseCron('0 0 */1 * mon'), 'UTC', wednesday), Date.parse('2026-10-19T00:00:00Z'));
+  assert.equal(nextFire(parseCron('0 0 * * */1'), 'UTC', wednesday), Date.parse('2026-10-15T00:00:00Z'));
 });
