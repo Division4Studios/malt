@@ -21,9 +21,12 @@
 
 import { z } from 'zod/v3';
 
+import { connectorSchemas, isBindingOperation } from './connector-schemas.ts';
+import { ERROR_STATUSES } from './error-statuses.ts';
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
 import { terminalSchemas } from './factory/terminal-schema.ts';
 
+import type { BindingOperation } from './connector-schemas.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 
 export { FACTORY_OPERATIONS } from './factory/schema.ts';
@@ -137,6 +140,7 @@ const WORKSPACE_MAX = 4096;
 export const PROJECT_OPERATION_TIMEOUT_MS = 120_000;
 /** Longest GitHub issue or project title. */
 const ISSUE_TITLE_MAX = 200;
+
 /** Largest explicit board snapshot request. */
 const BOARD_LIMIT_MAX = 1000;
 /** Default GitHub discovery result count. */
@@ -218,61 +222,6 @@ export type Handoff = z.output<typeof handoffSchema>;
 // Errors
 // -----------------------------------------------------------------------------
 
-/**
- * Every error code MALT can produce, mapped to its HTTP status.
- *
- * Keeping codes in one closed table means a misspelt code is a compile-time
- * error, and the HTTP status of each failure is defined in exactly one place.
- * Status 499 follows the common "client closed request" convention.
- */
-const ERROR_STATUSES = {
-  AGENT_ACTIVE: 409,
-  AGENT_LEFT: 410,
-  ALREADY_JOINED: 409,
-  BROKER_STOPPING: 503,
-  BROKER_UNAVAILABLE: 503,
-  CAPABILITY_DENIED: 403,
-  CREDENTIALS_MISSING: 409,
-  CLIENT_CLOSED: 400,
-  CONTENT_TYPE: 415,
-  FORBIDDEN_ORIGIN: 403,
-  FACTORY_GATED: 409,
-  GITHUB_UNAVAILABLE: 503,
-  GITHUB_NOT_CONNECTED: 409,
-  GITHUB_OPERATION_PENDING: 409,
-  HTTP_ERROR: 502,
-  HUMAN_CONTROL_REQUIRED: 403,
-  IDEMPOTENCY_CONFLICT: 409,
-  IDENTITY_CONFLICT: 409,
-  IDLE_NOT_APPROVED: 409,
-  INSTRUCTIONS_REQUIRED: 400,
-  INTERNAL: 500,
-  INVALID_INPUT: 400,
-  INVALID_JSON: 400,
-  INVALID_REQUEST: 400,
-  INVALID_REVISION: 400,
-  LEAD_ACTIVE: 409,
-  NO_WORKSPACE: 400,
-  WORKSPACE_UNAVAILABLE: 400,
-  NOT_A_WORKER: 400,
-  NOT_FOUND: 404,
-  NOT_JOINED: 409,
-  NOT_ORCHESTRATOR: 403,
-  STALE_CHECKIN: 409,
-  TOO_LARGE: 413,
-  UNAUTHORIZED: 401,
-  UNAUTHORIZED_AGENT: 401,
-  RATE_LIMITED: 429,
-  TOOL_DENIED: 403,
-  UNKNOWN_OPERATION: 404,
-  UNKNOWN_TEAM: 404,
-  UNREAD_MESSAGES: 409,
-  WAIT_ALREADY_ACTIVE: 409,
-  WAIT_CANCELLED: 499,
-  WAIT_SUPERSEDED: 409,
-  WRONG_PROJECT: 403,
-} as const satisfies Readonly<Record<string, number>>;
-
 /** A known MALT error code. */
 export type MeshErrorCode = keyof typeof ERROR_STATUSES;
 
@@ -339,24 +288,6 @@ export class MeshError extends Error {
 // Operation schemas
 // -----------------------------------------------------------------------------
 
-/** A Project and its existing Status field, chosen for the tracker section. */
-const savedTrackerSchema = z
-  .object({
-    owner: z.string().regex(/^[\w\-]+$/v),
-    projectId: z.string().min(1).max(ISSUE_TITLE_MAX),
-    projectNumber: z.number().int().positive(),
-    url: z.string().url(),
-    workflowField: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
-  })
-  .strict();
-/** A repository and its node ID, chosen for the source section. */
-const savedSourceSchema = z
-  .object({
-    repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
-    repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
-  })
-  .strict();
-
 /**
  * Input schema of every RPC operation, keyed by operation name.
  *
@@ -365,6 +296,7 @@ const savedSourceSchema = z
  */
 export const schemas = {
   ...terminalSchemas,
+  ...connectorSchemas,
   ...factorySchemas,
   learning_status: z.object({}).strict(),
   learning_record: z
@@ -412,24 +344,6 @@ export const schemas = {
     })
     .strict(),
   github_status: z.object({}).strict(),
-  github_verify: z.object({}).strict(),
-  github_section_save: z
-    .object({ tracker: savedTrackerSchema.optional(), source: savedSourceSchema.optional() })
-    .strict(),
-  github_discover: z
-    .object({
-      repository: z
-        .string()
-        .regex(/^[\w\-.]+\/[\w\-.]+$/v)
-        .optional(),
-      repositoryId: z.string().min(1).max(ISSUE_TITLE_MAX).optional(),
-      owner: z
-        .string()
-        .regex(/^[\w\-]+$/v)
-        .optional(),
-      projectNumber: z.number().int().positive().optional(),
-    })
-    .strict(),
   github_connect: z
     .object({
       repository: z.string().regex(/^[\w\-.]+\/[\w\-.]+$/v),
@@ -560,6 +474,16 @@ export const GITHUB_OPERATIONS = [
   'github_status',
   'github_verify',
   'github_section_save',
+  'github_labels',
+  'github_label_apply',
+  'github_label_manage',
+  'github_milestones',
+  'github_milestone_assign',
+  'github_milestone_manage',
+  'github_views',
+  'github_view_create',
+  'github_field_manage',
+  'github_view_manage',
   'github_discover',
   'github_connect',
   'github_sync',
@@ -774,6 +698,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
     'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
+  factory_worktrees_adopt:
+    'Human operator only, while paused: hand ownership of .malt/worktrees to the environment this broker runs in, after stopping the other host or Docker supervisor. The previous owner is recorded.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   factory_workflow_save:
@@ -847,6 +773,26 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Read the active version of one project-specific skill from .malt/skills. Both Codex and Claude use the same library through these tools and the project AGENTS.md / CLAUDE.md references.',
   github_status:
     "Inspect THIS workspace's saved GitHub Project connection and pending operations. No network calls or credentials are returned.",
+  github_labels:
+    "List THIS workspace's repository labels (name, color, description). Repository labels only: milestones and Project fields are separate.",
+  github_label_apply:
+    'Apply existing repository labels to an issue. Needs label-use. An unknown label is refused and never created; a case-only typo is INVALID_INPUT. Milestones and Project fields are not labels.',
+  github_label_manage:
+    'Create, edit or delete one repository label. Needs label-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by label name, so a lost create yields exactly one label.',
+  github_milestones:
+    "List THIS workspace's open and closed repository milestones (number, title, state, description, due date). Milestones are not labels, Projects or Jira versions.",
+  github_milestone_assign:
+    'Assign an existing milestone, by exact title, to an issue. Needs milestone-use. An unknown title is refused and never created.',
+  github_milestone_manage:
+    'Create, edit, close or delete one milestone by exact title. Needs milestone-manage. Pass a stable requestId and reuse it after an interruption: the change is reconciled by title and confirmed against GitHub, so a lost create yields exactly one milestone.',
+  github_views:
+    "List the saved views of THIS workspace's connected Project after a live check of how this account can reach them (GraphQL, REST, or unsupported). Needs view-field-read.",
+  github_view_create:
+    "Create one saved view (table, board or roadmap) on THIS workspace's connected Project. Needs view-field-create. Existing views and fields are never modified. Pass a stable requestId and reuse it after an interruption: it is reconciled by view name, so a lost create yields exactly one view.",
+  github_field_manage:
+    "Create, change or delete one field of THIS workspace's connected Project by its exact fieldId (create needs view-field-create, change view-field-change, delete view-field-delete). The connected Status field is refused. Pass a stable requestId and reuse it after an interruption.",
+  github_view_manage:
+    "Change (rename or relayout) or delete one saved view of THIS workspace's connected Project by its exact viewNumber (change needs view-field-change, delete view-field-delete). Refused when this account has neither the GraphQL mutation nor the REST view endpoints. Pass a stable requestId and reuse it after an interruption.",
   github_section_save:
     "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
@@ -917,10 +863,15 @@ export const participationPrompts: Readonly<Record<'lead' | 'worker' | 'learning
  * Identify project services that run outside SQLite transactions.
  *
  * @param operation - Validated wire operation.
- * @returns Whether it is a capability policy, GitHub or learning operation.
+ * @returns Whether it is an MCP binding, capability policy, GitHub or learning operation.
  */
 export function isProjectOperation(
   operation: Operation,
-): operation is CapabilityOperation | GitHubOperation | LearningOperation {
-  return isCapabilityOperation(operation) || isLearningOperation(operation) || isGitHubOperation(operation);
+): operation is BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation {
+  return (
+    isBindingOperation(operation) ||
+    isCapabilityOperation(operation) ||
+    isLearningOperation(operation) ||
+    isGitHubOperation(operation)
+  );
 }

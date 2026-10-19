@@ -18,6 +18,13 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
+import {
+  boundCredentialValues,
+  claudeBoundServers,
+  claudeBoundTools,
+  codexBoundServers,
+  launchBindings,
+} from './bound-tools.ts';
 import { copilotArguments, copilotCandidate, copilotResultContract, personalServers } from './copilot.ts';
 import { livenessPolicy } from './liveness-schema.ts';
 import { nativeModelArguments } from './provider-selection.ts';
@@ -234,6 +241,7 @@ export function agentLaunch(
   }
   const limits = settings.providers[record.provider];
   const native = nativeTools(record);
+  const bindings = launchBindings(mesh.directory, record);
   if (record.provider === 'codex') {
     const codexArguments = [
       'exec',
@@ -279,6 +287,7 @@ export function agentLaunch(
       '-c',
       'mcp_servers.agentmesh.tool_timeout_sec=120',
       ...codexServers(record),
+      ...codexBoundServers(bindings),
     ];
     if (native.canEdit) {
       codexArguments.push('--add-dir', record.artifact, '-c', 'sandbox_workspace_write.network_access=true');
@@ -303,7 +312,7 @@ export function agentLaunch(
   const mcpFile = path.join(record.artifact, 'claude-mcp.json');
   writeAtomic(
     mcpFile,
-    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...roleServers(record) } }, null, 2)}\n`,
+    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...claudeBoundServers(bindings), ...roleServers(record) } }, null, 2)}\n`,
   );
   const tools = native.claude;
   const learningTools =
@@ -319,6 +328,7 @@ export function agentLaunch(
       .split(',')
       .filter((tool) => tool !== '' && denied.every((operation) => tool !== `mcp__agentmesh__mesh_${operation}`)),
     ...(record.routing?.organization?.mcpServers ?? []).map((server) => `mcp__${server.name}`),
+    ...claudeBoundTools(bindings),
   ].join(',');
   const args = [
     ...selectionArguments,
@@ -334,7 +344,7 @@ export function agentLaunch(
     mcpFile,
     '--strict-mcp-config',
     '--permission-mode',
-    native.canEdit && limits.developerAccess === 'full-access' ? 'bypassPermissions' : 'dontAsk',
+    claudePermissionMode(native.canEdit && limits.developerAccess === 'full-access', bindings.length > 0),
     '--tools',
     tools,
     '--allowedTools',
@@ -344,6 +354,18 @@ export function agentLaunch(
     '--no-session-persistence',
   ];
   return { args, output };
+}
+
+/**
+ * Claude's permission mode for one launch. Bypass mode ignores --allowedTools,
+ * so it is withheld while a bound server could expose tools a human did not approve.
+ *
+ * @param isFullAccess - Whether this developer launch has full access.
+ * @param hasBindings - Whether approved connector bindings are attached.
+ * @returns `bypassPermissions` for an unbound full-access developer, else `dontAsk`.
+ */
+function claudePermissionMode(isFullAccess: boolean, hasBindings: boolean): string {
+  return isFullAccess && !hasBindings ? 'bypassPermissions' : 'dontAsk';
 }
 
 /**
@@ -457,6 +479,7 @@ export async function runAgent(request: AgentRequest, runner: ProcessRunner): Pr
       identity.secret,
       ...credentialValues(process.env),
       ...Object.values(granted),
+      ...boundCredentialValues(launchBindings(request.mesh.directory, request.job)),
     ],
     ...(Object.keys(granted).length > 0 && { secretEnv: granted }),
     // The supervisor's liveness ceiling stops the attempt first; this bound only backs it up.

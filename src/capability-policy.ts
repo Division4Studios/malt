@@ -29,6 +29,7 @@ export const CAPABILITIES = [
   'relationships',
   'membership',
   'transition',
+  'comment',
   'label-use',
   'label-manage',
   'milestone-use',
@@ -135,6 +136,46 @@ function describe(principal: z.output<typeof principalSchema>): string {
   return principal.kind === 'agent' ? `agent ${principal.id} as ${principal.role}` : `supervisor for ${principal.role}`;
 }
 
+/** Operations whose capabilities do not depend on their input. */
+type FixedOperation = Exclude<
+  GitHubOperation,
+  'github_connect' | 'github_create_issue' | 'github_set_status' | 'github_field_manage' | 'github_view_manage'
+>;
+
+/** View and field changes are gated by what they do: creating, changing and deleting are separate. */
+const FIELD_CAPABILITIES = {
+  create: 'view-field-create',
+  change: 'view-field-change',
+  delete: 'view-field-delete',
+} as const satisfies Record<string, Capability>;
+
+/** Capabilities of each input-independent operation; reads need none. */
+const FIXED_CAPABILITIES: Readonly<Record<FixedOperation, readonly Capability[]>> = {
+  github_status: [],
+  github_verify: [],
+  github_discover: [],
+  github_sync: [],
+  github_labels: [],
+  github_milestones: [],
+  github_label_apply: ['label-use'],
+  github_label_manage: ['label-manage'],
+  github_milestone_assign: ['milestone-use'],
+  github_milestone_manage: ['milestone-manage'],
+  github_section_save: ['project-connect'],
+  github_views: ['view-field-read'],
+  github_view_create: ['view-field-create'],
+};
+
+/**
+ * Whether an operation's capabilities do not depend on its input.
+ *
+ * @param operation - GitHub operation.
+ * @returns True when the fixed table decides it.
+ */
+function hasFixedCapabilities(operation: GitHubOperation): operation is FixedOperation {
+  return Object.hasOwn(FIXED_CAPABILITIES, operation);
+}
+
 /**
  * Every capability a GitHub operation would exercise; reads need none.
  *
@@ -143,17 +184,11 @@ function describe(principal: z.output<typeof principalSchema>): string {
  * @returns Capabilities to authorize before dispatch.
  */
 export function githubCapabilities(operation: GitHubOperation, input: unknown): Capability[] {
+  if (hasFixedCapabilities(operation)) {
+    parseInput(operation, input);
+    return [...FIXED_CAPABILITIES[operation]];
+  }
   switch (operation) {
-    case 'github_status':
-    case 'github_verify':
-    case 'github_discover':
-    case 'github_sync': {
-      return [];
-    }
-    case 'github_section_save': {
-      parseInput(operation, input);
-      return ['project-connect'];
-    }
     case 'github_connect': {
       return parseInput(operation, input).createProject ? ['project-connect', 'project-create'] : ['project-connect'];
     }
@@ -161,6 +196,12 @@ export function githubCapabilities(operation: GitHubOperation, input: unknown): 
       // Every created issue is attached to the selected Project and set to Backlog.
       const needed: Capability[] = ['issue-create', 'membership', 'transition'];
       return parseInput(operation, input).parent === undefined ? needed : [...needed, 'relationships'];
+    }
+    case 'github_field_manage': {
+      return [FIELD_CAPABILITIES[parseInput(operation, input).action]];
+    }
+    case 'github_view_manage': {
+      return [FIELD_CAPABILITIES[parseInput(operation, input).action]];
     }
     case 'github_set_status': {
       // Setting status first attaches the issue to the Project if needed.

@@ -93,6 +93,22 @@ async function optional(runner: GitHubRunner, route: string): Promise<unknown> {
 }
 
 /**
+ * Read every page of a list resource, treating a missing or unreadable one as absent.
+ *
+ * @param runner - Authenticated GitHub CLI boundary.
+ * @param route - API route of a paginated list.
+ * @returns All items, or null.
+ */
+async function allPages(runner: GitHubRunner, route: string): Promise<unknown> {
+  try {
+    const pages = await runner(['api', '--paginate', '--slurp', route]);
+    return Array.isArray(pages) ? pages.flat() : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Read the protection that governs merges into the base branch.
  *
  * @param runner - Authenticated GitHub CLI boundary.
@@ -104,7 +120,7 @@ export async function readProtection(runner: GitHubRunner, repository: string, b
   const branch = encodeURIComponent(base);
   const [rawSettings, rawRules, rawClassic] = await Promise.all([
     optional(runner, `repos/${repository}`),
-    optional(runner, `repos/${repository}/rules/branches/${branch}`),
+    allPages(runner, `repos/${repository}/rules/branches/${branch}`),
     optional(runner, `repos/${repository}/branches/${branch}/protection`),
   ]);
   const settings = settingsSchema.safeParse(rawSettings ?? {});
@@ -116,14 +132,18 @@ export async function readProtection(runner: GitHubRunner, repository: string, b
   const isLinear =
     protection.required_linear_history?.enabled === true ||
     effective.some((rule) => rule.type === 'required_linear_history');
-  const ruleMethods = effective.flatMap((rule) => rule.parameters?.allowed_merge_methods ?? []);
+  // Layered rulesets apply the most restrictive version of each rule: a method must be allowed by every one.
+  const ruleMethods = effective.flatMap((rule) => {
+    const listed = rule.parameters?.allowed_merge_methods;
+    return listed === undefined ? [] : [listed];
+  });
   const methods = MERGE_METHODS.filter((method) => {
     const isRepositoryAllowed = {
       squash: allowed.allow_squash_merge,
       rebase: allowed.allow_rebase_merge,
       merge: allowed.allow_merge_commit && !isLinear,
     }[method];
-    return isRepositoryAllowed && (ruleMethods.length === 0 || ruleMethods.includes(method));
+    return isRepositoryAllowed && ruleMethods.every((listed) => listed.includes(method));
   });
   const reviews = [
     protection.required_pull_request_reviews?.required_approving_review_count ?? 0,
