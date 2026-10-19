@@ -90,13 +90,19 @@ export function savePrices(store: Store, input: unknown): PriceTable {
  * @returns Estimated USD, or null when the model is unpriced or tokens are unknown.
  */
 export function estimateCost(tokens: TokenSplit, price: ModelPrice | undefined): number | null {
-  if (price === undefined || tokens.input === null || tokens.output === null) {
+  if (
+    price === undefined ||
+    tokens.input === null ||
+    tokens.output === null ||
+    tokens.cacheRead === null ||
+    tokens.cacheWrite === null
+  ) {
     return null;
   }
   const weighted =
     tokens.input * price.input +
-    (tokens.cacheRead ?? 0) * price.cachedInput +
-    (tokens.cacheWrite ?? 0) * price.cacheWrite +
+    tokens.cacheRead * price.cachedInput +
+    tokens.cacheWrite * price.cacheWrite +
     tokens.output * price.output;
   return weighted / TOKENS_PER_MILLION;
 }
