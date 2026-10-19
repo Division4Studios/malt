@@ -154,7 +154,11 @@ export const controlSchema = z
       'factory_secret_delete',
       'factory_local',
       'factory_manager',
+      'mcp_binding_propose',
+      'mcp_binding_approve',
       'github_connect',
+      'github_verify',
+      'github_section_save',
       'terminal_start',
       'terminal_close',
       'terminal_input',
@@ -371,16 +375,6 @@ export class ProjectGateway {
   }
 
   /**
-   * Read connector capability policies beside provider support and history.
-   *
-   * @param id - Explicit project selection.
-   * @returns The broker's policy view for that project only.
-   */
-  public async capabilities(id: string): Promise<unknown> {
-    return rpc(this.config(id), 'capability_policy_status', {});
-  }
-
-  /**
    * List recorded attempts with metrics through the broker's read-only operation.
    *
    * @param id - Explicit project selection.
@@ -514,6 +508,16 @@ export class ProjectGateway {
     }
     const selected = this.config(id);
     return this.recommendationOperator(selected, input);
+  }
+
+  /**
+   * Read connector capability policies beside provider support and history.
+   *
+   * @param id - Explicit project selection.
+   * @returns The broker's policy view for that project only.
+   */
+  public async capabilities(id: string): Promise<unknown> {
+    return rpc(this.config(id), 'capability_policy_status', {});
   }
 
   /**
