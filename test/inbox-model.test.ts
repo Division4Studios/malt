@@ -10,7 +10,13 @@ import { test } from 'node:test';
 
 import { mergeGateControl } from '../web/dist/board-model.js';
 import { readConsole } from '../web/dist/console-model.js';
-import { answerInput, freshItems, notificationContent } from '../web/dist/inbox-model.js';
+import {
+  OPEN_INBOX_MESSAGE,
+  answerInput,
+  freshItems,
+  inboxRequest,
+  notificationContent,
+} from '../web/dist/inbox-model.js';
 
 const QUESTION = '55555555-5555-4555-8555-555555555555';
 const REQUEST = '66666666-6666-4666-8666-666666666666';
@@ -118,4 +124,12 @@ await test('the merge gate toggles only before a delivery is merge ready', () =>
     merge: true,
   });
   assert.equal(mergeGateControl({ taskId: 't', phase: 'merge_ready', steps }), null);
+});
+
+await test('a notification click names the project whose Inbox opens', () => {
+  assert.equal(inboxRequest({ type: OPEN_INBOX_MESSAGE, project: 'p2' }), 'p2');
+  assert.equal(inboxRequest({ type: OPEN_INBOX_MESSAGE, project: null }), null);
+  assert.equal(inboxRequest(OPEN_INBOX_MESSAGE), null, 'a console without a project keeps its selection');
+  assert.equal(inboxRequest({ type: 'other', project: 'p2' }), undefined);
+  assert.equal(inboxRequest('MALT_ACTIVATE_PUBLIC_SHELL'), undefined);
 });

@@ -6,6 +6,9 @@
  */
 
 declare module '*/web/dist/telemetry-format.js' {
+  /** Every attempt kind with its readable label, in the broker's `JOB_KINDS` order. */
+  export const ATTEMPT_KINDS: Readonly<Record<string, string>>;
+
   /**
    * Format a USD amount, keeping unknown distinct from zero.
    *
