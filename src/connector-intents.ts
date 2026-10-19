@@ -34,6 +34,20 @@ export interface IntentSteps<Result> {
 }
 
 /**
+ * Whether an intent was already recorded for a request ID.
+ *
+ * @param directory - Folder holding one kind of change's intents.
+ * @param requestId - Caller-chosen stable identity of the change.
+ * @returns True once its first run wrote it.
+ */
+export function hasIntent(directory: string, requestId: string): boolean {
+  return readIntent(path.join(directory, `${requestId}.json`)) !== null;
+}
+
+/** The run in progress for each intent file; connector operations all execute in the broker process. */
+const RUNNING = new Map<string, Promise<undefined>>();
+
+/**
  * Run one change at most once per request ID.
  *
  * @param directory - Private directory for this project's intents.
@@ -50,6 +64,34 @@ export async function runIntent<Result>(
   steps: IntentSteps<Result>,
 ): Promise<Result> {
   const file = path.join(directory, `${requestId}.json`);
+  // One run per intent at a time: an overlapping call with the same ID waits for the earlier turn, then reads the
+  // recorded result instead of reconciling while the earlier remote change may not be visible yet.
+  const previous = RUNNING.get(file);
+  const turn = Promise.withResolvers<undefined>();
+  RUNNING.set(file, turn.promise);
+  try {
+    await previous;
+    return await runOnce(file, input, steps);
+  } finally {
+    turn.resolve(undefined);
+    if (RUNNING.get(file) === turn.promise) {
+      RUNNING.delete(file);
+    }
+  }
+}
+
+/**
+ * Run one intent: return its recorded result, adopt a change that already
+ * reached GitHub, or perform it.
+ *
+ * @param file - Intent path.
+ * @param input - The exact requested change.
+ * @param steps - How to recognize and perform it.
+ * @returns The change's result.
+ * @throws {MeshError} INVALID_INPUT when the request ID names a different change.
+ */
+async function runOnce<Result>(file: string, input: unknown, steps: IntentSteps<Result>): Promise<Result> {
+  const directory = path.dirname(file);
   const existing = readIntent(file);
   if (existing !== null && JSON.stringify(existing.input) !== JSON.stringify(input)) {
     throw new MeshError('INVALID_INPUT', 'That requestId already names a different change; use a new requestId.');

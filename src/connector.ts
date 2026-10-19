@@ -14,7 +14,7 @@ import { credentialHandleSchema, scopedHandle } from './credentials.ts';
 import { MeshError } from './protocol.ts';
 
 /** Preserve bounded legacy names without silently dropping resumable journals. */
-const REPOSITORY_ALIAS_MAX = 100;
+export const REPOSITORY_ALIAS_MAX = 100;
 
 /** Whether a provider capability is known to work, known not to, or not yet checked. */
 export const CAPABILITY_STATES = ['supported', 'unsupported', 'unverified'] as const;

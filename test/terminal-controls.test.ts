@@ -1,6 +1,8 @@
 /** @file Actual loopback operator boundaries reject agent and cross-project terminal control. */
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
 
 import { startBroker } from '../src/broker.ts';
@@ -8,7 +10,7 @@ import { AgentClient, rpc } from '../src/client.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema } from '../src/factory/schema.ts';
 import { TERMINAL_OPERATIONS } from '../src/factory/terminal-schema.ts';
-import { TOOL_OPERATIONS } from '../src/protocol.ts';
+import { MeshError, TOOL_OPERATIONS } from '../src/protocol.ts';
 import { startWebConsole } from '../src/web/server.ts';
 
 import { brokerUrl, createCleanup, createProject } from './helpers.ts';
@@ -115,4 +117,30 @@ await test('terminal controls are operator-only, project-fenced and absent from 
   await assert.rejects(broker.operatorTerminalControl(mesh, 'terminal_read', { id, waitMs: 25_001 }), {
     code: 'INVALID_INPUT',
   });
+});
+
+await test('terminals refuse to touch worktrees another environment owns', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const broker = await startBroker(config, { port: 0 });
+  defer(async () => broker.close());
+  const mesh = { ...config, url: brokerUrl(broker.port) };
+  const repository = new FactoryRepository(broker.store);
+  repository.configure(
+    factoryConfigSchema.parse({ testCommands: [{ file: 'node' }], endToEndCommands: [{ file: 'node' }] }),
+  );
+  const owner = path.join(mesh.directory, 'worktrees', 'owner.json');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture's own temporary project.
+  mkdirSync(path.dirname(owner), { recursive: true });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- The fixture's own temporary project.
+  writeFileSync(
+    owner,
+    JSON.stringify({ root: '/data', platform: 'linux', isContainer: true, recordedAt: 1, handovers: [] }),
+  );
+  const request = { provider: 'codex', columns: 80, rows: 24 };
+  await assert.rejects(
+    broker.operatorTerminalControl(mesh, 'terminal_start', request),
+    (error: unknown) =>
+      error instanceof MeshError && error.code === 'FACTORY_GATED' && error.message.includes('belongs to'),
+  );
 });
