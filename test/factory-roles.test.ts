@@ -1,5 +1,4 @@
 /** @file Roles editor: narrowing tool policies, local MCP servers, role models and revisioned saves. */
-
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -8,16 +7,26 @@ import { test } from 'node:test';
 
 import { z } from 'zod/v3';
 
+import { run } from '../src/database.ts';
+import { organizationRevision } from '../src/factory/organization.ts';
 import { agentLaunch } from '../src/factory/providers.ts';
+import { FactoryRepository } from '../src/factory/repository.ts';
+import { roleCatalog, updatedOrganization } from '../src/factory/role-controls.ts';
+import { isManagedToolDenied } from '../src/factory/role-handlers.ts';
+import { roleSchemas } from '../src/factory/role-schema.ts';
 import { routeAssignment } from '../src/factory/routing.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
-import { isNativeKept, isToolDenied, permittedTools, removedTools } from '../src/managed-tools.ts';
+import { assertManagedTool, isNativeKept, isToolDenied, permittedTools, removedTools } from '../src/managed-tools.ts';
+import { MeshError } from '../src/protocol.ts';
+import { Store } from '../src/store.ts';
 
 import { policyIntent, policySettings } from './fixtures/model-policy.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
 import type { MeshConfig } from '../src/config.ts';
 import type { FactoryConfig, FactoryJob } from '../src/factory/schema.ts';
+import type { ProjectLearning } from '../src/learning.ts';
+import type { ManagedToolGate } from '../src/managed-tools.ts';
 
 /** Settings without an explicit model policy, so any provider launches on its CLI default. */
 const plainSettings = factoryConfigSchema.parse({
@@ -25,6 +34,29 @@ const plainSettings = factoryConfigSchema.parse({
   endToEndCommands: [{ file: process.execPath }],
   providers: { codex: { executable: 'codex' }, claude: { executable: 'claude' } },
 });
+/** A skill library with one active and one archived project skill. */
+const library: Pick<ProjectLearning, 'skillLibrary'> = {
+  skillLibrary: () => {
+    return [
+      {
+        name: 'house-style',
+        revision: 'r1',
+        state: 'active',
+        reason: 'Adopted.',
+        actor: 'lead',
+        changedAt: '2026-10-16T00:00:00.000Z',
+      },
+      {
+        name: 'old-style',
+        revision: 'r0',
+        state: 'archived',
+        reason: 'Retired.',
+        actor: 'lead',
+        changedAt: '2026-10-16T00:00:00.000Z',
+      },
+    ];
+  },
+};
 
 /**
  * Settings whose developer seat uses a narrowed role type.
@@ -90,6 +122,7 @@ await test('tool policies only narrow a seat and an allow list restricts only th
   );
   // An allow list naming a tool the seat lacks never grants it.
   assert.equal(permittedTools('factory-qa-1', { allow: ['mesh_learning_record'], deny: [] }).size, 0);
+  assert.ok(permittedTools('factory-qa-2', undefined).has('factory_objective_check'), 'a QA seat can verify items');
   assert.ok(!permittedTools(developer, { allow: [], deny: ['mesh_send_message'] }).has('send_message'));
   assert.equal(isToolDenied(developer, { allow: [], deny: ['mesh_send_message'] }, 'send_message'), true);
   // Operations outside the seat's tools are left to their own authority checks.
@@ -190,4 +223,81 @@ await test('a role prefers an allowed model of its provider and only raises the 
   const other = developerJob(mesh, settingsWith({ model: { entryId: 'codex', effort: null } }), 'claude');
   assert.equal(other.routing?.model, 'fixture-claude');
   assert.doesNotMatch(other.routing.reason, /role type preferred model/v);
+});
+
+await test('role saves check the revision and every reference against what the project offers', () => {
+  const settings = settingsWith({});
+  const revision = organizationRevision(settings.organization);
+  const catalog = roleCatalog(settings, library);
+  assert.equal(catalog.revision, revision);
+  assert.ok(catalog.skills.includes('house-style') && !catalog.skills.includes('old-style'));
+  assert.ok(catalog.tools.some((tool) => tool.name === 'mesh_factory_progress' && tool.seats.includes('developer-1')));
+  const save = (types: Record<string, unknown>, expectedRevision = revision): Record<string, unknown> => {
+    return updatedOrganization(
+      settings,
+      roleSchemas.factory_roles_save.parse({
+        expectedRevision,
+        organization: { ...settings.organization, types: { ...settings.organization.types, ...types } },
+      }),
+      library,
+    );
+  };
+  const saved = save({
+    builder: { label: 'Builder', skills: ['house-style'], model: { entryId: 'claude', effort: 'low' } },
+  });
+  assert.ok(factoryConfigSchema.safeParse(saved).success);
+  assert.throws(() => save({}, '0'.repeat(64)), /changed since you opened it/v);
+  assert.throws(() => save({ builder: { label: 'B', skills: ['old-style'] } }), /not a reviewed skill/v);
+  assert.throws(() => save({ builder: { label: 'B', tools: { deny: ['mesh_setup'] } } }), /no seat has the tool/v);
+  assert.throws(() => save({ builder: { label: 'B', model: { entryId: 'missing' } } }), /not in policy revision/v);
+  assert.throws(
+    () => save({ builder: { label: 'B', provider: 'codex', model: { entryId: 'claude' } } }),
+    /claude model, but the role prefers codex/v,
+  );
+  const withoutPolicy = factoryConfigSchema.parse({ ...settings, modelPolicy: undefined });
+  assert.throws(() => {
+    return updatedOrganization(
+      withoutPolicy,
+      roleSchemas.factory_roles_save.parse({
+        expectedRevision: organizationRevision(withoutPolicy.organization),
+        organization: {
+          ...withoutPolicy.organization,
+          types: { builder: { label: 'B', model: { entryId: 'claude' } } },
+        },
+      }),
+      library,
+    );
+  }, /needs an explicit model policy/v);
+});
+
+await test('the broker refuses a managed seat the tools its live role policy removed', (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const job = developerJob(mesh, settingsWith({ tools: { allow: [], deny: ['mesh_send_message'] } }), 'claude');
+  run(store.db, 'INSERT INTO factory_jobs VALUES(?,?,?,?)', job.id, job.role, job.state, JSON.stringify(job));
+  assert.equal(isManagedToolDenied(repository, 'factory-developer-1', 'send_message'), true);
+  assert.equal(isManagedToolDenied(repository, 'factory-developer-1', 'whoami'), false);
+  assert.equal(isManagedToolDenied(repository, 'factory-developer-2', 'send_message'), false);
+
+  const team = (runtime: string): ManagedToolGate => {
+    return {
+      actor: () => ({ name: 'factory-developer-1', runtime }),
+      isToolDenied: (actor, operation) => isManagedToolDenied(repository, actor, operation),
+    };
+  };
+  const credentials = { agentId: 'agent-id', secret: 'secret', sessionId: 'session' };
+  assert.throws(
+    () => {
+      assertManagedTool(team('factory-managed'), 'send_message', credentials);
+    },
+    (error: unknown) => error instanceof MeshError && error.code === 'TOOL_DENIED',
+  );
+  assertManagedTool(team('factory-managed'), 'whoami', credentials);
+  assertManagedTool(team('attached'), 'send_message', credentials);
+  assertManagedTool(team('factory-managed'), 'send_message', undefined);
 });
