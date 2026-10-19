@@ -8,6 +8,7 @@ import { MeshError } from '../protocol.ts';
 
 import { unsupportedSteps } from './pipeline.ts';
 import { factorySchemas } from './schema.ts';
+import { workflowHistory } from './workflow-history.ts';
 import { workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -45,4 +46,22 @@ export function chooseDefaultWorkflow(
   }
   library.setDefault({ workflowId });
   return library.status();
+}
+
+/**
+ * The workflow library's controls, keyed by operation.
+ *
+ * @param repository - Selected project.
+ * @param input - Untrusted operation input.
+ * @returns Save, default and history handlers.
+ */
+export function workflowHandlers(
+  repository: FactoryRepository,
+  input: unknown,
+): Record<'factory_workflow_save' | 'factory_workflow_default' | 'factory_workflow_history', () => unknown> {
+  return {
+    factory_workflow_save: () => saveWorkflow(repository, input),
+    factory_workflow_default: () => chooseDefaultWorkflow(repository, input),
+    factory_workflow_history: () => workflowHistory(repository, input),
+  };
 }
