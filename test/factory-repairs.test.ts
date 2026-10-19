@@ -5,7 +5,6 @@
  *
  * @file
  */
-
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
@@ -14,17 +13,21 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { actionsJobId, checkState, ciFinding, excerptLog, failedChecks, redactLog } from '../src/factory/ci-logs.ts';
+import { completeJob } from '../src/factory/completion.ts';
+import { consoleView } from '../src/factory/console-view.ts';
 import { MergeConflictError } from '../src/factory/merge-conflict.ts';
 import { runProcess } from '../src/factory/processes.ts';
+import { assignmentPrompt } from '../src/factory/prompts.ts';
 import { reconcile } from '../src/factory/reconcile.ts';
-import { REPAIR_FINDING_MAX, attemptBudget } from '../src/factory/repair-schema.ts';
-import { recordConflict } from '../src/factory/repairs.ts';
+import { REPAIR_FINDING_MAX, attemptBudget, countedRepairs } from '../src/factory/repair-schema.ts';
+import { openRepair, recordConflict } from '../src/factory/repairs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
-import { factoryConfigSchema, featureSchema, taskSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, featureSchema, jobSchema, resultSchema, taskSchema } from '../src/factory/schema.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
+import { readConsole } from '../web/dist/console-model.js';
 
 import { createCleanup, createProject } from './helpers.ts';
 
@@ -65,9 +68,14 @@ interface Fixture {
  *
  * @param t - Owns cleanup.
  * @param overrides - Project policy changes.
+ * @param logs - Log text the remote returns per check name.
  * @returns Fixture services.
  */
-async function repairFixture(t: TestContext, overrides: Record<string, unknown> = {}): Promise<Fixture> {
+async function repairFixture(
+  t: TestContext,
+  overrides: Record<string, unknown> = {},
+  logs: Readonly<Record<string, string>> = {},
+): Promise<Fixture> {
   const defer = createCleanup(t);
   const mesh = createProject(defer);
   const settings = factoryConfigSchema.parse({
@@ -177,7 +185,7 @@ async function repairFixture(t: TestContext, overrides: Record<string, unknown> 
         requested.push([...checks]);
         return await delay(
           0,
-          checks.map((check) => ({ name: check.name, text: null })),
+          checks.map((check) => ({ name: check.name, text: logs[check.name] ?? null })),
         );
       },
     },
@@ -227,6 +235,7 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
     `2026-10-17T01:02:04.0000000Z token=${LEAKED}`,
     'fetch https://bot:hunter2@github.com/fixture/app.git',
     'Authorization: Bearer abc.def.ghi',
+    'authorization: Basic dXNlcjpwYXNzd29yZA== trailing',
     'mesh-secret-value appears here',
     'Unexpected token in JSON at position 4',
   ].join('\n');
@@ -236,7 +245,8 @@ await test('logs lose control codes, timestamps, known secrets, token shapes and
   assert.ok(!clean.includes(LEAKED));
   assert.doesNotMatch(clean, /hunter2|abc\.def\.ghi|mesh-secret-value/v);
   assert.match(clean, /https:\/\/\[REDACTED\]@github\.com/v);
-  assert.match(clean, /^Authorization: \[REDACTED\]/mv);
+  assert.match(clean, /^Authorization: \[REDACTED\]$/mv);
+  assert.match(clean, /^authorization: \[REDACTED\]$/mv, 'a non-Bearer credential is redacted whole');
   assert.match(clean, /^Running npm test$/mv);
   assert.match(clean, /Unexpected token in JSON/v, 'ordinary prose keeps its words');
 });
@@ -252,11 +262,69 @@ await test('excerpts keep the first error with context and the final lines, with
   assert.match(excerpt, /lines omitted/v);
   const huge = excerptLog(`${'x'.repeat(390)} error\n`.repeat(2000), 500);
   assert.ok(huge.length <= 500);
+  const verbose = Array.from({ length: 200 }, (_value, index) => `${String(index)} ${'v'.repeat(195)}`);
+  verbose[20] = 'src/app.ts(3,1): error TS2304: Cannot find name';
+  const bounded = excerptLog(verbose.join('\n'));
+  assert.ok(bounded.length <= REPAIR_FINDING_MAX);
+  assert.match(bounded, /error TS2304/v, 'the first error survives a verbose log');
+  assert.match(bounded, /^199 v+$/mv);
   const check = checkState(FAILED_CHECK);
   const finding = ciFinding(check, 'error everywhere\n'.repeat(5000), 'a'.repeat(40));
   assert.ok(finding.length <= REPAIR_FINDING_MAX);
   assert.match(finding, /^\[P1\] CI check "check \(ubuntu-latest\)" failed on a{40}/v);
   assert.match(ciFinding(check, null, 'b'), /No log was available/v);
+});
+
+await test('a failed check on the exact head returns the delivery to its developer with redacted evidence, once', async (t) => {
+  const log = `2026-10-17T01:02:03Z \u{1B}[31m##[error]src/app.ts(3,1): error TS2304\u{1B}[0m\nleaked ${LEAKED}\n`;
+  const fixture = await repairFixture(t, {}, { 'check (ubuntu-latest)': log });
+  const { context, task } = fixture;
+  await reconcile(context);
+  const repaired = context.repository.task(task.id);
+  assert.equal(repaired.phase, 'development');
+  assert.equal(repaired.developer, 'developer-1');
+  assert.deepEqual(repaired.reviews, []);
+  assert.equal(repaired.repairs.length, 1);
+  const round = repaired.repairs.at(0);
+  assert.ok(round !== undefined);
+  assert.equal(round.kind, 'ci');
+  assert.deepEqual(round.checks, ['check (ubuntu-latest)']);
+  assert.equal(round.head, task.head);
+  const evidence = round.findings.join('\n');
+  assert.match(evidence, /error TS2304/v);
+  assert.ok(!evidence.includes(LEAKED) && !evidence.includes('\u{1B}'));
+  assert.deepEqual(
+    fixture.requested.map((checks) => checks.map((check) => check.name)),
+    [['check (ubuntu-latest)']],
+  );
+  await reconcile(context);
+  const comment = [...context.repository.effects(), ...fixture.sent].find((effect) => effect.kind === 'comment');
+  assert.match(comment?.value ?? '', /CI repair round 1 of 2/v);
+  assert.doesNotMatch(comment?.value ?? '', /TS2304/v, 'public comments never carry log text');
+  assert.equal(openRepair(repaired)?.key, round.key);
+  const prompt = assignmentPrompt({
+    job: jobSchema.parse(developJob(repaired)),
+    task: repaired,
+    feature: null,
+    repair: openRepair(repaired),
+    skill: null,
+    standards: [],
+    evidence: { repair: openRepair(repaired) },
+  });
+  assert.match(prompt, /This is a CI repair round/v);
+  const shown = readConsole({ factory: { console: consoleView(context.repository) } }).deliveries[0]?.repairs;
+  assert.deepEqual(
+    shown?.map((entry) => [entry.kind, entry.head, entry.findings.length]),
+    [['ci', task.head, 1]],
+  );
+
+  republish(fixture, task.head ?? '');
+  await reconcile(context);
+  const unchanged = context.repository.task(task.id);
+  assert.equal(unchanged.phase, 'blocked');
+  assert.match(unchanged.error ?? '', /left the failing source unchanged/v);
+  assert.equal(unchanged.repairs.length, 1);
+  assert.equal(fixture.requested.length, 1, 'a duplicate failure never downloads logs again');
 });
 
 await test('pending and cancelled checks never start a repair', async (t) => {
@@ -287,6 +355,87 @@ await test('the CI repair cap stops the delivery for the operator', async (t) =>
   assert.match(capped.error ?? '', /1 CI repair round did not fix it/v);
   assert.equal(capped.repairs.length, 1);
   assert.equal(fixture.requested.length, 1, 'a capped round never downloads logs');
+});
+
+await test('a conflicting refresh keeps the delivery commit, records both sides and needs a clean resolution', async (t) => {
+  const { context, task } = await repairFixture(t);
+  const { repository, workspaces } = context;
+  repository.editTask(task.id, (current) => ({ ...current, phase: 'development', head: null, reviews: [] }));
+  const developer = await workspaces.developer(repository.task(task.id));
+  const shared = path.join(developer.directory, 'shared.txt');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its owned worktree.
+  await writeFile(shared, 'delivery change\n');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its temporary project.
+  await writeFile(path.join(context.mesh.root, 'shared.txt'), 'main change\n');
+  await workspaces.git(['commit', '-am', 'Main changes the shared file']);
+  await workspaces.git(['push', 'origin', 'main']);
+  const base = await workspaces.base();
+  repository.editTask(task.id, (current) => {
+    return {
+      ...current,
+      branch: developer.branch,
+      worktree: developer.directory,
+      base,
+    };
+  });
+  const job = jobSchema.parse(developJob(repository.task(task.id)));
+  assert.equal(repository.claim(job, context.settings), true);
+  const execution = {
+    waiting: null,
+    snapshot: null,
+    checks: [],
+    completion: {
+      result: resultSchema.parse({ outcome: 'success', summary: 'Implemented.', findings: [], deliveries: [] }),
+      usageTokens: 1,
+      cooldownUntil: 0,
+      subscriptionUsedPercent: null,
+      subscriptionResetAt: null,
+      process: { exitCode: 0, stdout: '', stderr: '', interrupted: false },
+    },
+  };
+  const controller = new AbortController();
+  await completeJob(context, job, execution, controller.signal);
+  const conflicted = repository.task(task.id);
+  assert.equal(conflicted.phase, 'development');
+  assert.equal(conflicted.repairs.length, 1);
+  const round = conflicted.repairs.at(0);
+  assert.ok(round !== undefined);
+  assert.equal(round.kind, 'conflict');
+  assert.deepEqual(round.files, ['shared.txt']);
+  assert.match(
+    round.findings.join('\n'),
+    /This delivery changed it in: \w+ .+\. Main changed it in: \w+ Main changes/v,
+  );
+  assert.deepEqual(await workspaces.conflictedFiles(developer.directory), [], 'the failed merge was aborted');
+  assert.equal(
+    await workspaces.git(['log', '-1', '--format=%s'], developer.directory),
+    'Deliver #2: Repairable change',
+  );
+
+  const again = await workspaces.developer(repository.task(task.id));
+  assert.deepEqual(await workspaces.conflictedFiles(again.directory), ['shared.txt']);
+  assert.equal(
+    await recordConflict(context, repository.task(task.id), {
+      files: ['shared.txt'],
+      head: round.head,
+      base,
+      directory: again.directory,
+    }),
+    'recorded',
+  );
+  assert.equal(repository.task(task.id).repairs.length, 1, 'the same conflict is one round');
+  const publish = async (): Promise<{ head: string }> => {
+    return await workspaces.publish(repository.task(task.id), async () => {
+      await delay(0);
+    });
+  };
+  await assert.rejects(publish(), /Unresolved merge-conflict markers remain in shared\.txt/v);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its owned worktree.
+  await writeFile(shared, 'delivery change\nmain change\n');
+  const published = await publish();
+  const parents = await workspaces.git(['rev-list', '--parents', '-n', '1', published.head], developer.directory);
+  assert.equal(parents.split(' ').length, 3, 'the resolution concludes a real merge');
+  assert.equal(await workspaces.git(['merge-base', '--is-ancestor', base, published.head], developer.directory), '');
 });
 
 await test('the conflict repair cap blocks before another paid turn', async (t) => {
@@ -365,6 +514,14 @@ await test('each repair round grants the developer one more attempt', () => {
   assert.deepEqual(intents([repaired]), ['developer-1']);
 });
 
+await test('an operator retry starts the repair caps and the extra attempts afresh', () => {
+  const rounds = [{ at: 10 }, { at: 20 }, { at: 30 }];
+  assert.equal(countedRepairs({ repairs: rounds }).length, 3);
+  assert.deepEqual(countedRepairs({ repairs: rounds, repairsResetAt: 20 }), [{ at: 30 }]);
+  assert.equal(attemptBudget({ repairs: rounds }, { maxAttempts: 2 }), 5);
+  assert.equal(attemptBudget({ repairs: rounds, repairsResetAt: 30 }, { maxAttempts: 2 }), 2);
+});
+
 await test('conflict errors keep a bounded path list for the round', () => {
   const error = new MergeConflictError({
     files: Array.from({ length: 80 }, (_value, index) => `file-${String(index)}.ts`),
@@ -375,3 +532,32 @@ await test('conflict errors keep a bounded path list for the round', () => {
   assert.equal(error.code, 'FACTORY_GATED');
   assert.match(error.message, /file-0\.ts, file-1\.ts/v);
 });
+
+/**
+ * A running develop claim for the delivery's original developer.
+ *
+ * @param task - Delivery.
+ * @returns Job fields.
+ */
+function developJob(task: FactoryTask): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    token: randomUUID(),
+    kind: 'develop',
+    role: 'developer-1',
+    provider: 'codex',
+    taskId: task.id,
+    featureId: null,
+    head: null,
+    base: null,
+    state: 'running',
+    startedAt: Date.now(),
+    finishedAt: null,
+    expiresAt: Date.now() + 60_000,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: 'fixture-artifact',
+  };
+}
