@@ -286,7 +286,7 @@ function render(): void {
   }
   const observed = state.current;
   owned.update(observed);
-  projectViews.update(observed);
+  projectViews.update(observed, state.view);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({

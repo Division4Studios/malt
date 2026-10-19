@@ -8,7 +8,7 @@
  *
  * @file
  */
-import { formatDateTime, t } from './i18n.js';
+import { formatDateTime, locale, t } from './i18n.js';
 import { element } from './worker-ui.js';
 import { badge, button, isConfirmed, focusKey, rememberFocus, restoreFocus } from './workflow-dom.js';
 import { WorkflowEditor } from './workflow-editor.js';
@@ -238,10 +238,12 @@ class WorkflowsView {
   /** Re-render the library list and the preview when their data changed, keeping focus. */
   private render(): void {
     const viewed = this.viewedItem();
+    // Counts and summaries are plural messages built here, so a language change must rebuild them.
     const listKey = JSON.stringify([
       this.library.items.map((item) => [item.id, item.revision, item.isDefault, item.workflow.name]),
       viewed?.id,
       this.editor.originId,
+      locale(),
     ]);
     if (listKey !== this.listKey) {
       this.listKey = listKey;
@@ -257,7 +259,7 @@ class WorkflowsView {
         element('li', 'wf-hint', t('The workflow library appears once the project state loads.')),
       );
     }
-    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault]);
+    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault, locale()]);
     if (viewerKey === this.viewerKey) {
       return;
     }

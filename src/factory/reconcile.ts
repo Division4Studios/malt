@@ -21,6 +21,7 @@ import { retainProvisionedIssues } from './provisioning-identity.ts';
 import { isIntakeParked } from './recommendation-intake.ts';
 import { mergeBlocker } from './remote.ts';
 import { didHandleFailedChecks } from './repairs.ts';
+import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
@@ -458,6 +459,11 @@ export async function closeParents(context: FactoryContext): Promise<void> {
     ) {
       continue;
     }
+    // The operator may have changed the checklist while GitHub was read: decide on the objective as it is now.
+    const current = context.repository.features().find((candidate) => candidate.id === feature.id);
+    if (current?.phase !== 'active' || !isDefinitionMet(current)) {
+      continue;
+    }
     context.repository.enqueueEffect({
       id: `feature-${feature.id}:status`,
       kind: 'status',
@@ -483,7 +489,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       continue;
     }
     context.repository.saveFeature({
-      ...feature,
+      ...current,
       phase: 'done',
       error: null,
       updatedAt: context.repository.store.now(),
@@ -509,6 +515,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
 export async function reconcile(context: FactoryContext): Promise<void> {
   await importReady(context);
   await provision(context);
+  blockExhausted(context.repository, context.settings.reconcileMs);
   for (const task of context.repository.tasks()) {
     try {
       // eslint-disable-next-line no-await-in-loop -- Delivery transitions serialize merges and remote recovery per project.
