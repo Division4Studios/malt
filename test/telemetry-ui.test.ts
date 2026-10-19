@@ -7,8 +7,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { JOB_KINDS } from '../src/factory/seats.ts';
 import { validatePrices } from '../web/dist/price-editor.js';
 import {
+  ATTEMPT_KINDS,
   formatCost,
   formatDuration,
   formatTokens,
@@ -16,6 +18,13 @@ import {
   groupByDay,
   stackBars,
 } from '../web/dist/telemetry-format.js';
+
+void test('the attempt kind filter lists exactly the broker kinds, each with a label', () => {
+  assert.deepEqual(Object.keys(ATTEMPT_KINDS), [...JOB_KINDS]);
+  for (const label of Object.values(ATTEMPT_KINDS)) {
+    assert.ok(label.length > 0);
+  }
+});
 
 void test('formatting keeps unknown values distinct from zero', () => {
   assert.equal(formatUsd(null), 'unpriced');
