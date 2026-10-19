@@ -10,6 +10,8 @@ import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
+import { trustedExecutable } from '../executables.ts';
+
 import { credentialValues } from './authentication.ts';
 import { redactLog } from './ci-logs.ts';
 
@@ -152,7 +154,7 @@ export function commandInvocation(file: string, args: readonly string[]): { file
         file: process.execPath,
         args: [path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'), ...args],
       }
-    : { file, args: [...args] };
+    : { file: trustedExecutable(file), args: [...args] };
 }
 
 /**
