@@ -562,6 +562,11 @@ async function inspectApi(
       await streams.open(gateway, project, { request, response, sessions });
       return;
     }
+    case '/api/local-pull': {
+      const number = z.coerce.number().int().positive().parse(url.searchParams.get('number'));
+      json(response, HTTP.ok, await gateway.localPull(project, number));
+      return;
+    }
     case '/api/version': {
       json(response, HTTP.ok, await gateway.versions(project));
       return;
