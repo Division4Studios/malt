@@ -20,7 +20,8 @@ import type { FrozenWorkflow } from './workflows.ts';
 
 /**
  * Workflow for objectives the factory creates itself: the project default when
- * it can run, otherwise the built-in pipeline, so automatic work never stalls.
+ * it can run and plans its own deliveries, otherwise the built-in pipeline, so
+ * automatic work never stalls (these objectives are queued unplanned).
  *
  * @param repository - Selected project.
  * @returns Frozen runnable workflow.
@@ -28,7 +29,9 @@ import type { FrozenWorkflow } from './workflows.ts';
 export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow {
   const library = workflowLibrary(repository.store);
   const preferred = library.freeze();
-  return unsupportedSteps(preferred.workflow).length === 0 ? preferred : library.freeze(DEFAULT_WORKFLOW_ID);
+  return unsupportedSteps(preferred.workflow).length === 0 && preferred.workflow.planning.length > 0
+    ? preferred
+    : library.freeze(DEFAULT_WORKFLOW_ID);
 }
 
 /**
@@ -42,6 +45,14 @@ export function automaticWorkflow(repository: FactoryRepository): FrozenWorkflow
 export function queueObjective(repository: FactoryRepository, input: unknown): { featureId: string } {
   const { objective, requestId, workflowId = null, gates, stepOverrides } = factorySchemas.factory_request.parse(input);
   const id = requestId ?? randomUUID();
+  // A retry returns the objective it already filed, whatever the workflow library holds now.
+  const filed = repository.features().find((feature) => feature.id === id);
+  if (filed !== undefined) {
+    if (filed.objective !== objective) {
+      throw new MeshError('INVALID_INPUT', 'An objective request ID cannot be reused for a changed scope.');
+    }
+    return { featureId: id };
+  }
   const workflow = workflowLibrary(repository.store).freeze(workflowId);
   const unsupported = unsupportedSteps(workflow.workflow);
   if (unsupported.length > 0) {

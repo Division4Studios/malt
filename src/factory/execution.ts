@@ -199,7 +199,7 @@ export async function executeJob(
   const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, repair: view.repair, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations, answers: stepAnswers(repository.store, record), repair: view.repair } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
-    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
+    `${JSON.stringify({ record: publicJobSchema.parse(record), task: view.task, feature: view.feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
   );
   writeAtomic(path.join(record.artifact, 'prompt.md'), prompt);
   controls.signal.throwIfAborted();

@@ -17,6 +17,7 @@ import {
   currentReview,
   featureWorkflow,
   isStepSatisfied,
+  isPlanningStepSatisfied,
   planningApprovals,
   planningStep,
   startableSteps,
@@ -520,13 +521,10 @@ function planningState(
   if (running?.step === step.id) {
     return 'running';
   }
-  const next = planningStep(feature, workflow);
-  if (next?.step.id === step.id) {
+  if (planningStep(feature, workflow)?.step.id === step.id) {
     return 'ready';
   }
-  const order = workflow.planning.findIndex((candidate) => candidate.id === step.id);
-  const current = next === null ? workflow.planning.length : workflow.planning.indexOf(next.step);
-  return order < current ? 'done' : 'waiting';
+  return isPlanningStepSatisfied(feature, workflow, step) ? 'done' : 'waiting';
 }
 
 /**
