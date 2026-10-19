@@ -29,7 +29,8 @@ const TRANSITIONS: Record<RecommendationState, readonly RecommendationState[]> =
   rejected: [],
   stale: [],
   completed: [],
-  failed: [],
+  // An operator retry revalidates (approved) or re-queues the same idempotent effects (applying).
+  failed: ['approved', 'applying'],
 };
 /** Only undecided or invalidated content may be superseded. */
 const REPLACEABLE = new Set<RecommendationState>(['proposed', 'awaiting_human', 'stale', 'rejected']);
@@ -176,6 +177,24 @@ export class RecommendationLedger {
       revision,
     );
     return row === undefined ? null : recommendationSchema.parse(JSON.parse(row.data));
+  }
+
+  /**
+   * Current revisions in the given states, oldest first; settled history is not read.
+   *
+   * @param states - Lifecycle states to return.
+   * @returns Matching current records; historical revisions are not included.
+   */
+  public current(states: readonly RecommendationState[]): Recommendation[] {
+    return selectAll(
+      this.store.db,
+      z.object({ data: z.string() }),
+      `SELECT r.data FROM factory_recommendation_revisions r
+       JOIN factory_recommendations c ON c.project = r.project AND c.id = r.id AND c.revision = r.revision
+       WHERE r.project = ? AND json_extract(r.data, '$.state') IN (SELECT value FROM json_each(?)) ORDER BY r.rowid`,
+      this.project,
+      JSON.stringify(states),
+    ).map((row) => recommendationSchema.parse(JSON.parse(row.data)));
   }
 
   /**
