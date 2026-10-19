@@ -18,7 +18,7 @@ body:
     id: scope
     attributes:
       label: Scope, exclusions and independently mergeable slices
-      description: Prefer PRs of 1–500 changed lines including tests/docs. Do not remove essential tests or invent dependencies to meet that target.
+      description: Split work into independently mergeable slices. Do not remove essential tests or invent dependencies to split it.
     validations:
       required: true
   - type: textarea
