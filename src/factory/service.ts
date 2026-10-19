@@ -9,6 +9,7 @@ import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
+import { forgetAttemptSecrets } from './attempt-secrets.ts';
 import * as automation from './automations.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -65,11 +66,13 @@ import { LEASE_MS, factorySchemas } from './schema.ts';
 import { decideSkill } from './skill-approval.ts';
 import { installFactorySkills } from './skills.ts';
 import { readSource } from './source-reader.ts';
-import { announceSpendBlocks, refreshSpend, spendGate } from './spend.ts';
+import { announceSpendBlocks, drainSpend, spendGate } from './spend.ts';
 import { factoryStatus, preflight } from './status.ts';
+import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
+import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
 
 import type { MeshConfig } from '../config.ts';
@@ -380,6 +383,7 @@ export class FactoryService {
       factory_recover: async () => recoverControl(this.repository, () => this.configured(), parsed, actorId),
       factory_progress: () => recordProgress(this.configured(), parsed, actorId),
       factory_ask: () => askQuestion(this.configured(), parsed, actorId),
+      factory_step_overrides: () => changeStepOverrides(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
@@ -423,6 +427,7 @@ export class FactoryService {
       },
       factory_enqueue: async () => enqueueDelivery(this.configured(), parsed),
       factory_delivery_diff: async () => deliveryDiff(this.configured(), input),
+      ...workflowHandlers(this.repository, input),
       factory_objective_check: () => checkDefinition(this.configured(), input, actorId),
       ...ledgerHandlers(this.repository, this.mesh, input),
       ...roleHandlers({
@@ -496,7 +501,7 @@ export class FactoryService {
     }
     automation.fireDueSchedules(this.repository);
     cancelStaleAssignments(this.repository, this.running);
-    await refreshSpend(this.repository, this.mesh);
+    await drainSpend(this.repository, this.mesh);
     const spend = spendGate(this.repository);
     announceSpendBlocks(this.repository, spend);
     const scheduling = {
@@ -623,6 +628,7 @@ export class FactoryService {
       }
     } finally {
       monitor.dispose();
+      forgetAttemptSecrets(job.id);
       await this.settleAttempt(job, attempt, checkpointStop(monitor.liveness));
       this.nextReconcile = 0;
     }
