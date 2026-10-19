@@ -624,6 +624,7 @@ function scheduleGroup4(
       featureId: feature.id,
       head: null,
       step: next?.step.id ?? null,
+      since: feature.retriesResetAt,
     };
     if (
       next !== null &&

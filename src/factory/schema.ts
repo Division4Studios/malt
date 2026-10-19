@@ -322,6 +322,8 @@ export const featureSchema = z.object({
   gates: gatesSchema.optional(),
   /** When the plan step last produced a plan; plan reviews must postdate it. */
   planAt: z.number().nullable().optional(),
+  /** Last operator retry or recovery; planning attempts finished before it no longer count toward the retry caps. */
+  retriesResetAt: z.number().optional(),
   planningResults: z.array(planningResultSchema).optional(),
   /** Operator step overrides, copied onto each delivery when it is provisioned. */
   stepOverrides: stepOverridesSchema.optional(),

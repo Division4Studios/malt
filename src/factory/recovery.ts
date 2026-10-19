@@ -46,7 +46,12 @@ export function retryBlocked(repository: FactoryRepository, input: unknown): voi
   if (feature?.phase !== 'blocked' || feature.scopeReplacement !== undefined) {
     throw new MeshError('INVALID_INPUT', 'Only blocked product requests can be retried.');
   }
-  repository.saveFeature({ ...feature, phase: retryFeaturePhase(feature), error: null });
+  repository.saveFeature({
+    ...feature,
+    phase: retryFeaturePhase(feature),
+    error: null,
+    retriesResetAt: repository.store.now(),
+  });
 }
 
 /** Objective phases each recovery action may change. */
@@ -132,6 +137,7 @@ export function recoverObjective(
         productPlan: value.action === 'lead' ? handoff : null,
         plan: null,
         error: null,
+        retriesResetAt: repository.store.now(),
         updatedAt: Math.max(repository.store.now(), feature.updatedAt + 1),
       });
     }

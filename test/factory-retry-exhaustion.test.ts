@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
 import { run } from '../src/database.ts';
+import { queueObjective } from '../src/factory/objectives.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { retryBlocked } from '../src/factory/recovery.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
@@ -69,4 +70,22 @@ await test('a step out of retries blocks its delivery until the operator retries
   retryBlocked(repository, { taskId: task.id });
   blockExhausted(repository, RECONCILE_MS);
   assert.equal(repository.task(task.id).phase, 'development', 'the retry starts the count afresh');
+});
+
+await test('retrying a blocked objective restarts its planning retry count', (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const repository = new FactoryRepository(store);
+  const { featureId } = queueObjective(repository, { objective: 'Plans again' });
+  const feature = repository.features().find((candidate) => candidate.id === featureId);
+  assert.ok(feature !== undefined);
+  repository.saveFeature({ ...feature, phase: 'blocked', error: 'Fix the planner' });
+  const retriedAt = store.now();
+  retryBlocked(repository, { featureId });
+  const retried = repository.features().find((candidate) => candidate.id === featureId);
+  assert.equal(retried?.phase, 'queued');
+  assert.ok((retried.retriesResetAt ?? 0) >= retriedAt, 'The retry restarts the planning retry count.');
 });
