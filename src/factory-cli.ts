@@ -18,8 +18,14 @@ export const FACTORY_COMMANDS = [
   'dashboard',
   'github-connect',
   'github-verify',
+  'github-section-save',
   'capability-status',
   'capability-set',
+  'mcp-binding-status',
+  'mcp-binding-propose',
+  'mcp-binding-approve',
+  'mcp-binding-propose',
+  'mcp-binding-approve',
   'factory-setup',
   'factory-start',
   'factory-pause',
@@ -36,6 +42,7 @@ export const FACTORY_COMMANDS = [
   'factory-local',
   'factory-manager',
   'factory-reconcile-github',
+  'factory-worktrees-adopt',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -45,8 +52,12 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-skill-decide': 'factory_skill_decide',
   'github-connect': 'github_connect',
   'github-verify': 'github_verify',
+  'github-section-save': 'github_section_save',
   'capability-status': 'capability_policy_status',
   'capability-set': 'capability_policy_set',
+  'mcp-binding-status': 'mcp_binding_status',
+  'mcp-binding-propose': 'mcp_binding_propose',
+  'mcp-binding-approve': 'mcp_binding_approve',
   'factory-setup': 'factory_setup',
   'factory-start': 'factory_start',
   'factory-pause': 'factory_pause',
@@ -63,12 +74,16 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-local': 'factory_local',
   'factory-manager': 'factory_manager',
   'factory-reconcile-github': 'factory_reconcile_github',
+  'factory-worktrees-adopt': 'factory_worktrees_adopt',
 };
 /** Commands requiring structured input. */
 const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-export-maintenance',
   'factory-skill-decide',
   'github-connect',
+  'github-section-save',
+  'mcp-binding-propose',
+  'mcp-binding-approve',
   'capability-set',
   'factory-setup',
   'factory-retry',
