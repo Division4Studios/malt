@@ -11,6 +11,7 @@ import { z } from 'zod/v3';
 import { githubRunner } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
+import { MAX_LOGGED_CHECKS, actionsJobId, githubTextRunner } from './ci-logs.ts';
 import { reconcileDependencies } from './dependencies.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
@@ -18,6 +19,7 @@ import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import type { MeshConfig } from '../config.ts';
 import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
 import type { GitHubRunner, ProjectGitHub } from '../github.ts';
+import type { CheckLog, CheckState } from './ci-logs.ts';
 import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
@@ -66,6 +68,8 @@ const checkSchema = z.object({
   status: z.string().optional(),
   conclusion: z.string().nullable().optional(),
   state: z.string().optional(),
+  detailsUrl: z.string().nullable().optional(),
+  targetUrl: z.string().nullable().optional(),
 });
 /** Current authoritative GitHub pull-request state. */
 const prSchema = z.object({
@@ -126,6 +130,8 @@ export interface DeliveryRemote {
   readonly issueState: (issue: number) => Promise<IssueState>;
   /** Confirm every native child is closed before cleaning the parent ticket. */
   readonly parentComplete: (parent: number, children: readonly number[]) => Promise<boolean>;
+  /** Read raw logs of failed checks; absent remotes repair from check names alone. */
+  readonly checkLogs?: (checks: readonly CheckState[]) => Promise<CheckLog[]>;
 }
 
 /** Workspace-scoped GitHub implementation of the delivery boundary. */
@@ -136,6 +142,8 @@ export class GitHubDelivery implements DeliveryRemote {
   private readonly runner: GitHubRunner;
   /** Current workspace identity used to recognize managed issue markers. */
   private readonly mesh: MeshConfig;
+  /** Native GitHub CLI adapter for text endpoints such as job logs. */
+  private readonly text: (args: readonly string[]) => Promise<string | null>;
 
   /**
    * Prepare this workspace's remote delivery adapter.
@@ -143,11 +151,38 @@ export class GitHubDelivery implements DeliveryRemote {
    * @param mesh - Target workspace.
    * @param github - Its existing GitHub integration.
    * @param runner - Optional remote fixture adapter.
+   * @param text - Optional text endpoint adapter, for fixture logs.
    */
-  public constructor(mesh: MeshConfig, github: ProjectGitHub, runner: GitHubRunner = githubRunner(mesh.root)) {
+  public constructor(
+    mesh: MeshConfig,
+    github: ProjectGitHub,
+    runner: GitHubRunner = githubRunner(mesh.root),
+    text: (args: readonly string[]) => Promise<string | null> = githubTextRunner(mesh.root),
+  ) {
     this.mesh = mesh;
     this.github = github;
     this.runner = runner;
+    this.text = text;
+  }
+
+  /**
+   * Read the raw logs of failed GitHub Actions jobs; other CI providers yield no log.
+   *
+   * @param checks - Failed checks, most important first.
+   * @returns One raw log per check, `null` when unavailable. Callers redact before persisting.
+   */
+  public async checkLogs(checks: readonly CheckState[]): Promise<CheckLog[]> {
+    const { repository } = await this.connection();
+    const logs: CheckLog[] = [];
+    for (const check of checks.slice(0, MAX_LOGGED_CHECKS)) {
+      const job = actionsJobId(check.url);
+      logs.push({
+        name: check.name,
+        // eslint-disable-next-line no-await-in-loop -- Bounded sequential downloads keep CLI and memory use small.
+        text: job === null ? null : await this.text(['api', `repos/${repository}/actions/jobs/${job}/logs`]),
+      });
+    }
+    return logs;
   }
 
   /**

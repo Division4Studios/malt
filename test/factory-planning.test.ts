@@ -57,3 +57,27 @@ await test('new projects enforce a 500-line ceiling while explicit existing proj
   assert.equal(factoryConfigSchema.parse(config).maxDiffLines, 500);
   assert.equal(factoryConfigSchema.parse({ ...config, maxDiffLines: 700 }).maxDiffLines, 700);
 });
+
+await test('the provider schema bounds dispositions exactly like the result parser', () => {
+  const { dispositions } = AGENT_OUTPUT_SCHEMA.properties;
+  assert.equal(dispositions.maxItems, 200);
+  assert.deepEqual(
+    [dispositions.items.properties.id.maxLength, dispositions.items.properties.reason.minLength],
+    [120, 1],
+  );
+  const ruling = { id: 'review-1', decision: 'adopted', reason: 'Fixed', evidence: 'test' };
+  const base = {
+    outcome: 'success',
+    summary: 'Fixed',
+    findings: [],
+    deliveries: [],
+    skillActions: [],
+    instructionReceipts: [],
+  };
+  assert.equal(resultSchema.safeParse({ ...base, dispositions: [ruling] }).success, true);
+  assert.equal(resultSchema.safeParse({ ...base, dispositions: [{ ...ruling, reason: '' }] }).success, false);
+  assert.equal(
+    resultSchema.safeParse({ ...base, dispositions: Array.from({ length: 201 }, () => ruling) }).success,
+    false,
+  );
+});

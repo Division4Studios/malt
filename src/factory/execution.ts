@@ -12,11 +12,15 @@ import { readJsonFile } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { attemptSecrets, launchEnvironment } from './attempt-secrets.ts';
 import { featureWorkflow, findingsToRule, planFindings, stepEvidence, stepOf, taskWorkflow } from './pipeline.ts';
 import { enqueueProgress } from './progress.ts';
 import { assignmentPrompt } from './prompts.ts';
+import { stepAnswers } from './questions.ts';
 import { recommendationNotices } from './recommendation-notices.ts';
 import { mergeBlocker } from './remote.ts';
+import { openRepair, recordConflict } from './repairs.ts';
+import { revalidationEvidence } from './revalidation.ts';
 import { publicJobSchema } from './schema.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, PLANNING_JOB_KINDS } from './seats.ts';
 import { routedSkills } from './skills.ts';
@@ -26,6 +30,7 @@ import { isCurrentTriage, pendingTriage } from './triage.ts';
 import { validationEnvironment } from './validation-environment.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
+import type { RepairRound } from './repair-schema.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { WorkflowStep } from './workflows.ts';
@@ -56,7 +61,10 @@ export function cancelStaleAssignments(
       }
       continue;
     }
-    if (task.phase !== JOB_PHASE[job.kind] || task.head !== job.head || task.base !== job.base) {
+    // A retried delivery that never started sits in development with no head, and still awaits its revalidation.
+    const isUnstarted = job.kind === 'revalidate' && task.phase === 'development' && task.developer === null;
+    const isStage = task.phase === JOB_PHASE[job.kind] || isUnstarted;
+    if (!isStage || task.head !== job.head || task.base !== job.base) {
       running.get(job.id)?.controller.abort(new Error('Assignment source or stage was invalidated.'));
     }
   }
@@ -95,7 +103,8 @@ export async function runChecks(
       cwd: options.cwd,
       input: '',
       artifact,
-      secrets: [context.mesh.token],
+      // A role's granted secrets may surface in check output through files the attempt wrote.
+      secrets: [context.mesh.token, ...attemptSecrets(context, job)],
       timeoutMs: context.settings.jobTimeoutMs,
       memoryMb: context.settings.resources.jobMemoryMb,
       cpuPercent: context.settings.resources.jobCpuPercent,
@@ -127,14 +136,14 @@ export async function runChecks(
  *
  * @param context - Target project dependencies.
  * @param job - Current fenced assignment.
- * @param controls - Cancellation and managed PID recording.
+ * @param controls - Cancellation, managed PID recording and the owned worktree once it is prepared.
  * @returns Evidence and structured model output.
  * @throws {MeshError} For stale gates or invalid source state.
  */
 export async function executeJob(
   context: FactoryContext,
   job: FactoryJob,
-  controls: { signal: AbortSignal; onSpawn: (pid: number) => void },
+  controls: { signal: AbortSignal; onSpawn: (pid: number) => void; onSource?: (cwd: string) => void },
 ): Promise<ExecutedJob> {
   const record = job;
   const { repository } = context;
@@ -163,6 +172,9 @@ export async function executeJob(
     });
   }
   const { cwd, snapshot, checks } = await prepareSource(context, record, controls.signal);
+  if (CODE_JOB_KINDS.has(record.kind)) {
+    controls.onSource?.(cwd);
+  }
   sealSource(repository, record, snapshot ?? (await context.workspaces.snapshot(cwd)));
   const evidence = await roleEvidence(context, record);
   const recommendations = recommendationNotices(repository.store, record);
@@ -171,10 +183,10 @@ export async function executeJob(
   const view = promptView(repository, record, currentTask, feature);
   const guidance = repository.instructions(record.role, record.taskId, record.featureId);
   const selectedSkills = await routedSkills({ mesh: context.mesh, learning: context.learning, job: record });
-  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations } })}`;
+  const prompt = `${selectedSkills.content}\n\nRead-only source inspection: use mesh_factory_read_source to list or read your exact pinned Git source. It preserves file whitespace, excludes runtime state/credentials and requires your live managed claim. If native read commands are denied, use this scoped tool; do not request full access. Runtime skills and state are available through the supplied learning/GitHub/message tools.\n\nFrozen project agent profile (does not change ownership, tool permissions or mandatory gates):\n${JSON.stringify(record.routing?.organization ?? null)}\n\nOperator guidance (authorized, newest first):\n${JSON.stringify(guidance)}\n\n${assignmentPrompt({ job: record, task: view.task, feature: view.feature, step: view.step, repair: view.repair, skill, standards: context.settings.reviewStandards, evidence: { checks, context: evidence, findingsToRule: view.findings, recommendations, answers: stepAnswers(repository.store, record), repair: view.repair } })}`;
   writeAtomic(
     path.join(record.artifact, 'assignment.json'),
-    `${JSON.stringify({ record: publicJobSchema.parse(record), task: currentTask, feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
+    `${JSON.stringify({ record: publicJobSchema.parse(record), task: view.task, feature: view.feature, skill, operatorInstructions: guidance, recommendationNotices: recommendations, selectedSkillRevisions: selectedSkills.revisions, checks, source: snapshot }, null, 2)}\n`,
   );
   writeAtomic(path.join(record.artifact, 'prompt.md'), prompt);
   controls.signal.throwIfAborted();
@@ -188,6 +200,7 @@ export async function executeJob(
     prompt,
     signal: controls.signal,
     onSpawn: controls.onSpawn,
+    environment: launchEnvironment(context, record),
   });
   if (snapshot !== null) {
     await context.workspaces.assertUnchanged(snapshot);
@@ -249,10 +262,54 @@ async function prepareSource(context: FactoryContext, job: FactoryJob, signal: A
         error: null,
       };
     });
+    if (await isConflicted(context, task, { directory: cwd, base: prepared.base })) {
+      if (record.kind !== 'develop') {
+        // The conflict round returned the delivery to its developer; this stage's turn would be discarded.
+        throw new MeshError(
+          'FACTORY_GATED',
+          'Refreshing onto main conflicted; the delivery returned to its developer to resolve it.',
+        );
+      }
+      // Prepare commands may read conflicted manifests; the developer resolves first and publication reruns the checks.
+      return { cwd, snapshot: null, checks: [{ stage: 'prepare', skipped: 'Unresolved merge conflicts with main.' }] };
+    }
     const checks = await runChecks(context, record, { cwd, stage: 'prepare', signal: controls.signal });
     return { cwd, snapshot: null, checks };
   }
   return prepareSnapshot(context, record, signal);
+}
+
+/**
+ * Record a conflict repair round when refreshing the owned tree onto main conflicted.
+ *
+ * @param context - Project services.
+ * @param task - Delivery before refresh.
+ * @param source - Owned worktree and the main it merged.
+ * @param source.directory - Owned worktree.
+ * @param source.base - Fetched main.
+ * @returns True when conflicts remain for this attempt to resolve.
+ * @throws {MeshError} When the delivery used every conflict repair round, before any paid turn.
+ */
+async function isConflicted(
+  context: FactoryContext,
+  task: FactoryTask,
+  source: { directory: string; base: string },
+): Promise<boolean> {
+  const files = await context.workspaces.conflictedFiles(source.directory);
+  if (files.length === 0) {
+    return false;
+  }
+  const head = await context.workspaces.git(['rev-parse', 'HEAD'], source.directory);
+  const outcome = await recordConflict(context, context.repository.task(task.id), {
+    files,
+    head,
+    base: source.base,
+    directory: source.directory,
+  });
+  if (outcome === 'exhausted') {
+    throw new MeshError('FACTORY_GATED', 'Merge-conflict repairs are exhausted; the delivery waits for the operator.');
+  }
+  return true;
 }
 
 /**
@@ -424,6 +481,8 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
         }),
       skillReviewHistory: repository.skillRequests().slice(-RECENT_EVIDENCE_COUNT),
     };
+  } else if (record.kind === 'revalidate' && record.taskId !== null) {
+    evidence = revalidationEvidence(repository, repository.task(record.taskId));
   }
   if (skill !== null && record.kind === 'skill') {
     evidence = readJsonFile(path.join(context.mesh.directory, 'knowledge', 'candidates', `${skill.revision}.json`));
@@ -467,7 +526,7 @@ export async function retireSnapshot(context: FactoryContext, snapshot: Executed
  * @param job - Current attempt.
  * @param task - Its delivery, if any.
  * @param feature - Its objective, if any.
- * @returns Prompt-safe task, objective, step and, for a fixer, the findings it must rule on.
+ * @returns Prompt-safe task, objective, step and, for a fixer, the findings it must rule on; for a developer, the open repair round.
  */
 function promptView(
   repository: FactoryContext['repository'],
@@ -479,14 +538,16 @@ function promptView(
   feature: Feature | null;
   step: WorkflowStep | null;
   findings: { id: string; step: string; finding: string }[] | null;
+  repair: RepairRound | null;
 } {
   const workflow = task === null ? featureWorkflow(feature) : taskWorkflow(task, repository.features());
   const step = stepOf(workflow, job);
   return {
-    task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined },
+    task: task === null ? null : { ...stepEvidence(task, workflow, step), workflow: undefined, repairs: [] },
     feature: feature === null ? null : { ...feature, workflow: undefined },
     step: step ?? null,
     findings: findingsFor(task, feature, step),
+    repair: task !== null && job.kind === 'develop' ? openRepair(task) : null,
   };
 }
 
