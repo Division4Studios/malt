@@ -16,7 +16,11 @@ import {
   startableSteps,
   taskWorkflow,
 } from './pipeline.ts';
+import { attemptBudget } from './repair-schema.ts';
+import { isBackingOff } from './retry-policy.ts';
+import { isRevalidationDue, revalidationIntents } from './revalidation.ts';
 import { PROVIDERS, isTokenCapExceeded } from './schema.ts';
+import { CODE_JOB_KINDS } from './seats.ts';
 
 import type {
   AgentResult,
@@ -67,6 +71,13 @@ export interface ReadyIssue {
   /** Verifiable completion criteria. */
   readonly acceptanceCriteria: readonly string[];
 }
+/** The assignment kind each review-stage step runs as; other model steps are reviews. */
+const REVIEW_STAGE_KINDS: Readonly<Partial<Record<WorkflowStep['kind'], FactoryJob['kind']>>> = {
+  adjudicate: 'adjudicate',
+  document: 'document',
+  regress: 'regress',
+};
+
 /** Proposed bounded assignment before its durable reservation is committed. */
 export interface JobIntent {
   /** Independent role slot. */
@@ -252,21 +263,20 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     if (
       role === null ||
       task.scopeReplacement !== undefined ||
-      live.some((job) => job.role === role || (kind === 'develop' && job.taskId === task.id)) ||
+      live.some((job) => job.role === role || (CODE_JOB_KINDS.has(kind) && job.taskId === task.id)) ||
       (kind !== 'develop' && isStepRunning(step, task.id, live))
     ) {
       return;
     }
-    const recent = input.jobs.findLast((job) => {
-      return (
-        job.kind === kind &&
-        job.taskId === task.id &&
-        job.head === task.head &&
-        job.state === 'failed' &&
-        (job.step === null || job.step === step.id)
-      );
-    });
-    if (recent !== undefined && (recent.finishedAt ?? input.now) + input.config.reconcileMs > input.now) {
+    const scope = {
+      kind,
+      taskId: task.id,
+      featureId: task.featureId,
+      head: task.head,
+      step: step.id,
+      since: task.repairsResetAt,
+    };
+    if (isBackingOff(input.jobs, scope, { now: input.now, reconcileMs: input.config.reconcileMs })) {
       return;
     }
     intents.push({
@@ -283,6 +293,7 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
   scheduleGroup1(input, live, intents, append);
   scheduleGroup2(input, live, intents, append);
   appendTriage(input, live, intents);
+  intents.push(...revalidationIntents(input, live));
   const developmentStart = intents.length;
   scheduleGroup3(input, live, intents, append);
   const candidates = intents.splice(developmentStart);
@@ -319,7 +330,10 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
     intents.push({ role: 'learning-steward', kind: 'learn', taskId: null, featureId: null, head: null, base: null });
   }
   const held = new Set(input.tasks.filter((task) => task.hold !== null).map((task) => task.id));
-  const admitted = intents.filter((intent) => intent.taskId === null || !held.has(intent.taskId));
+  const isSpendBlocked = input.isSpendBlocked ?? ((): boolean => false);
+  const admitted = intents.filter(
+    (intent) => (intent.taskId === null || !held.has(intent.taskId)) && !isSpendBlocked(intent),
+  );
   const queue = input.objectiveQueue;
   return queue === undefined
     ? admitted
@@ -332,6 +346,8 @@ export function jobIntents(input: SchedulingState): JobIntent[] {
 
 /** Current durable scheduling state. */
 interface SchedulingState {
+  /** Whether a spend cap stops new attempts on the intent's scope; absent means no caps. */
+  isSpendBlocked?: (intent: { readonly taskId: string | null; readonly featureId: string | null }) => boolean;
   /** Bounded, durable lead investigation requests. */
   triage?: readonly TriageDecision[];
   /** Config state. */
@@ -525,7 +541,7 @@ function scheduleGroup2(
   for (const task of candidates) {
     const steps = startableSteps(task, taskWorkflow(task, input.features));
     for (const step of steps) {
-      append(seatFor(step, live), 'review', task, step);
+      append(seatFor(step, live), REVIEW_STAGE_KINDS[step.kind] ?? 'review', task, step);
     }
   }
 }
@@ -552,7 +568,8 @@ function scheduleGroup3(
       task.dependencies.some((id) =>
         input.tasks.every((dependency) => !(dependency.id === id && dependency.phase === 'done')),
       ) ||
-      task.attempts >= input.config.maxAttempts
+      task.attempts >= attemptBudget(task, input.config) ||
+      isRevalidationDue(task, input.tasks, input.config)
     ) {
       continue;
     }
@@ -600,7 +617,19 @@ function scheduleGroup4(
   for (const feature of candidates) {
     const next = planningStep(feature, featureWorkflow(feature));
     const role = next === null ? null : seatFor(next.step, [...live, ...intents]);
-    if (next !== null && role !== null && live.every((job) => job.featureId !== feature.id)) {
+    const scope = {
+      kind: next?.kind ?? 'plan',
+      taskId: null,
+      featureId: feature.id,
+      head: null,
+      step: next?.step.id ?? null,
+    };
+    if (
+      next !== null &&
+      role !== null &&
+      live.every((job) => job.featureId !== feature.id) &&
+      !isBackingOff(input.jobs, scope, { now: input.now, reconcileMs: input.config.reconcileMs })
+    ) {
       intents.push({
         role,
         kind: next.kind,
@@ -609,10 +638,35 @@ function scheduleGroup4(
         head: null,
         base: null,
         step: next.step.id,
-        preferredProvider: next.step.provider,
+        preferredProvider: planningProvider(input.jobs, feature.id, next.step),
       });
     }
   }
+}
+
+/**
+ * The provider a planning step prefers. A plan review prefers the family that
+ * did not write the current plan, so it is independent even when load or
+ * availability routed the planner to the family the workflow names; when only
+ * one family is enabled, admission falls back to it.
+ *
+ * @param jobs - Every recorded attempt.
+ * @param featureId - Objective being planned.
+ * @param step - Next planning step.
+ * @returns Preferred provider, or `null` for none.
+ */
+function planningProvider(jobs: readonly FactoryJob[], featureId: string, step: WorkflowStep): Provider | null {
+  if (step.kind !== 'plan_review') {
+    return step.provider;
+  }
+  const planner = jobs
+    .filter(
+      (job) => job.featureId === featureId && job.taskId === null && job.kind === 'refine' && job.state === 'succeeded',
+    )
+    .toSorted((left, right) => (right.finishedAt ?? 0) - (left.finishedAt ?? 0))[0];
+  return planner === undefined
+    ? step.provider
+    : (PROVIDERS.find((provider) => provider !== planner.provider) ?? step.provider);
 }
 
 /**

@@ -7,6 +7,7 @@
  * @file
  */
 import { data, request, scoped, text } from './api.js';
+import { t } from './i18n.js';
 
 /** Most artifact tails kept in memory. */
 const MAX_LOGS = 8;
@@ -102,7 +103,7 @@ export class LogTails {
     this.logs.set(id, tail);
     for (const pre of document.querySelectorAll<HTMLPreElement>('pre[data-job]')) {
       if (`${pre.dataset['job'] ?? ''}:${pre.dataset['file'] ?? ''}` === id) {
-        pre.textContent = tail === '' ? 'This artifact has not emitted data yet.' : tail;
+        pre.textContent = tail === '' ? t('This artifact has not emitted data yet.') : tail;
       }
     }
   }
