@@ -152,6 +152,8 @@ export class WorkspaceManager {
   private readonly config: FactoryConfig;
   /** Ownership ledger location. */
   private readonly ledger: string;
+  /** The last base fetch; fetches of one ref run one at a time, since concurrent ones fail on its lock. */
+  private fetching: Promise<undefined> = Promise.resolve(undefined);
 
   /**
    * Prepare repository operations without touching the primary checkout.
@@ -218,12 +220,17 @@ export class WorkspaceManager {
     if (this.config.baseBranch.startsWith('malt/terminal/')) {
       throw new MeshError('FACTORY_GATED', 'A terminal scratch branch cannot be a delivery base.');
     }
-    await this.git([
-      'fetch',
-      this.config.remote,
-      `+refs/heads/${this.config.baseBranch}:refs/remotes/${this.config.remote}/${this.config.baseBranch}`,
-    ]);
-    return this.git(['rev-parse', `refs/remotes/${this.config.remote}/${this.config.baseBranch}`]);
+    const { remote, baseBranch } = this.config;
+    const previous = this.fetching;
+    const turn = Promise.withResolvers<undefined>();
+    this.fetching = turn.promise;
+    try {
+      await previous;
+      await this.git(['fetch', remote, `+refs/heads/${baseBranch}:refs/remotes/${remote}/${baseBranch}`]);
+    } finally {
+      turn.resolve(undefined);
+    }
+    return this.git(['rev-parse', `refs/remotes/${remote}/${baseBranch}`]);
   }
 
   /**
@@ -460,6 +467,44 @@ export class WorkspaceManager {
       );
     }
     return findings;
+  }
+
+  /**
+   * Merge advanced main into a published, reviewed branch and push it, with no edits of its own.
+   *
+   * @param task - Published delivery at its reviewed head.
+   * @returns New head and base, or the conflicted paths and main (the merge is aborted; the branch is unchanged).
+   * @throws {MeshError} When the owned branch is missing or changed locally.
+   */
+  public async refreshPublished(
+    task: FactoryTask,
+  ): Promise<{ head: string; base: string } | { conflicts: string[]; base: string }> {
+    this.assertDeliveryTask(task);
+    if (task.worktree === null || task.branch === null || task.head === null) {
+      throw new MeshError('FACTORY_GATED', 'A main refresh needs an owned, published branch.');
+    }
+    const directory = task.worktree;
+    this.assertOwnedPath(directory);
+    const source = await this.snapshot(directory);
+    const branch = await this.git(['branch', '--show-current'], directory);
+    if (source.status !== '' || source.head !== task.head || branch !== task.branch) {
+      throw new MeshError('FACTORY_GATED', 'The published branch changed locally; preserve it for developer repair.');
+    }
+    const base = await this.base();
+    try {
+      await this.mergeBase(task, base, directory);
+    } catch (error) {
+      const conflicts = await this.conflictedFiles(directory);
+      if (conflicts.length === 0) {
+        throw error;
+      }
+      await this.git(['merge', '--abort'], directory);
+      return { conflicts, base };
+    }
+    const head = await this.git(['rev-parse', 'HEAD'], directory);
+    await this.assertDeliveryHead(task, head, base);
+    await this.git(['push', this.config.remote, task.branch], directory);
+    return { head, base };
   }
 
   /**

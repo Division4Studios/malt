@@ -12,6 +12,7 @@ import { execFile } from 'node:child_process';
 
 import { z } from 'zod/v3';
 
+import { trustedExecutable } from './executables.ts';
 import { MeshError } from './protocol.ts';
 import { registerResolvedSecret } from './secrets.ts';
 
@@ -151,9 +152,9 @@ export function ghAuthProbe(root: string): () => Promise<boolean | null> {
   return async () => {
     return await new Promise<boolean | null>((resolve) => {
       execFile(
-        // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-        'gh',
-        ['auth', 'status', '--hostname', 'github.com'],
+        trustedExecutable('gh'),
+        // Only the account commands use: a stale inactive account would otherwise fail the probe.
+        ['auth', 'status', '--hostname', 'github.com', '--active'],
         { cwd: root, windowsHide: true, timeout: PROBE_TIMEOUT_MS, env: { ...process.env, GH_PROMPT_DISABLED: '1' } },
 
         (error) => {

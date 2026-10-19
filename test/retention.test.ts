@@ -12,7 +12,13 @@ import test from 'node:test';
 import { z } from 'zod/v3';
 
 import { selectCount, selectOne } from '../src/database.ts';
-import { applyRetention, RETENTION_INTERVAL_MS, retentionPolicy, sweepRetention } from '../src/retention.ts';
+import {
+  applyRetention,
+  RETENTION_BATCH,
+  RETENTION_INTERVAL_MS,
+  retentionPolicy,
+  sweepRetention,
+} from '../src/retention.ts';
 import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject, registration } from './helpers.ts';
@@ -128,6 +134,26 @@ await test('a message a worker check-in still references survives retention', (t
   assert.doesNotThrow(() => applyRetention(store, POLICY));
   const kept = selectOne(store.db, idSchema, 'SELECT id FROM messages WHERE id = ?', request.id);
   assert.ok(kept !== undefined, 'the referenced work request stays');
+});
+
+await test('a backlog drains one bounded batch per sweep over indexed references', (t) => {
+  const { store, clock, lead, worker } = fixture(t);
+  for (let index = 0; index < RETENTION_BATCH + 10; index += 1) {
+    const sent = store.execute('send_message', { to: 'codex-1', body: `Old ${String(index)}` }, lead);
+    store.execute('ack_message', { id: sent.id }, worker);
+  }
+  clock.now += 20 * DAY;
+  assert.equal(sweepRetention(store)?.messages, RETENTION_BATCH, 'one sweep removes one batch');
+  const indexes = store.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all();
+  const names = new Set(indexes.map((row) => z.object({ name: z.string() }).parse(row).name));
+  assert.ok(names.has('messages_reply_to') && names.has('coordination_request'), 'references are indexed');
+  assert.equal(sweepRetention(store)?.messages, 10, 'a draining pass continues on the next sweep');
+  let sweeps = 0;
+  while (sweepRetention(store) !== null) {
+    sweeps += 1;
+    assert.ok(sweeps < 10, 'the pass drains');
+  }
+  assert.equal(sweepRetention(store), null, 'a drained pass waits for the interval');
 });
 
 await test('the windows read their environment variables', () => {

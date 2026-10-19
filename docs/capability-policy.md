@@ -3,8 +3,12 @@
 `CapabilityPolicyStore` in `src/capability-policy.ts` shares the selected project's
 private `.malt/state/mesh.db`. Construct it with that project's `Store` and matching
 `MeshConfig`; the broker opens one per project. Human read/edit endpoints are
-described in the [API reference](api.md#connector-capability-policy). Console
-editing remains queued.
+described in the [API reference](api.md#connector-capability-policy). The
+console's **Project → Capabilities** view edits them through the same
+`capability_policy_set` control. Each row shows the mode, the role list for
+`approved-agent-roles` and the provider's support as a separate label, so
+unsupported and unverified never read as disabled. An unsupported capability
+can only be disabled. A failed save keeps the operator's selection.
 
 `get(capability)` returns a mode and explicit `roles` array. Operations in
 `CAPABILITIES` default to `disabled` apart from the initialization grants below. `human-only` also requires an empty role
@@ -67,8 +71,24 @@ mutation.
 Not yet gated: the delivery adapter's direct repository effects (pull request
 creation, merges, PR/issue closure, comments and native dependency edges) still
 call GitHub without a capability check. Dependency edges are only reachable after
-the same plan's `relationships`-gated issue creation. Labels, milestones, views
-and Jira are separate capabilities with their own deliveries.
+the same plan's `relationships`-gated issue creation. Labels, milestones and views
+are separate capabilities with their own deliveries.
+
+### Jira
+
+Jira mutations in `src/jira/writes.ts` call `authorize` with the same principal
+rules before any request to the Jira site, so a denial makes no call.
+
+| Mutation                 | Capabilities                       |
+| ------------------------ | ---------------------------------- |
+| Create an issue          | `issue-create`                     |
+| Create a child/sub-task  | `issue-create` and `relationships` |
+| Transition an issue      | `transition`                       |
+| Comment on an issue      | `comment`                          |
+| Link two issues          | `relationships`                    |
+| Add or remove its labels | `label-use`                        |
+
+`comment` is new with Jira and, like every capability, starts `disabled`.
 
 ## Denials in the factory
 
