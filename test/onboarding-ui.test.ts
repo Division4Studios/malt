@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { firstOutcome, isOnboardingNeeded, onboardingSteps, readPreflight } from '../web/dist/onboarding-model.js';
-import { buildRows, providerHealth } from '../web/dist/settings-model.js';
+import { buildRows, providerHealth, revalidationInput, revalidationSetting } from '../web/dist/settings-model.js';
 
 const FEATURE = '11111111-1111-4111-8111-111111111111';
 const NOW = 1_800_000_000_000;
@@ -190,4 +190,12 @@ await test('build rows report versions and the installed shell revision, or say 
   const missing = new Map(buildRows(null, []));
   assert.equal(missing.get('Broker'), 'not answering');
   assert.equal(missing.get('Offline shell cache'), 'not installed in this browser');
+});
+
+await test('brief revalidation shows the saved choice and changes only while paused, keeping every other setting', () => {
+  assert.deepEqual(revalidationSetting({}), { isEnabled: false, blocker: 'Set up the factory first.' });
+  const settings = { maxDiffLines: 500, briefRevalidation: true, providers: { claude: { enabled: true } } };
+  assert.deepEqual(revalidationSetting({ settings, active: false }), { isEnabled: true, blocker: null });
+  assert.equal(revalidationSetting({ settings, active: true }).blocker, 'Pause the factory to change project policy.');
+  assert.deepEqual(revalidationInput({ settings }, false), { ...settings, briefRevalidation: false });
 });

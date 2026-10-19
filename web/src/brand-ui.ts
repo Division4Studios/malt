@@ -237,7 +237,7 @@ function readableBlocker(error: string): string {
   }
   const first = error.split('\n', 1)[0] ?? '';
   return first.length > BLOCKER_EXCERPT
-    ? t('{value}… Read the technical details below.', { value: first.slice(0, BLOCKER_EXCERPT) })
+    ? t('{excerpt}… Read the technical details below.', { excerpt: first.slice(0, BLOCKER_EXCERPT) })
     : first;
 }
 
@@ -422,7 +422,7 @@ function appendQueueControls(
   const id = text(feature, 'id');
   const index = state.unfinished.findIndex((item) => text(item, 'id') === id);
   const controls = element('div', 'objective-controls');
-  controls.append(element('span', 'pill', t('Priority {value}', { value: index + 1 })));
+  controls.append(element('span', 'pill', t('Priority {priority}', { priority: index + 1 })));
   const options = [
     [t('Move first'), 0],
     [t('Move up'), index - 1],
@@ -474,6 +474,14 @@ export class QueueState {
    */
   public replace(target: HTMLElement, next: HTMLElement, project: string): void {
     const isSameProject = project === this.project;
+    if (target.firstElementChild === next && target.childElementCount === 1) {
+      // A stable view root is already mounted: reinserting it would drop the focus and selection inside it.
+      if (!isSameProject) {
+        this.details.clear();
+        this.project = project;
+      }
+      return;
+    }
     let focus = '';
     if (isSameProject) {
       for (const detail of target.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
@@ -490,10 +498,6 @@ export class QueueState {
     pruneHandoffDetails(this.details, next);
     for (const detail of next.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
       detail.open = this.details.get(detail.dataset['queueKey'] ?? '') ?? false;
-    }
-    if (target.childElementCount === 1 && target.firstElementChild === next) {
-      // A stable view root is already mounted: re-inserting it would drop focus and selection mid-edit.
-      return;
     }
     target.replaceChildren(next);
     if (focus === '') {

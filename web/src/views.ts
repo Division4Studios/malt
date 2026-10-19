@@ -6,6 +6,7 @@
 import { child, firstText, numericText, number, records, text, hasFlag } from './api.js';
 import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { capacityView } from './capacity-view.js';
+import { definitionProgress } from './goal-ui.js';
 import { formatTime, t } from './i18n.js';
 import { maintenancePanel, appendBaselineWarning } from './learning-ui.js';
 import { organizationPanel } from './organization-ui.js';
@@ -44,6 +45,10 @@ export const ROLES = [
   'qa-2',
   'final-tester',
   'learning-steward',
+  'plan-reviewer',
+  'fixer',
+  'librarian',
+  'regression-verifier',
 ] as const;
 /** Operator actions are routed by the controller, never run by a view. */
 export interface Actions {
@@ -343,11 +348,16 @@ export function overviewView(state: Snapshot, actions: Actions, isConnected = tr
   const left = element('div');
   const team = element('div', 'panel-body');
   team.append(teamView(state, actions, false));
-  left.append(panel(t('Your autonomous team'), t('08 LOGICAL ROLES'), team));
+  const roleCount = t('{count} LOGICAL ROLES', { count: String(ROLES.length).padStart(2, '0') });
+  left.append(panel(t('Your autonomous team'), roleCount, team));
   const queue = objectiveQueue(records(state.factory['features']), actions, child(state.factory, 'objectiveQueue'));
   left.append(
     panel(t('Product queue'), t('{unfinished} UNFINISHED OBJECTIVES', { unfinished: queue.unfinished }), queue.body),
   );
+  const progress = definitionProgress({ factory: state.factory });
+  if (progress !== null) {
+    left.append(panel(t('Definitions of done'), t('OPEN CHECKLISTS'), progress));
+  }
   const right = element('div');
   right.append(
     panel(t('Provider & local capacity'), t('SUBSCRIPTION SESSIONS'), capacityView(state)),
@@ -406,7 +416,9 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const node = element('article', 'ticket');
   const phase = text(task, 'phase');
   const issue = number(task, 'issue');
-  const owner = firstText(text(task, 'developer'), t('unassigned'));
+  // The raw seat routes instructions; only the label is translated.
+  const developer = text(task, 'developer');
+  const owner = firstText(developer, t('unassigned'));
   const attempts = numericText(task, 'attempts');
   node.append(
     link(issueUrl(state, issue), `#${String(issue)} · parent #${numericText(task, 'parentIssue')}`),
@@ -437,7 +449,7 @@ function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const controls = element('div', 'ticket-actions');
   controls.append(
     button(t('Instruct owner'), () => {
-      actions.instruct(owner === 'unassigned' ? 'team-lead' : owner, text(task, 'id'), false);
+      actions.instruct(firstText(developer, 'team-lead'), text(task, 'id'), false);
     }),
     button(t('Change scope'), () => {
       actions.instruct('team-lead', text(task, 'id'), true);

@@ -6,17 +6,19 @@
  * @file
  */
 import { COLUMNS } from './console-model.js';
+import { phrase, t, translated } from './i18n.js';
 
 import type { Column, ConsoleModel, Delivery, Objective, WorkflowIdentity } from './console-model.js';
 
 /** Plain-language heading and description per column. */
-export const COLUMN_COPY: Readonly<Record<Column, { readonly title: string; readonly description: string }>> = {
-  planning: { title: 'Planning', description: 'Objectives being split into deliveries.' },
-  ready: { title: 'Ready', description: 'Deliveries waiting for a free developer.' },
-  in_progress: { title: 'In progress', description: 'Being built, reviewed, merged or verified.' },
-  needs_you: { title: 'Needs you', description: 'Waiting on your approval or a blocker decision.' },
-  done: { title: 'Done', description: 'Merged and verified on main.' },
-};
+export const COLUMN_COPY: Readonly<Record<Column, { readonly title: string; readonly description: string }>> =
+  translated({
+    planning: { title: phrase('Planning'), description: phrase('Objectives being split into deliveries.') },
+    ready: { title: phrase('Ready'), description: phrase('Deliveries waiting for a free developer.') },
+    in_progress: { title: phrase('In progress'), description: phrase('Being built, reviewed, merged or verified.') },
+    needs_you: { title: phrase('Needs you'), description: phrase('Waiting on your approval or a blocker decision.') },
+    done: { title: phrase('Done'), description: phrase('Merged and verified on main.') },
+  });
 
 /** A card on the board. */
 export type Card =
@@ -220,7 +222,7 @@ export function mergeGateControl(
   }
   const isGated = delivery.steps.some((step) => step.id === MERGE_GATE_STEP);
   return {
-    label: isGated ? 'Remove merge approval' : 'Require merge approval',
+    label: t(isGated ? 'Remove merge approval' : 'Require merge approval'),
     input: { taskId: delivery.taskId, merge: !isGated },
   };
 }
@@ -245,11 +247,11 @@ export interface LifecycleControl {
 export function lifecycleControl(delivery: Delivery): LifecycleControl {
   const taskIds = [delivery.taskId];
   if (delivery.phase === 'done') {
-    return { label: 'Archive', operation: 'factory_archive', input: { taskIds, archive: true } };
+    return { label: t('Archive'), operation: 'factory_archive', input: { taskIds, archive: true } };
   }
   return delivery.held === null
-    ? { label: 'Hold', operation: 'factory_hold', input: { taskIds, hold: true } }
-    : { label: 'Resume', operation: 'factory_hold', input: { taskIds, hold: false } };
+    ? { label: t('Hold'), operation: 'factory_hold', input: { taskIds, hold: true } }
+    : { label: t('Resume'), operation: 'factory_hold', input: { taskIds, hold: false } };
 }
 
 /**

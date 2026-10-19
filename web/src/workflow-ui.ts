@@ -281,16 +281,16 @@ function drawNodes(scene: SVGSVGElement, points: Point[], detail: HTMLElement, i
       class: 'workflow-node',
       role: 'button',
       tabindex: '0',
-      'aria-label': t('{label}: {value}. Inspect role.', { label, value: text(point.node, 'state') }),
+      'aria-label': t('{label}: {state}. Inspect role.', { label, state: text(point.node, 'state') }),
       'data-state': text(point.node, 'state'),
       'data-workflow-role': text(point.node, 'id'),
       'aria-pressed': text(point.node, 'id') === cursor.selected ? 'true' : 'false',
     });
     node.append(svg('circle', { r: '28' }));
     const hint = svg('title', {});
-    hint.textContent = t('{label} · {value} · Select to inspect current work and captured evidence.', {
+    hint.textContent = t('{label} · {state} · Select to inspect current work and captured evidence.', {
       label,
-      value: text(point.node, 'state'),
+      state: text(point.node, 'state'),
     });
     node.append(hint);
     const title = svg('text', { y: '48', 'text-anchor': 'middle', class: 'network-label' });

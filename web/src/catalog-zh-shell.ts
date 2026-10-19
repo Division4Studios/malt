@@ -77,7 +77,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
     'QA 无法检查该 PR，因为其只读任务认领缺失或已过期。这是评审访问受阻，不代表批准，也不是已确认的代码缺陷。请恢复所属认领，并在相同提交上重新运行独立 QA。',
   'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.':
     'QA 无法完成，因为其只读工具无法打开大型源文件。这是检查工具受阻，不是已确认的代码缺陷。请修复源文件分页，然后在相同提交上重新运行独立 QA。',
-  '{value}… Read the technical details below.': '{value}… 请阅读下方的技术细节。',
+  '{excerpt}… Read the technical details below.': '{excerpt}… 请阅读下方的技术细节。',
   'Coordinator & dispatch': '协调与分派',
   'Technical details for issue #{issue}': '议题 #{issue} 的技术细节',
   'The next mission starts here': '下一项任务从这里开始',
@@ -89,7 +89,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Completed ({count})': '已完成（{count}）',
   'Read full objective': '阅读完整目标',
   'Retry resolved request': '重试已解决的请求',
-  'Priority {value}': '优先级 {value}',
+  'Priority {priority}': '优先级 {priority}',
   'Move first': '移到最前',
   'Move up': '上移',
   'Move down': '下移',
@@ -114,7 +114,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
     '输入 MALT 源码仓库文件夹的绝对路径。这会把已批准的确切技能调整移交给其自己的产品负责人和团队负责人，并经过正常的实现与评审关卡。此操作不会创建看板、部署或进程重启。',
   'Approved lessons can become separately reviewed MALT source work. Its factory needs its own setup; this never hot-patches the running daemon.':
     '已批准的经验可以成为单独评审的 MALT 源码工作。其工厂需要单独设置；这绝不会热修补正在运行的守护进程。',
-  'Queue source improvement: {value}': '排队源码改进：{value}',
+  'Queue source improvement: {name}': '排队源码改进：{name}',
   'Local baseline edits were preserved. Inspect .malt/skills/builtin-index.json conflicts and submit a reviewed project override before replacing them.':
     '已保留本地基线修改。请检查 .malt/skills/builtin-index.json 中的冲突，并在替换前提交经过评审的项目覆盖。',
   'This artifact has not emitted data yet.': '此产物尚未输出数据。',
@@ -208,20 +208,20 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
     '报告的结果：{outcome}。进程状态：{processState}。此记录不是独立的交付验证。',
   'Stored preview truncated.': '存储的预览已截断。',
   'Bounded stored preview.': '有长度限制的存储预览。',
-  'Issue: {value}. Job: {value2}. Task: {value3}. Stage: {value4}.':
-    '议题：{value}。作业：{value2}。任务：{value3}。阶段：{value4}。',
+  'Issue: {issue}. Job: {job}. Task: {task}. Stage: {stage}.':
+    '议题：{issue}。作业：{job}。任务：{task}。阶段：{stage}。',
   'Transport: factory instruction. Origin comes from matching structured worker provenance.':
     '传输方式：工厂指令。来源取自匹配的结构化工作者溯源信息。',
   'Transport: factory instruction. Worker origin metadata is unavailable; no author is inferred from its body.':
     '传输方式：工厂指令。工作者来源元数据不可用；不会从正文推断作者。',
-  'Transport: broker message. Actual sender ID: {value}. Body text does not change its recorded author.':
-    '传输方式：Broker 消息。实际发送者 ID：{value}。正文内容不会改变其记录的作者。',
+  'Transport: broker message. Actual sender ID: {sender}. Body text does not change its recorded author.':
+    '传输方式：Broker 消息。实际发送者 ID：{sender}。正文内容不会改变其记录的作者。',
   'Recorded time unavailable': '记录时间不可用',
   Light: '浅色',
   Dark: '深色',
   'The console shell has no {id} button.': '控制台外壳中没有 {id} 按钮。',
-  'Theme: {value}': '主题：{value}',
-  'Colour theme: {value}. Activate for {value2}.': '颜色主题：{value}。点按切换为{value2}。',
+  'Theme: {theme}': '主题：{theme}',
+  'Colour theme: {theme}. Activate for {next}.': '颜色主题：{theme}。点按切换为{next}。',
   'spun down': '已停止',
   'CLI default · capability unverified': 'CLI 默认 · 能力未验证',
   starting: '正在启动',
@@ -233,7 +233,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Send instruction': '发送指令',
   'No activity yet. A quiet factory is not consuming model tokens.': '暂无活动。空闲的工厂不会消耗模型 token。',
   'Your autonomous team': '你的自主团队',
-  '08 LOGICAL ROLES': '08 个逻辑角色',
+  '{count} LOGICAL ROLES': '{count} 个逻辑角色',
   'Product queue': '产品队列',
   '{unfinished} UNFINISHED OBJECTIVES': '{unfinished} 个未完成目标',
   'Provider & local capacity': '提供方与本地容量',
@@ -368,4 +368,11 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'Console sections': '控制台分区',
   'Open a project folder': '打开项目文件夹',
   'Section views': '分区视图',
+  ' · limit reached': ' · 已达上限',
+  'a permission or an answer': '一项权限或一个回答',
+  'the selected repository': '所选仓库',
+  enabled: '已启用',
+  disabled: '已停用',
+  any: '任意',
+  'seat type': '席位类型',
 };
