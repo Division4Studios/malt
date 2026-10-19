@@ -5,6 +5,7 @@
  * @file
  */
 import { records, text, child, number, hasFlag } from './api.js';
+import { formatDateTime, t } from './i18n.js';
 import { focusDescription } from './recovery-ui.js';
 import { element } from './worker-ui.js';
 
@@ -31,7 +32,7 @@ const BLOCKER_EXCERPT = 500;
  */
 function resetLabel(milliseconds: number): string {
   const date = new Date(milliseconds);
-  return date.toLocaleString();
+  return formatDateTime(date);
 }
 
 /**
@@ -94,9 +95,9 @@ function pendingObjectives(objectives: Data[]): Data[] {
  */
 export function objectiveGroups(objectives: Data[]): { title: string; items: Data[] }[] {
   const groups = [
-    { title: 'Queued', phases: ['queued'] },
-    { title: 'In progress', phases: ['refining', 'provisioning', 'active'] },
-    { title: 'Needs attention', phases: ['blocked'] },
+    { title: t('Queued'), phases: ['queued'] },
+    { title: t('In progress'), phases: ['refining', 'provisioning', 'active'] },
+    { title: t('Needs attention'), phases: ['blocked'] },
     { title: 'Completed', phases: ['done'] },
   ];
   const current = objectives.filter((feature) => feature['scopeReplacement'] === undefined);
@@ -127,25 +128,30 @@ export function overviewMetrics(factory: Data): HTMLElement {
   const features = records(factory['features']);
   const values = [
     [
-      'Active agents',
+      t('Active agents'),
       jobs.filter((job) => text(job, 'state') === 'running').length,
       'cyan',
-      'bounded live assignments',
+      t('bounded live assignments'),
     ],
-    ['Delivered', tasks.filter((task) => text(task, 'phase') === 'done').length, 'green', 'verified on merged main'],
     [
-      'Unstarted deliveries',
+      t('Delivered'),
+      tasks.filter((task) => text(task, 'phase') === 'done').length,
+      'green',
+      t('verified on merged main'),
+    ],
+    [
+      t('Unstarted deliveries'),
       tasks.filter((task) => text(task, 'phase') === 'ready').length,
       'violet',
-      'may await dependencies or capacity',
+      t('may await dependencies or capacity'),
     ],
-    ['Pending objectives', pendingObjectives(features).length, 'cyan', 'product requests not yet delivered'],
+    [t('Pending objectives'), pendingObjectives(features).length, 'cyan', t('product requests not yet delivered')],
     [
-      'Blocked',
+      t('Blocked'),
       tasks.filter((task) => text(task, 'phase') === 'blocked' && task['scopeCleanup'] === undefined).length +
         features.filter((feature) => text(feature, 'phase') === 'blocked').length,
       '',
-      'requires a concrete resolution',
+      t('requires a concrete resolution'),
     ],
   ] as const;
   for (const [index, [label, count, color, note]] of values.entries()) {
@@ -169,9 +175,11 @@ export function overviewMetrics(factory: Data): HTMLElement {
  */
 export function dispatchSummary(factory: Data): string[] {
   const messages = [
-    hasFlag(factory, 'active')
-      ? 'Supervisor enabled. Product owner and lead are scheduled when work is eligible; they do not keep idle model processes running.'
-      : 'Factory paused. Start the factory to dispatch queued work.',
+    t(
+      hasFlag(factory, 'active')
+        ? 'Supervisor enabled. Product owner and lead are scheduled when work is eligible; they do not keep idle model processes running.'
+        : 'Factory paused. Start the factory to dispatch queued work.',
+    ),
   ];
   const error = text(factory, 'error');
   if (error !== '') {
@@ -186,19 +194,26 @@ export function dispatchSummary(factory: Data): string[] {
     const pending =
       number(capacity, 'usedTokens') + number(capacity, 'reservedTokens') + number(policy, 'reservationTokens');
     if (budget > 0 && pending > budget && number(capacity, 'resetAt') > Date.now()) {
+      const resets = resetLabel(number(capacity, 'resetAt'));
       messages.push(
-        `${provider}: configured scheduling budget exhausted; resets ${resetLabel(number(capacity, 'resetAt'))}. This is separate from subscription quota.`,
+        t(
+          '{provider}: configured scheduling budget exhausted; resets {resets}. This is separate from subscription quota.',
+          { provider, resets },
+        ),
       );
     }
-    if (number(capacity, 'cooldownUntil') > Date.now()) {
-      messages.push(`${provider}: provider cooldown until ${resetLabel(number(capacity, 'cooldownUntil'))}.`);
+    if (number(capacity, 'cooldownUntil') <= Date.now()) {
+      continue;
     }
+    const until = resetLabel(number(capacity, 'cooldownUntil'));
+    messages.push(t('{provider}: provider cooldown until {until}.', { provider, until }));
   }
   const blocked = records(factory['tasks']).filter(
     (task) => text(task, 'phase') === 'blocked' && task['scopeReplacement'] === undefined,
   );
   for (const task of blocked) {
-    messages.push(`Issue #${String(number(task, 'issue'))} blocked: ${readableBlocker(text(task, 'error'))}`);
+    const blocker = readableBlocker(text(task, 'error'));
+    messages.push(t('Issue #{issue} blocked: {blocker}', { issue: number(task, 'issue'), blocker }));
   }
   return messages;
 }
@@ -211,14 +226,18 @@ export function dispatchSummary(factory: Data): string[] {
  */
 function readableBlocker(error: string): string {
   if (error.includes('No current managed source claim')) {
-    return 'QA cannot inspect the PR because its read-only assignment claim is missing or expired. This is a review-access blocker, not an approval or confirmed code defect. Restore the owned claim and rerun independent QA on the same commits.';
+    return t(
+      'QA cannot inspect the PR because its read-only assignment claim is missing or expired. This is a review-access blocker, not an approval or confirmed code defect. Restore the owned claim and rerun independent QA on the same commits.',
+    );
   }
   if (error.includes('truncated:true') || error.includes('essential source remains inaccessible')) {
-    return 'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.';
+    return t(
+      'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.',
+    );
   }
   const first = error.split('\n', 1)[0] ?? '';
   return first.length > BLOCKER_EXCERPT
-    ? `${first.slice(0, BLOCKER_EXCERPT)}… Read the technical details below.`
+    ? t('{excerpt}… Read the technical details below.', { excerpt: first.slice(0, BLOCKER_EXCERPT) })
     : first;
 }
 
@@ -230,7 +249,7 @@ function readableBlocker(error: string): string {
  */
 export function dispatchPanel(factory: Data): HTMLElement {
   const panel = element('section', 'notice');
-  panel.append(element('h2', '', 'Coordinator & dispatch'));
+  panel.append(element('h2', '', t('Coordinator & dispatch')));
   for (const message of dispatchSummary(factory)) {
     panel.append(element('p', '', message));
   }
@@ -242,7 +261,7 @@ export function dispatchPanel(factory: Data): HTMLElement {
     const details = element('details', 'blocker-details');
     const issue = String(number(task, 'issue'));
     details.append(
-      element('summary', '', `Technical details for issue #${issue}`),
+      element('summary', '', t('Technical details for issue #{issue}', { issue })),
       element('pre', '', text(task, 'error')),
     );
     panel.append(details);
@@ -269,11 +288,11 @@ export function objectiveQueue(
   const body = element('div', 'panel-body');
   if (objectives.length === 0) {
     body.append(
-      element('h3', '', 'The next mission starts here'),
+      element('h3', '', t('The next mission starts here')),
       element(
         'p',
         'subtle',
-        'Add an objective. Your product owner and lead will prepare small, verifiable deliveries.',
+        t('Add an objective. Your product owner and lead will prepare small, verifiable deliveries.'),
       ),
     );
   }
@@ -291,7 +310,9 @@ export function objectiveQueue(
     element(
       'p',
       'subtle',
-      'Priority applies to new assignments. Running work finishes safely. Blocked work stays blocked until resolved and explicitly retried.',
+      t(
+        'Priority applies to new assignments. Running work finishes safely. Blocked work stays blocked until resolved and explicitly retried.',
+      ),
     ),
   );
   if (focus !== '') {
@@ -299,7 +320,7 @@ export function objectiveQueue(
     const focusedObjective = ordered.find((item) => text(item, 'id') === focus) ?? {};
     const focusedTitle = text(focusedObjective, 'objective').slice(0, OBJECTIVE_TITLE);
     notice.append(element('p', '', focusDescription(queue, focusedTitle)));
-    const release = element('button', 'small-button', 'Resume all objectives');
+    const release = element('button', 'small-button', t('Resume all objectives'));
     release.type = 'button';
     release.addEventListener('click', () => {
       actions.queue(order, null, revision);
@@ -316,7 +337,7 @@ export function objectiveQueue(
   const completed = element('details', 'objective-completed');
   completed.dataset['queueKey'] = 'completed';
   const count = groups.find((group) => group.title === 'Completed')?.items.length ?? 0;
-  const summary = element('summary', '', `Completed (${String(count)})`);
+  const summary = element('summary', '', t('Completed ({count})', { count }));
   summary.dataset['queueFocus'] = 'completed';
   completed.append(summary);
   let unfinished = 0;
@@ -367,13 +388,13 @@ function objectiveRow(feature: Data, actions: Actions): HTMLElement {
   if (objective.length > OBJECTIVE_TITLE) {
     const detail = element('details');
     detail.dataset['queueKey'] = `objective:${id}`;
-    const summary = element('summary', '', 'Read full objective');
+    const summary = element('summary', '', t('Read full objective'));
     summary.dataset['queueFocus'] = `objective:${id}`;
     detail.append(summary, element('p', 'subtle', objective));
     row.append(detail);
   }
   if (!isReplaced && text(feature, 'phase') === 'blocked') {
-    const retry = element('button', 'small-button', 'Retry resolved request');
+    const retry = element('button', 'small-button', t('Retry resolved request'));
     retry.type = 'button';
     retry.addEventListener('click', () => {
       actions.retry(id, true);
@@ -401,11 +422,11 @@ function appendQueueControls(
   const id = text(feature, 'id');
   const index = state.unfinished.findIndex((item) => text(item, 'id') === id);
   const controls = element('div', 'objective-controls');
-  controls.append(element('span', 'pill', `Priority ${String(index + 1)}`));
+  controls.append(element('span', 'pill', t('Priority {priority}', { priority: index + 1 })));
   const options = [
-    ['Move first', 0],
-    ['Move up', index - 1],
-    ['Move down', index + 1],
+    [t('Move first'), 0],
+    [t('Move up'), index - 1],
+    [t('Move down'), index + 1],
   ] as const;
   for (const [label, destination] of options) {
     const button = element('button', 'small-button', label);
@@ -426,7 +447,7 @@ function appendQueueControls(
     });
     controls.append(button);
   }
-  const focus = element('button', 'small-button', state.focus === id ? 'Focused' : 'Focus only this objective');
+  const focus = element('button', 'small-button', t(state.focus === id ? 'Focused' : 'Focus only this objective'));
   focus.type = 'button';
   focus.disabled = state.focus === id;
   focus.dataset['queueFocus'] = `focus:${id}`;
@@ -453,6 +474,14 @@ export class QueueState {
    */
   public replace(target: HTMLElement, next: HTMLElement, project: string): void {
     const isSameProject = project === this.project;
+    if (target.firstElementChild === next && target.childElementCount === 1) {
+      // A stable view root is already mounted: reinserting it would drop the focus and selection inside it.
+      if (!isSameProject) {
+        this.details.clear();
+        this.project = project;
+      }
+      return;
+    }
     let focus = '';
     if (isSameProject) {
       for (const detail of target.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
@@ -469,10 +498,6 @@ export class QueueState {
     pruneHandoffDetails(this.details, next);
     for (const detail of next.querySelectorAll<HTMLDetailsElement>('details[data-queue-key]')) {
       detail.open = this.details.get(detail.dataset['queueKey'] ?? '') ?? false;
-    }
-    if (target.childElementCount === 1 && target.firstElementChild === next) {
-      // A stable view root is already mounted: re-inserting it would drop focus and selection mid-edit.
-      return;
     }
     target.replaceChildren(next);
     if (focus === '') {
