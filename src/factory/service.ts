@@ -11,6 +11,7 @@ import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import { forgetAttemptSecrets } from './attempt-secrets.ts';
 import * as automation from './automations.ts';
+import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
   cancelOwnedJob,
@@ -33,7 +34,7 @@ import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
 import { ledgerHandlers } from './ledger-handlers.ts';
 import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
-import { deliveryFor, prepareDelivery } from './local-controls.ts';
+import { deliveryFor, localControl, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { checkDefinition } from './objective-goals.ts';
@@ -44,7 +45,6 @@ import { policySetupBlocker } from './policy-blockers.ts';
 import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
-import { runAgent } from './providers.ts';
 import { askQuestion, isAwaitingAnswer, didAskOperator } from './questions.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
@@ -222,7 +222,7 @@ export class FactoryService {
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
-      agent: this.options.agent ?? (async (request) => runAgent(request, processes)),
+      agent: this.options.agent ?? defaultAgent(processes),
     };
     return this.context;
   }
@@ -398,6 +398,7 @@ export class FactoryService {
       factory_status: async () => this.status(),
       factory_preflight: async () => preflight(this.repository.config(), this.mesh),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
+      factory_local: async () => localControl(this.mesh, this.configured().settings, parsed),
       factory_setup: async () => this.controlSetup(parsed),
       factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {

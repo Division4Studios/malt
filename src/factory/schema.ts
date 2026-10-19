@@ -10,6 +10,7 @@ import { z } from 'zod/v3';
 import { proofJobIdSchema, reconcileGitHubSchema } from './adoption-schema.ts';
 import { MAX_ASSIGNMENT_SKILLS, MAX_INSTRUCTION_RECEIPTS, PLAN_MAX, ROUTING_REASON_MAX } from './agent-output.ts';
 import { AUTOMATION_OPERATIONS, automationSchemas } from './automation-schema.ts';
+import { cloudPolicySchema } from './cloud-schema.ts';
 import {
   archiveMarkSchema,
   DELIVERY_CONTROL_OPERATIONS,
@@ -19,6 +20,7 @@ import {
 import { DIFF_OPERATIONS, diffSchemas } from './diff-schema.ts';
 import { deliveryGatesSchema, gateOverrideSchema, gatesControlSchema, gatesSchema } from './gate-schema.ts';
 import { failureClassSchema, jobLivenessSchema, livenessSettingsSchema } from './liveness-schema.ts';
+import { localControlSchema } from './local-schema.ts';
 import {
   modelChoiceSchema,
   modelPolicySchema,
@@ -203,8 +205,13 @@ export const factoryConfigSchema = z
       .object({
         codex: providerSchema.default({ executable: 'codex' }),
         claude: providerSchema.default({ executable: 'claude' }),
+        copilot: providerSchema.default({ executable: 'copilot', enabled: false }),
       })
-      .default({ codex: { executable: 'codex' }, claude: { executable: 'claude' } }),
+      .default({
+        codex: { executable: 'codex' },
+        claude: { executable: 'claude' },
+        copilot: { executable: 'copilot', enabled: false },
+      }),
     maxAttempts: z.number().int().positive().default(MAX_ATTEMPTS),
     /** Repair rounds per delivery for failed CI and merge conflicts. */
     repair: repairPolicySchema.default({}),
@@ -228,6 +235,8 @@ export const factoryConfigSchema = z
       })
       .default({}),
     terminals: terminalPolicySchema.default({}),
+    /** Developer assignments routed to Codex Cloud on the operator's subscription. */
+    cloud: cloudPolicySchema.default({}),
   })
   .strict();
 /** A configured project factory. */
@@ -596,6 +605,7 @@ export const factorySchemas = {
     })
     .strict(),
   factory_cancel_job: z.object({ jobId: z.string().uuid() }).strict(),
+  factory_local: localControlSchema,
   factory_workflow_save: saveWorkflowRequestSchema,
   factory_workflow_default: defaultWorkflowRequestSchema,
   factory_workflow_history: workflowHistoryRequestSchema,
@@ -650,5 +660,6 @@ export const FACTORY_OPERATIONS = [
   ...SPEND_OPERATIONS,
   ...OBJECTIVE_GOAL_OPERATIONS,
   ...ROLE_OPERATIONS,
+  'factory_local',
   'factory_reconcile_github',
 ] as const;

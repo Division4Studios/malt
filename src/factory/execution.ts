@@ -444,6 +444,7 @@ async function roleEvidence(context: FactoryContext, job: FactoryJob): Promise<u
       configuredModelProfiles: {
         codex: context.settings.providers.codex.models,
         claude: context.settings.providers.claude.models,
+        copilot: context.settings.providers.copilot.models,
       },
       allowedModelPolicy:
         context.settings.modelPolicy === undefined

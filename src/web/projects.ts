@@ -127,6 +127,7 @@ export const controlSchema = z
       'factory_roles_save',
       'factory_secret_save',
       'factory_secret_delete',
+      'factory_local',
       'github_connect',
       'terminal_start',
       'terminal_close',

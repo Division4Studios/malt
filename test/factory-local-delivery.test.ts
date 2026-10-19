@@ -15,6 +15,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 import { loadConfig } from '../src/config.ts';
 import { command } from '../src/factory/commands.ts';
+import { localControl, prepareDelivery } from '../src/factory/local-controls.ts';
 import { LocalDelivery, MERGEABLE_CHECK } from '../src/factory/local-delivery.ts';
 import { LocalHub } from '../src/factory/local-hub.ts';
 import { LocalTracker, parseLedger } from '../src/factory/local-tracker.ts';
@@ -389,6 +390,95 @@ await test('factory delivers end to end through the local hub without any hosted
   assert.equal(snapshot.state, 'MERGED');
   assert.equal(snapshot.mergeCommit?.oid, pull.mergeCommit);
   assert.ok((snapshot.statusCheckRollup ?? []).every((check) => check.name !== MERGEABLE_CHECK));
+  const enabled = { ...settings, delivery: 'local' as const, remote: 'malt-hub' };
+  const described = JSON.stringify(await localControl(mesh, enabled, { action: 'pull', number: pull.number }));
+  assert.match(described, /export const value = 3/v, 'Merged pull requests keep a reviewable diff.');
+  const synced = JSON.stringify(await localControl(mesh, enabled, { action: 'sync' }));
+  assert.ok(synced.includes(`"after":"${pull.mergeCommit ?? ''}","updated":true`), synced);
+  assert.equal(await command('git', ['rev-parse', 'main'], source), pull.mergeCommit);
+  assert.equal(await command('git', ['show', 'HEAD:value.mjs'], source), 'export const value = 3;');
+});
+
+await test('local controls create Ready deliveries for import and reject disabled or incomplete use', async () => {
+  const source = await repository('malt-local-controls-');
+  const mesh = loadConfig(source, { create: true });
+  const base = { testCommands: [{ file: 'node' }], endToEndCommands: [{ file: 'node' }] };
+  const github = factoryConfigSchema.parse(base);
+  await assert.rejects(localControl(mesh, github, { action: 'summary' }), { code: 'FACTORY_GATED' });
+  const settings = factoryConfigSchema.parse({ ...base, delivery: 'local', remote: 'malt-hub' });
+  await prepareDelivery(mesh, settings, false);
+  const delivery = new LocalDelivery(mesh, settings);
+  const feature = { action: 'create_issue', requestId: 'checkout', kind: 'feature', title: 'Checkout' };
+  const parent = await localControl(mesh, settings, {
+    ...feature,
+    description: 'Saved addresses.',
+    acceptanceCriteria: ['Returning customers reuse an address.'],
+  });
+  assert.ok(typeof parent === 'object' && parent !== null && 'number' in parent);
+  await assert.rejects(
+    localControl(mesh, settings, {
+      action: 'create_issue',
+      requestId: 'orphan',
+      kind: 'delivery',
+      title: 'x',
+      description: 'x',
+      acceptanceCriteria: ['x'],
+    }),
+    { code: 'INVALID_INPUT' },
+  );
+  await assert.rejects(
+    localControl(mesh, settings, {
+      ...feature,
+      requestId: 'nested',
+      description: 'x',
+      acceptanceCriteria: [],
+      parent: parent.number,
+    }),
+    { code: 'INVALID_INPUT' },
+    'A feature must not have a parent.',
+  );
+  const unknownStatus = {
+    action: 'create_issue',
+    requestId: 'shipping',
+    kind: 'delivery',
+    title: 'x',
+    description: 'x',
+    acceptanceCriteria: ['x'],
+    parent: parent.number,
+    status: 'Shipping',
+  };
+  await assert.rejects(localControl(mesh, settings, unknownStatus), { code: 'INVALID_INPUT' });
+  assert.equal(
+    delivery.tracker.read().requests['shipping'],
+    undefined,
+    'A rejected status must not persist an issue or consume its request ID.',
+  );
+  await localControl(mesh, settings, {
+    action: 'create_issue',
+    requestId: 'select-address',
+    kind: 'delivery',
+    title: 'Select a saved address',
+    description: 'Add the picker.',
+    acceptanceCriteria: ['The picker lists saved addresses.'],
+    parent: parent.number,
+    status: 'Ready',
+  });
+  const ready = await delivery.readyIssues();
+  assert.equal(ready.length, 1);
+  const [imported] = ready;
+  assert.ok(imported !== undefined);
+  assert.equal(imported.title, 'Select a saved address');
+  assert.deepEqual(imported.acceptanceCriteria, ['The picker lists saved addresses.']);
+  await assert.rejects(localControl(mesh, settings, { action: 'issue' }), { code: 'INVALID_INPUT' });
+  await assert.rejects(localControl(mesh, settings, { action: 'pull', number: 99 }), { code: 'NOT_FOUND' });
+  assert.deepEqual(await delivery.issueState(imported.issue), { state: 'open', stateReason: null });
+  const effect = { id: 'close-select', issue: imported.issue, value: '', attempts: 0, retryAt: 0, error: null };
+  await delivery.effect({ ...effect, kind: 'close_not_planned' });
+  assert.deepEqual(await delivery.issueState(imported.issue), { state: 'closed', stateReason: 'not_planned' });
+  await assert.rejects(delivery.issueState(0), { code: 'INVALID_INPUT' });
+  await assert.rejects(delivery.issueState(404), { code: 'NOT_FOUND' });
+  const synced = await localControl(mesh, settings, { action: 'sync' });
+  assert.ok(typeof synced === 'object' && synced !== null && 'updated' in synced && synced.updated === false);
 });
 
 await test('local ledger accepts only an identical retried merge settlement', async () => {
