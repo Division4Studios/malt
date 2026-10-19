@@ -58,6 +58,9 @@ Usage: node src/cli.ts <command> [options]
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
   capability-status            Show connector capability policies, support and history
   capability-set --file FILE   Change one connector capability policy (human only)
+  mcp-binding-status           Show connector MCP bindings, their hashes and approval
+  mcp-binding-propose --file FILE  Save a connector MCP binding for review (human only)
+  mcp-binding-approve --file FILE  Approve one exact MCP binding hash (human only)
   factory-setup --file FILE    Configure target factory validation and resource policies
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch
@@ -74,6 +77,7 @@ Usage: node src/cli.ts <command> [options]
   factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
   factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
+  factory-worktrees-adopt      Hand .malt/worktrees to this host or container (paused)
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker

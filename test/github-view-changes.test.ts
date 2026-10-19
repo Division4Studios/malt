@@ -217,6 +217,30 @@ await test('a delete whose response was lost is not repeated', async (t) => {
   assert.deepEqual(project.mutations, ['delete PVTV_1']);
 });
 
+await test('an unknown view stays refused on retry, and an unread list never confirms a delete', async (t) => {
+  const { context, project } = fixture(t, 'graphql');
+  const unknown = { requestId: 'h', action: 'delete' as const, viewNumber: 9 };
+  await assert.rejects(manageView(context, unknown), { code: 'INVALID_INPUT' });
+  await assert.rejects(manageView(context, unknown), { code: 'INVALID_INPUT' }, 'the retry is refused the same way');
+  const remove = { requestId: 'i', action: 'delete' as const, viewNumber: 1 };
+  // The delete fails before GitHub applies it; then the view read fails on retry.
+  let calls = 0;
+  const flaky: typeof context.runner = async (args, input) => {
+    calls += 1;
+    const body = JSON.stringify(input ?? {});
+    if (body.includes('deleteProjectV2View')) {
+      throw new MeshError('GITHUB_UNAVAILABLE', 'Network unreachable.');
+    }
+    return calls > 3 && body.includes('views(first')
+      ? { errors: [{ message: 'timeout' }] }
+      : await project.run(args, input);
+  };
+  await assert.rejects(manageView({ ...context, runner: flaky }, remove), { code: 'GITHUB_UNAVAILABLE' });
+  await assert.rejects(manageView({ ...context, runner: flaky }, remove), { code: 'GITHUB_UNAVAILABLE' });
+  assert.deepEqual(await manageView(context, remove), { action: 'delete', view: null }, 'it is performed later');
+  assert.deepEqual(project.mutations, ['delete PVTV_1']);
+});
+
 await test('changing a view needs view-field-change and deleting needs view-field-delete', () => {
   const base = { requestId: 'r', viewNumber: 1 };
   assert.deepEqual(githubCapabilities('github_view_manage', { ...base, action: 'change' }), ['view-field-change']);
