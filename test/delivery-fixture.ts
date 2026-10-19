@@ -25,6 +25,8 @@ export interface Fixture {
   readonly task: FactoryTask;
   readonly job: FactoryJob;
   readonly directory: string;
+  /** Registers cleanup that runs before the project folder is removed. */
+  readonly defer: (cleanup: () => unknown) => void;
 }
 
 /**
@@ -104,7 +106,7 @@ export async function fixture(t: TestContext): Promise<Fixture> {
     summary: null,
     artifact,
   });
-  return { mesh, workspaces, task, job, directory: developer.directory };
+  return { mesh, workspaces, task, job, directory: developer.directory, defer };
 }
 
 /**
