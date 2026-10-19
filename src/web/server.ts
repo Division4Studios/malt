@@ -72,6 +72,14 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'cost-chart',
     'price-editor',
     'costs-ui',
+    'i18n',
+    'catalog-zh',
+    'catalog-zh-shell',
+    'catalog-zh-factory',
+    'catalog-zh-board',
+    'catalog-zh-workflows',
+    'catalog-zh-project',
+    'catalog-zh-costs',
     'theme',
     'objective-ui',
     'console-views',
@@ -92,6 +100,20 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'diff-parse',
     'diff-model',
     'diff-ui',
+    'onboarding-model',
+    'onboarding-ui',
+    'settings-model',
+    'settings-ui',
+    'project-views',
+    'roles-model',
+    'roles-dom',
+    'roles-ui',
+    'secrets-model',
+    'secrets-ui',
+    'step-override-model',
+    'workflow-history-model',
+    'workflow-history-ui',
+    'step-override-ui',
     'delivery-ui',
     'goal-model',
     'checklist-dialog',
@@ -538,6 +560,14 @@ async function inspectApi(
     }
     case '/api/stream': {
       await streams.open(gateway, project, { request, response, sessions });
+      return;
+    }
+    case '/api/version': {
+      json(response, HTTP.ok, await gateway.versions(project));
+      return;
+    }
+    case '/api/preflight': {
+      json(response, HTTP.ok, await gateway.preflight(project));
       return;
     }
     case '/api/artifact': {

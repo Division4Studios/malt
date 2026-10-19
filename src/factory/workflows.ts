@@ -15,6 +15,7 @@
  * @file
  */
 
+import { Buffer } from 'node:buffer';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -32,6 +33,10 @@ export * from './workflow-schema.ts';
 
 /** Revisions listed per workflow in the console. */
 const HISTORY_LIMIT = 50;
+/** Most project workflows; every one rides in each status snapshot. */
+const MAX_PROJECT_WORKFLOWS = 50;
+/** Largest serialized size of all project workflow heads, so snapshots stay well inside one stream frame. */
+const LIBRARY_BYTES_MAX = 393_216;
 /** Built-in workflow definitions shipped with the source. */
 const BUILTIN_DIRECTORY = path.resolve(import.meta.dirname, '..', '..', 'resources', 'workflows');
 
@@ -162,7 +167,13 @@ export class WorkflowLibrary {
     const { workflow: raw, expectedRevision } = input;
     const parsed = workflowSchema.safeParse(raw);
     if (!parsed.success) {
-      throw new MeshError('INVALID_INPUT', parsed.error.issues.map((issue) => issue.message).join(' '));
+      // Every problem ends as a sentence, so the console can list them separately.
+      throw new MeshError(
+        'INVALID_INPUT',
+        parsed.error.issues
+          .map((issue) => (/[!.?]$/v.test(issue.message) ? issue.message : `${issue.message}.`))
+          .join(' '),
+      );
     }
     const workflow = parsed.data;
     if (builtinWorkflows().some((candidate) => candidate.id === workflow.id)) {
@@ -177,6 +188,11 @@ export class WorkflowLibrary {
           'This workflow changed since you opened it. Reload and reapply your edit.',
         );
       }
+      assertRoom(
+        this.list().filter((entry) => entry.source === 'project' && entry.id !== workflow.id),
+        workflow,
+        head === undefined,
+      );
       const now = this.store.now();
       if (head?.revision !== revision) {
         run(
@@ -307,6 +323,27 @@ export class WorkflowLibrary {
       throw new MeshError('NOT_FOUND', `Workflow ${id} revision ${revision} is missing.`);
     }
     return workflowSchema.parse(JSON.parse(row.data));
+  }
+}
+
+/**
+ * Refuse a save that would grow the project library past what a status snapshot can carry.
+ *
+ * @param others - The project's other current workflows.
+ * @param workflow - Definition being saved.
+ * @param isNew - Whether it adds a workflow rather than revising one.
+ * @throws {MeshError} When the library would hold too many workflows or too many bytes.
+ */
+function assertRoom(others: readonly WorkflowSummary[], workflow: Workflow, isNew: boolean): void {
+  if (isNew && others.length >= MAX_PROJECT_WORKFLOWS) {
+    throw new MeshError('FACTORY_GATED', `A project keeps at most ${String(MAX_PROJECT_WORKFLOWS)} workflows.`);
+  }
+  const bytes = others.reduce((sum, entry) => sum + Buffer.byteLength(JSON.stringify(entry.workflow)), 0);
+  if (bytes + Buffer.byteLength(JSON.stringify(workflow)) > LIBRARY_BYTES_MAX) {
+    throw new MeshError(
+      'TOO_LARGE',
+      'Project workflows would exceed 384 KiB together; shorten instructions or remove unused workflows.',
+    );
   }
 }
 
