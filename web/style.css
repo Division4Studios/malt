@@ -880,6 +880,21 @@ h3 {
   background: var(--state-bad);
   color: var(--red);
 }
+.capability-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.capability-table th,
+.capability-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+.capability-history {
+  padding-left: 20px;
+  overflow-wrap: anywhere;
+}
 .settings-theme {
   display: flex;
   flex-wrap: wrap;

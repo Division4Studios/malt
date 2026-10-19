@@ -121,6 +121,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'roles-ui',
     'secrets-model',
     'secrets-ui',
+    'capability-model',
+    'capability-ui',
     'step-override-model',
     'workflow-history-model',
     'workflow-history-ui',
@@ -593,10 +595,6 @@ async function inspectApi(
     case '/api/recommendation': {
       const query = recommendationQuery(url, url.pathname === '/api/recommendations' ? 'list' : 'get');
       json(response, HTTP.ok, await gateway.recommendations(query.project, query.input));
-      return;
-    }
-    case '/api/capabilities': {
-      json(response, HTTP.ok, await gateway.capabilities(project));
       return;
     }
     case '/api/skill': {
