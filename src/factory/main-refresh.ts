@@ -20,6 +20,25 @@ import type { FactoryTask } from './schema.ts';
 const REFRESHABLE: ReadonlySet<string> = new Set(['review', 'merge_ready']);
 
 /**
+ * The merge-only review scope after a refresh. Only a fully approved delivery starts one; a scope still bound
+ * to the current head (an earlier refresh nobody has changed since) carries on; anything else is reviewed in full.
+ *
+ * @param task - Delivery before the refresh.
+ * @param merged - Head the refresh produced.
+ * @param now - Refresh time.
+ * @returns The scope, or undefined for a full review.
+ */
+function refreshScope(task: FactoryTask, merged: string, now: number): FactoryTask['refreshedFrom'] {
+  if (task.phase === 'merge_ready' && task.head !== null && task.base !== null) {
+    return { head: task.head, base: task.base, at: now, merged };
+  }
+  const previous = task.refreshedFrom;
+  return previous?.merged === undefined || task.head === null || previous.merged !== task.head
+    ? undefined
+    : { ...previous, at: now, merged };
+}
+
+/**
  * Merge advanced main into a reviewed delivery without a developer turn.
  *
  * @param context - Project Git, ledger and repair policy.
@@ -57,11 +76,12 @@ export async function didRefreshOntoMain(
     return true;
   }
   const now = context.repository.store.now();
+  const scope = refreshScope(task, refreshed.head, now);
   context.repository.editTask(task.id, (current) => {
     if (current.version !== task.version) {
       return current;
     }
-    return {
+    const next: FactoryTask = {
       ...current,
       phase: 'review',
       head: refreshed.head,
@@ -70,12 +90,16 @@ export async function didRefreshOntoMain(
       finalReview: null,
       verifiedMain: null,
       implementation: { head: refreshed.head, base: refreshed.base, at: now },
-      refreshedFrom: { head: task.head ?? '', base: task.base ?? '', at: now },
+      ...(scope !== undefined && { refreshedFrom: scope }),
       error: null,
     };
+    if (scope === undefined) {
+      delete next.refreshedFrom;
+    }
+    return next;
   });
   context.repository.notify(
-    `Main advanced under PR #${String(task.pr)}; the supervisor merged it into the reviewed source as ${refreshed.head} without a developer turn. Reviews run again on the merge only.`,
+    `Main advanced under PR #${String(task.pr)}; the supervisor merged it into the reviewed source as ${refreshed.head} without a developer turn. ${scope === undefined ? 'Its reviews were not complete, so they run again in full.' : 'Reviews run again on the merge only.'}`,
   );
   return true;
 }

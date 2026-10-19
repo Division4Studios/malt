@@ -3,8 +3,12 @@
 `CapabilityPolicyStore` in `src/capability-policy.ts` shares the selected project's
 private `.malt/state/mesh.db`. Construct it with that project's `Store` and matching
 `MeshConfig`; the broker opens one per project. Human read/edit endpoints are
-described in the [API reference](api.md#connector-capability-policy). Console
-editing remains queued.
+described in the [API reference](api.md#connector-capability-policy). The
+console's **Project → Capabilities** view edits them through the same
+`capability_policy_set` control. Each row shows the mode, the role list for
+`approved-agent-roles` and the provider's support as a separate label, so
+unsupported and unverified never read as disabled. An unsupported capability
+can only be disabled. A failed save keeps the operator's selection.
 
 `get(capability)` returns a mode and explicit `roles` array. Operations in
 `CAPABILITIES` default to `disabled` apart from the initialization grants below. `human-only` also requires an empty role
