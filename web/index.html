@@ -76,10 +76,12 @@
           <div data-navigation="workflow" hidden>
             <button data-view="workflow" class="nav">Live map</button
             ><button data-view="team" class="nav">Team & organization</button
-            ><button data-view="workflows" class="nav">Workflow library</button>
+            ><button data-view="workflows" class="nav">Workflow library</button
+            ><button data-view="roles" class="nav">Roles</button>
           </div>
           <div data-navigation="board" hidden>
             <button data-view="board" class="nav">Board</button
+            ><button data-view="objective" class="nav">Objectives</button
             ><button data-view="automations" class="nav">Schedules & triggers</button
             ><button data-view="deliveries" class="nav">Pipeline list</button>
           </div>
@@ -89,7 +91,10 @@
           </div>
           <div data-navigation="project" hidden>
             <button data-view="setup" class="nav">Setup & capacity</button
-            ><button data-view="learning" class="nav">Learning & skills</button>
+            ><button data-view="settings" class="nav">Settings</button
+            ><button data-view="learning" class="nav">Learning & skills</button
+            ><button data-view="secrets" class="nav">Secrets</button
+            ><button data-view="onboarding" class="nav">Get started</button>
           </div>
         </nav>
         <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
@@ -139,6 +144,13 @@
               merges</label
             >
           </fieldset>
+          <details id="editor-step-overrides" class="editor-step-overrides">
+            <summary>Customize steps</summary>
+            <p class="muted">
+              Skip optional steps or change who performs a step for this objective and its deliveries.
+            </p>
+            <div id="editor-step-overrides-body"></div>
+          </details>
         </div>
         <label id="editor-label" for="editor-body">Instruction</label
         ><textarea id="editor-body" required rows="8" maxlength="32000"></textarea>

@@ -20,7 +20,7 @@ In another terminal from the same source folder:
 node src/cli.ts ui --project '<absolute-target-path>' --port 4318
 ```
 
-Replace the placeholder with the intended Git root in both commands. Open <http://127.0.0.1:4318/> and use the code printed by the owning UI process. Restarting the UI invalidates the old pairing session. Do not publish codes or private logs.
+Replace the placeholder with the intended Git root in both commands. Open <http://127.0.0.1:4318/> and use the code printed by the owning UI process. Restarting the UI keeps the same code (`pairing-code` shows it, `pairing-code --rotate` re-issues it), but browser sessions do not survive a restart. Do not publish codes or private logs.
 
 If another native broker or container owns that target's `.malt`, use it or stop it deliberately first. Closing the browser/chat does not stop the daemon. PWA installation does not install a Windows service.
 

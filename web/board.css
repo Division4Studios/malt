@@ -114,7 +114,7 @@ select:focus-visible,
   outline-offset: 3px;
 }
 select {
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -239,6 +239,51 @@ select {
   border-radius: 8px;
   padding: 8px 12px;
   font-size: 13px;
+}
+.editor-step-overrides {
+  margin: 10px 0 0;
+  font-size: 13px;
+}
+.editor-step-overrides > summary {
+  cursor: pointer;
+}
+.step-overrides {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+.override-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 12px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+.override-row > legend {
+  padding: 0 4px;
+  font-weight: 600;
+}
+.override-row > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.override-include {
+  flex-basis: 100%;
+}
+.override-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: min(100%, 150px);
+}
+.override-label {
+  color: var(--muted);
+  font-size: 11px;
 }
 .question-text {
   margin: 0 0 12px;
@@ -525,7 +570,8 @@ select {
   border-left: 4px solid var(--red);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #2a141c;
+  background: var(--state-bad);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;
@@ -633,6 +679,126 @@ select {
 }
 .delivery-repairs {
   margin-top: 18px;
+}
+/* Delivery changes: summary rows that open into numbered patches. */
+.delivery-diff {
+  margin-top: 18px;
+  min-width: 0;
+}
+.delivery-diff-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.delivery-diff-body > .subtle {
+  margin: 0;
+}
+.delivery-diff-totals {
+  margin: 0;
+  font-family: var(--font-terminal);
+  font-size: 12px;
+}
+.delivery-diff-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.delivery-diff-file {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.delivery-diff-file-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  background: var(--raised);
+  cursor: pointer;
+  font: 12px/1.5 var(--font-terminal);
+}
+.delivery-diff-file-head:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+.delivery-diff-file-head .diff-path {
+  flex: 1 1 16em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.delivery-diff-status {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.delivery-diff-status.status-added {
+  color: var(--green);
+}
+.delivery-diff-status.status-deleted {
+  color: var(--red);
+}
+.delivery-diff-count {
+  white-space: nowrap;
+}
+.delivery-diff .diff-meta {
+  margin: 0;
+  padding: 4px 12px;
+  font: 11px/1.5 var(--font-terminal);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.delivery-diff-loading {
+  margin: 0;
+  padding: 8px 12px;
+}
+.delivery-diff-patch > .subtle {
+  margin: 0;
+  padding: 8px 12px;
+}
+.delivery-diff-scroll {
+  max-height: 70vh;
+  overflow: auto;
+}
+.delivery-diff .diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.5 var(--font-terminal);
+}
+.delivery-diff .diff-table td {
+  padding: 0 8px;
+  vertical-align: top;
+}
+.delivery-diff .diff-number {
+  min-width: 3.5em;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+}
+.delivery-diff .diff-marker {
+  width: 1.5em;
+  user-select: none;
+}
+.delivery-diff .diff-text {
+  width: 100%;
+  white-space: pre;
+}
+.delivery-diff .diff-add {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.delivery-diff .diff-add .diff-marker {
+  color: var(--green);
+}
+.delivery-diff .diff-del {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.delivery-diff .diff-del .diff-marker {
+  color: var(--red);
+}
+.delivery-diff .diff-hunk {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--muted);
 }
 .repair-rounds {
   display: flex;
@@ -925,4 +1091,120 @@ select {
     flex-direction: column;
     align-items: stretch;
   }
+}
+/* ---------- objectives: definition of done and progress log ---------- */
+.goal-view {
+  display: grid;
+  gap: var(--card-gap);
+}
+.goal-list,
+.goal-items,
+.goal-log,
+.checklist-rows {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-progress {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  overflow-wrap: anywhere;
+}
+.goal-progress-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.goal-progress-link:hover,
+.goal-progress-link:focus-visible {
+  text-decoration: underline;
+}
+.goal-card,
+.goal-item,
+.goal-log-entry {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-wrap: anywhere;
+}
+.goal-item-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.goal-item-text {
+  flex: 1 1 16rem;
+}
+.goal-mark {
+  font-family: var(--font-terminal);
+}
+.goal-item.state-checked .goal-mark {
+  color: var(--state-done);
+}
+.goal-item.state-proposed {
+  border-style: dashed;
+}
+.goal-evidence,
+.goal-objective {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+.goal-note {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.checklist-row {
+  display: grid;
+  grid-template-columns: minmax(10rem, 2fr) auto minmax(8rem, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.checklist-row.is-proposed {
+  padding: 6px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+.checklist-origin {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .checklist-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- spend caps ---------- */
+.spend-table meter {
+  width: 8rem;
+  vertical-align: middle;
+}
+.spend-row.spend-reached .spend-text,
+.spend-row.spend-unpriced .spend-text {
+  color: var(--state-needs);
+  font-weight: 600;
+}
+.spend-row.spend-near .spend-text {
+  color: var(--state-ready);
+}
+.spend-table input {
+  width: 7rem;
 }

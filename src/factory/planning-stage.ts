@@ -10,12 +10,21 @@
 import { MeshError } from '../protocol.ts';
 
 import { logObjective } from './objective-log.ts';
-import { dispositionProblems, featureWorkflow, planFindings, planningStep, stepOf } from './pipeline.ts';
+import {
+  dispositionProblems,
+  featureWorkflow,
+  isPlanningWorkDone,
+  planFindings,
+  planningStep,
+  stepOf,
+} from './pipeline.ts';
 import { validatePlan } from './scheduler.ts';
+import { sealedHead } from './source-reader.ts';
+import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { AgentResult, FactoryJob, Feature } from './schema.ts';
-import type { PlanningResult, WorkflowStep } from './workflows.ts';
+import type { PlanOutput, PlanningResult, WorkflowStep } from './workflows.ts';
 
 /** Recent planning results retained per objective. */
 const MAX_PLANNING_RESULTS = 50;
@@ -46,7 +55,7 @@ export function completePlanning(context: FactoryContext, job: FactoryJob, resul
   const updated =
     step?.kind === 'plan_review'
       ? reviewed(feature, planningResult(job, step, result, now))
-      : planned(feature, job, result, now);
+      : withOutput(planned(feature, job, result, now), planOutput(context, { job, step, result, now }));
   if (updated === null) {
     return;
   }
@@ -54,10 +63,10 @@ export function completePlanning(context: FactoryContext, job: FactoryJob, resul
     stop(context, feature, updated);
     return;
   }
-  const next = planningStep(updated, workflow);
   context.repository.saveFeature({
     ...updated,
-    phase: next === null ? 'provisioning' : 'refining',
+    // Only decisions may remain once every planning attempt has its result.
+    phase: isPlanningWorkDone(updated, workflow) ? 'provisioning' : 'refining',
     error: null,
     updatedAt: now,
   });
@@ -89,7 +98,7 @@ function reviewed(feature: Feature, review: PlanningResult): Feature {
  * @returns Updated objective, a reason to stop, or `null` when the step is no longer current.
  * @throws {MeshError} When the plan itself is invalid.
  */
-function planned(feature: Feature, job: FactoryJob, result: AgentResult, now: number): Feature | string | null {
+function planned(feature: Feature, job: FactoryJob, result: AgentResult, now: number): PlanningUpdate {
   validatePlan(result);
   const workflow = featureWorkflow(feature);
   const step = stepOf(workflow, job);
@@ -116,6 +125,61 @@ function planned(feature: Feature, job: FactoryJob, result: AgentResult, now: nu
   };
 }
 
+/** What a planning attempt was and what it produced. */
+interface PlanningAttempt {
+  /** Product owner or lead attempt. */
+  readonly job: FactoryJob;
+  /** Its planning step, absent before workflows. */
+  readonly step: WorkflowStep | undefined;
+  /** Validated plan result. */
+  readonly result: AgentResult;
+  /** Completion time. */
+  readonly now: number;
+}
+
+/** An updated objective, a reason to stop, or `null` when the step is no longer current. */
+type PlanningUpdate = Feature | string | null;
+
+/**
+ * A typed record of the specification or plan an attempt produced.
+ *
+ * @param context - Project ledger, for the attempt's sealed source.
+ * @param attempt - The attempt, its step, result and completion time.
+ * @returns Output record bound to the exact source the attempt read.
+ */
+function planOutput(context: FactoryContext, attempt: PlanningAttempt): PlanOutput {
+  const { job, step, result, now } = attempt;
+  let kind: PlanOutput['kind'] = 'plan';
+  if (job.kind === 'plan') {
+    kind = 'specify';
+  } else if (step?.kind === 'plan_revise') {
+    kind = 'plan_revise';
+  }
+  return {
+    schemaVersion: STEP_OUTPUT_VERSION,
+    stepId: step?.id ?? null,
+    kind,
+    role: job.role,
+    jobId: job.id,
+    source: sealedHead(context.repository.store, job.id),
+    deliveries: result.deliveries.length,
+    at: now,
+  };
+}
+
+/**
+ * Append a plan output to an updated objective, keeping the bounded tail.
+ *
+ * @param updated - Objective after a specification, plan or revision, or a stop reason.
+ * @param output - The typed output record.
+ * @returns Objective with the record, or the unchanged stop reason or `null`.
+ */
+function withOutput(updated: PlanningUpdate, output: PlanOutput): PlanningUpdate {
+  return updated === null || typeof updated === 'string'
+    ? updated
+    : { ...updated, planOutputs: [...(updated.planOutputs ?? []), output].slice(-MAX_PLANNING_RESULTS) };
+}
+
 /**
  * A recorded planning result.
  *
@@ -127,6 +191,7 @@ function planned(feature: Feature, job: FactoryJob, result: AgentResult, now: nu
  */
 function planningResult(job: FactoryJob, step: WorkflowStep, result: AgentResult, now: number): PlanningResult {
   return {
+    schemaVersion: STEP_OUTPUT_VERSION,
     stepId: step.id,
     kind: step.kind === 'plan_revise' ? 'plan_revise' : 'plan_review',
     role: job.role,
