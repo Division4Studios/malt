@@ -13,6 +13,12 @@ The installable PWA uses semantic HTML, native CSS and compiled TypeScript witho
 To use the already configured source repository as its own delivery project,
 follow [Run MALT's development from mission control](operating-malt-on-itself.md).
 
+## Objectives, definitions of done and spend caps
+
+**Board → Objectives** lists every objective with its delivery progress and checklist progress. Opening one shows the objective text, its **definition of done** and its **progress log**. **Edit definition of done…** opens a dialog: each item has text, a state (open, checked or waived) and optional evidence or a link. Agent proposals appear as dashed rows to accept as open or dismiss. Saving is fenced by the objective's version, so a stale tab cannot overwrite newer decisions. When every delivery is done but items remain open, the Inbox asks you to check or waive them; the objective completes, and its parent issue closes, only then. Add notes to the log from the same view. The Mission overview's **Definitions of done** panel lists each unfinished objective that has a checklist, with its progress, objectives waiting on their definition first; selecting one opens it here.
+
+**Costs → Spend caps** sets a project cap over a rolling window, a default cap for every objective and every delivery, and per-scope overrides (type an amount, `none` to lift the default, or leave blank to use it). Each capped scope shows a meter toward its cap. A reached cap stops new attempts on that scope while running ones finish; the Inbox and a notice say which cap and how much was spent. Raise or lift the cap to resume immediately. Unpriced attempts are counted, never treated as free: choose whether they are ignored (token caps still apply) or block capped scopes until you price their model.
+
 ## Native startup
 
 ```powershell
@@ -22,7 +28,7 @@ node src/cli.ts ui --with-broker --project "C:\work\malt" --port 4318
 
 The overview separates **Pending objectives** (product requests not yet delivered, excluding done and scope-replaced ones, grouped by phase ahead of the collapsed completed section) from **Unstarted deliveries** (ready tickets that may still await dependencies or capacity).
 
-Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
+Open `http://127.0.0.1:4318/` and enter the console's printed pairing code. The code is persisted owner-only in the console project's `.malt/console-pairing.json`, so restarting the console or its container keeps it. Startup prints it once in the terminal and writes one `console`/`pairing_code` log record; no other log line, API response, error or URL contains it. If you lose it, run `node src/cli.ts pairing-code --project <path>`; `pairing-code --rotate` re-issues it, and a running console accepts only the new code from its next pairing attempt while already paired browsers keep their sessions. Use the browser's install control where supported. Installing the PWA does not install or start the native broker. Browser sessions are separate from model sessions. Operational state remains in the selected repository's `.malt`; subscription authentication remains in provider-supported credential stores.
 
 `--with-broker` owns the broker and UI in one process lifetime and supplies memory-only scratch-terminal and human recommendation-decision capabilities. When switching from separate services, stop both the existing broker using this store and the UI occupying port 4318 first. A separately launched UI still supports ordinary durable controls and inspection; a project token alone cannot grant those two owner capabilities. Docker already colocates both services.
 
@@ -55,7 +61,7 @@ The product/lead skill requires a duplicate/related-ticket check during intake a
 
 ## Private state and Git
 
-Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. Pairing codes and browser sessions are generated in backend memory and are not persisted in project state. The CLI displays the code for local pairing; avoid publishing terminal captures containing it.
+Project setup and reopening append `.malt/` to the project's `.gitignore` and enforce a final `*` rule inside `.malt/.gitignore`, preserving existing rules. The entire directory is private by default, including generated READMEs, logs and skill revisions. The console pairing code is local authentication material kept owner-only in `.malt/console-pairing.json`; it does not expire and is not single-use, so rotate it with `pairing-code --rotate` if it may have leaked. Browser sessions remain bounded, expiring and in backend memory only. Avoid publishing terminal captures or logs containing the code.
 
 Git ignores do not remove already tracked files and cannot prevent an explicit `git add --force`. Check `git ls-files -- .malt` before publishing an existing repository. If private files were previously committed, remove them from tracking deliberately and rotate exposed credentials; deleting them in a new commit does not remove Git history. Back up `.malt` only to a private location while the broker is cleanly stopped; publish a separately reviewed, redacted export when sharing lessons or skills.
 
@@ -125,6 +131,7 @@ $env:AGENTMESH_WORKSPACE_ROOT = 'E:\YourProjects'
 $env:AGENTMESH_UI_PORT = '4328' # choose 4318 if no native console uses it
 docker compose up -d --build --wait
 docker compose logs broker # owning console prints the pairing code
+docker compose exec broker node src/cli.ts pairing-code --project /data # show it again; add --rotate to re-issue
 docker compose exec broker codex login --device-auth
 docker compose exec broker claude auth login
 docker compose exec broker gh auth login
@@ -189,6 +196,26 @@ Spokes represent logical membership, directed arcs represent recent actual broke
 **Team & organization** provides a durable, backend-validated organization editor while the factory is paused. Define reusable type profiles with focused instructions, prioritized skills and minimum model tiers, and bind the eight managed seats to those types and reporting parents. Reference and cycle validation rejects invalid hierarchies. Each assignment freezes its exact organization revision; completed jobs send durable reporting handoffs to the frozen manager. Each report names its sender, intended manager, assignment, delivery issue/title or objective, process state, the agent-reported outcome (never independent verification) and the bounded recorded summary or failure/cancellation reason, stating explicitly when any is unavailable. Existing assignments retain their original context. These profiles specialize the eight execution seats; new managed specialist seats and configurable workflow transitions remain future work.
 
 Navigation groups related views under **Mission**, **Workflow**, **Workers** and **Project**. The workflow map responds gently to fine-pointer movement and emphasizes a selected role's connected message routes. Keyboard focus provides the same role inspection, and reduced-motion settings disable depth and flight effects.
+
+## Inbox, agent questions and approval gates
+
+The **Inbox** lists everything waiting on you in three lanes. **Needs reply** holds agent questions, step and plan approvals, and skill decisions. **Notices** holds blocked deliveries and stopped planning, each with a link to investigate or recover. **Answered** lists your recent approvals and answers.
+
+A managed agent that cannot continue without a human decision calls `mesh_factory_ask` with one question, up to six choices and whether a written answer is allowed. It then ends its assignment. The supervisor sets that attempt's result aside without counting it against the delivery, and holds that step while the question is open; other steps and deliveries keep running. **Answer…** opens a dialog with the offered choices and, when allowed, a text field. The answer is recorded once (a retried request reports the first result), and the step runs again with every answer for it in its context. Each delivery or objective may hold at most three open questions, and each step at most twenty questions in total.
+
+Approval gates are data. The project setting `defaultGates` (`{ "plan": false, "merge": false }` unless you change it in the advanced policy editor) is frozen onto each objective when it is filed; the new-objective dialog can override both gates for that objective. The plan gate asks you to approve the plan before deliveries are created. The merge gate adds a **Merge approval** step, bound to the exact head, before the final check. Each delivery freezes its merge gate when it is provisioned, and **Require merge approval** / **Remove merge approval** in the delivery view changes it until the delivery is merge ready (`factory_gates`). Changing the project default never changes work already filed.
+
+Each objective and delivery can run its workflow with **step overrides**. In the new-objective dialog, **Customize steps** lists the chosen workflow's steps: untick an optional step to skip it, or choose another seat, organization profile or preferred provider for a step. The overrides apply to the objective's planning and are copied onto each of its deliveries. Until its deliveries exist, the objective's view under **Board → Objectives** has a **Steps** panel whose **Customize steps** changes the objective's overrides; planning steps that already ran stay fixed. In the delivery view, **Customize steps** edits one delivery's overrides; steps that already started are shown but fixed, and the header's **Customized** fact summarizes what changed. Overrides never change the frozen workflow revision, and the broker refuses any combination that breaks a workflow rule (`factory_step_overrides`).
+
+**History** on a workflow library card opens its revision history: every saved revision, the current built-in, and every revision running work froze, each with its save time and the objectives and deliveries that run it. **View** previews a revision read-only, **Compare with newer** (or **older**) lists the steps added, removed or changed between two revisions field by field, and **Open as draft** starts the editor from that revision: a project workflow is edited at its current revision, so saving makes the past definition current again, while a built-in or retired workflow is copied under a new id.
+
+With `briefRevalidation` enabled in the factory policy, a dependent delivery's header shows **Brief revalidation**: **Confirmed** once the lead checked its brief against what its predecessors merged, or **Needs revising** with the lead's summary when the delivery stopped for your decision. Retry it to implement the brief unchanged, or send the lead a replanning instruction.
+
+**Notify me** in the Inbox turns on browser notifications for this console. While the console is open in the background, each new item that needs a reply raises one notification, and clicking it brings the console to the Inbox. Notifications come from the console's own live snapshot stream through its service worker; nothing is sent to a push service, so no notification arrives while every console window is closed.
+
+## Delivery source changes
+
+The delivery view's **Changes** section compares the delivery's exact head with its base. **Show changes** reads the summary on demand: every changed file with its kind (renames name their source and similarity), line counts, mode changes and binary notes, plus the totals. Private runtime and credential paths are counted but never shown. Open a file to load its numbered patch; small changes open by themselves, files with more than 400 changed lines start collapsed, very large patches are cut at a line boundary and say so, and a file changing more than 20,000 lines is not generated at all. Each row is a native disclosure, so the keyboard opens and closes it, and long lines scroll inside the patch on small screens. A new head clears what was loaded, so the section never shows source the delivery no longer has.
 
 ## Sampling regression fixture
 
@@ -287,6 +314,27 @@ New scope can also wait on **Project intake**. Its pending objective explains ho
 
 Local machine includes a keyboard-accessible **Why work is running or parked** disclosure. It reads the supervisor admission snapshot: effective resource/provider ceilings, selected-project roles and assignment stages with objective/ticket identity, and anonymous other broker reservations. Process activity is not delivery success. Job cap, provider concurrency/cooldown, CPU and memory gates name the existing configuration fields; change policy in Project setup while paused and settled. Spare capacity alone never guarantees an eligible launch. Missing or stale samples stay explicit, including unknown CPU before a second measurement. Sample-only refresh preserves the disclosure, pending editor and keyboard focus. No model process starts when inspecting this evidence.
 
+## Get started and Settings
+
+**Project → Get started** is a checklist from an empty project to the first role at work. It opens by itself the first time a project is shown without factory setup, a GitHub connection or any objective, unless you choose **Hide guide**, which hides it for that project in this browser; it can always be reopened from the Project group. Each step opens the same dialog used later, so there is no second place to configure anything:
+
+1. **Check this machine** runs the broker-side preflight (Node.js, Git, provider CLIs and subscription logins, GitHub CLI, writable `.malt`) and lists each result as pass, fail or fix-it with its fix line.
+2. **Connect the GitHub repository and Project** opens the connection dialog.
+3. **Choose providers, checks and model policy** opens factory setup and the model and effort policy.
+4. **Pick how objectives are delivered** opens the workflow library and names the default workflow.
+5. **Submit a first objective** opens the objective editor.
+6. **Start the factory** starts dispatch.
+7. **See the first role start** follows the newest objective. It names the role, stage and provider once an attempt starts, or the exact reason none can: factory not set up, factory paused, the objective blocked (with its error), a model-policy blocker, the admission capacity gate (job cap, provider cap, cooldown, CPU or memory), or no eligible provider. When no gate is reported and no role has started for two minutes, it points at **Why work is running or parked**.
+
+**Project → Settings** holds what is not owned by another dialog:
+
+- **Appearance**: System, Light or Dark, remembered in this browser and kept in step with the header toggle.
+- **Language**: System, English or 简体中文 (Simplified Chinese), remembered in this browser. System follows the browser's preferred languages: any Chinese preference selects Simplified Chinese, anything else English. Switching translates every open view in place, without a reload, and dates and numbers follow the chosen language. Text written by agents or the broker, such as summaries, findings, blocker reasons and objective text, is shown as written; broker error messages stay in English.
+- **Provider health**: per provider, whether it is enabled, its executable, the preflight's presence, version and login result with any fix line, observed subscription windows, a cooldown in force, the dispatch gate admission reports, and the latest failed attempt. **Check providers now** runs the preflight again; it spends no inference.
+- **Delivery checks**: whether the team lead rechecks a dependent delivery's brief once its predecessors merge (`briefRevalidation`, off by default). The checkbox saves the full factory policy through the same setup control as the policy editor, so it is read-only until the factory is set up and while it runs; pause first.
+- **Build**: the MALT version and Node.js runtime of the console, the broker's version (or that it is not answering) and the installed offline-shell revision.
+- **Project settings**: shortcuts to factory and validation, the GitHub connection, the model and effort policy, team and organization, the workflow library and Get started.
+
 ## Schedules and triggers
 
 **Board → Schedules & triggers** lists every automation with what it files, its workflow and its recent fires. A schedule shows its cron expression in plain words, such as "At 09:00, on Monday to Friday", and its next three fires in the schedule's own time zone. A trigger shows the broker URL a script POSTs to. Each card has **Edit**, **Enable**/**Disable**, **Run now** and **Delete**; triggers also have **Example command** and **Rotate secret**. Deleting and rotating ask for confirmation in the console; nothing uses browser pop-ups.
@@ -294,3 +342,15 @@ Local machine includes a keyboard-accessible **Why work is running or parked** d
 The editor offers common schedules, describes the expression as you type and suggests IANA zone names; the browser's zone is the default. Creating a trigger, or rotating its secret, shows the secret exactly once with copy buttons and ready-to-run `curl` and PowerShell commands. Store it in the calling script's own secret store; MALT keeps only its hash. If it is lost, rotate it: the old secret stops working immediately.
 
 Every fire files an ordinary objective, so it is planned, reviewed and gated like one typed at the console. Schedules fire only while the factory runs, and runs missed while it was paused file one objective when it resumes. See [schedules and triggers](api.md#schedules-and-triggers) for the exact contract.
+
+## Roles
+
+**Workflow → Roles** shows each role type with its model and provider, the seats that use it, its skills, tool policy, local MCP servers, granted secrets and whether it may ask questions. **Edit** opens a dialog for the label, instructions, provider, model and effort, capability floor, up to four reviewed skills, the tool policy, local MCP servers and the **May ask the operator questions** permission. **Duplicate** copies a type under a new name; an unused type can be deleted after an in-app confirmation. The **Seats** table assigns each seat a type and a manager.
+
+Edits collect in a draft that survives live updates. **Save organization** sends the whole draft once, against the revision it started from, and is available only while the factory is paused and no attempt runs; if the saved organization changes elsewhere, discard the draft to load it. Only models allowed by the explicit model policy are offered, and a chosen provider is waited for rather than switched. Tool policies only narrow what a seat already has: **Remove the checked tools** denies them, **Keep only the checked tools** keeps just those of each kind checked (MALT or native). Local MCP servers run one executable with literal arguments; no shell is involved. Running attempts keep the organization they started with.
+
+## Secrets
+
+**Project → Secrets** holds API keys and tokens that role types need, such as a test payment key or a documentation server token. **New secret** asks for an environment variable name, the value and the role types that receive it; **Rotate** replaces the value, **Grants** changes who receives it and **Delete** removes it after an in-app confirmation. The audit trail records each change without values.
+
+Values are write-only. They are sealed with AES-256-GCM under a random key in the project's private `.malt/factory/vault.key` (owner-only on macOS and Linux; on Windows the key relies on `.malt` being private to your account, like every other `.malt` credential), and bound to their name, so a value altered, moved to another name or read with another key is refused. The console shows a keyed fingerprint that changes on rotation, never the value. Granted secrets reach only the provider processes of the granted role types, as environment variables passed through the process environment rather than any file, and are redacted from logs, transcripts, failure records and check output. Back up `vault.key` with the project if you need the secrets after restoring it; without the key, save them again.

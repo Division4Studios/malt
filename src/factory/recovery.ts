@@ -35,6 +35,7 @@ export function retryBlocked(repository: FactoryRepository, input: unknown): voi
         error: null,
         reviews: [],
         finalReview: null,
+        repairsResetAt: repository.store.now(),
       };
     });
   }
