@@ -20,6 +20,10 @@ export async function recoverSupersededMerge(context: FactoryContext, task: Fact
     return;
   }
   const pr = await context.remote.inspect(task.pr);
+  if (pr.state === 'OPEN' && pr.autoMergeRequest !== null && pr.autoMergeRequest !== undefined) {
+    // An obsolete scope must not merge while its retirement waits on the outbox.
+    await context.remote.disarm?.(pr.number);
+  }
   const current = context.repository.task(task.id);
   if (current.version !== task.version || current.scopeReplacement !== task.scopeReplacement || pr.state !== 'MERGED') {
     return;
