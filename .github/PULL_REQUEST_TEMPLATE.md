@@ -7,7 +7,6 @@ Link the issue and describe the observable before/after result. State exclusions
 - Parent/child issue:
 - Real prerequisite PRs/issues (or independent):
 - Added/deleted text lines, including tests/docs:
-- If above 500 lines: why indivisible, alternatives considered and review strategy:
 - Why main remains usable after this merge:
 
 ## Verification
