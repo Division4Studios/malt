@@ -114,7 +114,7 @@ select:focus-visible,
   outline-offset: 3px;
 }
 select {
-  background: #0a111d;
+  background: var(--input-bg);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 7px;
@@ -570,7 +570,8 @@ select {
   border-left: 4px solid var(--red);
   border-radius: 8px;
   padding: 10px 14px;
-  background: #2a141c;
+  background: var(--state-bad);
+  color: var(--text);
 }
 .delivery-error-label {
   margin: 0 0 4px;
@@ -1105,6 +1106,33 @@ select {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+.goal-progress {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  overflow-wrap: anywhere;
+}
+.goal-progress-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.goal-progress-link:hover,
+.goal-progress-link:focus-visible {
+  text-decoration: underline;
 }
 .goal-card,
 .goal-item,

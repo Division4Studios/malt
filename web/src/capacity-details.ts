@@ -5,11 +5,15 @@
  */
 import { admissionSample } from './admission-ui.js';
 import { child, number, records, text, firstText, resourceSummary } from './api.js';
+import { formatDateTime, phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
 /** Names apply only when an actual native duration matches. */
-const WINDOW_LABELS: Readonly<Record<number, string>> = { 300: '5-hour window', 10_080: 'Weekly window' };
+const WINDOW_LABELS: Readonly<Record<number, string>> = translated({
+  300: '5-hour window',
+  10_080: phrase('Weekly window'),
+});
 /** Percentages are bounded observations, not absolute account allowances. */
 const FULL_USAGE = 100;
 
@@ -21,9 +25,9 @@ const FULL_USAGE = 100;
  */
 export function quotaUsage(value: unknown): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > FULL_USAGE) {
-    return 'usage unknown';
+    return t('usage unknown');
   }
-  return `${String(value)}% used${value === FULL_USAGE ? ' · limit reached' : ''}`;
+  return t('{percent}% used{limit}', { percent: value, limit: value === FULL_USAGE ? t(' · limit reached') : '' });
 }
 
 /**
@@ -34,7 +38,7 @@ export function quotaUsage(value: unknown): string {
  */
 function localTime(value: number): string {
   const date = new Date(value);
-  return date.toLocaleString();
+  return formatDateTime(date);
 }
 
 /**
@@ -46,17 +50,20 @@ function localTime(value: number): string {
 export function appendQuotaWindows(target: HTMLElement, capacity: Data): void {
   const windows = records(capacity['subscriptionWindows']);
   if (windows.length === 0) {
-    target.append(element('p', 'subtle', 'Individual subscription windows not reported · usage unknown.'));
+    target.append(element('p', 'subtle', t('Individual subscription windows not reported · usage unknown.')));
     return;
   }
   for (const window of windows) {
     const { minutes } = window;
     const label =
-      typeof minutes === 'number' ? (WINDOW_LABELS[minutes] ?? `${String(minutes)} minute window`) : text(window, 'id');
+      typeof minutes === 'number'
+        ? (WINDOW_LABELS[minutes] ?? t('{minutes} minute window', { minutes }))
+        : text(window, 'id');
     const reset = window['resetAt'];
     const deadline = typeof reset === 'number' ? localTime(reset) : 'unknown';
+    const usage = quotaUsage(window['usedPercent']);
     target.append(
-      element('p', 'capacity-details', `${label}: ${quotaUsage(window['usedPercent'])} · resets ${deadline}`),
+      element('p', 'capacity-details', t('{label}: {usage} · resets {deadline}', { label, usage, deadline })),
     );
     target.append(element('p', 'subtle', quotaWindowObservation(window)));
   }
@@ -71,9 +78,9 @@ export function appendQuotaWindows(target: HTMLElement, capacity: Data): void {
 export function quotaWindowObservation(window: Data): string {
   const observed = window['observedAt'];
   const at = typeof observed === 'number' ? localTime(observed) : 'unknown';
-  const freshness = firstText(text(window, 'freshness'), 'freshness unknown');
-  const source = firstText(text(window, 'source'), 'source unknown');
-  return `Observed ${at} | ${freshness} | ${source}`;
+  const freshness = firstText(text(window, 'freshness'), t('freshness unknown'));
+  const source = firstText(text(window, 'source'), t('source unknown'));
+  return t('Observed {at} | {freshness} | {source}', { at, freshness, source });
 }
 
 /**
@@ -136,12 +143,12 @@ export function fillProcessUsage(target: HTMLElement, factory: Data): void {
     return;
   }
   for (const role of unavailable) {
-    target.append(element('p', 'subtle', `${role}: process usage unavailable or stale.`));
+    target.append(element('p', 'subtle', t('{role}: process usage unavailable or stale.', { role })));
   }
   const table = element('table');
-  table.append(element('caption', '', 'Owned processes · CPU is percentage of the whole machine'));
+  table.append(element('caption', '', t('Owned processes · CPU is percentage of the whole machine')));
   const header = element('tr');
-  for (const title of ['Role', 'PID', 'Resident MiB', 'CPU']) {
+  for (const title of [t('Role'), 'PID', t('Resident MiB'), 'CPU']) {
     const cell = element('th', '', title);
     cell.setAttribute('scope', 'col');
     header.append(cell);
@@ -164,7 +171,9 @@ export function fillProcessUsage(target: HTMLElement, factory: Data): void {
     element(
       'p',
       'subtle',
-      'Windows samples come from owned Job Objects. Resident memory can include shared pages. Unavailable measurements stay unknown.',
+      t(
+        'Windows samples come from owned Job Objects. Resident memory can include shared pages. Unavailable measurements stay unknown.',
+      ),
     ),
   );
 }

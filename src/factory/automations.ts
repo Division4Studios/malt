@@ -402,11 +402,16 @@ export function runAutomation(repository: FactoryRepository, input: unknown): Fi
   if (automation === undefined) {
     throw new MeshError('NOT_FOUND', 'No automation with that ID in this project.');
   }
-  return fireAutomation(repository, automation, {
+  const fire = fireAutomation(repository, automation, {
     kind: 'manual',
     requestId: derivedId(`manual:${automation.id}:${request.requestId}`),
     payload: null,
   });
+  // A manual run counts as the latest fire; a schedule's next automatic slot is unchanged.
+  if (fire.featureId !== null) {
+    put(repository.store, { ...automation, lastFiredAt: fire.at });
+  }
+  return fire;
 }
 
 /**

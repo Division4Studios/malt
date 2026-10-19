@@ -54,4 +54,29 @@ declare module '*/web/dist/settings-model.js' {
    * @returns Label and value pairs.
    */
   export function buildRows(versions: unknown, cacheKeys: readonly string[]): [string, string][];
+
+  /** The brief revalidation policy as the Settings view shows and edits it. */
+  interface RevalidationSetting {
+    /** Whether the saved policy rechecks dependent briefs. */
+    readonly isEnabled: boolean;
+    /** Why it cannot be changed now, or `null` when it can. */
+    readonly blocker: string | null;
+  }
+
+  /**
+   * The saved brief revalidation choice and whether it can change now.
+   *
+   * @param factory - Factory projection.
+   * @returns Current value, and why it is read-only when it is.
+   */
+  export function revalidationSetting(factory: Record<string, unknown>): RevalidationSetting;
+
+  /**
+   * The full saved policy with brief revalidation switched.
+   *
+   * @param factory - Factory projection holding the saved policy.
+   * @param isEnabled - Requested choice.
+   * @returns `factory_setup` input that keeps every other setting.
+   */
+  export function revalidationInput(factory: Record<string, unknown>, isEnabled: boolean): Record<string, unknown>;
 }

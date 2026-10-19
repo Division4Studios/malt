@@ -11,7 +11,6 @@
  *
  * @file
  */
-
 import { ZH_CN } from './catalog-zh.js';
 
 /** Languages with a complete catalog; English is the source. */
@@ -32,8 +31,12 @@ export const LOCALE_NAMES: Readonly<Record<LocaleChoice, string>> = {
 export type MessageParameters = Readonly<Record<string, string | number>>;
 /** Document event announcing a new language, so every control re-renders. */
 export const LOCALE_EVENT = 'malt-locale-change';
+/** Browser-local preference key; never shared with the backend. */
+const STORAGE_KEY = 'malt-locale-v1';
 /** Catalogs by language; English needs none. */
 const CATALOGS: Readonly<Record<Locale, Readonly<Record<string, string>>>> = { en: {}, 'zh-CN': ZH_CN };
+/** Attributes that carry operator-visible text. */
+const TEXT_ATTRIBUTES = ['title', 'aria-label', 'aria-description', 'placeholder', 'alt', 'label'] as const;
 
 /** Mutable page state: the language in force. The stored choice applies before any view module evaluates. */
 const state: { locale: Locale } = { locale: 'en' };
@@ -46,6 +49,16 @@ const state: { locale: Locale } = { locale: 'en' };
  */
 export function isLocaleChoice(value: unknown): value is LocaleChoice {
   return typeof value === 'string' && (LOCALE_CHOICES as readonly string[]).includes(value);
+}
+
+/**
+ * Whether a value names a supported language.
+ *
+ * @param value - Untrusted value.
+ * @returns True for `en` or `zh-CN`.
+ */
+function isLocale(value: unknown): value is Locale {
+  return typeof value === 'string' && (LOCALES as readonly string[]).includes(value);
 }
 
 /**
@@ -209,7 +222,11 @@ export function formatMessage(template: string, parameters: MessageParameters, l
  * @returns Translated, filled text; English when no translation exists.
  */
 export function t(source: string, parameters: MessageParameters = {}): string {
-  return formatMessage(CATALOGS[state.locale][source] ?? source, parameters, state.locale);
+  const translation = CATALOGS[state.locale][source];
+  // An untranslated message is English, so English plural rules choose its branch.
+  return translation === undefined
+    ? formatMessage(source, parameters, 'en')
+    : formatMessage(translation, parameters, state.locale);
 }
 
 /** Source texts marked with `phrase`, the only strings `translated` tables translate. */
@@ -302,4 +319,298 @@ export function formatTime(value: Date | number, options?: Intl.DateTimeFormatOp
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
   const format = new Intl.NumberFormat(formatLocale(), options);
   return format.format(value);
+}
+
+/**
+ * The remembered choice, or `system`.
+ *
+ * @returns The choice saved in this browser, or `system` when none is readable.
+ */
+export function storedLocaleChoice(): LocaleChoice {
+  try {
+    const value = localStorage.getItem(STORAGE_KEY);
+    return isLocaleChoice(value) ? value : 'system';
+  } catch {
+    return 'system';
+  }
+}
+
+/**
+ * Apply a choice to this page: the language in force and `<html lang>`.
+ *
+ * @param choice - Operator choice.
+ * @returns Language now in force.
+ */
+export function applyLocaleChoice(choice: LocaleChoice): Locale {
+  state.locale = resolveLocale(choice, typeof navigator === 'undefined' ? [] : navigator.languages);
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = state.locale;
+  }
+  return state.locale;
+}
+
+/**
+ * Remember and apply a choice, then announce it so views re-render.
+ *
+ * @param choice - Choice selected by the operator.
+ */
+export function chooseLocale(choice: LocaleChoice): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, choice);
+  } catch {
+    // The choice still applies for this page; it simply is not remembered.
+  }
+  const previous = state.locale;
+  const next = applyLocaleChoice(choice);
+  document.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: { choice, previous, next } }));
+}
+
+/**
+ * The previous and new languages a locale event announces.
+ *
+ * @param event - Document event.
+ * @returns Both languages and the choice, or `null` for any other event.
+ */
+export function announcedLocale(event: Event): { choice: LocaleChoice; previous: Locale; next: Locale } | null {
+  const detail: unknown = event instanceof CustomEvent ? event.detail : null;
+  if (typeof detail !== 'object' || detail === null) {
+    return null;
+  }
+  const choice: unknown = Reflect.get(detail, 'choice');
+  const previous: unknown = Reflect.get(detail, 'previous');
+  const next: unknown = Reflect.get(detail, 'next');
+  return isLocaleChoice(choice) && isLocale(previous) && isLocale(next) ? { choice, previous, next } : null;
+}
+
+/** One message with placeholders, split for matching rendered text back to it. */
+interface Pattern {
+  /** English key. */
+  readonly key: string;
+  /** Literal text between placeholders; one more entry than `names`. */
+  readonly literals: readonly string[];
+  /** Placeholder names in order. */
+  readonly names: readonly string[];
+}
+
+/** Lookup from rendered text back to its English key. */
+interface ReverseIndex {
+  /** Messages without placeholders, by rendered text. */
+  readonly exact: ReadonlyMap<string, string>;
+  /** Messages with simple placeholders. */
+  readonly patterns: readonly Pattern[];
+}
+
+/** Reverse indexes, built once per language. */
+const REVERSE = new Map<Locale, ReverseIndex>();
+
+/**
+ * Split a rendered template into literals and placeholder names.
+ *
+ * @param key - English key.
+ * @param rendered - Template in some language, without plural placeholders.
+ * @returns Pattern for matching.
+ */
+function patternOf(key: string, rendered: string): Pattern {
+  const literals: string[] = [];
+  const names: string[] = [];
+  let cursor = 0;
+  for (let open = rendered.indexOf('{'); open !== -1; open = rendered.indexOf('{', cursor)) {
+    const close = rendered.indexOf('}', open);
+    literals.push(rendered.slice(cursor, open));
+    names.push(rendered.slice(open + 1, close).trim());
+    cursor = close + 1;
+  }
+  literals.push(rendered.slice(cursor));
+  return { key, literals, names };
+}
+
+/**
+ * Match rendered text against a pattern, capturing each placeholder lazily.
+ *
+ * @param pattern - Split template.
+ * @param text - Rendered text.
+ * @returns Captured parameters, or `null` when the text does not match.
+ */
+function matchPattern(pattern: Pattern, text: string): Record<string, string> | null {
+  const [first = '', ...rest] = pattern.literals;
+  if (!text.startsWith(first)) {
+    return null;
+  }
+  const captured: Record<string, string> = {};
+  let cursor = first.length;
+  for (const [index, literal] of rest.entries()) {
+    const isLast = index === rest.length - 1;
+    const end = isLast ? text.length - literal.length : text.indexOf(literal, cursor + 1);
+    if (end <= cursor || (isLast && !text.endsWith(literal))) {
+      return null;
+    }
+    captured[pattern.names[index] ?? ''] = text.slice(cursor, end);
+    cursor = end + literal.length;
+  }
+  return captured;
+}
+
+/**
+ * Build or reuse the reverse index of a language. Plural messages are left
+ * out; their views always render them afresh.
+ *
+ * @param language - Language whose renderings are indexed.
+ * @returns Exact texts and placeholder patterns of every catalog message.
+ */
+function reverseIndex(language: Locale): ReverseIndex {
+  const cached = REVERSE.get(language);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const exact = new Map<string, string>();
+  const patterns: Pattern[] = [];
+  const keys = Object.keys(CATALOGS['zh-CN']);
+  for (const key of keys) {
+    const rendered = language === 'en' ? key : (CATALOGS[language][key] ?? key);
+    if (!rendered.includes('{')) {
+      exact.set(rendered, key);
+    } else if (!rendered.includes(',')) {
+      patterns.push(patternOf(key, rendered));
+    }
+  }
+  const index = { exact, patterns };
+  REVERSE.set(language, index);
+  return index;
+}
+
+/**
+ * The English key whose rendering in a language produced a text, with its parameters.
+ *
+ * @param text - Rendered text, trimmed.
+ * @param language - Language it was rendered in.
+ * @returns Key and parameters, or `null` when the text is not a known message.
+ */
+export function sourceOf(text: string, language: Locale): { key: string; parameters: MessageParameters } | null {
+  const index = reverseIndex(language);
+  const exact = index.exact.get(text);
+  if (exact !== undefined) {
+    return { key: exact, parameters: {} };
+  }
+  for (const pattern of index.patterns) {
+    const parameters = matchPattern(pattern, text);
+    if (parameters !== null) {
+      return { key: pattern.key, parameters };
+    }
+  }
+  return null;
+}
+
+/**
+ * Re-render one rendered text from a language into the one in force.
+ *
+ * @param text - Rendered text, possibly with surrounding whitespace.
+ * @param from - Language it was rendered in.
+ * @returns Text in the language in force, or `null` when it is not a known message.
+ */
+function retranslated(text: string, from: Locale): string | null {
+  const trimmed = text.trim();
+  // Markup wraps long text across lines; messages are keyed with single spaces.
+  const source = trimmed === '' ? null : sourceOf(trimmed.replaceAll(/\s+/gv, ' '), from);
+  if (source === null) {
+    return null;
+  }
+  const start = text.indexOf(trimmed);
+  return `${text.slice(0, start)}${t(source.key, source.parameters)}${text.slice(start + trimmed.length)}`;
+}
+
+/**
+ * Translate one element's text attributes.
+ *
+ * @param node - Element to update.
+ * @param from - Language its attributes are in.
+ */
+function translateAttributes(node: Element, from: Locale): void {
+  for (const name of TEXT_ATTRIBUTES) {
+    const value = node.getAttribute(name);
+    const next = value === null ? null : retranslated(value, from);
+    if (next !== null) {
+      node.setAttribute(name, next);
+    }
+  }
+}
+
+/** Elements whose text is always literal content, never console labels. */
+const LITERAL_TAGS: ReadonlySet<string> = new Set(['pre', 'code', 'textarea']);
+
+/**
+ * Mark an element as recorded content (a report, transcript, log or result)
+ * that a language change must leave as it was recorded; browsers' own page
+ * translation leaves it alone too.
+ *
+ * @param node - Element showing project or model text.
+ * @returns The same element.
+ */
+export function keepLiteral<Node extends HTMLElement>(node: Node): Node {
+  node.setAttribute('translate', 'no');
+  return node;
+}
+
+/**
+ * Skip literal subtrees while translating.
+ *
+ * @param node - Visited node.
+ * @returns Whether the walker visits it and its descendants.
+ */
+function literalFilter(node: Node): number {
+  return node instanceof HTMLElement && (LITERAL_TAGS.has(node.localName) || node.getAttribute('translate') === 'no')
+    ? NodeFilter.FILTER_REJECT
+    : NodeFilter.FILTER_ACCEPT;
+}
+
+/**
+ * Translate every known message under a root from one language into the one
+ * in force: text nodes and text attributes, except recorded content marked
+ * {@link keepLiteral}. The shell is translated this way
+ * at startup, and every view is after a language change, so text built once
+ * in a constructor changes without a reload.
+ *
+ * @param root - Element whose subtree is translated.
+ * @param from - Language its text is currently in.
+ */
+export function translateTree(root: Element, from: Locale): void {
+  if (from === state.locale) {
+    return;
+  }
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ALL, { acceptNode: (node) => literalFilter(node) });
+  for (let node: Node | null = walker.currentNode; node !== null; node = walker.nextNode()) {
+    if (node instanceof Text) {
+      const next = retranslated(node.data, from);
+      if (next !== null) {
+        node.data = next;
+      }
+    } else if (node instanceof Element) {
+      translateAttributes(node, from);
+    }
+  }
+}
+
+/**
+ * After every language change, translate the text already rendered under some
+ * roots and then let the owner re-render what it builds from data.
+ *
+ * @param roots - Elements to translate, read when the language changes; detached roots count too.
+ * @param after - Called once the roots are translated.
+ */
+export function onLocaleChange(roots: () => readonly Element[], after: () => void): void {
+  document.addEventListener(LOCALE_EVENT, (event) => {
+    const change = announcedLocale(event);
+    if (change === null) {
+      return;
+    }
+    for (const root of roots()) {
+      translateTree(root, change.previous);
+    }
+    after();
+  });
+}
+
+// Apply the stored choice while this module evaluates, before any view module
+// that imports it builds text; tests in Node keep English.
+if (typeof document !== 'undefined') {
+  applyLocaleChoice(storedLocaleChoice());
 }

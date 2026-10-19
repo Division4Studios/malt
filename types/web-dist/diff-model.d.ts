@@ -73,6 +73,10 @@ declare module '*/web/dist/diff-model.js' {
   interface ReadyPatch {
     /** Ready to show. */
     readonly state: 'ready';
+    /** Base the patch was generated from. */
+    readonly base: string;
+    /** Head the patch was generated from. */
+    readonly head: string;
     /** File. */
     readonly path: string;
     /** Rows. */
