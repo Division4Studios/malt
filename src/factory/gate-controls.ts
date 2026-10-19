@@ -10,6 +10,7 @@
 import { MeshError } from '../protocol.ts';
 
 import { gatesControlSchema, gatesSchema } from './gate-schema.ts';
+import { isReviewComplete, taskWorkflow } from './pipeline.ts';
 
 import type { Gates } from './gate-schema.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -62,7 +63,13 @@ export function changeGates(repository: FactoryRepository, input: unknown): { ga
         throw new MeshError('FACTORY_GATED', 'This delivery is already past its merge gate.');
       }
       const frozen = { merge: value.merge ?? false };
-      repository.editTask(task.id, (edited) => ({ ...edited, gates: frozen }));
+      repository.editTask(task.id, (edited) => {
+        const gated = { ...edited, gates: frozen };
+        // Removing the last open gate can leave every remaining step complete: advance to the final check.
+        return gated.phase === 'review' && isReviewComplete(gated, taskWorkflow(gated, repository.features()))
+          ? { ...gated, phase: 'merge_ready' }
+          : gated;
+      });
       return { gates: frozen };
     }
     const feature = repository.features().find((candidate) => candidate.id === value.featureId);

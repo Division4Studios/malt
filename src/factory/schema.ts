@@ -105,6 +105,8 @@ const FREE_MEMORY_MB = 1024;
 const CPU_PERCENT = 85;
 /** Default verified rate-limit cooldown. */
 export const COOLDOWN_MS = 300_000;
+/** Recent rejection request ids kept per delivery or objective for idempotent retries. */
+export const REJECTED_REQUESTS_MAX = 20;
 /** Duration of a supervisor/job lease, renewed without involving a model. */
 export const LEASE_MS = 30_000;
 /** Lead-reviewed role routing carried through a delivery's durable handoff. */
@@ -292,6 +294,8 @@ export const featureSchema = z.object({
   /** Absent for objectives saved before workflows existed; they run the original pipeline. */
   workflow: frozenWorkflowSchema.optional(),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Gates frozen when the objective was filed; absent on older objectives, which have none. */
   gates: gatesSchema.optional(),
   /** When the plan step last produced a plan; plan reviews must postdate it. */
@@ -380,6 +384,8 @@ export const taskSchema = z.object({
     .nullable()
     .default(null),
   approvals: z.array(approvalSchema).default([]),
+  /** Request ids of recent rejections, so a retried rejection reports itself instead of failing. */
+  rejectedRequests: z.array(z.string().uuid()).max(REJECTED_REQUESTS_MAX).optional(),
   /** Source published by the implementation step; fixes and regressions build on it. */
   implementation: z.object({ head: z.string(), base: z.string(), at: z.number() }).nullable().default(null),
   stepResults: z.array(stepResultSchema).default([]),
@@ -395,6 +401,10 @@ export const taskSchema = z.object({
   revalidation: revalidationSchema.nullable().default(null),
   /** CI-failure and merge-conflict repair rounds, oldest first. */
   repairs: z.array(repairRoundSchema).default([]),
+  /** Failed regression rounds since the implementation it counts from, for the fix-round cap. */
+  regressionFailures: z.object({ since: z.number(), count: z.number().int().nonnegative() }).optional(),
+  /** Last operator retry; repair rounds and failed attempts before it no longer count toward the caps. */
+  repairsResetAt: z.number().optional(),
   /** Operator archive choice; absent means finished deliveries archive automatically. */
   archive: archiveMarkSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
