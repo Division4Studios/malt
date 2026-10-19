@@ -29,11 +29,16 @@ export const FACTORY_ROLES = [
 export const PROVIDERS = ['codex', 'claude'] as const;
 /** A safe internal key, used in branch and artifact names. */
 export const keySchema = z.string().regex(/^[\da-z][\w\-]{0,63}$/v);
-/** Kinds of bounded assignment; fix-stage kinds change or verify code after review. */
+
+/**
+ * Kinds of bounded assignment; fix-stage kinds change or verify code after
+ * review, and `revalidate` rechecks a dependent delivery's brief before it starts.
+ */
 export const JOB_KINDS = [
   'plan',
   'refine',
   'plan_review',
+  'revalidate',
   'develop',
   'review',
   'adjudicate',
@@ -49,6 +54,7 @@ export const JOB_KINDS = [
 export const CODE_JOB_KINDS: ReadonlySet<string> = new Set(['develop', 'adjudicate', 'document']);
 /** The delivery phase in which each assignment kind is valid; planning and research kinds have none. */
 export const JOB_PHASE = {
+  revalidate: 'ready',
   develop: 'development',
   review: 'review',
   adjudicate: 'review',
@@ -68,6 +74,7 @@ export const STAGE_SKILLS = {
   plan: 'factory-product',
   refine: 'factory-product',
   plan_review: 'factory-review',
+  revalidate: 'factory-product',
   develop: 'factory-development',
   review: 'factory-review',
   adjudicate: 'factory-development',
