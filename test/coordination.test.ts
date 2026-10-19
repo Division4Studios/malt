@@ -269,7 +269,7 @@ await test('idle approval and pending requests survive restart; offline agents s
     valueRowSchema,
     "SELECT value FROM metadata WHERE key = 'schema_version'",
   );
-  assert.equal(version?.value, '3');
+  assert.equal(version?.value, '4');
 });
 
 await test(
