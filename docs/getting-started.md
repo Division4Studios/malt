@@ -63,9 +63,10 @@ Your first run should use a repository you can throw away. MALT writes into the 
 - it adds a marked block to `AGENTS.md` and `CLAUDE.md` that points agents at `.malt/`;
 - managed developers create branches, worktrees and commits.
 
-Create a tiny repository with one passing test, outside the `malt` folder:
+Create a tiny repository with one passing test, next to the `malt` folder rather than inside it:
 
 ```sh
+cd ..
 mkdir malt-sandbox
 cd malt-sandbox
 git init -b main
