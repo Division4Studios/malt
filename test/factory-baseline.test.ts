@@ -64,13 +64,14 @@ async function setup(
   const runs: ProcessSpec[] = [];
   const processes = async (spec: ProcessSpec): Promise<ProcessResult> => {
     runs.push(spec);
-    await delay(0);
     if (spec.args.includes('hang')) {
+      // Listen before yielding, so a cancellation right after the run starts is not missed.
       await new Promise((resolve) => {
         spec.signal.addEventListener('abort', resolve, { once: true });
       });
       return { exitCode: null, stdout: '', stderr: '', interrupted: true };
     }
+    await delay(0);
     const isFailing = spec.args.includes('integration') || spec.args.includes('broken');
     return {
       exitCode: isFailing ? 1 : 0,
