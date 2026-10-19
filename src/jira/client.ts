@@ -1,7 +1,9 @@
 /**
- * Read-only Jira Cloud REST v3 transport. Every request is a `GET` to the one
- * configured site, authenticated with the account email and an API token
- * resolved from an operator-supplied credential handle at call time. Redirects
+ * Jira Cloud REST v3 transport. Every request goes to the one configured site,
+ * authenticated with the account email and an API token resolved from an
+ * operator-supplied credential handle at call time. Reads use `jiraGet`;
+ * `jiraSend` performs a mutation and is only called after the capability gate
+ * allowed it (see `writes.ts`). Redirects
  * are refused so the token never follows a response to another host, response
  * bodies are bounded, and any message that could carry the token is redacted.
  * Data Center and Server sites are reported unsupported before any request.
@@ -21,7 +23,18 @@ const REQUEST_TIMEOUT_MS = 10_000;
 /** Largest response body read; discovery documents are far smaller. */
 const RESPONSE_MAX_BYTES = 1_048_576;
 /** HTTP statuses the discovery client distinguishes. */
-const HTTP = { ok: 200, unauthorized: 401, forbidden: 403, notFound: 404, rateLimited: 429 } as const;
+const HTTP = {
+  ok: 200,
+  created: 201,
+  noContent: 204,
+  badRequest: 400,
+  unauthorized: 401,
+  forbidden: 403,
+  notFound: 404,
+  rateLimited: 429,
+} as const;
+/** Longest Jira validation message kept in an error. */
+const DETAIL_MAX = 300;
 
 /** A Jira project key such as `PROJ`, kept as a typed string. */
 export const jiraProjectKeySchema = z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v);
@@ -68,9 +81,11 @@ export interface JiraResponse {
 
 /** Request options the client sends. */
 export interface JiraRequest {
-  /** Always `GET`: discovery never mutates Jira. */
-  readonly method: 'GET';
-  /** Authorization and Accept headers. */
+  /** `GET` for reads; `POST` or `PUT` only for capability-checked mutations. */
+  readonly method: 'GET' | 'POST' | 'PUT';
+  /** JSON body of a mutation. */
+  readonly body?: string;
+  /** Authorization, Accept and, for mutations, Content-Type headers. */
   readonly headers: Readonly<Record<string, string>>;
   /** Per-request deadline. */
   readonly signal: AbortSignal;
@@ -196,23 +211,57 @@ function basicToken(credential: JiraCredential): string {
   return Buffer.from(pair).toString('base64');
 }
 
+/** Jira's validation error shape. */
+const jiraErrorsSchema = z.object({
+  errorMessages: z.array(z.string()).default([]),
+  errors: z.record(z.string(), z.string()).default({}),
+});
+
+/**
+ * Jira's own explanation of a refused request, bounded.
+ *
+ * @param body - Response body text.
+ * @param credential - Credential in use, redacted from the messages.
+ * @returns Joined, redacted messages, or an empty string when Jira gave none.
+ */
+function jiraDetail(body: string, credential: JiraCredential): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return '';
+  }
+  const errors = jiraErrorsSchema.safeParse(parsed);
+  if (!errors.success) {
+    return '';
+  }
+  const fields = Object.entries(errors.data.errors).map(([field, message]) => `${field}: ${message}`);
+  // Redact the complete text first, so truncation can never leave part of a credential behind.
+  return redactCredential(credential, [...errors.data.errorMessages, ...fields].join('; ')).slice(0, DETAIL_MAX);
+}
+
 /**
  * The failure an HTTP status maps to, or `null` for success.
  *
  * @param response - Jira response.
  * @param path - Requested API path, for the message.
+ * @param isRead - Whether the request was a read, for the message.
  * @returns Failure to throw, or `null`.
  */
-function statusFailure(response: JiraResponse, path: string): JiraRequestError | null {
+function statusFailure(response: JiraResponse, path: string, isRead: boolean): JiraRequestError | null {
   switch (response.status) {
-    case HTTP.ok: {
+    case HTTP.ok:
+    case HTTP.created:
+    case HTTP.noContent: {
       return null;
     }
     case HTTP.unauthorized: {
       return new JiraRequestError(`Jira rejected the credential for ${path}.`, { failure: 'unauthorized' });
     }
     case HTTP.forbidden: {
-      return new JiraRequestError(`The Jira account may not read ${path}.`, { failure: 'forbidden' });
+      return new JiraRequestError(`The Jira account may not ${isRead ? 'read' : 'change'} ${path}.`, {
+        failure: 'forbidden',
+      });
     }
     case HTTP.notFound: {
       return new JiraRequestError(`Jira has no ${path} visible to this account.`, { failure: 'not_found' });
@@ -229,6 +278,108 @@ function statusFailure(response: JiraResponse, path: string): JiraRequestError |
         failure: 'unreachable',
       });
     }
+  }
+}
+
+/** One request to the configured site API. */
+interface ApiCall {
+  /** HTTP method. */
+  readonly method: JiraRequest['method'];
+  /** API path beginning with `/rest/api/3/`. */
+  readonly path: string;
+  /** Query parameters. */
+  readonly query?: Readonly<Record<string, string>>;
+  /** JSON body of a mutation. */
+  readonly body?: unknown;
+}
+
+/**
+ * Send one request to the configured site API and read its JSON answer.
+ *
+ * @param transport - Site, credential and transport.
+ * @param call - Method, path, query and body.
+ * @returns Parsed JSON, or `null` for an empty success.
+ * @throws {JiraRequestError} For HTTP errors, unreachable sites, oversized or non-JSON bodies.
+ */
+async function request(transport: JiraTransport, call: ApiCall): Promise<unknown> {
+  const url = new URL(call.path, transport.site.origin);
+  if (call.query !== undefined) {
+    const entries = Object.entries(call.query);
+    for (const [key, value] of entries) {
+      url.searchParams.set(key, value);
+    }
+  }
+  if (url.origin !== transport.site.origin || !url.pathname.startsWith('/rest/api/3/')) {
+    throw new JiraRequestError('Refused a Jira request outside the configured site API.', { failure: 'invalid' });
+  }
+  if (transport.site.deployment !== 'cloud') {
+    throw new JiraRequestError('Refused a request to a self-hosted Jira site; MALT 1.0 supports Jira Cloud only.', {
+      failure: 'invalid',
+    });
+  }
+  const { credential } = transport;
+  const hasBody = call.body !== undefined;
+  let response: JiraResponse;
+  try {
+    response = await transport.fetch(url.href, {
+      method: call.method,
+      headers: {
+        authorization: `Basic ${basicToken(credential)}`,
+        accept: 'application/json',
+        ...(hasBody && { 'content-type': 'application/json' }),
+      },
+      ...(hasBody && { body: JSON.stringify(call.body) }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      redirect: 'error',
+    });
+  } catch (error) {
+    const detail = Error.isError(error) ? error.message : 'request failed';
+    throw new JiraRequestError(redactCredential(credential, `Could not reach Jira: ${detail}`), {
+      failure: 'unreachable',
+    });
+  }
+  return readAnswer(transport, response, { method: call.method, path: url.pathname });
+}
+
+/**
+ * Check a response and parse its body.
+ *
+ * @param transport - Site and credential, for redaction.
+ * @param response - Jira response.
+ * @param call - Method and path, for messages.
+ * @param call.method - HTTP method.
+ * @param call.path - Requested API path.
+ * @returns Parsed JSON, or `null` for an empty success.
+ * @throws {JiraRequestError} For HTTP errors, oversized or non-JSON bodies.
+ */
+async function readAnswer(
+  transport: JiraTransport,
+  response: JiraResponse,
+  call: { readonly method: JiraRequest['method']; readonly path: string },
+): Promise<unknown> {
+  if (response.status === HTTP.badRequest) {
+    let detail = '';
+    try {
+      detail = jiraDetail(await readBody(transport, response, call.path), transport.credential);
+    } catch {
+      // The refusal stands even when its explanation cannot be read.
+    }
+    const suffix = detail === '' ? '.' : `: ${detail}`;
+    throw new JiraRequestError(`Jira refused ${call.method} ${call.path}${suffix}`, { failure: 'invalid' });
+  }
+  // Other error statuses are mapped without reading their bodies, so a stalled body cannot hide a rate limit.
+  const failure = statusFailure(response, call.path, call.method === 'GET');
+  if (failure !== null) {
+    throw failure;
+  }
+  const body = await readBody(transport, response, call.path);
+  if (body.trim() === '' && call.method !== 'GET') {
+    return null;
+  }
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new JiraRequestError(`Jira did not return JSON for ${call.path}.`, { failure: 'invalid' });
   }
 }
 
@@ -320,44 +471,24 @@ export async function jiraGet(
   path: string,
   query: Readonly<Record<string, string>> = {},
 ): Promise<unknown> {
-  const url = new URL(path, transport.site.origin);
-  for (const [key, value] of Object.entries(query)) {
-    url.searchParams.set(key, value);
-  }
-  if (url.origin !== transport.site.origin || !url.pathname.startsWith('/rest/api/3/')) {
-    throw new JiraRequestError('Refused a Jira request outside the configured site API.', { failure: 'invalid' });
-  }
-  if (transport.site.deployment !== 'cloud') {
-    throw new JiraRequestError('Refused a request to a self-hosted Jira site; MALT 1.0 supports Jira Cloud only.', {
-      failure: 'invalid',
-    });
-  }
-  const { credential } = transport;
-  let response: JiraResponse;
-  try {
-    response = await transport.fetch(url.href, {
-      method: 'GET',
-      headers: {
-        authorization: `Basic ${basicToken(credential)}`,
-        accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      redirect: 'error',
-    });
-  } catch (error) {
-    const detail = Error.isError(error) ? error.message : 'request failed';
-    throw new JiraRequestError(redactCredential(credential, `Could not reach Jira: ${detail}`), {
-      failure: 'unreachable',
-    });
-  }
-  const failure = statusFailure(response, url.pathname);
-  if (failure !== null) {
-    throw failure;
-  }
-  const body = await readBody(transport, response, url.pathname);
-  try {
-    return JSON.parse(body) as unknown;
-  } catch {
-    throw new JiraRequestError(`Jira did not return JSON for ${url.pathname}.`, { failure: 'invalid' });
-  }
+  return request(transport, { method: 'GET', path, query });
+}
+
+/**
+ * Perform one mutation. Callers authorize it with the capability gate first.
+ *
+ * @param transport - Site, credential and transport.
+ * @param method - `POST` or `PUT`.
+ * @param path - API path beginning with `/rest/api/3/`.
+ * @param body - JSON body.
+ * @returns Parsed JSON answer, or `null` when Jira answered with no body.
+ * @throws {JiraRequestError} For HTTP errors, including Jira's own validation messages.
+ */
+export async function jiraSend(
+  transport: JiraTransport,
+  method: 'POST' | 'PUT',
+  path: string,
+  body: unknown,
+): Promise<unknown> {
+  return request(transport, { method, path, body });
 }

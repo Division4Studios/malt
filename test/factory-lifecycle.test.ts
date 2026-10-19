@@ -156,6 +156,12 @@ await test('autonomous factory plans, returns QA defect to original dev, reviews
   const root = mkdtempSync(path.join(os.tmpdir(), 'mlt-lifecycle-'));
   const source = path.join(root, 'source');
   await command('git', ['init', '--bare', path.join(root, 'origin.git')], root);
+  // A global or system core.hooksPath (for example a protected local hub) would otherwise silence the fixture hook.
+  await command(
+    'git',
+    ['config', 'core.hooksPath', path.join(root, 'origin.git', 'hooks')],
+    path.join(root, 'origin.git'),
+  );
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Install a fixed hook only in the disposable remote to exercise unpaid push recovery.
   await writeFile(
     path.join(root, 'origin.git', 'hooks', 'pre-receive'),

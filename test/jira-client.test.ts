@@ -9,6 +9,7 @@ import {
   jiraGet,
   jiraIssueKeySchema,
   jiraProjectKeySchema,
+  jiraSend,
   parseJiraSite,
   redactCredential,
 } from '../src/jira/client.ts';
@@ -190,4 +191,55 @@ await test('transport errors and messages never carry the token', async () => {
   assert.equal(error.message.includes(CREDENTIAL.token), false);
   assert.equal(error.message.includes(BASIC), false);
   assert.equal(redactCredential(CREDENTIAL, `a ${CREDENTIAL.token} b ${BASIC}`).includes(CREDENTIAL.token), false);
+});
+
+/**
+ * A transport answering 429 whose body never arrives.
+ *
+ * @returns A rate-limited response with a failing body.
+ */
+const stalled: JiraFetch = async () => {
+  await Promise.resolve();
+  return {
+    status: 429,
+    headers: { get: (name) => (name === 'retry-after' ? '7' : null) },
+    text: async () => {
+      await Promise.resolve();
+      throw new Error('body stalled');
+    },
+  };
+};
+
+await test('a validation message is redacted before it is bounded, and error statuses never wait on bodies', async () => {
+  const echoed = answering(400, JSON.stringify({ errorMessages: [`${'x'.repeat(290)}${CREDENTIAL.token}`] }));
+  const error = await failure(jiraSend(echoed.transport, 'PUT', '/rest/api/3/issue/PROJ-1', {}), 'invalid');
+  assert.equal(error.message.includes(CREDENTIAL.token.slice(0, 8)), false, 'no part of the credential survives');
+  const limited = await failure(jiraGet({ ...echoed.transport, fetch: stalled }, '/rest/api/3/myself'), 'rate_limited');
+  assert.equal(limited.retryAfterSeconds, 7);
+});
+
+await test('mutations send JSON bodies and report Jira validation messages, redacted', async () => {
+  const sent = answering(204, '');
+  assert.equal(await jiraSend(sent.transport, 'POST', '/rest/api/3/issueLink', { type: { name: 'Blocks' } }), null);
+  const [call] = sent.calls;
+  assert.ok(call !== undefined);
+  assert.equal(call.init.method, 'POST');
+  assert.equal(call.init.headers['content-type'], 'application/json');
+  assert.equal(call.init.body, '{"type":{"name":"Blocks"}}');
+  const refused = answering(400, '{"errorMessages":["Transition is not valid"],"errors":{"resolution":"Required"}}');
+  await assert.rejects(jiraSend(refused.transport, 'POST', '/rest/api/3/issue/PROJ-1/transitions', {}), {
+    name: 'JiraRequestError',
+    failure: 'invalid',
+    message: 'Jira refused POST /rest/api/3/issue/PROJ-1/transitions: Transition is not valid; resolution: Required',
+  });
+  const leaky = answering(400, `{"errorMessages":["token ${CREDENTIAL.token} was rejected"]}`);
+  const error = await failure(jiraSend(leaky.transport, 'PUT', '/rest/api/3/issue/PROJ-1', {}), 'invalid');
+  assert.equal(error.message.includes(CREDENTIAL.token), false);
+  await failure(jiraSend(answering(403, '').transport, 'PUT', '/rest/api/3/issue/PROJ-1', {}), 'forbidden');
+  assert.deepEqual(
+    await jiraSend(answering(201, '{"id":"5"}').transport, 'POST', '/rest/api/3/issue/PROJ-1/comment', {}),
+    {
+      id: '5',
+    },
+  );
 });
