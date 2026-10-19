@@ -5,6 +5,7 @@
  *
  * @file
  */
+import { phrase, t, translated } from './i18n.js';
 
 /** Theme choices in the order the toggle cycles through them. */
 export const THEMES = ['system', 'light', 'dark'] as const;
@@ -15,7 +16,11 @@ export const THEME_EVENT = 'malt-theme-change';
 /** Browser-local preference key; never shared with the backend. */
 const STORAGE_KEY = 'malt-theme-v1';
 /** Readable labels for theme controls. */
-export const THEME_LABELS: Readonly<Record<Theme, string>> = { system: 'System', light: 'Light', dark: 'Dark' };
+export const THEME_LABELS: Readonly<Record<Theme, string>> = translated({
+  system: phrase('System'),
+  light: phrase('Light'),
+  dark: phrase('Dark'),
+});
 
 /**
  * Whether a stored value names a theme.
@@ -27,12 +32,18 @@ function isTheme(value: string | null): value is Theme {
   return value !== null && (THEMES as readonly string[]).includes(value);
 }
 
+/** The choice made on this page, which holds even when browser storage cannot remember it. */
+const page: { chosen: Theme | null } = { chosen: null };
+
 /**
- * The remembered choice, or the system default.
+ * The current choice: the one made on this page, else the remembered one, else the system default.
  *
  * @returns Current theme choice.
  */
 export function storedTheme(): Theme {
+  if (page.chosen !== null) {
+    return page.chosen;
+  }
   try {
     const value = localStorage.getItem(STORAGE_KEY);
     return isTheme(value) ? value : 'system';
@@ -60,6 +71,7 @@ export function applyTheme(theme: Theme): void {
  * @param theme - Choice selected by the operator.
  */
 export function chooseTheme(theme: Theme): void {
+  page.chosen = theme;
   try {
     localStorage.setItem(STORAGE_KEY, theme);
   } catch {
@@ -99,13 +111,16 @@ export function announcedTheme(event: Event): Theme | null {
 export function bindThemeToggle(id: string): void {
   const button = document.querySelector<HTMLButtonElement>(`#${CSS.escape(id)}`);
   if (button === null) {
-    throw new Error(`The console shell has no ${id} button.`);
+    throw new Error(t('The console shell has no {id} button.', { id }));
   }
   const label = (theme: Theme): void => {
-    button.textContent = `Theme: ${THEME_LABELS[theme]}`;
+    button.textContent = t('Theme: {theme}', { theme: THEME_LABELS[theme] });
     button.setAttribute(
       'aria-label',
-      `Colour theme: ${THEME_LABELS[theme]}. Activate for ${THEME_LABELS[nextTheme(theme)]}.`,
+      t('Colour theme: {theme}. Activate for {next}.', {
+        theme: THEME_LABELS[theme],
+        next: THEME_LABELS[nextTheme(theme)],
+      }),
     );
   };
   let current = storedTheme();

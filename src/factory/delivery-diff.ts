@@ -29,8 +29,6 @@ const PAIR_TOKENS = 3;
 const SINGLE_TOKENS = 2;
 /** Fields of a `--raw` header: two modes, two object names and the status. */
 const RAW_FIELDS = 5;
-/** Fields of a `--numstat` entry: two counts and the path. */
-const NUMSTAT_FIELDS = 3;
 /** Settings that keep diff output in the standard, parseable shape regardless of user configuration. */
 const DIFF_OPTIONS = [
   '-c',
@@ -176,7 +174,7 @@ async function changedFiles(source: SourcePair): Promise<DiffFileSummary[]> {
     } else if (token.length === 0) {
       index += 1;
     } else {
-      const [added = '-', deleted = '-', path = ''] = token.split('\t', NUMSTAT_FIELDS);
+      const { added, deleted, path } = numstatEntry(token);
       counts.push({ additions: count(added), deletions: count(deleted) });
       // A rename's numstat names both paths in the following tokens.
       index += path.length === 0 ? PAIR_TOKENS : 1;
@@ -219,6 +217,21 @@ function rawEntry(header: string, tokens: readonly string[], index: number): { e
     },
     next: index + (isPair ? PAIR_TOKENS : SINGLE_TOKENS),
   };
+}
+
+/**
+ * Split a `--numstat -z` entry at its first two tabs only, so a path that
+ * itself starts with or contains a tab is kept whole.
+ *
+ * @param token - `added<TAB>deleted<TAB>path` token; the path is empty for a rename.
+ * @returns Both counts as text and the path.
+ */
+export function numstatEntry(token: string): { added: string; deleted: string; path: string } {
+  const first = token.indexOf('\t');
+  const second = first === -1 ? -1 : token.indexOf('\t', first + 1);
+  return second === -1
+    ? { added: '-', deleted: '-', path: '' }
+    : { added: token.slice(0, first), deleted: token.slice(first + 1, second), path: token.slice(second + 1) };
 }
 
 /**
@@ -287,7 +300,10 @@ async function patch(
   if ((file.additions ?? 0) + (file.deletions ?? 0) > PATCH_LINES_MAX) {
     return { ...base, patch: '', isTruncated: true, bytes: null };
   }
-  const paths = [file.oldPath, file.path].filter((value) => value !== null).map((value) => `:(literal)${value}`);
+  const sides = [file.oldPath, file.path].filter((value) => value !== null);
+  // A literal pathspec also selects everything beneath a directory of the same name (a renamed-away file
+  // replaced by a directory), which may hold private files; exclude those so only this file pair is read.
+  const paths = [...sides.map((value) => `:(literal)${value}`), ...sides.map((value) => `:(exclude,literal)${value}/`)];
   let text: string;
   try {
     text = await command(

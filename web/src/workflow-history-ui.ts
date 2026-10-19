@@ -8,6 +8,7 @@
  * @file
  */
 import { request, scoped } from './api.js';
+import { formatDateTime, phrase, t, translated } from './i18n.js';
 import { element } from './worker-ui.js';
 import { badge, button } from './workflow-dom.js';
 import { diffRevisions, parseHistory, usageText } from './workflow-history-model.js';
@@ -19,7 +20,11 @@ import type { DraftWorkflow } from './workflow-model.js';
 /** Revision digits shown. */
 const REVISION_DIGITS = 8;
 /** Visible label per step change. */
-const CHANGE_LABELS = { added: 'Added', removed: 'Removed', changed: 'Changed' } as const;
+const CHANGE_LABELS = translated({
+  added: phrase('Added'),
+  removed: phrase('Removed'),
+  changed: phrase('Changed'),
+} as const);
 
 /** What the dialog needs from the workflows view. */
 export interface HistoryHooks {
@@ -37,8 +42,8 @@ export interface HistoryHooks {
  */
 function revisionLabel(revision: Revision): string {
   const savedAt = revision.createdAt === null ? null : new Date(revision.createdAt);
-  const saved = savedAt === null ? 'shipped or frozen copy' : `saved ${savedAt.toLocaleString()}`;
-  return `Revision ${revision.revision.slice(0, REVISION_DIGITS)} · ${saved}`;
+  const saved = savedAt === null ? t('shipped or frozen copy') : `saved ${formatDateTime(savedAt)}`;
+  return t('Revision {revision} · {saved}', { revision: revision.revision.slice(0, REVISION_DIGITS), saved });
 }
 
 /**
@@ -51,15 +56,11 @@ function revisionLabel(revision: Revision): string {
  */
 function diffNode(diff: RevisionDiff, older: Revision, newer: Revision): HTMLElement {
   const section = element('section', 'wf-history-diff');
-  section.append(
-    element(
-      'h3',
-      '',
-      `Changes from ${older.revision.slice(0, REVISION_DIGITS)} to ${newer.revision.slice(0, REVISION_DIGITS)}`,
-    ),
-  );
+  const from = older.revision.slice(0, REVISION_DIGITS);
+  const to = newer.revision.slice(0, REVISION_DIGITS);
+  section.append(element('h3', '', t('Changes from {older} to {newer}', { older: from, newer: to })));
   if (diff.workflow.length === 0 && diff.steps.length === 0) {
-    section.append(element('p', 'wf-hint', 'The two revisions define the same steps.'));
+    section.append(element('p', 'wf-hint', t('The two revisions define the same steps.')));
     return section;
   }
   const list = element('ul', 'wf-history-changes');
@@ -88,7 +89,7 @@ export class HistoryDialog {
   /** View callbacks. */
   private readonly hooks: HistoryHooks;
   /** Heading naming the workflow. */
-  private readonly heading = element('h2', '', 'Revision history');
+  private readonly heading = element('h2', '', t('Revision history'));
   /** Loading or error line. */
   private readonly status = element('p', 'wf-hint');
   /** Revision list. */
@@ -109,7 +110,7 @@ export class HistoryDialog {
     this.hooks = hooks;
     this.status.setAttribute('role', 'status');
     const close = button(
-      'Close',
+      t('Close'),
       () => {
         this.element.close();
       },
@@ -132,8 +133,8 @@ export class HistoryDialog {
     }
     this.workflowId = workflowId;
     this.history = null;
-    this.heading.textContent = `Revision history: ${name}`;
-    this.status.textContent = 'Loading revisions…';
+    this.heading.textContent = t('Revision history: {name}', { name });
+    this.status.textContent = t('Loading revisions…');
     this.list.replaceChildren();
     this.detail.replaceChildren();
     this.element.showModal();
@@ -155,12 +156,12 @@ export class HistoryDialog {
       this.history = history;
       this.status.textContent =
         history.revisions.length === 0
-          ? 'No revisions are known for this workflow.'
-          : `${String(history.revisions.length)} revisions, current first.`;
+          ? t('No revisions are known for this workflow.')
+          : t('{length} revisions, current first.', { length: history.revisions.length });
       this.list.replaceChildren(...history.revisions.map((revision, index) => this.revisionNode(revision, index)));
     } catch (error) {
       if (workflowId === this.workflowId) {
-        this.status.textContent = error instanceof Error ? error.message : 'The history could not be read.';
+        this.status.textContent = error instanceof Error ? error.message : t('The history could not be read.');
       }
     }
   }
@@ -176,12 +177,12 @@ export class HistoryDialog {
     const item = element('li', 'wf-history-item');
     const head = element('p', 'wf-history-head', revisionLabel(revision));
     if (revision.isCurrent) {
-      head.append(' ', badge('Current', 'default'));
+      head.append(' ', badge(t('Current'), 'default'));
     }
     item.append(head, element('p', 'wf-hint', usageText(revision)));
     if (revision.objectives.length > 0) {
       const objectives = element('details');
-      objectives.append(element('summary', '', 'Objectives'));
+      objectives.append(element('summary', '', t('Objectives')));
       const list = element('ul');
       list.append(
         ...revision.objectives.map((objective) => element('li', '', `${objective.title} (${objective.phase})`)),
@@ -192,10 +193,11 @@ export class HistoryDialog {
     const actions = element('div', 'wf-actions');
     actions.append(
       button(
-        'View',
+        t('View'),
         () => {
+          const short = revision.revision.slice(0, REVISION_DIGITS);
           this.detail.replaceChildren(
-            element('h3', '', `Revision ${revision.revision.slice(0, REVISION_DIGITS)} (read-only)`),
+            element('h3', '', t('Revision {revision} (read-only)', { revision: short })),
             pipelinePreview(revision.workflow),
           );
         },
@@ -207,7 +209,7 @@ export class HistoryDialog {
     if (compared !== undefined) {
       actions.append(
         button(
-          newer === undefined ? 'Compare with older' : 'Compare with newer',
+          t(newer === undefined ? 'Compare with older' : 'Compare with newer'),
           () => {
             const [from, to] = newer === undefined ? [compared, revision] : [revision, compared];
             this.detail.replaceChildren(diffNode(diffRevisions(from.workflow, to.workflow), from, to));
@@ -217,7 +219,7 @@ export class HistoryDialog {
       );
     }
     actions.append(
-      button('Open as draft', () => {
+      button(t('Open as draft'), () => {
         this.element.close();
         this.hooks.openDraft(this.workflowId, revision.workflow);
       }),
