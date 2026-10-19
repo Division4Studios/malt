@@ -10,7 +10,10 @@
  * @file
  */
 import { button, emptyState, focusedKey, restoreFocus, tag } from './console-dom.js';
+import { t } from './i18n.js';
+import { checkbox, fillSelect, labelled, prioritized } from './roles-dom.js';
 import {
+  EMPTY_ROLES,
   INSTRUCTIONS_MAX,
   LABEL_MAX,
   MAX_SERVERS,
@@ -40,65 +43,8 @@ import type { MemberDraft, RolesModel, ServerDraft, TypeDraft } from './roles-mo
 export interface RolesHooks {
   /** Operator control path. */
   readonly control: OperatorControl;
-}
-
-/** An empty model before the first snapshot. */
-const EMPTY: RolesModel = {
-  isConfigured: false,
-  isPaused: false,
-  types: [],
-  members: [],
-  catalog: { revision: null, skills: [], tools: [], native: [] },
-  models: [],
-  secrets: {},
-};
-
-/**
- * Build a labelled form field.
- *
- * @param label - Visible label.
- * @param control - Input, select or textarea.
- * @param hint - Optional help text.
- * @returns Label wrapping the control.
- */
-function labelled(label: string, control: HTMLElement, hint = ''): HTMLLabelElement {
-  const node = element('label', 'role-field');
-  node.append(element('span', 'role-field-label', label), control);
-  if (hint !== '') {
-    node.append(element('span', 'role-hint', hint));
-  }
-  return node;
-}
-
-/**
- * Build a checkbox with its label.
- *
- * @param label - Visible label.
- * @param isChecked - Initial state.
- * @param value - Value carried by the checkbox.
- * @returns Label and its checkbox.
- */
-function checkbox(label: string, isChecked: boolean, value = ''): { node: HTMLLabelElement; input: HTMLInputElement } {
-  const input = element('input');
-  input.type = 'checkbox';
-  input.checked = isChecked;
-  input.value = value;
-  const node = element('label', 'role-check');
-  node.append(input, element('span', '', label));
-  return { node, input };
-}
-
-/**
- * Replace a select's options.
- *
- * @param select - Select element.
- * @param options - Value and label pairs.
- * @param value - Selected value.
- */
-function fillSelect(select: HTMLSelectElement, options: readonly (readonly [string, string])[], value: string): void {
-  const node = select;
-  node.replaceChildren(...options.map(([optionValue, label]) => new Option(label, optionValue)));
-  node.value = options.some(([optionValue]) => optionValue === value) ? value : (options[0]?.[0] ?? '');
+  /** Selected project id; a draft belongs to the project it was started in. */
+  readonly project?: () => string;
 }
 
 /** One server row in the editor. */
@@ -142,9 +88,9 @@ class TypeEditor {
   /** Server rows. */
   private readonly servers = element('div', 'role-servers');
   /** Add-server button. */
-  private readonly serverButton = element('button', 'button secondary', 'Add MCP server');
+  private readonly serverButton = element('button', 'button secondary', t('Add MCP server'));
   /** Question permission. */
-  private readonly canAsk = checkbox('May ask the operator questions in the Inbox (inbox.ask)', false);
+  private readonly canAsk = checkbox(t('May ask the operator questions in the Inbox (inbox.ask)'), false);
   /** Validation problems. */
   private readonly error = element('p', 'error');
   /** Current server rows. */
@@ -152,18 +98,26 @@ class TypeEditor {
   /** Type being edited, or `null` for a new one. */
   private editing: TypeDraft | null = null;
   /** Current view model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Seats using the type. */
   private seats: readonly string[] = [];
   /** Receives the edited type. */
-  private readonly saved: (draft: TypeDraft, previous: TypeDraft | null) => string[];
+  private readonly saved: (draft: TypeDraft, previous: TypeDraft | null, revision: string | null) => string[];
+  /** Configured tools the current seats do not list; kept so an unrelated edit does not drop them. */
+  private hiddenTools: readonly string[] = [];
+  /** Deny rules saved beside an allow list. */
+  private keptDeny: readonly string[] = [];
+  /** The type's skills in priority order when it was opened. */
+  private skillOrder: readonly string[] = [];
+  /** Organization revision when the dialog opened. */
+  private openedRevision: string | null = null;
 
   /**
    * Build the dialog once.
    *
    * @param saved - Applies the edit to the view draft and returns problems that block it.
    */
-  public constructor(saved: (draft: TypeDraft, previous: TypeDraft | null) => string[]) {
+  public constructor(saved: (draft: TypeDraft, previous: TypeDraft | null, revision: string | null) => string[]) {
     this.saved = saved;
     const id = `role-editor-${crypto.randomUUID()}`;
     this.heading.id = `${id}-title`;
@@ -181,8 +135,8 @@ class TypeEditor {
     fillSelect(
       this.toolMode,
       [
-        ['deny', 'Remove the checked tools'],
-        ['allow', 'Keep only the checked tools (per kind: MALT or native)'],
+        ['deny', t('Remove the checked tools')],
+        ['allow', t('Keep only the checked tools (per kind: MALT or native)')],
       ],
       'deny',
     );
@@ -196,12 +150,12 @@ class TypeEditor {
     this.serverButton.addEventListener('click', () => {
       this.appendServer({ name: '', command: '', args: [] });
     });
-    const cancel = element('button', 'button ghost', 'Cancel');
+    const cancel = element('button', 'button ghost', t('Cancel'));
     cancel.type = 'button';
     cancel.addEventListener('click', () => {
       this.element.close();
     });
-    const apply = element('button', 'button primary', 'Apply to draft');
+    const apply = element('button', 'button primary', t('Apply to draft'));
     apply.type = 'submit';
     const actions = element('div', 'dialog-actions');
     actions.append(cancel, apply);
@@ -210,18 +164,18 @@ class TypeEditor {
     form.method = 'dialog';
     form.append(
       this.heading,
-      labelled('Type name', this.name, 'Seats reference it; lower case letters, digits, - and _.'),
-      labelled('Label', this.label),
-      labelled('Instructions', this.instructions, 'Added to every assignment this type takes.'),
-      labelled('Provider', this.provider, 'A chosen provider is waited for rather than switched.'),
-      labelled('Model', this.modelSelect, 'Only models your explicit model policy allows are offered.'),
-      labelled('Effort', this.effort, 'A floor; risk and review can still raise it.'),
-      labelled('Capability floor', this.tier),
-      this.legend(this.skills, `Prioritized skills (at most ${String(MAX_SKILLS)})`),
-      labelled('Tool policy', this.toolMode, 'Policies only narrow what the seats already have.'),
-      this.legend(this.tools, 'Tools'),
-      element('h3', 'role-subheading', 'Local MCP servers'),
-      element('p', 'role-hint', 'Started by the provider CLI with literal arguments; no shell is involved.'),
+      labelled(t('Type name'), this.name, t('Seats reference it; lower case letters, digits, - and _.')),
+      labelled(t('Label'), this.label),
+      labelled(t('Instructions'), this.instructions, t('Added to every assignment this type takes.')),
+      labelled(t('Provider'), this.provider, t('A chosen provider is waited for rather than switched.')),
+      labelled(t('Model'), this.modelSelect, t('Only models your explicit model policy allows are offered.')),
+      labelled(t('Effort'), this.effort, t('A floor; risk and review can still raise it.')),
+      labelled(t('Capability floor'), this.tier),
+      this.legend(this.skills, t('Prioritized skills (at most {maxSkills})', { maxSkills: MAX_SKILLS })),
+      labelled(t('Tool policy'), this.toolMode, t('Policies only narrow what the seats already have.')),
+      this.legend(this.tools, t('Tools')),
+      element('h3', 'role-subheading', t('Local MCP servers')),
+      element('p', 'role-hint', t('Started by the provider CLI with literal arguments; no shell is involved.')),
       this.servers,
       this.serverButton,
       this.canAsk.node,
@@ -246,14 +200,14 @@ class TypeEditor {
     this.model = model;
     this.editing = isNew ? null : type;
     this.seats = seatsUsing(model.members, type.name);
-    this.heading.textContent = isNew ? 'New role type' : `Edit ${type.label}`;
+    this.heading.textContent = isNew ? t('New role type') : t('Edit {label}', { label: type.label });
     this.name.value = type.name;
     this.name.readOnly = !isNew;
     this.label.value = type.label;
     this.instructions.value = type.instructions;
     fillSelect(
       this.provider,
-      [['', 'Any provider'], ...PROVIDERS.map((provider) => [provider, provider] as const)],
+      [['', t('Any provider')], ...PROVIDERS.map((provider) => [provider, provider] as const)],
       type.provider ?? '',
     );
     this.fillModels(type.modelId ?? '');
@@ -264,12 +218,19 @@ class TypeEditor {
       ...model.catalog.skills.map((skill) => checkbox(skill, type.skills.includes(skill), skill).node),
     );
     this.toolMode.value = type.toolMode;
+    const shown = toolsFor(model.catalog, this.seats);
     this.tools.replaceChildren(
       this.tools.firstElementChild ?? '',
-      ...toolsFor(model.catalog, this.seats).map((tool) => checkbox(tool, type.tools.includes(tool), tool).node),
+      ...shown.map((tool) => checkbox(tool, type.tools.includes(tool), tool).node),
     );
+    this.hiddenTools = type.tools.filter((tool) => !shown.includes(tool));
+    this.keptDeny = type.keptDeny;
+    this.skillOrder = type.skills;
+    this.openedRevision = model.catalog.revision;
     this.rows = [];
     this.servers.replaceChildren();
+    // The dialog is reused: a type that filled every server row must not leave the button disabled.
+    this.serverButton.disabled = false;
     for (const server of type.servers) {
       this.appendServer(server);
     }
@@ -312,12 +273,15 @@ class TypeEditor {
     const models = this.model.models.filter((choice) => provider === '' || choice.provider === provider);
     fillSelect(
       this.modelSelect,
-      [['', 'Stage default'], ...models.map((choice) => [choice.id, `${choice.model} (${choice.provider})`] as const)],
+      [
+        ['', t('Stage default')],
+        ...models.map((choice) => [choice.id, `${choice.model} (${choice.provider})`] as const),
+      ],
       selected,
     );
     this.modelSelect.disabled = this.model.models.length === 0;
     this.modelSelect.title = this.modelSelect.disabled
-      ? 'Set an explicit model policy in Project setup to choose models.'
+      ? t('Set an explicit model policy in Project setup to choose models.')
       : '';
   }
 
@@ -330,7 +294,7 @@ class TypeEditor {
     const model = this.model.models.find((choice) => choice.id === this.selectedModel());
     fillSelect(
       this.effort,
-      [['', 'Stage default'], ...(model?.efforts ?? []).map((effort) => [effort, effort] as const)],
+      [['', t('Stage default')], ...(model?.efforts ?? []).map((effort) => [effort, effort] as const)],
       selected,
     );
     this.effort.disabled = model === undefined;
@@ -357,7 +321,7 @@ class TypeEditor {
     args.value = server.args.join('\n');
     const node = element('div', 'role-server');
     const row: ServerRow = { node, name, command, args };
-    const remove = element('button', 'button ghost', 'Remove');
+    const remove = element('button', 'button ghost', t('Remove'));
     remove.type = 'button';
     remove.addEventListener('click', () => {
       this.rows = this.rows.filter((candidate) => candidate !== row);
@@ -365,9 +329,9 @@ class TypeEditor {
       this.serverButton.disabled = false;
     });
     node.append(
-      labelled('Name', name),
-      labelled('Executable', command, 'A path or program name, such as C:/Tools/docs.exe or npx.'),
-      labelled('Arguments', args, 'One literal argument per line.'),
+      labelled(t('Name'), name),
+      labelled(t('Executable'), command, t('A path or program name, such as C:/Tools/docs.exe or npx.')),
+      labelled(t('Arguments'), args, t('One literal argument per line.')),
       remove,
     );
     this.rows.push(row);
@@ -396,13 +360,14 @@ class TypeEditor {
       ...blankType(this.name.value.trim()),
       label: this.label.value,
       instructions: this.instructions.value,
-      skills: this.checked(this.skills),
+      skills: prioritized(this.skillOrder, this.checked(this.skills)),
       minimumTier: TIERS.find((tier) => tier === this.tier.value) ?? 'small',
       provider,
       modelId: this.selectedModel(),
       effort: this.effort.value === '' ? null : this.effort.value,
       toolMode: this.toolMode.value === 'allow' ? 'allow' : 'deny',
-      tools: this.checked(this.tools),
+      tools: [...this.checked(this.tools), ...this.hiddenTools],
+      keptDeny: this.keptDeny,
       servers: this.rows.map((row) => {
         return {
           name: row.name.value.trim(),
@@ -417,7 +382,7 @@ class TypeEditor {
   /** Validate and apply the edit to the view draft; problems stay in the dialog. */
   private submit(): void {
     const draft = this.draft();
-    const problems = [...typeProblems(draft, this.model), ...this.saved(draft, this.editing)];
+    const problems = [...typeProblems(draft, this.model), ...this.saved(draft, this.editing, this.openedRevision)];
     if (problems.length > 0) {
       this.error.textContent = problems.join(' ');
       return;
@@ -443,7 +408,7 @@ class RolesView implements ConsoleViewHandle {
   /** Type editor. */
   private readonly editor: TypeEditor;
   /** Latest validated model. */
-  private model: RolesModel = EMPTY;
+  private model: RolesModel = EMPTY_ROLES;
   /** Draft types, or `null` while nothing is edited. */
   private types: TypeDraft[] | null = null;
   /** Draft members, or `null` while nothing is edited. */
@@ -454,6 +419,8 @@ class RolesView implements ConsoleViewHandle {
   private isSending = false;
   /** Signature of the last render. */
   private rendered = '';
+  /** Project the shown organization and any draft belong to. */
+  private project = '';
   /** Shell callbacks. */
   private readonly hooks: RolesHooks;
 
@@ -464,23 +431,25 @@ class RolesView implements ConsoleViewHandle {
    */
   public constructor(hooks: RolesHooks) {
     this.hooks = hooks;
-    this.editor = new TypeEditor((draft, previous) => this.applyType(draft, previous));
+    this.editor = new TypeEditor((draft, previous, revision) => this.applyType(draft, previous, revision));
     this.error.setAttribute('role', 'alert');
     this.status.setAttribute('aria-live', 'polite');
     const types = element('section', 'role-section');
     types.append(
-      element('h2', '', 'Role types'),
+      element('h2', '', t('Role types')),
       element(
         'p',
         'subtle',
-        'A type specializes the seats that use it. It can narrow their tools and add local MCP servers, but never widens MALT authority or skips a mandatory gate.',
+        t(
+          'A type specializes the seats that use it. It can narrow their tools and add local MCP servers, but never widens MALT authority or skips a mandatory gate.',
+        ),
       ),
       this.typeList,
     );
     const members = element('section', 'role-section');
     members.append(
-      element('h2', '', 'Seats'),
-      element('p', 'subtle', 'Which type each managed seat uses, and who it reports to.'),
+      element('h2', '', t('Seats')),
+      element('p', 'subtle', t('Which type each managed seat uses, and who it reports to.')),
       this.memberTable,
     );
     this.element.append(this.status, this.toolbar, this.error, types, members, this.editor.element);
@@ -492,6 +461,13 @@ class RolesView implements ConsoleViewHandle {
    * @param snapshot - Untrusted live snapshot.
    */
   public update(snapshot: unknown): void {
+    const project = this.hooks.project?.() ?? '';
+    if (project !== this.project) {
+      // Two projects can share an organization revision; never let one project's draft be saved into another.
+      this.project = project;
+      this.editor.element.close();
+      this.discard();
+    }
     this.model = readRoles(snapshot);
     this.render();
   }
@@ -530,13 +506,21 @@ class RolesView implements ConsoleViewHandle {
    *
    * @param draft - Edited type.
    * @param previous - Type it replaces, or `null` for a new one.
+   * @param revision - Organization revision the editor opened the type at.
    * @returns Problems that block the edit.
    */
-  private applyType(draft: TypeDraft, previous: TypeDraft | null): string[] {
+  private applyType(draft: TypeDraft, previous: TypeDraft | null, revision: string | null): string[] {
+    if (this.isSending) {
+      return [t('Wait until the organization is saved, then apply this edit again.')];
+    }
+    if (this.types === null && revision !== this.model.catalog.revision) {
+      // Without a draft, applying would overwrite the newer saved organization with what this dialog opened.
+      return [t('The saved organization changed while this dialog was open. Close it and edit the saved type.')];
+    }
     this.beginDraft();
     const types = this.types ?? [];
     if (previous === null && types.some((type) => type.name === draft.name)) {
-      return [`A type named ${draft.name} already exists.`];
+      return [t('A type named {name} already exists.', { name: draft.name })];
     }
     this.types =
       previous === null ? [...types, draft] : types.map((type) => (type.name === previous.name ? draft : type));
@@ -566,33 +550,35 @@ class RolesView implements ConsoleViewHandle {
   private renderStatus(): void {
     const isDirty = this.types !== null;
     const isStale = isDirty && this.base !== this.model.catalog.revision;
-    let state = 'Saved organization.';
+    let state = t('Saved organization.');
     if (!this.model.isConfigured) {
-      state = 'Configure the factory in Project setup first.';
+      state = t('Configure the factory in Project setup first.');
     } else if (isStale) {
-      state = 'The saved organization changed since you started editing. Discard your draft to load it.';
+      state = t('The saved organization changed since you started editing. Discard your draft to load it.');
     } else if (isDirty) {
-      state = this.model.isPaused
-        ? 'Unsaved changes.'
-        : 'Unsaved changes. Pause the factory and let running attempts finish to save them.';
+      state = t(
+        this.model.isPaused
+          ? 'Unsaved changes.'
+          : 'Unsaved changes. Pause the factory and let running attempts finish to save them.',
+      );
     }
     this.status.textContent = state;
     this.toolbar.replaceChildren(
-      button('New type', {
+      button(t('New type'), {
         cssClass: 'button secondary',
         key: 'role-new',
         action: () => {
           this.editor.open(blankType(''), true, this.model);
         },
       }),
-      button(this.isSending ? 'Saving…' : 'Save organization', {
+      button(t(this.isSending ? 'Saving…' : 'Save organization'), {
         cssClass: 'button primary',
         key: 'role-save',
         action: () => {
           void this.save();
         },
       }),
-      button('Discard changes', {
+      button(t('Discard changes'), {
         cssClass: 'button ghost',
         key: 'role-discard',
         action: () => {
@@ -614,7 +600,7 @@ class RolesView implements ConsoleViewHandle {
     const types = this.currentTypes();
     this.typeList.replaceChildren(
       ...(types.length === 0
-        ? [emptyState('No role types', 'Configure the factory to create the default type.')]
+        ? [emptyState(t('No role types'), t('Configure the factory to create the default type.'))]
         : types.map((type) => this.card(type))),
     );
   }
@@ -631,19 +617,21 @@ class RolesView implements ConsoleViewHandle {
     const header = element('header', 'role-card-header');
     header.append(element('h3', 'role-name', type.label), tag(type.name));
     const secrets = this.model.secrets[type.name] ?? [];
+    const none = t('none');
+    const facts = [
+      t('Seats: {seats}', { seats: seats.length === 0 ? none : seats.join(', ') }),
+      t('Skills: {skills}', { skills: type.skills.length === 0 ? t('stage baseline only') : type.skills.join(' → ') }),
+      t('Tools: {tools}', { tools: toolSummary(type) }),
+      t('MCP servers: {servers}', {
+        servers: type.servers.length === 0 ? none : type.servers.map((server) => server.name).join(', '),
+      }),
+      t('Secrets: {secrets}', { secrets: secrets.length === 0 ? none : secrets.join(', ') }),
+    ];
     card.append(
       header,
       element('p', 'subtle', modelSummary(type, this.model.models)),
-      element('p', '', `Seats: ${seats.length === 0 ? 'none' : seats.join(', ')}`),
-      element('p', '', `Skills: ${type.skills.length === 0 ? 'stage baseline only' : type.skills.join(' → ')}`),
-      element('p', '', `Tools: ${toolSummary(type)}`),
-      element(
-        'p',
-        '',
-        `MCP servers: ${type.servers.length === 0 ? 'none' : type.servers.map((server) => server.name).join(', ')}`,
-      ),
-      element('p', '', `Secrets: ${secrets.length === 0 ? 'none' : secrets.join(', ')}`),
-      ...(type.canAsk ? [tag('May ask questions')] : []),
+      ...facts.map((fact) => element('p', '', fact)),
+      ...(type.canAsk ? [tag(t('May ask questions'))] : []),
       this.cardActions(type, seats),
     );
     return card;
@@ -659,14 +647,14 @@ class RolesView implements ConsoleViewHandle {
   private cardActions(type: TypeDraft, seats: readonly string[]): HTMLElement {
     const actions = element('div', 'role-actions');
     actions.append(
-      button('Edit', {
+      button(t('Edit'), {
         cssClass: 'button secondary',
         key: `role-edit-${type.name}`,
         action: () => {
           this.editor.open(type, false, this.model);
         },
       }),
-      button('Duplicate', {
+      button(t('Duplicate'), {
         cssClass: 'button ghost',
         key: `role-duplicate-${type.name}`,
         action: () => {
@@ -676,7 +664,7 @@ class RolesView implements ConsoleViewHandle {
     );
     if (seats.length === 0 && this.currentTypes().length > 1) {
       actions.append(
-        button('Delete', {
+        button(t('Delete'), {
           cssClass: 'button ghost danger',
           key: `role-delete-${type.name}`,
           action: () => {
@@ -694,7 +682,7 @@ class RolesView implements ConsoleViewHandle {
     const types = this.currentTypes();
     const table = element('table', 'role-table');
     const head = element('tr');
-    head.append(element('th', '', 'Seat'), element('th', '', 'Type'), element('th', '', 'Reports to'));
+    head.append(element('th', '', t('Seat')), element('th', '', t('Type')), element('th', '', t('Reports to')));
     table.append(head);
     for (const member of members) {
       const row = element('tr');
@@ -706,22 +694,24 @@ class RolesView implements ConsoleViewHandle {
         types.map((candidate) => [candidate.name, candidate.label] as const),
         member.type,
       );
+      type.disabled = this.isSending;
       type.addEventListener('change', () => {
         this.setMember(member.role, { type: type.value });
       });
       const manager = element('select');
       manager.dataset['focusKey'] = `role-member-manager-${member.role}`;
-      manager.setAttribute('aria-label', `${member.role} reports to`);
+      manager.setAttribute('aria-label', t('{role} reports to', { role: member.role }));
       fillSelect(
         manager,
         [
-          ['', 'Operator (root)'],
+          ['', t('Operator (root)')],
           ...members
             .filter((candidate) => candidate.role !== member.role)
             .map((candidate) => [candidate.role, candidate.role] as const),
         ],
         member.reportsTo ?? '',
       );
+      manager.disabled = this.isSending;
       manager.addEventListener('change', () => {
         this.setMember(member.role, { reportsTo: manager.value === '' ? null : manager.value });
       });
@@ -733,7 +723,7 @@ class RolesView implements ConsoleViewHandle {
       table.append(row);
     }
     this.memberTable.replaceChildren(
-      members.length === 0 ? emptyState('No seats', 'Configure the factory first.') : table,
+      members.length === 0 ? emptyState(t('No seats'), t('Configure the factory first.')) : table,
     );
   }
 
@@ -744,6 +734,9 @@ class RolesView implements ConsoleViewHandle {
    * @param change - New type or manager.
    */
   private setMember(role: string, change: Partial<MemberDraft>): void {
+    if (this.isSending) {
+      return;
+    }
     this.beginDraft();
     this.members = (this.members ?? []).map((member) => (member.role === role ? { ...member, ...change } : member));
     this.render(true);
@@ -756,12 +749,12 @@ class RolesView implements ConsoleViewHandle {
    */
   private async remove(type: TypeDraft): Promise<void> {
     const isSure = await isConfirmed(this.element, {
-      title: `Delete ${type.label}?`,
-      message: 'No seat uses it. The deletion is part of your draft until you save the organization.',
-      confirm: 'Delete type',
-      cancel: 'Keep it',
+      title: t('Delete {label}?', { label: type.label }),
+      message: t('No seat uses it. The deletion is part of your draft until you save the organization.'),
+      confirm: t('Delete type'),
+      cancel: t('Keep it'),
     });
-    if (!isSure) {
+    if (!isSure || this.isSending) {
       return;
     }
     this.beginDraft();
@@ -798,7 +791,7 @@ class RolesView implements ConsoleViewHandle {
         this.members = null;
         this.base = null;
       } else {
-        this.error.textContent = 'Not saved. The notice at the top of the console says why; your draft is kept.';
+        this.error.textContent = t('Not saved. The notice at the top of the console says why; your draft is kept.');
       }
     } finally {
       this.isSending = false;

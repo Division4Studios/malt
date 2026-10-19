@@ -3,6 +3,8 @@
  *
  * @file
  */
+import { phrase, translated } from './i18n.js';
+
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
   mission: ['overview', 'activity'],
@@ -76,31 +78,55 @@ export type View =
   | 'onboarding';
 
 /** UI navigation descriptions. */
-export const HEADINGS: Record<View, readonly [string, string]> = {
-  overview: ['Team operations.', 'From intent to verified delivery. Every agent, every handoff, one local team.'],
-  inbox: ['Inbox.', 'Every decision waiting on you, oldest first, with what you already answered.'],
-  board: ['Delivery board.', 'Each delivery placed by what it needs next, with its whole pipeline at a glance.'],
-  automations: [
-    'Schedules and triggers.',
-    'Objectives filed on a cron schedule or by a local script, through the same review gates.',
+export const HEADINGS: Record<View, readonly [string, string]> = translated({
+  overview: [
+    phrase('Team operations.'),
+    phrase('From intent to verified delivery. Every agent, every handoff, one local team.'),
   ],
-  delivery: ['Delivery.', 'Its pipeline, findings, rulings and source, step by step.'],
-  objective: ['Objectives.', 'What done means for each objective, who checked it, and everything that happened.'],
-  workflows: ['Workflow library.', 'How objectives become verified deliveries: steps, seats, gates and reviews.'],
-  workflow: ['Workflow map.', 'Real message traffic. Actual ticket stages. Conditional next handoffs.'],
-  team: ['Team constellation.', 'Independent roles. Bounded sessions. Shared project memory.'],
-  deliveries: ['Pipeline list.', 'Small scopes, independent reviews, verified outcomes.'],
-  workers: ['Worker workspaces.', 'Real captured output and durable instructions, side by side.'],
-  sessions: ['Attempts and transcripts.', 'Every bounded attempt: what it read, ran, changed and cost.'],
-  costs: ['Costs.', 'Spend and tokens from recorded usage, by role, model and delivery.'],
-  activity: ['Activity stream.', 'The committed story of your software factory.'],
-  learning: ['Learning library.', 'Evidence becomes better skills, checks, and decisions.'],
-  setup: ['Project setup.', 'Connect the right repository. Set the gates. Protect local resources.'],
-  settings: ['Settings.', 'Appearance, provider health and build facts, with every setting one step away.'],
-  onboarding: ['Get started.', 'From an empty project to the first role at work, with the reason if it cannot start.'],
-  roles: ['Roles.', 'What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'],
-  secrets: ['Secrets.', 'Local encrypted keys and tokens, granted to the role types that need them.'],
-};
+  inbox: [phrase('Inbox.'), phrase('Every decision waiting on you, oldest first, with what you already answered.')],
+  board: [
+    phrase('Delivery board.'),
+    phrase('Each delivery placed by what it needs next, with its whole pipeline at a glance.'),
+  ],
+  automations: [
+    phrase('Schedules and triggers.'),
+    phrase('Objectives filed on a cron schedule or by a local script, through the same review gates.'),
+  ],
+  delivery: [phrase('Delivery.'), phrase('Its pipeline, findings, rulings and source, step by step.')],
+  objective: [
+    phrase('Objectives.'),
+    phrase('What done means for each objective, who checked it, and everything that happened.'),
+  ],
+  workflows: [
+    phrase('Workflow library.'),
+    phrase('How objectives become verified deliveries: steps, seats, gates and reviews.'),
+  ],
+  workflow: [phrase('Workflow map.'), phrase('Real message traffic. Actual ticket stages. Conditional next handoffs.')],
+  team: [phrase('Team constellation.'), phrase('Independent roles. Bounded sessions. Shared project memory.')],
+  deliveries: [phrase('Pipeline list.'), phrase('Small scopes, independent reviews, verified outcomes.')],
+  workers: [phrase('Worker workspaces.'), phrase('Real captured output and durable instructions, side by side.')],
+  sessions: [
+    phrase('Attempts and transcripts.'),
+    phrase('Every bounded attempt: what it read, ran, changed and cost.'),
+  ],
+  costs: [phrase('Costs.'), phrase('Spend and tokens from recorded usage, by role, model and delivery.')],
+  activity: [phrase('Activity stream.'), phrase('The committed story of your software factory.')],
+  learning: [phrase('Learning library.'), phrase('Evidence becomes better skills, checks, and decisions.')],
+  setup: [phrase('Project setup.'), phrase('Connect the right repository. Set the gates. Protect local resources.')],
+  settings: [
+    phrase('Settings.'),
+    phrase('Appearance, provider health and build facts, with every setting one step away.'),
+  ],
+  onboarding: [
+    phrase('Get started.'),
+    phrase('From an empty project to the first role at work, with the reason if it cannot start.'),
+  ],
+  roles: [
+    phrase('Roles.'),
+    phrase('What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'),
+  ],
+  secrets: [phrase('Secrets.'), phrase('Local encrypted keys and tokens, granted to the role types that need them.')],
+});
 
 /**
  * Validate native navigation without casts or a nested conditional chain.
