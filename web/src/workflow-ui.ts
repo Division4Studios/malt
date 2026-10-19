@@ -5,6 +5,7 @@
  * @file
  */
 import { child, records, text, number, firstText } from './api.js';
+import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
 import type { Data, Snapshot } from './api.js';
@@ -215,17 +216,18 @@ function selectNode(point: Point, detail: HTMLElement, inspect: (role: string) =
     element('p', '', `${text(node, 'kind')} · ${text(node, 'state')}`),
   );
   const issue = number(node, 'issue');
+  const stage = text(node, 'stage');
   detail.append(
     element(
       'p',
       'subtle',
       issue > 0
-        ? `Associated issue #${String(issue)} · current stage ${text(node, 'stage')}`
-        : 'No delivery currently associated with this role.',
+        ? t('Associated issue #{issue} · current stage {stage}', { issue, stage })
+        : t('No delivery currently associated with this role.'),
     ),
   );
   if (text(node, 'kind') === 'managed') {
-    const button = element('button', 'button secondary', 'Open worker workspace');
+    const button = element('button', 'button secondary', t('Open worker workspace'));
     button.type = 'button';
     button.addEventListener('click', () => {
       inspect(text(node, 'role'));
@@ -236,7 +238,7 @@ function selectNode(point: Point, detail: HTMLElement, inspect: (role: string) =
       element(
         'p',
         'subtle',
-        'Attached cooperative peer. Process ownership and captured output are not managed by this factory.',
+        t('Attached cooperative peer. Process ownership and captured output are not managed by this factory.'),
       ),
     );
   }
@@ -279,14 +281,17 @@ function drawNodes(scene: SVGSVGElement, points: Point[], detail: HTMLElement, i
       class: 'workflow-node',
       role: 'button',
       tabindex: '0',
-      'aria-label': `${label}: ${text(point.node, 'state')}. Inspect role.`,
+      'aria-label': t('{label}: {state}. Inspect role.', { label, state: text(point.node, 'state') }),
       'data-state': text(point.node, 'state'),
       'data-workflow-role': text(point.node, 'id'),
       'aria-pressed': text(point.node, 'id') === cursor.selected ? 'true' : 'false',
     });
     node.append(svg('circle', { r: '28' }));
     const hint = svg('title', {});
-    hint.textContent = `${label} · ${text(point.node, 'state')} · Select to inspect current work and captured evidence.`;
+    hint.textContent = t('{label} · {state} · Select to inspect current work and captured evidence.', {
+      label,
+      state: text(point.node, 'state'),
+    });
     node.append(hint);
     const title = svg('text', { y: '48', 'text-anchor': 'middle', class: 'network-label' });
     title.textContent = label.slice(0, LIMITS.name);
@@ -323,10 +328,10 @@ function drawNodes(scene: SVGSVGElement, points: Point[], detail: HTMLElement, i
  * @returns Keyboard and touch-accessible alternative to the drawing.
  */
 function rosterSelector(points: Point[], detail: HTMLElement, inspect: (role: string) => void): HTMLElement {
-  const label = element('label', 'network-selector', 'Inspect team member');
+  const label = element('label', 'network-selector', t('Inspect team member'));
   const select = element('select');
-  select.setAttribute('aria-label', 'Inspect team member');
-  const placeholder = element('option', '', 'Select a role or attached peer');
+  select.setAttribute('aria-label', t('Inspect team member'));
+  const placeholder = element('option', '', t('Select a role or attached peer'));
   placeholder.value = '';
   select.append(placeholder);
   for (const point of points) {
@@ -353,7 +358,7 @@ function rosterSelector(points: Point[], detail: HTMLElement, inspect: (role: st
  */
 function scopePanel(state: Snapshot): HTMLElement {
   const body = element('section', 'workflow-scopes');
-  body.append(element('h2', '', 'Delivery signals'));
+  body.append(element('h2', '', t('Delivery signals')));
   const scopes = records(child(state.factory, 'workflow')['handoffs']).slice(-LIMITS.scopes);
   const repository = text(child(state.github, 'connection'), 'repository');
   for (const scope of scopes) {
@@ -367,18 +372,23 @@ function scopePanel(state: Snapshot): HTMLElement {
     }
     const next = child(scope, 'next');
     const owner = firstText(text(scope, 'owner'), 'unassigned');
-    const nextLabel = firstText(names(next['roles']).join(', '), 'none');
+    const nextLabel = firstText(names(next['roles']).join(', '), t('none'));
+    const stage = text(scope, 'stage');
     card.append(
       title,
-      element('p', '', `NOW / ${text(scope, 'stage')} · ${owner}`),
-      element('p', 'subtle', `NEXT / ${nextLabel}`),
+      element('p', '', t('NOW / {stage} · {owner}', { stage, owner })),
+      element('p', 'subtle', t('NEXT / {nextLabel}', { nextLabel })),
       element('p', 'subtle', text(next, 'gate')),
     );
     body.append(card);
   }
   if (scopes.length === 0) {
     body.append(
-      element('p', 'subtle', 'No delivery scope yet. Conditional handoffs appear after real tickets are provisioned.'),
+      element(
+        'p',
+        'subtle',
+        t('No delivery scope yet. Conditional handoffs appear after real tickets are provisioned.'),
+      ),
     );
   }
   return body;
@@ -398,8 +408,8 @@ export function workflowView(state: Snapshot, inspect: (role: string) => void): 
   const detail = element('section', 'network-detail');
   detail.setAttribute('aria-live', 'polite');
   detail.append(
-    element('h3', '', 'Select a role'),
-    element('p', 'subtle', 'Inspect its real session state and associated work.'),
+    element('h3', '', t('Select a role')),
+    element('p', 'subtle', t('Inspect its real session state and associated work.')),
   );
   const workflow = child(state.factory, 'workflow');
   const roster = records(workflow['nodes']);
@@ -407,7 +417,7 @@ export function workflowView(state: Snapshot, inspect: (role: string) => void): 
   const scene = svg('svg', {
     viewBox: `0 0 ${String(SCENE.width)} ${String(SCENE.height)}`,
     class: 'network-scene',
-    'aria-label': 'Workflow role and message map',
+    'aria-label': t('Workflow role and message map'),
   });
   const definitions = svg('defs', {});
   const marker = svg('marker', {
@@ -442,7 +452,7 @@ export function workflowView(state: Snapshot, inspect: (role: string) => void): 
   traffic(scene, points, state);
   scene.append(svg('image', { href: '/icon.svg', x: '465', y: '275', width: '70', height: '70' }));
   const hub = svg('text', { x: String(SCENE.x), y: '375', 'text-anchor': 'middle', class: 'network-label' });
-  hub.textContent = 'MALT / LOCAL BROKER';
+  hub.textContent = t('MALT / LOCAL BROKER');
   scene.append(hub);
   drawNodes(scene, points, detail, inspect);
   surface.append(rosterSelector(points, detail, inspect), scene);
@@ -452,26 +462,29 @@ export function workflowView(state: Snapshot, inspect: (role: string) => void): 
     element(
       'p',
       'subtle',
-      'Spokes show logical membership. Directed arcs show recent real messages; moving packets are newly observed messages, never historical replay. Next-stage labels are conditional gates, not approvals.',
+      t(
+        'Spokes show logical membership. Directed arcs show recent real messages; moving packets are newly observed messages, never historical replay. Next-stage labels are conditional gates, not approvals.',
+      ),
     ),
     grid,
     detail,
   );
   const messages = records(state.factory['conversations']).slice(-LIMITS.packets).toReversed();
   const history = element('section', 'panel-body');
-  history.append(element('h2', '', 'Observed message traffic'));
+  history.append(element('h2', '', t('Observed message traffic')));
   for (const message of messages) {
     const row = element('article', 'scope-signal');
     const sequence = String(number(message, 'seq'));
+    const type = text(message, 'type');
     row.append(
       element('h3', '', `${text(message, 'sender_name')} → ${text(message, 'recipient_name')}`),
-      element('p', 'subtle', `Message ${sequence} · ${text(message, 'type')}`),
+      element('p', 'subtle', t('Message {sequence} · {type}', { sequence, type })),
       element('p', '', text(message, 'body').slice(0, LIMITS.excerpts)),
     );
     history.append(row);
   }
   if (messages.length === 0) {
-    history.append(element('p', 'subtle', 'No broker messages observed. Idle roles are not spending model tokens.'));
+    history.append(element('p', 'subtle', t('No broker messages observed. Idle roles are not spending model tokens.')));
   }
   root.append(history);
   const selected = points.find((point) => text(point.node, 'id') === cursor.selected);
@@ -485,7 +498,10 @@ export function workflowView(state: Snapshot, inspect: (role: string) => void): 
       element(
         'p',
         'subtle',
-        `Bounded map: ${String(omittedPeers)} additional peers and ${String(omittedScopes)} earlier deliveries are outside this view. Durable history is retained.`,
+        t(
+          'Bounded map: {omittedPeers} additional peers and {omittedScopes} earlier deliveries are outside this view. Durable history is retained.',
+          { omittedPeers, omittedScopes },
+        ),
       ),
     );
   }
