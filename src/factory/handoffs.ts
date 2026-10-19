@@ -7,6 +7,7 @@
 import { z } from 'zod/v3';
 
 import type { ExecutedJob } from './context.ts';
+import type { FailureClass } from './liveness-schema.ts';
 import type { Feature, FactoryJob, FactoryTask } from './schema.ts';
 
 /** Upper bound for a recorded result summary or failure reason. */
@@ -26,6 +27,8 @@ export interface HandoffEvidence {
   readonly result?: unknown;
   /** Supervisor-observed failure or cancellation reason. */
   readonly reason?: string | null;
+  /** Why the attempt did not succeed, recorded on the attempt for retry spacing. */
+  readonly failureClass?: FailureClass | null;
 }
 
 /** Bounded text with an explicit truncation flag. */

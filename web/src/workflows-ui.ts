@@ -8,11 +8,13 @@
  *
  * @file
  */
+import { formatDateTime, locale, t } from './i18n.js';
 import { element } from './worker-ui.js';
 import { badge, button, isConfirmed, focusKey, rememberFocus, restoreFocus } from './workflow-dom.js';
 import { WorkflowEditor } from './workflow-editor.js';
+import { HistoryDialog } from './workflow-history-ui.js';
 import { blankDraft, defaultRequest, draftFrom, parseLibrary } from './workflow-model.js';
-import { countLabel, pipelinePreview } from './workflow-preview.js';
+import { pipelinePreview } from './workflow-preview.js';
 
 import type { ControlResult } from './workflow-editor.js';
 import type { DraftOrigin, DraftWorkflow, Library, LibraryItem } from './workflow-model.js';
@@ -21,6 +23,8 @@ import type { DraftOrigin, DraftWorkflow, Library, LibraryItem } from './workflo
 export interface WorkflowsHooks {
   /** The console's operator control sender (`createOperatorControl`); resolves false when not applied. */
   readonly control: (operation: string, input: unknown) => Promise<boolean>;
+  /** Selected project id; revision history is offered when it is supplied. */
+  readonly project?: () => string;
 }
 
 /** A mounted workflows view. */
@@ -51,8 +55,13 @@ const REVISION_DIGITS = 8;
  */
 function stepCounts(workflow: DraftWorkflow): string {
   const planning =
-    workflow.planning.length === 0 ? 'No planning' : `Planning: ${countLabel(workflow.planning.length, 'step')}`;
-  return `${planning} · Delivery: ${countLabel(workflow.delivery.length, 'step')}`;
+    workflow.planning.length === 0
+      ? t('No planning')
+      : t('Planning: {count, plural, one {# step} other {# steps}}', { count: workflow.planning.length });
+  return t('{planning} · Delivery: {count, plural, one {# step} other {# steps}}', {
+    planning,
+    count: workflow.delivery.length,
+  });
 }
 
 /** Stateful workflows controller. */
@@ -74,11 +83,13 @@ class WorkflowsView {
   /** Preview panel. */
   private readonly viewer = element('section', 'panel wf-viewer');
   /** Preview heading. */
-  private readonly viewerHeading = element('h2', '', 'Pipeline preview');
+  private readonly viewerHeading = element('h2', '', t('Pipeline preview'));
   /** Preview body. */
   private readonly viewerBody = element('div', 'panel-body');
   /** Draft editor. */
   private readonly editor: WorkflowEditor;
+  /** Revision history dialog, when the shell supplies the project. */
+  private readonly history: HistoryDialog | null;
   /** Id shown in the preview; empty follows the default. */
   private viewing = '';
   /** Last rendered library state, to skip identical pushes. */
@@ -89,6 +100,8 @@ class WorkflowsView {
   private isPending = false;
   /** Failure text captured while a control is in flight. */
   private failure = '';
+  /** Project selected when the open draft was opened; it is saved only there. */
+  private draftProject = '';
 
   /**
    * Build the view shell.
@@ -98,7 +111,15 @@ class WorkflowsView {
   public constructor(hooks: WorkflowsHooks) {
     this.hooks = hooks;
     this.editor = new WorkflowEditor({
-      send: async (operation, input) => this.send(operation, input),
+      send: async (operation, input) => {
+        if (this.draftProject !== this.selectedProject()) {
+          return {
+            ok: false,
+            error: t('This draft was opened in another project. Switch back to that project to save it.'),
+          };
+        }
+        return this.send(operation, input);
+      },
       library: () => this.library,
       saved: (id) => {
         this.saved(id);
@@ -111,26 +132,38 @@ class WorkflowsView {
         this.loadLatest(id);
       },
     });
+    const { project } = hooks;
+    this.history =
+      project === undefined
+        ? null
+        : new HistoryDialog({
+            project,
+            openDraft: (id, workflow) => {
+              this.openRevision(id, workflow);
+            },
+          });
     this.status.setAttribute('role', 'status');
     const intro = element('div', 'wf-intro');
     const text = element(
       'p',
       'subtle',
-      'A workflow defines how objectives are planned and how each delivery is implemented, reviewed, merged and verified. New objectives use the default; running work keeps the revision it started with.',
+      t(
+        'A workflow defines how objectives are planned and how each delivery is implemented, reviewed, merged and verified. New objectives use the default; running work keeps the revision it started with.',
+      ),
     );
     intro.append(
       text,
       button(
-        'New workflow',
+        t('New workflow'),
         () => {
-          void this.openDraft(() => ({ ...blankDraft(this.library), title: 'New workflow' }));
+          void this.openDraft(() => ({ ...blankDraft(this.library), title: t('New workflow') }));
         },
         { variant: 'primary', focusKey: 'workflows:new' },
       ),
     );
     const libraryPanel = element('section', 'panel wf-library-panel');
     const head = element('div', 'panel-head');
-    const heading = element('h2', '', 'Workflow library');
+    const heading = element('h2', '', t('Workflow library'));
     heading.id = 'wf-library-heading';
     head.append(heading, this.count);
     const body = element('div', 'panel-body');
@@ -176,6 +209,15 @@ class WorkflowsView {
   }
 
   /**
+   * The project the shell has selected.
+   *
+   * @returns Project id, or an empty string when the shell does not report one.
+   */
+  private selectedProject(): string {
+    return this.hooks.project?.() ?? '';
+  }
+
+  /**
    * Send one control through the shell and capture its failure text.
    *
    * @param operation - Operation name.
@@ -196,22 +238,28 @@ class WorkflowsView {
   /** Re-render the library list and the preview when their data changed, keeping focus. */
   private render(): void {
     const viewed = this.viewedItem();
+    // Counts and summaries are plural messages built here, so a language change must rebuild them.
     const listKey = JSON.stringify([
       this.library.items.map((item) => [item.id, item.revision, item.isDefault, item.workflow.name]),
       viewed?.id,
       this.editor.originId,
+      locale(),
     ]);
     if (listKey !== this.listKey) {
       this.listKey = listKey;
       const mark = rememberFocus(this.list);
       this.list.replaceChildren(...this.library.items.map((item) => this.card(item, item.id === viewed?.id)));
       restoreFocus(this.list, mark);
-      this.count.textContent = countLabel(this.library.items.length, 'workflow');
+      this.count.textContent = t('{count, plural, one {# workflow} other {# workflows}}', {
+        count: this.library.items.length,
+      });
     }
     if (this.library.items.length === 0) {
-      this.list.replaceChildren(element('li', 'wf-hint', 'The workflow library appears once the project state loads.'));
+      this.list.replaceChildren(
+        element('li', 'wf-hint', t('The workflow library appears once the project state loads.')),
+      );
     }
-    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault]);
+    const viewerKey = JSON.stringify([viewed?.id, viewed?.revision, viewed?.isDefault, locale()]);
     if (viewerKey === this.viewerKey) {
       return;
     }
@@ -248,18 +296,22 @@ class WorkflowsView {
       node.setAttribute('aria-current', 'true');
     }
     const badges = element('span', 'wf-badges');
-    badges.append(badge(item.source === 'builtin' ? 'Built-in' : 'Project', item.source));
+    badges.append(badge(item.source === 'builtin' ? 'Built-in' : t('Project'), item.source));
     if (item.isDefault) {
-      badges.append(badge('Default', 'default'));
+      badges.append(badge(t('Default'), 'default'));
     }
     if (isViewed) {
-      badges.append(badge('In preview'));
+      badges.append(badge(t('In preview')));
     }
     const title = element('h3', 'wf-card-title', item.workflow.name === '' ? item.id : item.workflow.name);
-    const meta = [`Id: ${item.id}`, stepCounts(item.workflow), `Revision ${item.revision.slice(0, REVISION_DIGITS)}`];
+    const meta = [
+      `Id: ${item.id}`,
+      stepCounts(item.workflow),
+      t('Revision {revision}', { revision: item.revision.slice(0, REVISION_DIGITS) }),
+    ];
     if (item.updatedAt !== null) {
       const savedAt = new Date(item.updatedAt);
-      meta.push(`Saved ${savedAt.toLocaleString()}`);
+      meta.push(t('Saved {saved}', { saved: formatDateTime(savedAt) }));
     }
     node.append(
       title,
@@ -282,40 +334,56 @@ class WorkflowsView {
     const name = item.workflow.name === '' ? item.id : item.workflow.name;
     const actions = element('div', 'wf-actions');
     const view = button(
-      'View',
+      t('View'),
       () => {
         this.viewing = item.id;
         this.render();
         this.viewerHeading.focus();
       },
-      { variant: 'ghost', ariaLabel: `View ${name}`, focusKey: `lib:${item.id}:view` },
+      { variant: 'ghost', ariaLabel: t('View {name}', { name }), focusKey: `lib:${item.id}:view` },
     );
     view.setAttribute('aria-pressed', String(isViewed));
     const isBuiltin = item.source === 'builtin';
     const change = button(
-      isBuiltin ? 'Customize' : 'Edit',
+      t(isBuiltin ? 'Customize' : 'Edit'),
       () => {
         void this.openDraft(() => {
           return {
             ...draftFrom(item, this.library),
-            title: isBuiltin ? `Customize a copy of “${name}”` : `Edit “${name}”`,
+            title: t(isBuiltin ? 'Customize a copy of “{name}”' : 'Edit “{name}”', { name }),
           };
         });
       },
       {
-        ariaLabel: isBuiltin ? `Customize a copy of ${name}` : `Edit ${name}`,
+        ariaLabel: t(isBuiltin ? 'Customize a copy of {name}' : 'Edit {name}', { name }),
         focusKey: `lib:${item.id}:edit`,
       },
     );
     actions.append(view, change);
+    const { history } = this;
+    if (history !== null) {
+      actions.append(
+        button(
+          t('History'),
+          () => {
+            history.open(item.id, name);
+          },
+          {
+            variant: 'ghost',
+            ariaLabel: t('Revision history of {name}', { name }),
+            focusKey: `lib:${item.id}:history`,
+          },
+        ),
+      );
+    }
     if (!item.isDefault) {
       actions.append(
         button(
-          'Use as default',
+          t('Use as default'),
           () => {
             void this.useDefault(item.id, name);
           },
-          { variant: 'ghost', ariaLabel: `Use ${name} as default`, focusKey: `lib:${item.id}:default` },
+          { variant: 'ghost', ariaLabel: t('Use {name} as default', { name }), focusKey: `lib:${item.id}:default` },
         ),
       );
     }
@@ -329,15 +397,18 @@ class WorkflowsView {
    */
   private renderViewer(item: LibraryItem | undefined): void {
     if (item === undefined) {
-      this.viewerHeading.textContent = 'Pipeline preview';
-      this.viewerBody.replaceChildren(element('p', 'wf-hint', 'No workflow to preview yet.'));
+      this.viewerHeading.textContent = t('Pipeline preview');
+      this.viewerBody.replaceChildren(element('p', 'wf-hint', t('No workflow to preview yet.')));
       return;
     }
-    this.viewerHeading.textContent = `Pipeline preview: ${item.workflow.name === '' ? item.id : item.workflow.name}`;
+    this.viewerHeading.textContent = t('Pipeline preview: {name}', {
+      name: item.workflow.name === '' ? item.id : item.workflow.name,
+    });
     this.viewerHeading.tabIndex = -1;
-    const source =
-      item.source === 'builtin' ? 'Built-in workflow (read-only; customize a copy to change it).' : 'Project workflow.';
-    const defaultNote = item.isDefault ? ' New objectives use it by default.' : '';
+    const source = t(
+      item.source === 'builtin' ? 'Built-in workflow (read-only; customize a copy to change it).' : 'Project workflow.',
+    );
+    const defaultNote = item.isDefault ? t(' New objectives use it by default.') : '';
     this.viewerBody.replaceChildren(
       element('p', 'wf-card-description', item.workflow.description),
       element('p', 'wf-hint', `${source}${defaultNote}`),
@@ -351,13 +422,17 @@ class WorkflowsView {
    * @param make - Builds the draft once replacement is confirmed.
    */
   private async openDraft(make: () => { draft: DraftWorkflow; origin: DraftOrigin; title: string }): Promise<void> {
+    if (this.editor.isBusy) {
+      this.status.textContent = t('Wait for the current save to finish before opening another workflow.');
+      return;
+    }
     const shouldOpen =
       !this.editor.isDirty ||
       (await isConfirmed(this.root, {
-        title: 'Replace your draft?',
-        message: 'The workflow draft you are editing has unsaved changes. Opening another one discards them.',
-        confirm: 'Discard and open',
-        cancel: 'Keep editing',
+        title: t('Replace your draft?'),
+        message: t('The workflow draft you are editing has unsaved changes. Opening another one discards them.'),
+        confirm: t('Discard and open'),
+        cancel: t('Keep editing'),
       }));
     if (!shouldOpen) {
       return;
@@ -365,8 +440,38 @@ class WorkflowsView {
     const { draft, origin, title } = make();
     this.status.textContent = '';
     this.followUp.replaceChildren();
+    this.draftProject = this.selectedProject();
     this.editor.open(draft, origin, title);
     this.render();
+  }
+
+  /**
+   * Open a past revision as a draft: a project workflow is edited from it at
+   * its current revision; a built-in or retired one is copied under a new id.
+   *
+   * @param id - Workflow id.
+   * @param workflow - Past definition.
+   */
+  private openRevision(id: string, workflow: DraftWorkflow): void {
+    const item = this.library.items.find((candidate) => candidate.id === id);
+    const base: LibraryItem = item ?? {
+      id,
+      revision: '',
+      source: 'builtin',
+      isDefault: false,
+      updatedAt: null,
+      workflow,
+    };
+    const name = workflow.name === '' ? id : workflow.name;
+    void this.openDraft(() => {
+      return {
+        ...draftFrom({ ...base, workflow }, this.library),
+        title: t(
+          base.source === 'project' ? 'Edit “{name}” from a past revision' : 'Copy a past revision of “{name}”',
+          { name },
+        ),
+      };
+    });
   }
 
   /**
@@ -378,13 +483,14 @@ class WorkflowsView {
     const item = this.library.items.find((candidate) => candidate.id === id && candidate.source === 'project');
     if (item === undefined) {
       this.editor.close();
-      this.status.textContent = `No saved workflow “${id}” to load; the draft was closed.`;
+      this.status.textContent = t('No saved workflow “{id}” to load; the draft was closed.', { id });
       this.render();
       return;
     }
     const { draft, origin } = draftFrom(item, this.library);
-    this.editor.open(draft, origin, `Edit “${item.workflow.name}”`);
-    this.status.textContent = `Loaded the latest revision of “${id}”.`;
+    this.draftProject = this.selectedProject();
+    this.editor.open(draft, origin, t('Edit “{name}”', { name: item.workflow.name }));
+    this.status.textContent = t('Loaded the latest revision of “{id}”.', { id });
     this.render();
   }
 
@@ -399,13 +505,17 @@ class WorkflowsView {
     this.render();
     const item = this.library.items.find((candidate) => candidate.id === id);
     const name = item?.workflow.name ?? id;
-    const revision = item === undefined ? '' : ` as revision ${item.revision.slice(0, REVISION_DIGITS)}`;
-    this.status.textContent = `Saved “${name}”${revision}. Running objectives keep the revision they started with.`;
+    const revision =
+      item === undefined ? '' : t(' as revision {revision}', { revision: item.revision.slice(0, REVISION_DIGITS) });
+    this.status.textContent = t('Saved “{name}”{revision}. Running objectives keep the revision they started with.', {
+      name,
+      revision,
+    });
     this.followUp.replaceChildren();
     if (item?.isDefault !== true) {
       this.followUp.append(
         button(
-          'Use as default',
+          t('Use as default'),
           () => {
             void this.useDefault(id, name);
           },
@@ -424,17 +534,17 @@ class WorkflowsView {
    * @param name - Display name.
    */
   private async useDefault(id: string, name: string): Promise<void> {
-    this.status.textContent = `Making “${name}” the default…`;
+    this.status.textContent = t('Making “{name}” the default…', { name });
     const result = await this.send('factory_workflow_default', defaultRequest(id));
     if (result.ok) {
       this.followUp.replaceChildren();
-      this.status.textContent = `New objectives now use “${name}”. Running objectives are unchanged.`;
+      this.status.textContent = t('New objectives now use “{name}”. Running objectives are unchanged.', { name });
       return;
     }
     this.status.textContent =
       result.error === ''
-        ? 'The default was not changed. The console notice explains why.'
-        : `The default was not changed: ${result.error}`;
+        ? t('The default was not changed. The console notice explains why.')
+        : t('The default was not changed: {error}', { error: result.error });
   }
 }
 

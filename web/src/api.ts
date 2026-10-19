@@ -243,6 +243,16 @@ export function scoped(project: string, route: string): string {
   return `${route}?project=${encodeURIComponent(project)}`;
 }
 
+/**
+ * Sends one explicit operator control; resolves `false` when it was not applied.
+ * The optional callback receives the broker's result of an applied control.
+ */
+export type OperatorControl = (
+  operation: string,
+  input: unknown,
+  onResult?: (result: unknown) => void,
+) => Promise<boolean>;
+
 /** Controller callbacks keep mutation state independent of DOM rendering. */
 export interface ControlHooks {
   /** Current project and connectivity, sampled before each explicit control. */
@@ -261,16 +271,16 @@ export interface ControlHooks {
  * @param hooks - Current controller state and read-only refresh callbacks.
  * @returns An explicit validated-backend control sender.
  */
-export function createOperatorControl(hooks: ControlHooks): (operation: string, input: unknown) => Promise<boolean> {
+export function createOperatorControl(hooks: ControlHooks): OperatorControl {
   const pending = new Set<string>();
-  return async (operation, input) => {
+  return async (operation, input, onResult) => {
     const { project, isReady } = hooks.scope();
     if (!isReady || pending.size > 0) {
       return false;
     }
     pending.add(operation);
     try {
-      return await canApplyOperatorControl(hooks, project, operation, input);
+      return await canApplyOperatorControl(hooks, project, { operation, input, onResult });
     } catch (error) {
       if (project === hooks.scope().project) {
         hooks.notice(error instanceof Error ? error.message : 'The control could not be applied.');
@@ -290,24 +300,27 @@ export function createOperatorControl(hooks: ControlHooks): (operation: string, 
  *
  * @param hooks - Operator state callbacks.
  * @param project - Initiating public project ID.
- * @param operation - Explicit backend operation.
- * @param input - Untrusted payload validated by the server.
+ * @param call - Operation, input and optional result callback.
+ * @param call.operation - Explicit backend operation.
+ * @param call.input - Untrusted payload validated by the server.
+ * @param call.onResult - Receives the broker's result, such as a secret shown once.
  * @returns Whether the operation succeeded in its intended scope.
  */
 async function canApplyOperatorControl(
   hooks: ControlHooks,
   project: string,
-  operation: string,
-  input: unknown,
+  call: { operation: string; input: unknown; onResult: ((result: unknown) => void) | undefined },
 ): Promise<boolean> {
+  const { operation, input } = call;
   if (operation === 'open-project' && typeof input === 'string') {
     await hooks.openProject(input);
     return true;
   }
-  await request(scoped(project, '/api/control'), { operation, input });
+  const result = await request(scoped(project, '/api/control'), { operation, input });
   if (project !== hooks.scope().project) {
     return false;
   }
+  call.onResult?.(result);
   hooks.notice('Saved to project memory. The factory will coordinate the next safe step.', true);
   await hooks.refresh();
   return true;

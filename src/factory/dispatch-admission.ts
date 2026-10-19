@@ -52,10 +52,31 @@ export function admittedAssignment(
       jobs: pool.jobs(),
       now,
     },
-    intent.preferredProvider ?? null,
+    intent.preferredProvider ?? roleProvider(context, intent),
   );
   const routing = provider === null ? undefined : routings.get(provider);
   return provider === null || routing === undefined ? null : { provider, routing };
+}
+
+/**
+ * The provider a role type waits for: its explicit preference, else the
+ * provider of its preferred model. A workflow step's own preference wins.
+ *
+ * @param context - Project organization and model policy.
+ * @param intent - Offered assignment.
+ * @returns Preferred provider, or `null` for any.
+ */
+function roleProvider(context: FactoryContext, intent: JobIntent): Provider | null {
+  const { organization, modelPolicy } = context.settings;
+  const task = intent.taskId === null ? null : context.repository.task(intent.taskId);
+  const profile = stepProfile(context, intent, task);
+  const seat = organization.types[organization.members[intent.role]?.type ?? ''];
+  const type = (profile === null ? undefined : organization.types[profile]) ?? seat;
+  if (type === undefined) {
+    return null;
+  }
+  const entry = modelPolicy?.entries.find((candidate) => candidate.id === type.model?.entryId);
+  return type.provider ?? entry?.provider ?? null;
 }
 
 /**

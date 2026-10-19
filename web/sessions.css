@@ -311,3 +311,12 @@
     stroke: CanvasText;
   }
 }
+
+.sessions-delivery {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--muted);
+}

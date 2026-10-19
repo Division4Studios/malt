@@ -7,6 +7,7 @@
  * @file
  */
 import { child, data, hasFlag, number, records, scoped, text } from './api.js';
+import { keepLiteral, phrase, t } from './i18n.js';
 import { formatCost, formatDuration, formatTokens } from './telemetry-format.js';
 import { element } from './worker-ui.js';
 
@@ -18,10 +19,10 @@ const PAGE_SIZE = 500;
 const BOTTOM_SLACK = 24;
 /** Readable tool status labels; the text, not only color, carries the state. */
 const TOOL_STATUS = new Map([
-  ['ok', '✓ ok'],
-  ['error', '✗ error'],
-  ['running', '… running'],
-  ['incomplete', '! no result'],
+  ['ok', phrase('✓ ok')],
+  ['error', phrase('✗ error')],
+  ['running', phrase('… running')],
+  ['incomplete', phrase('! no result')],
 ]);
 
 /**
@@ -48,7 +49,7 @@ function block(label: string, body: string, isTruncated: boolean): HTMLElement {
   const wrapper = element('div', 'transcript-block');
   wrapper.append(element('span', 'transcript-caption', label), element('pre', 'transcript-text', body));
   if (isTruncated) {
-    wrapper.append(element('span', 'subtle', 'Truncated for display; the full text remains in the attempt log.'));
+    wrapper.append(element('span', 'subtle', t('Truncated for display; the full text remains in the attempt log.')));
   }
   return wrapper;
 }
@@ -78,13 +79,13 @@ function toolNode(node: Data): HTMLElement {
   const status = text(tool, 'status');
   const summary = text(tool, 'summary');
   const exitCode = optionalNumber(tool, 'exitCode');
-  const line = [TOOL_STATUS.get(status) ?? status, text(tool, 'name'), summary].filter((part) => part !== '');
-  const body = [block('Input', text(tool, 'input'), hasFlag(tool, 'inputTruncated'))];
+  const line = [t(TOOL_STATUS.get(status) ?? status), text(tool, 'name'), summary].filter((part) => part !== '');
+  const body = [block(t('Input'), text(tool, 'input'), hasFlag(tool, 'inputTruncated'))];
   if (status !== 'running') {
-    body.push(block('Output', text(tool, 'output'), hasFlag(tool, 'outputTruncated')));
+    body.push(block(t('Output'), text(tool, 'output'), hasFlag(tool, 'outputTruncated')));
   }
   if (exitCode !== null) {
-    body.push(element('p', 'subtle', `Exit code ${String(exitCode)}`));
+    body.push(element('p', 'subtle', t('Exit code {exitCode}', { exitCode })));
   }
   return disclosure(line.join(' · '), body, `transcript-node tool ${status}`);
 }
@@ -113,6 +114,16 @@ function fileChangeNode(node: Data): HTMLElement {
  * @returns Safe DOM for the node.
  */
 export function transcriptNode(node: Data): HTMLElement {
+  return keepLiteral(transcriptBody(node));
+}
+
+/**
+ * Build one transcript node's element.
+ *
+ * @param node - Untrusted transcript node.
+ * @returns Rendered node.
+ */
+function transcriptBody(node: Data): HTMLElement {
   const kind = text(node, 'kind');
   const isTruncated = hasFlag(node, 'truncated');
   let rendered: HTMLElement;
@@ -157,7 +168,10 @@ export function metricsLine(metrics: Data): string {
     `${formatTokens(optionalNumber(tokens, 'total'))} tokens`,
     formatCost(optionalNumber(cost, 'usd'), text(cost, 'source')),
     formatDuration(optionalNumber(metrics, 'durationMs')),
-    `${String(number(tools, 'total'))} tool calls (${String(number(tools, 'failed'))} failed)`,
+    t('{total} tool calls ({failed} failed)', {
+      total: number(tools, 'total'),
+      failed: number(tools, 'failed'),
+    }),
     `${String(number(metrics, 'filesTouched'))} files`,
   ].join(' · ');
 }
@@ -169,7 +183,7 @@ export class TranscriptViewer {
   /** Reads a same-origin API route. */
   private readonly read: (route: string) => Promise<unknown>;
   /** Heading. */
-  private readonly title = element('h2', '', 'Transcript');
+  private readonly title = element('h2', '', t('Transcript'));
   /** Metrics, files and notices. */
   private readonly details = element('div', 'transcript-details');
   /** Scrollable node list. */
@@ -177,7 +191,7 @@ export class TranscriptViewer {
   /** Jump to newly arrived nodes. */
   private readonly newer = element('button', 'small-button transcript-new', '');
   /** Load the next page of a long finished transcript. */
-  private readonly more = element('button', 'small-button', 'Load more of this transcript');
+  private readonly more = element('button', 'small-button', t('Load more of this transcript'));
   /** Polite status for loading and errors. */
   private readonly status = element('p', 'subtle');
   /** Selected project and attempt. */
@@ -200,18 +214,18 @@ export class TranscriptViewer {
    */
   public constructor(read: (route: string) => Promise<unknown>) {
     this.read = read;
-    this.element.setAttribute('aria-label', 'Attempt transcript');
+    this.element.setAttribute('aria-label', t('Attempt transcript'));
     this.element.hidden = true;
     this.list.tabIndex = 0;
     this.list.setAttribute('role', 'region');
-    this.list.setAttribute('aria-label', 'Transcript nodes');
+    this.list.setAttribute('aria-label', t('Transcript nodes'));
     this.status.setAttribute('aria-live', 'polite');
     this.newer.type = 'button';
     this.newer.hidden = true;
     this.more.type = 'button';
     this.more.hidden = true;
     const head = element('div', 'panel-head');
-    const close = element('button', 'small-button', 'Close transcript');
+    const close = element('button', 'small-button', t('Close transcript'));
     close.type = 'button';
     close.addEventListener('click', () => {
       this.close();
@@ -246,8 +260,13 @@ export class TranscriptViewer {
     this.nodes = [];
     this.nextCursor = null;
     this.unseen = 0;
+    this.isLive = false;
     this.list.replaceChildren();
-    this.title.textContent = `Transcript · ${label}`;
+    // Nothing from the previous attempt may show under this one's heading.
+    this.details.replaceChildren();
+    this.more.hidden = true;
+    this.newer.hidden = true;
+    this.title.textContent = t('Transcript · {label}', { label });
     this.element.hidden = false;
     await this.load(0);
     this.list.focus();
@@ -279,7 +298,7 @@ export class TranscriptViewer {
       return;
     }
     this.isLoading = true;
-    this.status.textContent = 'Loading transcript…';
+    this.status.textContent = t('Loading transcript…');
     try {
       const route = `${scoped(target.project, '/api/transcript')}&job=${encodeURIComponent(target.jobId)}&cursor=${String(cursor)}&limit=${String(PAGE_SIZE)}`;
       const page = data(await this.read(route));
@@ -289,9 +308,13 @@ export class TranscriptViewer {
       this.apply(page, cursor);
       this.status.textContent = '';
     } catch (error) {
-      this.status.textContent = error instanceof Error ? error.message : 'The transcript could not be read.';
+      this.status.textContent = error instanceof Error ? error.message : t('The transcript could not be read.');
     } finally {
       this.isLoading = false;
+      // A different attempt opened while this read was in flight: read it now.
+      if (this.target !== null && this.target !== target) {
+        void this.load(0);
+      }
     }
   }
 
@@ -338,21 +361,21 @@ export class TranscriptViewer {
     const stream = child(metrics, 'stream');
     const parts: HTMLElement[] = [element('p', '', metricsLine(metrics))];
     if (this.isLive) {
-      parts.push(element('p', 'subtle', 'Live attempt: new output appears as the console refreshes.'));
+      parts.push(element('p', 'subtle', t('Live attempt: new output appears as the console refreshes.')));
     }
     if (hasFlag(page, 'nodesTruncated')) {
       const total = String(number(page, 'totalNodes'));
-      parts.push(element('p', 'notice', `Transcript capped at ${total} nodes.`));
+      parts.push(element('p', 'notice', t('Transcript capped at {total} nodes.', { total })));
     }
     if (hasFlag(stream, 'truncated')) {
-      parts.push(element('p', 'notice', 'The provider log exceeded the read limit; later events are not shown.'));
+      parts.push(element('p', 'notice', t('The provider log exceeded the read limit; later events are not shown.')));
     }
     if (!hasFlag(stream, 'available')) {
-      parts.push(element('p', 'notice', 'No provider log was recorded for this attempt.'));
+      parts.push(element('p', 'notice', t('No provider log was recorded for this attempt.')));
     }
     const malformed = number(stream, 'malformedLines') + number(stream, 'unknownEvents');
     if (malformed > 0) {
-      parts.push(element('p', 'subtle', `${String(malformed)} unrecognized log lines were skipped.`));
+      parts.push(element('p', 'subtle', t('{malformed} unrecognized log lines were skipped.', { malformed })));
     }
     const files = records(page['filesTouched']);
     if (files.length > 0) {
@@ -360,7 +383,10 @@ export class TranscriptViewer {
       list.append(
         ...files.map((file) => element('li', '', `${text(file, 'path')} ×${String(number(file, 'touches'))}`)),
       );
-      parts.push(disclosure(`Files touched (${String(files.length)})`, [list], 'transcript-touched'));
+      parts.push(disclosure(t('Files touched ({length})', { length: files.length }), [list], 'transcript-touched'));
+    }
+    if (hasFlag(page, 'filesTruncated')) {
+      parts.push(element('p', 'notice', t('More files were touched than are listed here.')));
     }
     this.details.replaceChildren(...parts);
   }

@@ -8,7 +8,9 @@
  * The next fire time is found by jumping whole days, then hours, then
  * minutes in local time, so even a yearly schedule needs only a few thousand
  * steps, and daylight-saving changes are handled by reading local time
- * afresh after every jump.
+ * afresh after every jump. A wall time skipped when clocks spring forward
+ * fires at the first instant after the gap; a fixed-hour wall time repeated
+ * when clocks fall back fires once.
  *
  * @file
  */
@@ -198,8 +200,9 @@ export function parseCron(expression: string): CronSpec {
     day: field(day, DAY_FIELD),
     month: field(month, MONTH_FIELD),
     weekday: weekdays,
-    isDayRestricted: day !== '*',
-    isWeekdayRestricted: weekday !== '*',
+    // As in classic cron, a field starting with `*` (including steps such as `*/2`) is unrestricted.
+    isDayRestricted: !day.startsWith('*'),
+    isWeekdayRestricted: !weekday.startsWith('*'),
   };
 }
 
@@ -266,6 +269,81 @@ function isDayMatch(spec: CronSpec, local: LocalTime): boolean {
 }
 
 /**
+ * Whether a local wall time matches the hour and minute fields.
+ *
+ * @param spec - Schedule.
+ * @param minutes - Minutes since local midnight.
+ * @returns True when that wall time fires.
+ */
+function isClockMatch(spec: CronSpec, minutes: number): boolean {
+  return spec.hour.has(Math.floor(minutes / HOUR_MINUTES)) && spec.minute.has(minutes % HOUR_MINUTES);
+}
+
+/**
+ * Whether a daylight-saving gap just before an instant skipped a wall time the
+ * schedule names. Such a run fires at the first instant after the gap, as
+ * classic cron does, instead of silently missing a day.
+ *
+ * @param spec - Schedule.
+ * @param at - Candidate instant whose day already matches.
+ * @param local - Local time of `at`.
+ * @param timeZone - IANA zone.
+ * @returns True when a skipped wall time on this day matches.
+ */
+function isSkippedMatch(spec: CronSpec, at: number, local: LocalTime, timeZone: string): boolean {
+  const previous = localTime(at - MINUTE_MS, timeZone);
+  const current = local.hour * HOUR_MINUTES + local.minute;
+  // Wall clock of the previous instant, counted from this day's midnight.
+  const before = previous.day === local.day ? previous.hour * HOUR_MINUTES + previous.minute : -1;
+  for (let minutes = before + 1; minutes < current; minutes += 1) {
+    if (isClockMatch(spec, minutes)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Whether an instant repeats a wall time that already occurred an hour earlier,
+ * as when clocks fall back. Fixed-hour schedules fire only the first time;
+ * schedules for every hour keep firing every real hour.
+ *
+ * @param spec - Schedule.
+ * @param at - Matching candidate instant.
+ * @param local - Local time of `at`.
+ * @param timeZone - IANA zone.
+ * @returns True for the second occurrence of a repeated wall time.
+ */
+function isRepeatedWallTime(spec: CronSpec, at: number, local: LocalTime, timeZone: string): boolean {
+  if (spec.hour.size === LAST_HOUR + 1) {
+    return false;
+  }
+  const earlier = localTime(at - HOUR_MINUTES * MINUTE_MS, timeZone);
+  return earlier.day === local.day && earlier.hour === local.hour && earlier.minute === local.minute;
+}
+
+/**
+ * The first instant of the next local day. Adding the minutes left today as
+ * elapsed time overshoots midnight when a daylight-saving change shortens the
+ * night, so the jump steps back to the new day's first instant when it can.
+ *
+ * @param at - Current candidate.
+ * @param local - Its local time.
+ * @param timeZone - IANA zone.
+ * @returns Next candidate, never past the next day's first matching minute.
+ */
+function nextLocalDay(at: number, local: LocalTime, timeZone: string): number {
+  const next = at + ((LAST_HOUR - local.hour) * HOUR_MINUTES + (HOUR_MINUTES - local.minute)) * MINUTE_MS;
+  const landed = localTime(next, timeZone);
+  const past = landed.hour * HOUR_MINUTES + landed.minute;
+  if (past === 0 || landed.day === local.day) {
+    return next;
+  }
+  const back = next - past * MINUTE_MS;
+  return localTime(back, timeZone).day === landed.day ? back : next;
+}
+
+/**
  * The first fire time strictly after an instant.
  *
  * @param spec - Schedule.
@@ -278,14 +356,14 @@ export function nextFire(spec: CronSpec, timeZone: string, after: number): numbe
   for (let steps = 0; steps < MAX_STEPS; steps += 1) {
     const local = localTime(at, timeZone);
     if (!spec.month.has(local.month) || !isDayMatch(spec, local)) {
-      at += ((LAST_HOUR - local.hour) * HOUR_MINUTES + (HOUR_MINUTES - local.minute)) * MINUTE_MS;
-    } else if (!spec.hour.has(local.hour)) {
-      at += (HOUR_MINUTES - local.minute) * MINUTE_MS;
-    } else if (spec.minute.has(local.minute)) {
-      return at;
-    } else {
-      at += MINUTE_MS;
+      at = nextLocalDay(at, local, timeZone);
+      continue;
     }
+    const isMatch = isClockMatch(spec, local.hour * HOUR_MINUTES + local.minute);
+    if (isMatch ? !isRepeatedWallTime(spec, at, local, timeZone) : isSkippedMatch(spec, at, local, timeZone)) {
+      return at;
+    }
+    at += spec.hour.has(local.hour) ? MINUTE_MS : (HOUR_MINUTES - local.minute) * MINUTE_MS;
   }
   return null;
 }

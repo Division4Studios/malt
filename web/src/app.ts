@@ -23,12 +23,14 @@ import { startConsoleClock } from './console-clock.js';
 import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
+import { t } from './i18n.js';
 import { skillDialog, maintenanceDialog } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
+import { ProjectViews } from './project-views.js';
 import { installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
@@ -60,8 +62,9 @@ import { workflowView } from './workflow-ui.js';
 import type { Snapshot } from './api.js';
 import type { View } from './navigation.js';
 import type { OperatorEdit as Edit } from './recovery-ui.js';
+import type { ShellState } from './shell-state.js';
 import type { Actions } from './views.js';
-import type { EditorDescription, InstallEvent } from './worker-ui.js';
+import type { EditorDescription } from './worker-ui.js';
 
 /** Simultaneously inspected worker roles. */
 const MAX_PANES = 4;
@@ -75,30 +78,7 @@ const layoutKey = 'malt-worker-layout-v1';
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
-const state: {
-  /** Last observed backend snapshot. */
-  current: Snapshot | null;
-  /** Selected public project identifier. */
-  project: string;
-  /** Local navigation route. */
-  view: View;
-  /** Authenticated observation stream. */
-  stream: EventSource | null;
-  /** Current explicit operator control. */
-  edit: Edit | null;
-  /** Project captured when the operator opened the current draft. */
-  editProject: string | null;
-  /** Browser install capability. */
-  installEvent: InstallEvent | null;
-  /** Selected logical worker roles. */
-  panes: string[];
-  /** Preserve native controls and resized panes while semantic state is unchanged. */
-  renderKey: string;
-  /** Whether authenticated state is currently arriving. */
-  isConnected: boolean;
-  /** Consecutive native stream errors. */
-  reconnects: number;
-} = {
+const state: ShellState = {
   current: null,
   project: 'home',
   view: 'overview',
@@ -133,10 +113,28 @@ const control = createOperatorControl({
   scope: () => ({ project: state.project, isReady: state.current !== null && state.isConnected && navigator.onLine }),
   openProject,
   refresh,
-  notice,
+  notice: controlNotice,
 });
-/** Stable self-refreshing views that survive snapshot pushes. */
-const owned = new ConsoleViews({ project: () => state.project, control });
+/** Stable views that survive snapshot pushes; their hooks reuse the shell's dialogs. */
+const owned = new ConsoleViews({
+  project: () => state.project,
+  control,
+  select: go,
+  selectProject: (project) => {
+    scopeTo(project);
+    node('project', HTMLSelectElement).value = project;
+    void refresh();
+    subscribe();
+  },
+  triage: investigate,
+  recover: () => {
+    go('overview');
+  },
+  skill: () => {
+    go('learning');
+  },
+  rerender: render,
+});
 /** Durable event sequence deduplication for the currently selected project. */
 const history = new ActivityHistory();
 /** Actual observation time and bounded fallback read admission. */
@@ -150,7 +148,7 @@ const freshness = new Freshness();
  */
 function editor(description: EditorDescription, action: Edit): void {
   if (state.current === null || !navigator.onLine || !state.isConnected) {
-    notice('Reconnect to the local console before applying controls.');
+    notice(t('Reconnect to the local console before applying controls.'));
     return;
   }
   state.edit = action;
@@ -214,10 +212,12 @@ const actions: Actions = {
     const requestId = crypto.randomUUID();
     editor(
       {
-        title: shouldReplan ? 'Coordinate a scope change' : `Instruct ${role}`,
-        explanation: shouldReplan
-          ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
-          : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        title: shouldReplan ? t('Coordinate a scope change') : t('Instruct {role}', { role }),
+        explanation: t(
+          shouldReplan
+            ? 'Product owner and team lead will revise the plan. Affected work is paused; existing edits are preserved.'
+            : 'Saved durably for this role. A live bounded assignment is interrupted safely; the instruction is included in the next relevant assignment.',
+        ),
         initial: '',
       },
       {
@@ -246,6 +246,17 @@ const actions: Actions = {
   },
 };
 
+/** Get started and Settings; both reuse the shell's dialogs. */
+const projectViews = new ProjectViews({
+  project: () => state.project,
+  select: go,
+  setup: actions.setup,
+  policy: actions.modelPolicy,
+  organization: actions.organization,
+  objective,
+  control,
+});
+
 /**
  * Inspect a scoped immutable comparison before asking for an explicit decision.
  *
@@ -262,7 +273,7 @@ async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<v
     const dialog = skillDialog(data(response), requestId, shouldApprove);
     editor(dialog.description, dialog.action);
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Could not retrieve the skill proposal.');
+    notice(error instanceof Error ? error.message : t('Could not retrieve the skill proposal.'));
   }
 }
 /** Render the selected native view without touching an open operator editor. */
@@ -274,6 +285,8 @@ function render(): void {
     return;
   }
   const observed = state.current;
+  owned.update(observed);
+  projectViews.update(observed, state.view);
   refreshCapacitySamples(observed.factory);
   const factory = stableFactory(observed.factory);
   const renderKey = JSON.stringify({
@@ -299,6 +312,7 @@ function render(): void {
   updateNavigation(state.view);
   const panes = { roles: state.panes, logs: tails.logs, files, actions };
   const builders: Record<View, () => HTMLElement> = {
+    ...owned.builders(),
     overview: () => overviewView(observed, actions, state.isConnected),
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
@@ -318,16 +332,16 @@ function render(): void {
         }),
       );
     },
-    sessions: () => owned.element('sessions'),
-    costs: () => owned.element('costs'),
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
+    settings: () => projectViews.element('settings'),
+    onboarding: () => projectViews.element('onboarding'),
   };
   queueState.replace(target, builders[state.view](), state.project);
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
-  run.textContent = hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory';
+  run.textContent = t(hasFlag(observed.factory, 'active') ? 'Pause factory' : 'Start factory');
   node('new-objective', HTMLButtonElement).disabled = false;
 }
 
@@ -343,9 +357,8 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  node('connection-text', HTMLSpanElement).textContent = isConnected
-    ? 'LOCAL CONSOLE CONNECTED'
-    : 'DISCONNECTED · STATE IS STALE';
+  const connectionText = t(isConnected ? 'LOCAL CONSOLE CONNECTED' : 'DISCONNECTED · STATE IS STALE');
+  node('connection-text', HTMLSpanElement).textContent = connectionText;
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
   refreshHandoffConnection(isConnected);
@@ -381,7 +394,7 @@ async function refresh(): Promise<void> {
         dialog.showModal();
       }
     } else {
-      notice(error instanceof Error ? error.message : 'The broker is unavailable.');
+      notice(error instanceof Error ? error.message : t('The broker is unavailable.'));
     }
   }
 }
@@ -399,6 +412,9 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  if (state.view === 'overview' && projectViews.offer(observed, projectId)) {
+    state.view = 'onboarding';
+  }
 }
 /** Attach a bounded native event stream to the current project only. */
 function subscribe(): void {
@@ -424,7 +440,7 @@ function subscribe(): void {
       render();
     } catch {
       connection(false);
-      notice('Invalid live state received. Refresh the local console.');
+      notice(t('Invalid live state received. Refresh the local console.'));
     }
   });
   stream.addEventListener('disconnected', () => {
@@ -454,6 +470,25 @@ async function projects(): Promise<void> {
     select.append(option);
   }
   select.value = state.project;
+  if (select.value === state.project) {
+    return;
+  }
+  // A notification's project that is no longer open falls back to the root project.
+  scopeTo('home');
+  select.value = state.project;
+}
+
+/**
+ * Scope the console to a project before reading its state.
+ *
+ * @param project - Project id.
+ */
+function scopeTo(project: string): void {
+  state.project = project;
+  history.select(project);
+  state.current = null;
+  tails.clear();
+  render();
 }
 /** Inspect captured stdout by bounded byte cursors, retaining only a small tail. */
 async function readLogs(): Promise<void> {
@@ -478,8 +513,8 @@ async function submitEdit(): Promise<void> {
     return;
   }
   if (state.editProject !== state.project) {
-    node('editor-error', HTMLParagraphElement).textContent =
-      'This draft belongs to another project. Return to that project or cancel.';
+    const foreign = t('This draft belongs to another project. Return to that project or cancel.');
+    node('editor-error', HTMLParagraphElement).textContent = foreign;
     return;
   }
   try {
@@ -494,22 +529,60 @@ async function submitEdit(): Promise<void> {
     state.edit = null;
   } catch (error) {
     node('editor-error', HTMLParagraphElement).textContent =
-      error instanceof Error ? error.message : 'Invalid control input.';
+      error instanceof Error ? error.message : t('Invalid control input.');
   }
+}
+
+/**
+ * Show a control outcome in the console and beside a workflow draft.
+ *
+ * @param message - Notice text.
+ * @param isSuccess - Whether the control succeeded.
+ */
+function controlNotice(message: string, isSuccess?: boolean): void {
+  notice(message, isSuccess);
+  owned.notice(message, isSuccess);
+}
+
+/**
+ * Open the investigation dialog for a blocked delivery from the Inbox.
+ *
+ * @param taskId - Delivery to investigate.
+ */
+function investigate(taskId: string): void {
+  const task = records(state.current?.factory['tasks']).find((candidate) => text(candidate, 'id') === taskId);
+  if (task !== undefined) {
+    actions.triage(task, 'investigate');
+  }
+}
+
+/**
+ * Route to a local view; unknown names are ignored.
+ *
+ * @param selected - Requested view from navigation or a view hook.
+ */
+function go(selected: string): void {
+  if (!isView(selected)) {
+    return;
+  }
+  state.view = selected;
+  owned.reset();
+  render();
+  void readLogs();
+  projectViews.shown(selected);
 }
 
 /** Wire semantic native controls once, then observe the real local service. */
 async function start(): Promise<void> {
   state.panes = restoreRoleLayout(layoutKey, ROLES, state.panes, MAX_PANES);
-  bindNavigation((selected) => {
-    if (!isView(selected)) {
-      return;
-    }
-    state.view = selected;
-    owned.reset();
-    render();
-    void readLogs();
-  });
+  bindNavigation(go);
+  // An Inbox notification opens a new console window at `/?view=inbox&project=…`.
+  const parameters = new URLSearchParams(location.search);
+  const requested = parameters.get('view');
+  if (requested !== null && isView(requested)) {
+    state.view = requested;
+  }
+  state.project = parameters.get('project') ?? state.project;
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
@@ -523,19 +596,17 @@ async function start(): Promise<void> {
     void submitEdit();
   });
   node('project', HTMLSelectElement).addEventListener('change', () => {
-    state.project = node('project', HTMLSelectElement).value;
-    history.select(state.project);
-    state.current = null;
-    tails.clear();
-    render();
+    scopeTo(node('project', HTMLSelectElement).value);
     void refresh();
     subscribe();
   });
   node('open-project', HTMLButtonElement).addEventListener('click', () => {
     editor(
       {
-        title: 'Open a project',
-        explanation: 'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        title: t('Open a project'),
+        explanation: t(
+          'Enter the absolute repository folder. Its operational memory stays in its own .malt directory.',
+        ),
         initial: '',
       },
       { operation: 'open-project', input: (body) => body.trim() },
@@ -551,7 +622,7 @@ async function start(): Promise<void> {
   addEventListener('offline', () => {
     state.stream?.close();
     connection(false);
-    notice('Offline. Controls are not queued or replayed. Reconnect to the local service.');
+    notice(t('Offline. Controls are not queued or replayed. Reconnect to the local service.'));
   });
   addEventListener('online', () => {
     void refresh();
@@ -600,7 +671,8 @@ async function pair(): Promise<void> {
     await refresh();
     subscribe();
   } catch (error) {
-    node('pair-error', HTMLParagraphElement).textContent = error instanceof Error ? error.message : 'Pairing failed.';
+    node('pair-error', HTMLParagraphElement).textContent =
+      error instanceof Error ? error.message : t('Pairing failed.');
   }
 }
 
@@ -612,16 +684,12 @@ async function pair(): Promise<void> {
 async function openProject(workspace: string): Promise<void> {
   try {
     const value = data(await request('/api/projects', { workspace }));
-    state.project = text(value, 'id');
-    history.select(state.project);
-    state.current = null;
-    tails.clear();
-    render();
+    scopeTo(text(value, 'id'));
     await projects();
     await refresh();
     subscribe();
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Project could not be opened.');
+    notice(error instanceof Error ? error.message : t('Project could not be opened.'));
   }
 }
 /** Revoke browser access without stopping the independently running factory. */
