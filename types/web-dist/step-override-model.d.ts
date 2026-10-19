@@ -53,8 +53,10 @@ declare module '*/web/dist/step-override-model.js' {
     readonly stepId: string;
     /** Whether it runs. */
     readonly include: boolean;
-    /** Seat, or empty for the workflow's. */
+    /** Seat, empty for the workflow's, `*` for the override's several seats. */
     readonly role: string;
+    /** Seats the override in effect assigns. */
+    readonly seats?: readonly string[];
     /** Profile, empty for the workflow's, `-` for the seat type. */
     readonly profile: string;
     /** Provider, empty for the workflow's, `any` for normal routing. */
@@ -62,6 +64,8 @@ declare module '*/web/dist/step-override-model.js' {
   }
   /** Profile choice meaning the seat's own type. */
   export const SEAT_PROFILE: string;
+  /** Seat choice keeping the override's several seats. */
+  export const KEPT_SEATS: string;
   /** Provider choice meaning normal routing. */
   export const ANY_PROVIDER: string;
 
