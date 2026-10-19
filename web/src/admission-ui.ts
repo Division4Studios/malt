@@ -58,10 +58,10 @@ export function admissionSample(factory: Data, now = Date.now()): string {
   const freshness =
     age === null
       ? t('sample age unknown')
-      : t('{value}s old · {status}', { value: Math.floor(age / SECOND_MS), status });
-  return t('{value} · total memory {value2} MiB · {freshness}', {
-    value: resourceSummary({ resources: sample }),
-    value2: measured(sample['totalMemoryMb']),
+      : t('{seconds}s old · {status}', { seconds: Math.floor(age / SECOND_MS), status });
+  return t('{resources} · total memory {memory} MiB · {freshness}', {
+    resources: resourceSummary({ resources: sample }),
+    memory: measured(sample['totalMemoryMb']),
     freshness,
   });
 }
@@ -83,15 +83,15 @@ export function admissionLines(factory: Data): string[] {
       : 'unknown';
   const lines = [
     t(
-      'Broker reservations {value} / resources.maxActiveJobs {value2}. Other broker pipelines/reservations: {other} (identities private).',
-      { value: measured(total), value2: measured(limits['maxActiveJobs']), other },
+      'Broker reservations {reserved} / resources.maxActiveJobs {limit}. Other broker pipelines/reservations: {other} (identities private).',
+      { reserved: measured(total), limit: measured(limits['maxActiveJobs']), other },
     ),
     t(
-      'resources.maxCpuPercent {value}% · resources.minFreeMemoryMb {value2} · resources.minFreeMemoryPercent {value3}%.',
+      'resources.maxCpuPercent {cpu}% · resources.minFreeMemoryMb {memory} · resources.minFreeMemoryPercent {memoryPercent}%.',
       {
-        value: measured(limits['maxCpuPercent']),
-        value2: measured(limits['minFreeMemoryMb']),
-        value3: measured(limits['minFreeMemoryPercent']),
+        cpu: measured(limits['maxCpuPercent']),
+        memory: measured(limits['minFreeMemoryMb']),
+        memoryPercent: measured(limits['minFreeMemoryPercent']),
       },
     ),
     GATES[text(admission, 'blocker')] ??

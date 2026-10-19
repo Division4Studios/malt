@@ -173,15 +173,15 @@ export function capProgress(row: SpendUsage): CapProgress {
   if (row.cap === null) {
     return {
       percent: null,
-      text: t('{value} · no cap{unpriced}', { value: formatUsd(row.usd), unpriced }),
+      text: t('{spend} · no cap{unpriced}', { spend: formatUsd(row.usd), unpriced }),
       state: 'uncapped',
     };
   }
   const percent = Math.min(PERCENT, (row.usd / row.cap) * PERCENT);
-  const text = t('{value} of {value2} ({value3}%){unpriced}', {
-    value: formatUsd(row.usd),
-    value2: formatUsd(row.cap),
-    value3: Math.round(percent),
+  const text = t('{spend} of {cap} ({percent}%){unpriced}', {
+    spend: formatUsd(row.usd),
+    cap: formatUsd(row.cap),
+    percent: Math.round(percent),
     unpriced,
   });
   if (row.blocked === 'unpriced') {
@@ -206,9 +206,20 @@ function parseCap(value: string, label: string): { cap: number | null } | { erro
     return { cap: null };
   }
   const cap = Number(text);
-  return !NOT_AMOUNT.test(text) && Number.isFinite(cap) && cap > 0 && cap <= CAP_MAX
+  return isAmount(text, cap)
     ? { cap }
     : { error: t('{label} must be a positive dollar amount, or blank for no cap.', { label }) };
+}
+
+/**
+ * Whether typed text is a cap amount.
+ *
+ * @param text - Trimmed text.
+ * @param cap - Its numeric value.
+ * @returns True for a positive amount within the bound.
+ */
+function isAmount(text: string, cap: number): boolean {
+  return !NOT_AMOUNT.test(text) && Number.isFinite(cap) && cap > 0 && cap <= CAP_MAX;
 }
 
 /**
@@ -233,16 +244,13 @@ function applyOverrides(
       next.set(row.id, null);
       continue;
     }
-    const parsed = parseCap(text, t('An override'));
-    if ('error' in parsed) {
+    const cap = Number(text);
+    if (!isAmount(text, cap)) {
       return {
-        error: t('{value} Use {noCap} to lift the default.', {
-          value: parsed.error.replace(', or blank for no cap', ''),
-          noCap: NO_CAP,
-        }),
+        error: t('An override must be a positive dollar amount. Use {noCap} to lift the default.', { noCap: NO_CAP }),
       };
     }
-    next.set(row.id, parsed.cap);
+    next.set(row.id, cap);
   }
   return { overrides: Object.fromEntries(next) };
 }

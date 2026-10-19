@@ -312,6 +312,13 @@ await test('objective overrides change only planning steps that have not started
     ],
   });
   const reviewed = objective(context, featureId);
+  const goal = consoleView(context.repository).goals.find((candidate) => candidate.featureId === featureId);
+  assert.ok(goal?.customization !== null && goal?.customization !== undefined, 'a planning objective is editable');
+  assert.equal(goal.customization.version, reviewed.updatedAt);
+  assert.deepEqual(goal.customization.overrides, [{ stepId: 'plan-review', provider: 'claude' }]);
+  const steps = new Map(goal.customization.steps.map((step) => [step.id, step.started]));
+  assert.equal(steps.get('plan-review'), true, 'a planning step with a result has started');
+  assert.equal(steps.get('implement'), false, 'delivery steps its deliveries will copy are listed too');
   assert.throws(() => {
     return changeStepOverrides(context.repository, {
       featureId,
@@ -327,6 +334,9 @@ await test('objective overrides change only planning steps that have not started
       overrides: [],
     });
   }, /exactly one delivery or one objective/v);
+  context.repository.saveFeature({ ...reviewed, phase: 'active' });
+  const delivering = consoleView(context.repository).goals.find((candidate) => candidate.featureId === featureId);
+  assert.equal(delivering?.customization, null, 'a delivering objective is changed per delivery instead');
 });
 
 await test('a delivery freezes its objective merge gate when it is provisioned', (t) => {

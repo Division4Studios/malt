@@ -25,7 +25,7 @@ import {
 import { questionsStatus } from './questions.ts';
 import { openBlocks, spendGate } from './spend.ts';
 import { attemptedSteps } from './step-override-controls.ts';
-import { customizationView } from './step-override-view.ts';
+import { customizationView, objectiveCustomizationView } from './step-override-view.ts';
 import { stepLayers } from './workflows.ts';
 
 import type { LivenessView, RetryView } from './liveness-view.ts';
@@ -216,6 +216,8 @@ export interface GoalView {
   };
   /** Whether every delivery is done but the checklist is not met yet. */
   readonly awaitsDefinition: boolean;
+  /** Step override editor state, while the objective has not started delivering. */
+  readonly customization: CustomizationView | null;
 }
 
 /** Something waiting on the human. */
@@ -561,9 +563,10 @@ function objectiveView(feature: Feature, tasks: readonly FactoryTask[], live: re
  *
  * @param feature - Objective to describe.
  * @param tasks - Current deliveries.
+ * @param attempted - Steps any attempt ran, for the override editor.
  * @returns Objective view entry.
  */
-function goalView(feature: Feature, tasks: readonly FactoryTask[]): GoalView {
+function goalView(feature: Feature, tasks: readonly FactoryTask[], attempted: ReadonlySet<string>): GoalView {
   const children = tasks.filter((task) => task.featureId === feature.id);
   const done = children.filter((task) => task.phase === 'done').length;
   return {
@@ -576,6 +579,7 @@ function goalView(feature: Feature, tasks: readonly FactoryTask[]): GoalView {
     definition: { items: feature.definitionOfDone ?? [], ...definitionProgress(feature) },
     awaitsDefinition:
       feature.phase === 'active' && children.length > 0 && done === children.length && !isDefinitionMet(feature),
+    customization: objectiveCustomizationView(feature, attempted),
   };
 }
 
@@ -772,7 +776,8 @@ function openItems(
     ...questions,
     ...tasks.flatMap((task) => deliveryItems(task, features)),
     ...current.flatMap((feature) => objectiveItems(feature)),
-    ...current.flatMap((feature) => definitionItems(goalView(feature, tasks))),
+    // Inbox items read only the checklist, so no attempted-step lookup is needed.
+    ...current.flatMap((feature) => definitionItems(goalView(feature, tasks, new Set()))),
     ...spendItems(repository),
     ...skills,
   ].toSorted((left, right) => left.since - right.since);
@@ -879,7 +884,7 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
     goals: [
       ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),
       ...current.filter((feature) => feature.phase !== 'done'),
-    ].map((feature) => goalView(feature, tasks)),
+    ].map((feature) => goalView(feature, tasks, attempted)),
     archived: {
       total: archived.length,
       recent: archived

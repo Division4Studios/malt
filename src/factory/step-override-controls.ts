@@ -25,7 +25,7 @@ import type { Workflow } from './workflows.ts';
 /** Delivery phases in which its steps may still change. */
 const OPEN_PHASES: ReadonlySet<string> = new Set(['ready', 'development', 'publishing', 'review', 'blocked']);
 /** Objective phases in which its overrides may still change. */
-const OPEN_OBJECTIVE_PHASES: ReadonlySet<string> = new Set(['queued', 'refining', 'provisioning', 'blocked']);
+export const OPEN_OBJECTIVE_PHASES: ReadonlySet<string> = new Set(['queued', 'refining', 'provisioning', 'blocked']);
 /** One attempted step. */
 const attemptedRow = z.object({ task: z.string().nullable(), feature: z.string().nullable(), step: z.string() });
 
@@ -143,7 +143,11 @@ export function startedDeliverySteps(
  * @param workflow - Its frozen workflow, before overrides.
  * @returns Started step ids.
  */
-function startedPlanningSteps(attempted: ReadonlySet<string>, feature: Feature, workflow: Workflow): Set<string> {
+export function startedPlanningSteps(
+  attempted: ReadonlySet<string>,
+  feature: Feature,
+  workflow: Workflow,
+): Set<string> {
   return new Set(
     workflow.planning
       .filter((step) => {

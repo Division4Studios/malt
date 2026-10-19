@@ -1106,6 +1106,33 @@ select {
   padding: 0;
   list-style: none;
 }
+.goal-progress {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.goal-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  overflow-wrap: anywhere;
+}
+.goal-progress-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.goal-progress-link:hover,
+.goal-progress-link:focus-visible {
+  text-decoration: underline;
+}
 .goal-card,
 .goal-item,
 .goal-log-entry {

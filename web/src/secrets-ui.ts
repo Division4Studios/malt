@@ -168,8 +168,8 @@ class SecretEditor {
     this.model = model;
     const titles = {
       create: t('New secret'),
-      rotate: t('Rotate {value}', { value: secret?.name ?? '' }),
-      grants: t('Grants of {value}', { value: secret?.name ?? '' }),
+      rotate: t('Rotate {name}', { name: secret?.name ?? '' }),
+      grants: t('Grants of {name}', { name: secret?.name ?? '' }),
     };
     this.heading.textContent = titles[mode];
     this.name.value = secret?.name ?? '';

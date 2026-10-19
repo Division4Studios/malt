@@ -481,7 +481,7 @@ export function typeProblems(type: TypeDraft, model: RolesModel): string[] {
   }
   const unknown = type.skills.filter((skill) => !model.catalog.skills.includes(skill));
   if (unknown.length > 0) {
-    problems.push(t('{name}: {value} is not a reviewed skill.', { name: type.name, value: unknown.join(', ') }));
+    problems.push(t('{name}: {skills} is not a reviewed skill.', { name: type.name, skills: unknown.join(', ') }));
   }
   if (type.servers.length > MAX_SERVERS) {
     problems.push(t('{name}: at most {maxServers} MCP servers.', { name: type.name, maxServers: MAX_SERVERS }));
@@ -601,7 +601,7 @@ export function toolSummary(type: TypeDraft): string {
     return t('Every tool its seats have');
   }
   return t(
-    type.toolMode === 'allow' ? 'Only {value} of the kinds listed (MALT or native)' : 'All seat tools except {value}',
-    { value: type.tools.join(', ') },
+    type.toolMode === 'allow' ? 'Only {tools} of the kinds listed (MALT or native)' : 'All seat tools except {tools}',
+    { tools: type.tools.join(', ') },
   );
 }

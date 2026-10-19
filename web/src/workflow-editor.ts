@@ -374,7 +374,7 @@ export class WorkflowEditor {
       field(
         t('Kind of {section} step to add', { section }),
         choice,
-        isFull ? t('This section is full ({value} steps).', { value: MAX_STEPS[section] }) : '',
+        isFull ? t('This section is full ({count} steps).', { count: MAX_STEPS[section] }) : '',
       ),
       add,
     );

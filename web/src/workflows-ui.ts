@@ -308,7 +308,7 @@ class WorkflowsView {
     const meta = [
       `Id: ${item.id}`,
       stepCounts(item.workflow),
-      t('Revision {value}', { value: item.revision.slice(0, REVISION_DIGITS) }),
+      t('Revision {revision}', { revision: item.revision.slice(0, REVISION_DIGITS) }),
     ];
     if (item.updatedAt !== null) {
       const savedAt = new Date(item.updatedAt);
@@ -402,8 +402,8 @@ class WorkflowsView {
       this.viewerBody.replaceChildren(element('p', 'wf-hint', t('No workflow to preview yet.')));
       return;
     }
-    this.viewerHeading.textContent = t('Pipeline preview: {value}', {
-      value: item.workflow.name === '' ? item.id : item.workflow.name,
+    this.viewerHeading.textContent = t('Pipeline preview: {name}', {
+      name: item.workflow.name === '' ? item.id : item.workflow.name,
     });
     this.viewerHeading.tabIndex = -1;
     const source = t(
@@ -512,7 +512,7 @@ class WorkflowsView {
     const item = this.library.items.find((candidate) => candidate.id === id);
     const name = item?.workflow.name ?? id;
     const revision =
-      item === undefined ? '' : t(' as revision {value}', { value: item.revision.slice(0, REVISION_DIGITS) });
+      item === undefined ? '' : t(' as revision {revision}', { revision: item.revision.slice(0, REVISION_DIGITS) });
     this.status.textContent = t('Saved “{name}”{revision}. Running objectives keep the revision they started with.', {
       name,
       revision,

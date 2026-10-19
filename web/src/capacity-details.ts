@@ -27,7 +27,7 @@ export function quotaUsage(value: unknown): string {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > FULL_USAGE) {
     return t('usage unknown');
   }
-  return t('{value}% used{value2}', { value, value2: value === FULL_USAGE ? ' · limit reached' : '' });
+  return t('{percent}% used{limit}', { percent: value, limit: value === FULL_USAGE ? t(' · limit reached') : '' });
 }
 
 /**

@@ -440,7 +440,7 @@ class DeliveryView {
     if (delivery === undefined || customization === null) {
       return;
     }
-    this.overrides.open(delivery.taskId, customization, {
+    this.overrides.open({ taskId: delivery.taskId }, customization, {
       seats: seatNames(this.factory),
       profiles: profileNames(this.factory),
     });
@@ -509,7 +509,7 @@ class DeliveryView {
     const summary = element(
       'summary',
       '',
-      t('Latest result: {value}', { value: result.outcome === '' ? 'recorded' : result.outcome }),
+      t('Latest result: {outcome}', { outcome: result.outcome === '' ? t('recorded') : result.outcome }),
     );
     summary.dataset['focusKey'] = `result:${id}`;
     details.append(summary, resultBody(result));

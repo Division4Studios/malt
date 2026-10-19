@@ -307,9 +307,9 @@ export function triageDialog(
   let readCommit = emptyCommit;
   return {
     description: {
-      title: t('{value} · issue #{value2}', {
-        value: TRIAGE_ACTIONS[action][0],
-        value2: number(task, 'issue'),
+      title: t('{action} · issue #{issue}', {
+        action: TRIAGE_ACTIONS[action][0],
+        issue: number(task, 'issue'),
       }),
       explanation: TRIAGE_ACTIONS[action][1],
       initial: action === 'acknowledge' ? t('Reviewed the current blocker.') : '',

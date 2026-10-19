@@ -77,7 +77,8 @@ function itemRow(item: DoneItem): HTMLLIElement {
   });
   row.append(text, statePicker(item.state), evidence, remove);
   if (isProposal) {
-    row.append(element('p', 'subtle checklist-origin', t('Proposed by {value}', { value: item.by ?? 'an agent' })));
+    const author = item.by ?? t('an agent');
+    row.append(element('p', 'subtle checklist-origin', t('Proposed by {author}', { author })));
   }
   return row;
 }
@@ -178,8 +179,8 @@ export class ChecklistDialog {
       document.body.append(this.element);
     }
     this.goal = goal;
-    this.heading.textContent = t('Definition of done · {value}', {
-      value: goal.title === '' ? 'Untitled objective' : goal.title,
+    this.heading.textContent = t('Definition of done · {title}', {
+      title: goal.title === '' ? t('Untitled objective') : goal.title,
     });
     this.rows.replaceChildren();
     for (const item of goal.items) {

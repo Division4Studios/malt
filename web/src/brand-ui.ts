@@ -237,7 +237,7 @@ function readableBlocker(error: string): string {
   }
   const first = error.split('\n', 1)[0] ?? '';
   return first.length > BLOCKER_EXCERPT
-    ? t('{value}… Read the technical details below.', { value: first.slice(0, BLOCKER_EXCERPT) })
+    ? t('{excerpt}… Read the technical details below.', { excerpt: first.slice(0, BLOCKER_EXCERPT) })
     : first;
 }
 
@@ -422,7 +422,7 @@ function appendQueueControls(
   const id = text(feature, 'id');
   const index = state.unfinished.findIndex((item) => text(item, 'id') === id);
   const controls = element('div', 'objective-controls');
-  controls.append(element('span', 'pill', t('Priority {value}', { value: index + 1 })));
+  controls.append(element('span', 'pill', t('Priority {priority}', { priority: index + 1 })));
   const options = [
     [t('Move first'), 0],
     [t('Move up'), index - 1],
