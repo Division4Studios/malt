@@ -7,6 +7,7 @@
  *
  * @file
  */
+import { t } from './i18n.js';
 import { KIND_LABELS, SECTIONS, ancestors, isKey, kindAllows, sectionKinds } from './workflow-model.js';
 
 import type { DraftOrigin, DraftStep, DraftWorkflow, Library, SectionName } from './workflow-model.js';
@@ -36,17 +37,21 @@ function workflowFieldProblems(draft: DraftWorkflow, library: Library, origin: D
   const messages: string[] = [];
   if (!isKey(draft.id)) {
     messages.push(
-      'The workflow id must start with a lowercase letter or digit and use only letters, digits, "_" or "-" (64 characters at most).',
+      t(
+        'The workflow id must start with a lowercase letter or digit and use only letters, digits, "_" or "-" (64 characters at most).',
+      ),
     );
   }
   if (draft.name.trim() === '') {
-    messages.push('The workflow needs a name.');
+    messages.push(t('The workflow needs a name.'));
   }
   const existing = library.items.find((item) => item.id === draft.id);
   if (existing?.source === 'builtin') {
-    messages.push(`"${draft.id}" is a built-in workflow; save a copy under a new id.`);
+    messages.push(t('"{id}" is a built-in workflow; save a copy under a new id.', { id: draft.id }));
   } else if (existing !== undefined && draft.id !== origin.id) {
-    messages.push(`A project workflow with id "${draft.id}" already exists; choose another id or edit that workflow.`);
+    messages.push(
+      t('A project workflow with id "{id}" already exists; choose another id or edit that workflow.', { id: draft.id }),
+    );
   }
   return messages.map((message) => ({ section: null, uid: null, message }));
 }
@@ -61,11 +66,16 @@ function identityProblems(step: DraftStep): string[] {
   const messages: string[] = [];
   if (!isKey(step.id)) {
     messages.push(
-      `Step id "${step.id}" must start with a lowercase letter or digit and use only letters, digits, "_" or "-" (64 characters at most).`,
+      t(
+        'Step id "{id}" must start with a lowercase letter or digit and use only letters, digits, "_" or "-" (64 characters at most).',
+        { id: step.id },
+      ),
     );
   }
   if (step.title.trim() === '') {
-    messages.push(`The ${KIND_LABELS[step.kind] ?? step.kind} step "${step.id}" needs a title.`);
+    messages.push(
+      t('The {kind} step "{id}" needs a title.', { kind: KIND_LABELS[step.kind] ?? step.kind, id: step.id }),
+    );
   }
   return messages;
 }
@@ -80,19 +90,21 @@ function stepFieldProblems(step: DraftStep): string[] {
   const messages = identityProblems(step);
   const allows = kindAllows(step.kind);
   if (step.kind === 'approve' && (step.roles.length > 0 || step.gate || step.blind)) {
-    messages.push(`"${step.title}" is a human approval; it has no roles, gate or blind setting.`);
+    messages.push(t('"{title}" is a human approval; it has no roles, gate or blind setting.', { title: step.title }));
   }
   if (allows.roles && step.roles.length === 0) {
-    messages.push(`"${step.title}" needs at least one role.`);
+    messages.push(t('"{title}" needs at least one role.', { title: step.title }));
   }
   if (step.blind && !allows.blind) {
-    messages.push(`"${step.title}" cannot be blind; only reviews are.`);
+    messages.push(t('"{title}" cannot be blind; only reviews are.', { title: step.title }));
   }
   if (step.optional && !allows.optional) {
-    messages.push(`"${step.title}" is required and cannot be optional.`);
+    messages.push(t('"{title}" is required and cannot be optional.', { title: step.title }));
   }
   if (step.gate && step.kind !== 'approve' && !allows.gate) {
-    messages.push(`"${step.title}" cannot be gated; add an approval step before the final check instead.`);
+    messages.push(
+      t('"{title}" cannot be gated; add an approval step before the final check instead.', { title: step.title }),
+    );
   }
   return messages;
 }
@@ -114,13 +126,19 @@ function referenceProblems(
 ): string[] {
   const messages = step.after
     .filter((id) => !earlier.has(id))
-    .map((id) => `"${step.title}" must come after "${id}", which is not an earlier ${section} step.`);
+    .map((id) => {
+      return t('"{title}" must come after "{id}", which is not an earlier {section} step.', {
+        title: step.title,
+        id,
+        section,
+      });
+    });
   const before = ancestors(steps, step.id);
   const inputs = step.inputs ?? [];
   messages.push(
     ...inputs
       .filter((id) => !before.has(id))
-      .map((id) => `"${step.title}" reads "${id}", which does not run before it.`),
+      .map((id) => t('"{title}" reads "{id}", which does not run before it.', { title: step.title, id })),
   );
   return messages;
 }
@@ -139,7 +157,13 @@ function sectionStepProblems(steps: readonly DraftStep[], section: SectionName):
   for (const step of steps) {
     const messages = [...stepFieldProblems(step), ...referenceProblems(steps, step, earlier, section)];
     if (!kinds.includes(step.kind)) {
-      messages.push(`"${step.title}" uses kind ${step.kind}, which is not allowed in the ${section} section.`);
+      messages.push(
+        t('"{title}" uses kind {kind}, which is not allowed in the {section} section.', {
+          title: step.title,
+          kind: step.kind,
+          section,
+        }),
+      );
     }
     problems.push(...messages.map((message) => ({ section, uid: step.uid, message })));
     earlier.add(step.id);
@@ -176,16 +200,16 @@ function deliveryShapeProblems(steps: readonly DraftStep[]): Problem[] {
   const implementations = ofKind(steps, 'implement');
   const [implement] = implementations;
   if (implementations.length !== 1 || steps[0] !== implement || implement?.after.length !== 0) {
-    problems.push(at(implement, 'Delivery needs exactly one implement step, and it must be first.'));
+    problems.push(at(implement, t('Delivery needs exactly one implement step, and it must be first.')));
   }
   if (ofKind(steps, 'final').length !== 1 || ofKind(steps, 'verify').length !== 1) {
-    problems.push(at(undefined, 'Delivery needs exactly one final step and one verify step.'));
+    problems.push(at(undefined, t('Delivery needs exactly one final step and one verify step.')));
   }
   const [final] = ofKind(steps, 'final');
   const last = steps.at(-1);
   if (final === undefined || last?.kind !== 'verify' || !last.after.includes(final.id)) {
     problems.push(
-      at(ofKind(steps, 'verify')[0], 'The verify step must be last and come directly after the final step.'),
+      at(ofKind(steps, 'verify')[0], t('The verify step must be last and come directly after the final step.')),
     );
   }
   return [...problems, ...finalJoinProblems(steps, final)];
@@ -209,7 +233,7 @@ function finalJoinProblems(steps: readonly DraftStep[], final: DraftStep | undef
       return {
         section: 'delivery',
         uid: step.uid,
-        message: `"${step.title}" must finish before the final step.`,
+        message: t('"{title}" must finish before the final step.', { title: step.title }),
       };
     });
 }
@@ -225,7 +249,7 @@ function reviewProblems(steps: readonly DraftStep[]): Problem[] {
   const before = fix === undefined ? new Set<string>() : ancestors(steps, fix.id);
   const hasUnjudgedReview = fix !== undefined && ofKind(steps, 'review').some((review) => !before.has(review.id));
   const fixProblems: Problem[] = hasUnjudgedReview
-    ? [{ section: 'delivery', uid: fix.uid, message: 'The adjudicate step must come after every review.' }]
+    ? [{ section: 'delivery', uid: fix.uid, message: t('The adjudicate step must come after every review.') }]
     : [];
   return [...fixProblems, ...independenceProblems(steps)];
 }
@@ -241,14 +265,14 @@ function independenceProblems(steps: readonly DraftStep[]): Problem[] {
   const [implement] = ofKind(steps, 'implement');
   const problems: Problem[] =
     reviews.length === 0
-      ? [{ section: 'delivery', uid: null, message: 'Delivery needs at least one independent review.' }]
+      ? [{ section: 'delivery', uid: null, message: t('Delivery needs at least one independent review.') }]
       : [];
   for (const review of reviews) {
     if (implement?.roles.some((role) => review.roles.includes(role)) === true) {
       problems.push({
         section: 'delivery',
         uid: review.uid,
-        message: `"${review.title}" cannot be performed by the implementer.`,
+        message: t('"{title}" cannot be performed by the implementer.', { title: review.title }),
       });
     }
   }
@@ -267,7 +291,7 @@ function planningProblems(steps: readonly DraftStep[]): Problem[] {
         {
           section: 'planning',
           uid: null,
-          message: 'Planning needs exactly one plan step, which produces the deliveries.',
+          message: t('Planning needs exactly one plan step, which produces the deliveries.'),
         },
       ]
     : [];
@@ -286,7 +310,11 @@ function duplicateProblems(draft: DraftWorkflow): Problem[] {
     const steps = draft[section];
     for (const step of steps) {
       if (seen.has(step.id)) {
-        problems.push({ section, uid: step.uid, message: `Step id "${step.id}" is used more than once.` });
+        problems.push({
+          section,
+          uid: step.uid,
+          message: t('Step id "{id}" is used more than once.', { id: step.id }),
+        });
       }
       seen.add(step.id);
     }
