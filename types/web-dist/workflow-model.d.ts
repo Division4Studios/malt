@@ -89,6 +89,8 @@ declare module '*/web/dist/workflow-model.js' {
   export const PROVIDERS: readonly string[];
   /** Longest valid key. */
   export const KEY_MAX: number;
+  /** Longest step title or workflow name. */
+  export const TITLE_MAX: number;
 
   /**
    * Whether a value is a valid key.
@@ -157,4 +159,116 @@ declare module '*/web/dist/workflow-model.js' {
    * @returns Normalized step.
    */
   export function withKind(step: DraftStep, kind: string): DraftStep;
+
+  /**
+   * Rename a step and its references.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @param id - New id.
+   * @returns Updated draft.
+   */
+  export function renameStep(draft: DraftWorkflow, section: SectionName, uid: string, id: string): DraftWorkflow;
+
+  /**
+   * Insert a step with defaults.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where to add it.
+   * @param kind - Kind to add.
+   * @returns Updated draft and the new uid.
+   */
+  export function addStep(
+    draft: DraftWorkflow,
+    section: SectionName,
+    kind: string,
+  ): { draft: DraftWorkflow; uid: string };
+
+  /**
+   * Remove a step and reconnect its successors.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @returns Updated draft.
+   */
+  export function removeStep(draft: DraftWorkflow, section: SectionName, uid: string): DraftWorkflow;
+
+  /**
+   * Move a step by one place.
+   *
+   * @param draft - Workflow being edited.
+   * @param section - Where the step lives.
+   * @param uid - Step identity.
+   * @param offset - Direction.
+   * @returns Updated draft.
+   */
+  export function moveStep(draft: DraftWorkflow, section: SectionName, uid: string, offset: -1 | 1): DraftWorkflow;
+
+  /**
+   * Open a library entry as a draft.
+   *
+   * @param item - Library entry.
+   * @param library - Whole library.
+   * @returns Draft and origin.
+   */
+  export function draftFrom(item: LibraryItem, library: Library): { draft: DraftWorkflow; origin: DraftOrigin };
+
+  /**
+   * Unique copy id and name.
+   *
+   * @param workflow - Workflow being copied.
+   * @param library - Whole library.
+   * @returns Unused id and name.
+   */
+  export function copyNames(
+    workflow: { readonly id: string; readonly name: string },
+    library: Library,
+  ): { id: string; name: string };
+
+  /**
+   * Minimal valid new workflow.
+   *
+   * @param library - Whole library.
+   * @returns Draft and origin.
+   */
+  export function blankDraft(library: Library): { draft: DraftWorkflow; origin: DraftOrigin };
+
+  /**
+   * Wire form of a draft.
+   *
+   * @param draft - Workflow being edited.
+   * @returns Plain definition.
+   */
+  export function wireWorkflow(draft: DraftWorkflow): Record<string, unknown>;
+
+  /**
+   * Save request body.
+   *
+   * @param draft - Workflow being edited.
+   * @param origin - Where it came from.
+   * @returns Request input.
+   */
+  export function saveRequest(
+    draft: DraftWorkflow,
+    origin: DraftOrigin,
+  ): { workflow: Record<string, unknown>; expectedRevision: string | null };
+
+  /**
+   * Default request body.
+   *
+   * @param workflowId - Workflow to make the default.
+   * @returns Request input.
+   */
+  export function defaultRequest(workflowId: string): { workflowId: string };
+
+  /**
+   * Whether two drafts define the same workflow.
+   *
+   * @param left - First draft.
+   * @param right - Second draft.
+   * @returns True when equal on the wire.
+   */
+  export function isSameDefinition(left: DraftWorkflow, right: DraftWorkflow): boolean;
 }
