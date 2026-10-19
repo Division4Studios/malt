@@ -254,6 +254,7 @@ const ERROR_STATUSES = {
   UNAUTHORIZED: 401,
   UNAUTHORIZED_AGENT: 401,
   RATE_LIMITED: 429,
+  TOOL_DENIED: 403,
   UNKNOWN_OPERATION: 404,
   UNKNOWN_TEAM: 404,
   UNREAD_MESSAGES: 409,
@@ -655,6 +656,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Operator or designated lead: persist instructions for a role, optionally for a specific task. Interrupt its current pipeline safely and deliver the instruction on its next assignment. Set replan for scope changes requiring product-owner and team-lead planning.',
   factory_status:
     'Inspect live project jobs, parked roles, delivery stages, review gates, resource pressure and provider capacity. Unknown subscription quota remains unknown.',
+  factory_preflight:
+    "Operator or designated lead: run the doctor checks that are meaningful inside the running broker (Node.js, Git, each provider CLI's presence and subscription login, GitHub CLI authentication and a writable .malt) as pass, fail or fix-it with one fix line each. No inference, no account details and no project changes.",
   factory_recommendation_propose:
     'Live managed product owner or team lead only: submit a bounded evidence-backed recommendation with a stable key and exact observed native issue revisions. Queue it for human review; never approve or execute it.',
   factory_recommendations:
@@ -694,12 +697,16 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Designated lead or operator: save a new revision of a project workflow (planning and delivery steps, roles, gates, blind reviews). Pass the revision you started from, or null for a new workflow. Built-ins are read-only; save a copy under a new id. Running objectives keep the revision they started with.',
   factory_workflow_default:
     'Designated lead or operator: choose the workflow new objectives use. Existing objectives keep their frozen workflow.',
+  factory_workflow_history:
+    "Designated lead or operator: list one workflow's revisions, current first: every revision the project saved and every revision an objective or delivery froze, each with its full definition, save time, and the objectives and deliveries that run it.",
   factory_ask:
     'Live managed assignment on a delivery or objective only: ask the operator one question you cannot resolve from the brief, code or evidence, with up to six choices and optionally a written answer. Use a stable key; retries deduplicate. Then end the assignment with outcome blocked and the question as summary: the result is set aside without counting as a failed attempt, and this step runs again with the answer in its context. Never ask for secrets.',
   factory_answer:
     'Human operator only: answer one open agent question once, with one of its choices and/or text. Repeating the request id reports the first result. The step that asked runs again with the answer.',
   factory_gates:
     'Human operator only: change the plan or merge approval gate of one objective, or the merge gate of one delivery, before the work reaches that gate. Other deliveries keep the gates they froze.',
+  factory_step_overrides:
+    "Human operator only: replace one objective's or one delivery's step overrides at the version you saw (a delivery's version, an objective's updatedAt). Skip optional steps, or change a step's seats, organization profile or preferred provider; the result must still be a valid workflow, and steps that already started keep their settings. An objective's overrides are copied onto deliveries provisioned later.",
   factory_approve:
     'Human operator only: approve or reject one workflow approval step or gated step for a delivery (bound to the exact head reviewed) or an objective plan. Rejections require a reason, which returns to the developer or the planning lead.',
   factory_attempts:
@@ -718,6 +725,12 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Human operator only: delete a schedule or trigger at the revision you saw. Fire history is kept.',
   factory_automation_run:
     'Human operator only: fire a schedule or trigger now, once per request id, through the normal objective path.',
+  factory_roles_save:
+    "Human operator only, while paused: replace the project organization (role types and seat members) at the revision you read. Types may set instructions, a provider, an allowed model and effort, a capability floor, reviewed skills, narrowing tool allow/deny lists, local stdio MCP servers and permissions; they never widen a seat's MALT tools.",
+  factory_secret_save:
+    "Human operator only: create, rotate or re-grant a local encrypted secret at the version you saw (null to create). The value is write-only: it is injected as an environment variable into granted role types' provider processes and never returned.",
+  factory_secret_delete:
+    'Human operator only: delete a local secret at the version you saw. Attempts already running keep the value they started with.',
   factory_hold:
     'Operator or designated lead: hold deliveries so no new attempt starts on them (a running attempt finishes normally), or resume them with hold false. Name deliveries, one objective, or all; finished deliveries are skipped.',
   factory_archive:

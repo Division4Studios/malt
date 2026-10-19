@@ -6,6 +6,7 @@
  * @file
  */
 import { asData } from './console-model.js';
+import { t } from './i18n.js';
 import { formatUsd } from './telemetry-format.js';
 
 import type { Data } from './api.js';
@@ -61,6 +62,16 @@ export interface SpendUsage {
   readonly blocked: 'cap' | 'unpriced' | null;
 }
 
+/** An open objective or delivery without its own cap. */
+export interface SpendChoice {
+  /** Scope kind. */
+  readonly scope: 'objective' | 'delivery';
+  /** Objective or delivery id. */
+  readonly id: string;
+  /** Visible name. */
+  readonly label: string;
+}
+
 /** Caps, revision and spend. */
 export interface SpendStatus {
   /** Caps revision. */
@@ -69,6 +80,8 @@ export interface SpendStatus {
   readonly caps: SpendCaps;
   /** Spend rows, project first. */
   readonly usage: readonly SpendUsage[];
+  /** Uncapped open scopes the operator can cap, whether or not they have run. */
+  readonly choices: readonly SpendChoice[];
 }
 
 /** The editor's fields as typed. */
@@ -157,7 +170,29 @@ export function readSpend(summary: Data): SpendStatus {
             };
           })
       : [],
+    choices: readChoices(spend['choices']),
   };
+}
+
+/**
+ * Read the uncapped scopes the server offers.
+ *
+ * @param value - Untrusted list.
+ * @returns Valid choices.
+ */
+function readChoices(value: unknown): SpendChoice[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry): SpendChoice[] => {
+    const data = asData(entry);
+    const scope = data?.['scope'];
+    const id = data?.['id'];
+    const label = data?.['label'];
+    return typeof id === 'string' && typeof label === 'string' && (scope === 'objective' || scope === 'delivery')
+      ? [{ scope, id, label }]
+      : [];
+  });
 }
 
 /**
@@ -167,17 +202,27 @@ export function readSpend(summary: Data): SpendStatus {
  * @returns Progress share, text and state.
  */
 export function capProgress(row: SpendUsage): CapProgress {
-  const unpriced = row.unpricedAttempts === 0 ? '' : ` · ${String(row.unpricedAttempts)} unpriced`;
+  const unpriced =
+    row.unpricedAttempts === 0 ? '' : t(' · {unpricedAttempts} unpriced', { unpricedAttempts: row.unpricedAttempts });
   if (row.cap === null) {
-    return { percent: null, text: `${formatUsd(row.usd)} · no cap${unpriced}`, state: 'uncapped' };
+    return {
+      percent: null,
+      text: t('{spend} · no cap{unpriced}', { spend: formatUsd(row.usd), unpriced }),
+      state: 'uncapped',
+    };
   }
   const percent = Math.min(PERCENT, (row.usd / row.cap) * PERCENT);
-  const text = `${formatUsd(row.usd)} of ${formatUsd(row.cap)} (${String(Math.round(percent))}%)${unpriced}`;
+  const text = t('{spend} of {cap} ({percent}%){unpriced}', {
+    spend: formatUsd(row.usd),
+    cap: formatUsd(row.cap),
+    percent: Math.round(percent),
+    unpriced,
+  });
   if (row.blocked === 'unpriced') {
-    return { percent, text: `${text} · stopped until priced`, state: 'unpriced' };
+    return { percent, text: t('{text} · stopped until priced', { text }), state: 'unpriced' };
   }
   if (row.blocked === 'cap') {
-    return { percent, text: `${text} · cap reached`, state: 'reached' };
+    return { percent, text: t('{text} · cap reached', { text }), state: 'reached' };
   }
   return { percent, text, state: row.usd >= row.cap * NEAR_SHARE ? 'near' : 'ok' };
 }
@@ -195,9 +240,20 @@ function parseCap(value: string, label: string): { cap: number | null } | { erro
     return { cap: null };
   }
   const cap = Number(text);
-  return !NOT_AMOUNT.test(text) && Number.isFinite(cap) && cap > 0 && cap <= CAP_MAX
+  return isAmount(text, cap)
     ? { cap }
-    : { error: `${label} must be a positive dollar amount, or blank for no cap.` };
+    : { error: t('{label} must be a positive dollar amount, or blank for no cap.', { label }) };
+}
+
+/**
+ * Whether typed text is a cap amount.
+ *
+ * @param text - Trimmed text.
+ * @param cap - Its numeric value.
+ * @returns True for a positive amount within the bound.
+ */
+function isAmount(text: string, cap: number): boolean {
+  return !NOT_AMOUNT.test(text) && Number.isFinite(cap) && cap > 0 && cap <= CAP_MAX;
 }
 
 /**
@@ -222,11 +278,13 @@ function applyOverrides(
       next.set(row.id, null);
       continue;
     }
-    const parsed = parseCap(text, 'An override');
-    if ('error' in parsed) {
-      return { error: `${parsed.error.replace(', or blank for no cap', '')} Use ${NO_CAP} to lift the default.` };
+    const cap = Number(text);
+    if (!isAmount(text, cap)) {
+      return {
+        error: t('An override must be a positive dollar amount. Use {noCap} to lift the default.', { noCap: NO_CAP }),
+      };
     }
-    next.set(row.id, parsed.cap);
+    next.set(row.id, cap);
   }
   return { overrides: Object.fromEntries(next) };
 }
@@ -239,9 +297,9 @@ function applyOverrides(
  * @returns Request input, or the first problem.
  */
 export function capsInput(status: SpendStatus, form: CapsForm): { input: Data } | { error: string } {
-  const project = parseCap(form.project, 'The project cap');
-  const objectiveDefault = parseCap(form.objectiveDefault, 'The objective cap');
-  const deliveryDefault = parseCap(form.deliveryDefault, 'The delivery cap');
+  const project = parseCap(form.project, t('The project cap'));
+  const objectiveDefault = parseCap(form.objectiveDefault, t('The objective cap'));
+  const deliveryDefault = parseCap(form.deliveryDefault, t('The delivery cap'));
   for (const parsed of [project, objectiveDefault, deliveryDefault]) {
     if ('error' in parsed) {
       return parsed;
@@ -249,7 +307,9 @@ export function capsInput(status: SpendStatus, form: CapsForm): { input: Data } 
   }
   const windowDays = Number(form.windowDays.trim());
   if (!Number.isSafeInteger(windowDays) || windowDays < 1 || windowDays > WINDOW_MAX_DAYS) {
-    return { error: `The project window must be 1 to ${String(WINDOW_MAX_DAYS)} days.` };
+    return {
+      error: t('The project window must be 1 to {windowMaxDays} days.', { windowMaxDays: WINDOW_MAX_DAYS }),
+    };
   }
   const objectives = applyOverrides(
     status.caps.objectives,
