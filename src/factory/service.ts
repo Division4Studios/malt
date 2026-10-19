@@ -33,6 +33,7 @@ import { IssueGuard } from './issue-guard.ts';
 import { attemptRecord } from './job-records.ts';
 import { ledgerHandlers } from './ledger-handlers.ts';
 import { checkpointStop, superviseLiveness } from './liveness-supervision.ts';
+import { deliveryFor, prepareDelivery } from './local-controls.ts';
 import { exportMaintenance } from './maintenance.ts';
 import { updatedModelPolicy } from './model-policy-controls.ts';
 import { checkDefinition } from './objective-goals.ts';
@@ -50,7 +51,6 @@ import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
 import { recommendationHandlers } from './recommendation-submissions.ts';
 import { reconcile } from './reconcile.ts';
 import { retryBlocked } from './recovery.ts';
-import { GitHubDelivery } from './remote.ts';
 import { FactoryRepository } from './repository.ts';
 import {
   ResourceSampler,
@@ -218,7 +218,7 @@ export class FactoryService {
       repository: this.repository,
       settings,
       providerVersions: this.options.agent === undefined ? {} : 'fixture',
-      remote: this.options.remote ?? new GitHubDelivery(this.mesh, this.github),
+      remote: this.options.remote ?? deliveryFor(this.mesh, settings, this.github),
       learning: this.learning,
       workspaces: new WorkspaceManager(this.mesh, settings),
       processes,
@@ -398,8 +398,8 @@ export class FactoryService {
       factory_status: async () => this.status(),
       factory_preflight: async () => preflight(this.repository.config(), this.mesh),
       ...recommendationHandlers(() => this.configured(), this.repository, parsed, actorId),
-      factory_setup: () => this.controlSetup(parsed),
-      factory_model_policy: () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
+      factory_setup: async () => this.controlSetup(parsed),
+      factory_model_policy: async () => this.controlSetup(updatedModelPolicy(this.configured().settings, parsed)),
       factory_start: async () => {
         this.configured();
         this.repository.setActive(true);
@@ -435,7 +435,7 @@ export class FactoryService {
         repository: this.repository,
         directory: this.mesh.directory,
         learning: this.learning,
-        setup: (settings) => this.controlSetup(settings),
+        setup: async (settings) => this.controlSetup(settings),
         input,
       }),
     };
@@ -770,10 +770,12 @@ export class FactoryService {
    * @returns Durable control result.
    * @throws {MeshError} When setup, role or task gates reject the request.
    */
-  private controlSetup(parsed: unknown): unknown {
+  private async controlSetup(parsed: unknown): Promise<unknown> {
     if (this.repository.active() || this.running.size > 0 || this.terminals.size > 0) {
       throw new MeshError('FACTORY_GATED', 'Pause managed work before changing project policies.');
     }
+    // A rejected local hub remote must leave saved settings unchanged.
+    await prepareDelivery(this.mesh, parsed, this.options.remote !== undefined);
     this.context = null;
     this.connected = false;
     this.error = null;
