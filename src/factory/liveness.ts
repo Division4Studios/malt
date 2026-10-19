@@ -129,6 +129,8 @@ export class LivenessMonitor {
   private cancel: (() => void) | null = null;
   /** Whether a sample is in flight. */
   private isChecking = false;
+  /** Settles the in-flight sample and cancels its deadline. */
+  private abandon: (() => void) | null = null;
   /** Whether the monitor stopped or was disposed. */
   private isDone = false;
 
@@ -172,6 +174,7 @@ export class LivenessMonitor {
     this.isDone = true;
     this.cancel?.();
     this.cancel = null;
+    this.abandon?.();
   }
 
   /**
@@ -214,22 +217,28 @@ export class LivenessMonitor {
     const none: ProgressObservation = { progress: null, awaiting: null };
     // A sampler that hangs must never stop the checkpoint, and so the ceiling, from being enforced.
     const budget = Math.max(0, this.current.nextCheckpointAt - this.options.now());
-    const cancels: (() => void)[] = [];
-    const deadline = new Promise<ProgressObservation>((resolve) => {
-      cancels.push(
-        this.timers(() => {
-          resolve(none);
-        }, budget),
-      );
-    });
+    const deadline = Promise.withResolvers<ProgressObservation>();
+    const cancel = this.timers(() => {
+      deadline.resolve(none);
+    }, budget);
+    // Disposal settles an in-flight sample and cancels its deadline, so no timer outlives the monitor.
+    let isSettled = false;
+    const settle = (): void => {
+      if (isSettled) {
+        return;
+      }
+      isSettled = true;
+      this.abandon = null;
+      cancel();
+      deadline.resolve(none);
+    };
+    this.abandon = settle;
     try {
-      return await Promise.race([this.options.sample(), deadline]);
+      return await Promise.race([this.options.sample(), deadline.promise]);
     } catch {
       return none;
     } finally {
-      for (const cancel of cancels) {
-        cancel();
-      }
+      settle();
     }
   }
 

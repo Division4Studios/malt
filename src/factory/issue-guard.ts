@@ -16,7 +16,7 @@ import type { FactoryContext } from './context.ts';
 import type { IssueState } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { JobIntent } from './scheduler.ts';
-import type { FactoryTask } from './schema.ts';
+import type { FactoryJob, FactoryTask } from './schema.ts';
 /** Longest retained waiting explanation. */
 const WAITING_LIMIT = 300;
 /** Paid delivery assignments guarded by the issue and PR read; verification runs after the merge closes the issue. */
@@ -39,6 +39,29 @@ const ASSIGNMENT_NAMES: Readonly<Record<string, string>> = {
   final: 'final test',
   revalidate: 'brief revalidation',
 };
+
+/**
+ * Whether a running attempt already performs this assignment for the delivery. Workflow steps are matched by
+ * step, so independent reviews on different seats run together; attempts without a step are matched by kind.
+ *
+ * @param jobs - Recorded attempts.
+ * @param intent - Assignment about to start.
+ * @param taskId - Its delivery.
+ * @returns True when starting it would duplicate a running attempt.
+ */
+export function isAlreadyRunning(
+  jobs: readonly Pick<FactoryJob, 'state' | 'kind' | 'taskId' | 'step'>[],
+  intent: Pick<JobIntent, 'kind' | 'step'>,
+  taskId: string,
+): boolean {
+  const step = intent.step ?? null;
+  return jobs.some((job) => {
+    if (job.state !== 'running' || job.taskId !== taskId) {
+      return false;
+    }
+    return step === null || job.step === null ? job.kind === intent.kind : job.step === step;
+  });
+}
 
 /**
  * Explain why a closed issue blocks the assignment and how to recover.
@@ -147,7 +170,7 @@ export class IssueGuard {
       task === undefined ||
       !isEligible(task, intent) ||
       (this.retryAt.get(task.id) ?? 0) > now ||
-      repository.jobs().some((job) => job.state === 'running' && job.kind === intent.kind && job.taskId === task.id)
+      isAlreadyRunning(repository.jobs(), intent, task.id)
     ) {
       return false;
     }

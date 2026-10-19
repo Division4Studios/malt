@@ -22,6 +22,7 @@
 import { z } from 'zod/v3';
 
 import { connectorSchemas, isBindingOperation } from './connector-schemas.ts';
+import { ERROR_STATUSES } from './error-statuses.ts';
 import { FACTORY_OPERATIONS, factorySchemas } from './factory/schema.ts';
 import { terminalSchemas } from './factory/terminal-schema.ts';
 
@@ -220,61 +221,6 @@ export type Handoff = z.output<typeof handoffSchema>;
 // -----------------------------------------------------------------------------
 // Errors
 // -----------------------------------------------------------------------------
-
-/**
- * Every error code MALT can produce, mapped to its HTTP status.
- *
- * Keeping codes in one closed table means a misspelt code is a compile-time
- * error, and the HTTP status of each failure is defined in exactly one place.
- * Status 499 follows the common "client closed request" convention.
- */
-const ERROR_STATUSES = {
-  AGENT_ACTIVE: 409,
-  AGENT_LEFT: 410,
-  ALREADY_JOINED: 409,
-  BROKER_STOPPING: 503,
-  BROKER_UNAVAILABLE: 503,
-  CAPABILITY_DENIED: 403,
-  CREDENTIALS_MISSING: 409,
-  CLIENT_CLOSED: 400,
-  CONTENT_TYPE: 415,
-  FORBIDDEN_ORIGIN: 403,
-  FACTORY_GATED: 409,
-  GITHUB_UNAVAILABLE: 503,
-  GITHUB_NOT_CONNECTED: 409,
-  GITHUB_OPERATION_PENDING: 409,
-  HTTP_ERROR: 502,
-  HUMAN_CONTROL_REQUIRED: 403,
-  IDEMPOTENCY_CONFLICT: 409,
-  IDENTITY_CONFLICT: 409,
-  IDLE_NOT_APPROVED: 409,
-  INSTRUCTIONS_REQUIRED: 400,
-  INTERNAL: 500,
-  INVALID_INPUT: 400,
-  INVALID_JSON: 400,
-  INVALID_REQUEST: 400,
-  INVALID_REVISION: 400,
-  LEAD_ACTIVE: 409,
-  NO_WORKSPACE: 400,
-  WORKSPACE_UNAVAILABLE: 400,
-  NOT_A_WORKER: 400,
-  NOT_FOUND: 404,
-  NOT_JOINED: 409,
-  NOT_ORCHESTRATOR: 403,
-  STALE_CHECKIN: 409,
-  TOO_LARGE: 413,
-  UNAUTHORIZED: 401,
-  UNAUTHORIZED_AGENT: 401,
-  RATE_LIMITED: 429,
-  TOOL_DENIED: 403,
-  UNKNOWN_OPERATION: 404,
-  UNKNOWN_TEAM: 404,
-  UNREAD_MESSAGES: 409,
-  WAIT_ALREADY_ACTIVE: 409,
-  WAIT_CANCELLED: 499,
-  WAIT_SUPERSEDED: 409,
-  WRONG_PROJECT: 403,
-} as const satisfies Readonly<Record<string, number>>;
 
 /** A known MALT error code. */
 export type MeshErrorCode = keyof typeof ERROR_STATUSES;
@@ -752,6 +698,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
     'Operator only: read GitHub issue and PR state and propose fenced adopt_delivered and retire decisions with current versions. Writes nothing unless apply is true.',
+  factory_worktrees_adopt:
+    'Human operator only, while paused: hand ownership of .malt/worktrees to the environment this broker runs in, after stopping the other host or Docker supervisor. The previous owner is recorded.',
   factory_cancel_job:
     'Designated lead only: cancel an owned role pipeline and block its task until explicit retry. Never stop unrelated user processes.',
   factory_workflow_save:
