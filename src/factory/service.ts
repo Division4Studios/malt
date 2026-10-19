@@ -11,6 +11,7 @@ import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
 import { reconcileGitHub, recoverControl, triageControl } from './adoption.ts';
 import { forgetAttemptSecrets } from './attempt-secrets.ts';
 import * as automation from './automations.ts';
+import { cancelBaseline, refreshBaseline } from './baseline.ts';
 import { defaultAgent } from './cloud.ts';
 import { completeJob, rejectDelivery } from './completion.ts';
 import {
@@ -75,18 +76,20 @@ import { TerminalService } from './terminals.ts';
 import * as triage from './triage.ts';
 import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
+import { worktreeOwnerBlocker } from './worktree-owner.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { ProjectGitHub } from '../github.ts';
 import type { ProjectLearning } from '../learning.ts';
 import type { Store } from '../store.ts';
-import type { FactoryContext, ExecutedJob } from './context.ts';
+import type { FactoryContext } from './context.ts';
 import type { ProcessRunner } from './processes.ts';
 import type { AgentRunner } from './providers.ts';
 import type { DeliveryRemote } from './remote.ts';
 import type { ResourceProbe } from './resources.ts';
 import type { JobIntent } from './scheduler.ts';
 import type { FactoryJob, FactoryOperation } from './schema.ts';
+import type { AttemptState, Running } from './service-types.ts';
 import type { TerminalOperation } from './terminal-schema.ts';
 import type { TerminalOptions } from './terminals.ts';
 
@@ -108,28 +111,6 @@ export interface FactoryOptions {
   readonly terminals?: TerminalOptions;
   /** Fixture manager provider and clock; never exposed to browser or MCP callers. */
   readonly manager?: Omit<ConstructorParameters<typeof ManagerService>[2], 'home'>;
-}
-/** One cancellable pipeline owned by this supervisor. */
-interface Running {
-  /** Cancellation kills the owned process tree. */
-  readonly controller: AbortController;
-  /** Pipeline completion awaited before closing SQLite. */
-  readonly promise: Promise<void>;
-}
-/** Attempt evidence accumulated before settlement. */
-interface AttemptState {
-  /** Actual provider/check result. */
-  execution: ExecutedJob | null;
-  /** Whether inference was launched. */
-  isInferred: boolean;
-  /** Fenced job outcome. */
-  state: 'succeeded' | 'failed' | 'interrupted';
-  /** Supervisor-observed failure or cancellation reason for the manager report. */
-  reason: string | null;
-  /** Error that failed the attempt, used to classify its retry. */
-  error: unknown;
-  /** The attempt asked the operator a question; its result waits for the answer. */
-  isAwaitingAnswer?: boolean;
 }
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
@@ -269,6 +250,11 @@ export class FactoryService {
       recoverTerminalMetadata(this.repository, this.terminals, this.owner, this.hasLease);
       return this.terminals.control(operation, input, signal);
     }
+    // Terminals prune and create worktrees too, so the same environment ownership gate applies.
+    const ownership = worktreeOwnerBlocker(this.mesh, this.repository.store.now());
+    if (ownership !== null) {
+      throw new MeshError('FACTORY_GATED', ownership);
+    }
     if (!this.repository.lease(this.owner)) {
       throw new MeshError('FACTORY_GATED', 'Another supervisor owns this project; reconnect to its console.');
     }
@@ -343,6 +329,7 @@ export class FactoryService {
     await this.terminals.closeAll(shouldPause ? 'factory paused' : 'broker shutdown', !shouldPause);
     await (shouldPause ? Promise.resolve() : this.manager.close());
     await Promise.allSettled(this.running.values().map(async (run) => run.promise));
+    await cancelBaseline(this.repository.store);
     if (this.driving !== null) {
       await this.driving;
     }
@@ -473,6 +460,7 @@ export class FactoryService {
         this.connected = true;
       }
       await reconcile(context);
+      void refreshBaseline(context);
       triage.queueBlockerInvestigations(this.repository);
       this.error = null;
     }
