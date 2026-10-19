@@ -32,6 +32,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { z } from 'zod/v3';
 
+import { cleanBacklog } from './backlog-cleanup.ts';
+import { BINDING_OPERATIONS } from './connector-schemas.ts';
 import { Coordination, isDisconnected } from './coordination.ts';
 import {
   AGENT_PUBLIC_COLUMNS,
@@ -95,6 +97,7 @@ const NON_STORE_OPERATIONS = [
   ...GITHUB_OPERATIONS,
   ...LEARNING_OPERATIONS,
   ...CAPABILITY_OPERATIONS,
+  ...BINDING_OPERATIONS,
   'list_teams',
   'open_team',
   'register',
@@ -272,10 +275,10 @@ type Handlers = {
 // -----------------------------------------------------------------------------
 
 /** The SQLite schema version this code writes. */
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '4';
 
 /** Every schema version this code can open (older ones are migrated). */
-const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', SCHEMA_VERSION]);
+const SUPPORTED_SCHEMA_VERSIONS: ReadonlySet<string> = new Set(['1', '2', '3', SCHEMA_VERSION]);
 
 /** SQLite lock wait before reporting SQLITE_BUSY, in milliseconds. */
 const BUSY_TIMEOUT_MS = 5000;
@@ -847,20 +850,15 @@ export class Store implements CoordinationHost {
    * @param status - The presence state to filter by, if any.
    * @returns The matching agents' public rows.
    */
-  private listAgents(status: AgentStatus | undefined): AgentRow[] {
+  private listAgents(status: AgentStatus | null = null): AgentRow[] {
     // Ended sessions can never return, so they are history, not team members.
-    return status === undefined
-      ? selectAll(
-          this.db,
-          agentRowSchema,
-          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE lifetime != 'ended' ORDER BY name`,
-        )
-      : selectAll(
-          this.db,
-          agentRowSchema,
-          `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE status = ? AND lifetime != 'ended' ORDER BY name`,
-          status,
-        );
+    return selectAll(
+      this.db,
+      agentRowSchema,
+      `SELECT ${AGENT_PUBLIC_COLUMNS} FROM agents WHERE lifetime != 'ended' AND (? IS NULL OR status = ?) ORDER BY name`,
+      status,
+      status,
+    );
   }
 
   /**
@@ -1044,6 +1042,7 @@ export class Store implements CoordinationHost {
       if (version === '1') {
         this.coordination.migrate();
       }
+      cleanBacklog(this.db, this.now(), this.config.offlineMs + SESSION_RETIRE_MS, (id) => this.depart(id));
       run(this.db, "UPDATE metadata SET value = ? WHERE key = 'schema_version'", SCHEMA_VERSION);
     });
   }

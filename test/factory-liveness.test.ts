@@ -782,6 +782,28 @@ await test('a sampler that never answers cannot hold off the checkpoint', async 
   assert.deepEqual(stops, ['stalled 10 min']);
   assert.equal(now, firstCheckpoint(0, POLICY));
   assert.equal(records.at(-1)?.state, 'stalled');
+
+  // Disposing while a sample hangs cancels its deadline too, so no timer keeps the process alive.
+  const pending = new Set<() => void>();
+  const hung = new LivenessMonitor({
+    startedAt: 0,
+    policy: POLICY,
+    now: () => 0,
+    sample: hungSample,
+    record: ignore,
+    stop: ignore,
+    timers: (wake) => {
+      pending.add(wake);
+      return () => {
+        pending.delete(wake);
+      };
+    },
+  });
+  const checking = hung.check();
+  assert.equal(pending.size, 1, 'the sample deadline is armed');
+  hung.dispose();
+  await checking;
+  assert.equal(pending.size, 0, 'disposal cancelled the deadline and settled the sample');
 });
 
 await test('separate patches to one file each count as progress; a repeated item counts once', () => {
