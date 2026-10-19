@@ -35,12 +35,14 @@ import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { AGENT_OPERATIONS, OPERATOR_ONLY_MESSAGE, OPERATOR_ONLY_OPERATIONS } from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
 import { ProjectLearning } from './learning.ts';
 import { log } from './log.ts';
+import { assertManagedTool } from './managed-tools.ts';
 import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
@@ -507,6 +509,11 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
+  const gate = {
+    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
+    isToolDenied: (actor: string, name: string) => team.factory.isToolDenied(actor, name),
+  };
+  assertManagedTool(gate, operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
     assertFactoryAuthority(team, operation, credentials);
@@ -543,35 +550,12 @@ function assertFactoryAuthority(team: Team, operation: Operation, credentials: P
   if (credentials === undefined) {
     return;
   }
-  if (
-    [
-      'factory_skill_decide',
-      'factory_export_maintenance',
-      'factory_recover',
-      'factory_approve',
-      'factory_schedule_save',
-      'factory_trigger_save',
-      'factory_automation_delete',
-      'factory_automation_run',
-      'factory_reconcile_github',
-      'factory_recommendation_read',
-    ].includes(operation)
-  ) {
+  if (OPERATOR_ONLY_OPERATIONS.has(operation)) {
     team.store.authenticate(credentials);
-    throw new MeshError(
-      'NOT_ORCHESTRATOR',
-      'Only the human operator may acknowledge recommendation reads, approve skill changes, workflow approvals, objective recovery, GitHub reconciliation, cross-project maintenance or automations.',
-    );
+    throw new MeshError('NOT_ORCHESTRATOR', OPERATOR_ONLY_MESSAGE);
   }
   const actor = team.store.authenticate(credentials);
-  if (
-    operation !== 'factory_status' &&
-    operation !== 'factory_recommendations' &&
-    operation !== 'factory_recommendation_propose' &&
-    operation !== 'factory_read_source' &&
-    operation !== 'factory_progress' &&
-    actor !== team.store.coordination.leadId()
-  ) {
+  if (!AGENT_OPERATIONS.has(operation) && actor !== team.store.coordination.leadId()) {
     throw new MeshError('NOT_ORCHESTRATOR', 'Only the operator or designated project lead controls the factory.');
   }
 }

@@ -4,6 +4,7 @@
  * @file
  */
 import { child, number, records, text, hasFlag } from './api.js';
+import { phrase, t, translated } from './i18n.js';
 import { renderReport } from './report-ui.js';
 import { element } from './worker-ui.js';
 
@@ -11,20 +12,24 @@ import type { Data, Snapshot } from './api.js';
 import type { Actions } from './views.js';
 
 /** Explicit choices do not mark work complete or bypass delivery gates. */
-const RECOVERY = {
+const RECOVERY = translated({
   lead: [
-    'Continue with team lead',
-    'Resume independent lead refinement using the retained diagnosis and local ticket evidence. Explain what evidence or decision resolves the blocker.',
+    phrase('Continue with team lead'),
+    phrase(
+      'Resume independent lead refinement using the retained diagnosis and local ticket evidence. Explain what evidence or decision resolves the blocker.',
+    ),
   ],
   owner: [
-    'Clarify with product owner',
-    'Return this objective to product refinement with your answer. Existing tickets and source remain intact.',
+    phrase('Clarify with product owner'),
+    phrase('Return this objective to product refinement with your answer. Existing tickets and source remain intact.'),
   ],
   existing: [
-    'Work existing deliveries',
-    'Authorize dispatch of retained delivery tickets across objectives. Hold all new objective planning; preserve dependencies, ownership, QA, tests and merge gates. This does not close the campaign.',
+    phrase('Work existing deliveries'),
+    phrase(
+      'Authorize dispatch of retained delivery tickets across objectives. Hold all new objective planning; preserve dependencies, ownership, QA, tests and merge gates. This does not close the campaign.',
+    ),
   ],
-} as const;
+} as const);
 /** One explicit recovery choice. */
 export type RecoveryAction = keyof typeof RECOVERY;
 
@@ -37,22 +42,24 @@ export type RecoveryAction = keyof typeof RECOVERY;
  */
 export function recoveryPanel(state: Snapshot, actions: Actions): HTMLElement {
   const panel = element('section', 'triage-hub');
-  panel.setAttribute('aria-label', 'Mission recovery');
+  panel.setAttribute('aria-label', t('Mission recovery'));
   const features = records(state.factory['features']).filter(
     (feature) => text(feature, 'phase') === 'blocked' && feature['scopeReplacement'] === undefined,
   );
   const queue = child(state.factory, 'objectiveQueue');
   panel.hidden = features.length === 0 && !hasFlag(queue, 'existingOnly');
-  panel.append(element('span', 'eyebrow', 'MISSION / RECOVERY'), element('h2', '', 'Choose the next safe step.'));
+  panel.append(element('span', 'eyebrow', t('MISSION / RECOVERY')), element('h2', '', t('Choose the next safe step.')));
   if (hasFlag(queue, 'existingOnly')) {
     panel.append(
       element(
         'p',
         'notice',
-        'Existing deliveries only: retained tickets can progress across objectives. New product planning is held. The campaign remains open until verified.',
+        t(
+          'Existing deliveries only: retained tickets can progress across objectives. New product planning is held. The campaign remains open until verified.',
+        ),
       ),
     );
-    const resume = element('button', 'small-button', 'Return to objective dispatch');
+    const resume = element('button', 'small-button', t('Return to objective dispatch'));
     resume.type = 'button';
     resume.addEventListener('click', () => {
       const order = Array.isArray(queue['order'])
@@ -71,14 +78,16 @@ export function recoveryPanel(state: Snapshot, actions: Actions): HTMLElement {
     summary.append(
       element('span', 'triage-signal', '>'),
       element('span', 'triage-title', text(feature, 'objective')),
-      element('span', 'pill', 'Decision needed'),
+      element('span', 'pill', t('Decision needed')),
     );
     const body = element('div', 'triage-body');
     body.append(
       element(
         'p',
         '',
-        'This objective stopped before delivery could continue. Choose a recovery; no issue is silently closed or duplicated.',
+        t(
+          'This objective stopped before delivery could continue. Choose a recovery; no issue is silently closed or duplicated.',
+        ),
       ),
     );
     const controls = element('div', 'triage-actions');
@@ -96,7 +105,10 @@ export function recoveryPanel(state: Snapshot, actions: Actions): HTMLElement {
       controls.append(button);
     }
     const report = element('details', 'triage-evidence');
-    report.append(element('summary', '', 'Read diagnosis and missing evidence'), renderReport(text(feature, 'error')));
+    report.append(
+      element('summary', '', t('Read diagnosis and missing evidence')),
+      renderReport(text(feature, 'error')),
+    );
     body.append(controls, report);
     card.append(summary, body);
     panel.append(card);
@@ -153,8 +165,8 @@ export interface OperatorEdit {
  */
 export function focusDescription(queue: Data, title: string): string {
   return hasFlag(queue, 'existingOnly')
-    ? 'Backlog clearance: existing delivery tickets across objectives may run. New objective planning is held.'
-    : `Focused objective: ${title}. Other objectives are held from new dispatch.`;
+    ? t('Backlog clearance: existing delivery tickets across objectives may run. New objective planning is held.')
+    : t('Focused objective: {title}. Other objectives are held from new dispatch.', { title });
 }
 
 /**
