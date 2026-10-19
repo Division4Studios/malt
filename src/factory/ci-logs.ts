@@ -15,6 +15,7 @@ import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { stripVTControlCharacters } from 'node:util';
 
+import { trustedExecutable } from '../executables.ts';
 import { SecretRedactor } from '../secrets.ts';
 
 import { REPAIR_FINDING_MAX } from './repair-schema.ts';
@@ -55,7 +56,7 @@ const TOKENS: readonly RegExp[] = [
 /** URL credentials: the scheme survives, the user and password do not. */
 const URL_CREDENTIALS = /\b(?<scheme>[a-z][\d+\-.a-z]*:\/\/)[^\s\/:@]+:[^\s\/@]+@/giv;
 /** An authorization value: the label survives, the scheme and every credential after it do not. */
-const AUTHORIZATION = /\b(?<label>authorization["']?[:=] ?["']?)[^\n"']+/giv;
+const AUTHORIZATION = /\b(?<label>authorization["']?\s*[:=]\s*["']?)[^\n"']+/giv;
 /** A labelled secret value: the label survives, the value does not. */
 const LABELLED_SECRET = /\b(?<label>(?:api[\-_]?key|password|secret|token)["']?\s*[:=]\s*["']?)[^\s"',]+/giv;
 /** A bearer credential: the scheme word survives, the credential does not. */
@@ -149,6 +150,16 @@ export function failedChecks(rollup: readonly RawCheck[] | null): CheckState[] |
     .values()
     .toArray()
     .toSorted((left, right) => left.name.localeCompare(right.name));
+}
+
+/**
+ * Whether any check already failed, whether or not others are still running.
+ *
+ * @param rollup - Current check rollup.
+ * @returns True when at least one check failed.
+ */
+export function hasFailedCheck(rollup: readonly RawCheck[] | null): boolean {
+  return (rollup ?? []).some((check) => checkState(check).state === 'failed');
 }
 
 /**
@@ -292,8 +303,7 @@ export function ciFinding(check: CheckState, log: string | null, head: string): 
 export function githubTextRunner(root: string): (args: readonly string[]) => Promise<string | null> {
   return async (args) => {
     return new Promise<string | null>((resolve) => {
-      // eslint-disable-next-line sonarjs/no-os-command-from-path -- Resolve the user's authenticated gh CLI without a shell.
-      const child = spawn('gh', [...args], {
+      const child = spawn(trustedExecutable('gh'), [...args], {
         cwd: root,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'ignore'],
