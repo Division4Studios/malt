@@ -203,11 +203,12 @@ class RecommendationsView implements RecommendationsHandle {
     if (this.selected === null) {
       return;
     }
+    // Captured before the detail loads: a project switch meanwhile must not send this receipt to the new project.
+    const started = this.generation;
     await this.load(item.id);
-    if (!item.isUnread) {
+    if (!item.isUnread || started !== this.generation) {
       return;
     }
-    const started = this.generation;
     let failure = '';
     try {
       await this.hooks.markRead(item.id, item.revision);
@@ -341,16 +342,18 @@ class RecommendationsView implements RecommendationsHandle {
    */
   private detail(item: RecommendationSummary): HTMLElement {
     const detail = element('div', 'recommendation-detail');
+    // The list summary bounds evidence and previews; the loaded detail carries them whole.
+    const shown = this.opened?.id === item.id ? this.opened : item;
     const evidence = element('ul', 'recommendation-evidence');
-    for (const line of item.evidence) {
+    for (const line of shown.evidence) {
       evidence.append(element('li', '', line));
     }
     const preview = element('dl', 'recommendation-preview');
     preview.append(
       element('dt', 'subtle', t('Before')),
-      element('dd', '', item.before),
+      element('dd', '', shown.before),
       element('dt', 'subtle', t('After')),
-      element('dd', '', item.after),
+      element('dd', '', shown.after),
     );
     detail.append(element('h4', '', t('Evidence')), evidence, preview);
     if (this.opened?.id === item.id) {

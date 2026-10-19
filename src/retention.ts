@@ -1,6 +1,7 @@
 /**
- * Bounded coordination state. The broker's presence sweep applies a retention
- * policy at most once an hour per project, in small transactions:
+ * Bounded coordination state. The broker's presence sweep starts a retention
+ * pass at most once an hour per project and runs one bounded batch per sweep
+ * until the pass is drained, so a backlog never holds the event loop:
  *
  * - acknowledged messages older than the message window are deleted, except
  *   one a kept reply or a worker's open check-in still points at;
@@ -9,6 +10,9 @@
  * - events older than the event window are folded into per-day, per-type
  *   counts (`event_summaries`) and deleted;
  * - idempotency keys and broadcast windows older than the message window are dropped.
+ *
+ * The reply and check-in references that keep a message are indexed, so each
+ * batch's checks stay cheap on a large history.
  *
  * Unread messages to live identities are never deleted. Windows come from
  * `AGENTMESH_MESSAGE_RETENTION_DAYS` (default 14) and
@@ -47,8 +51,14 @@ export interface RetentionResult {
   readonly events: number;
 }
 
-/** Last pass per open store. */
-const lastPass = new WeakMap<Store, number>();
+/** One bounded batch of a pass. */
+interface RetentionStep extends RetentionResult {
+  /** True once nothing old is left for this pass. */
+  readonly isDone: boolean;
+}
+
+/** The current or last pass per open store: when it began, its windows, and whether batches remain. */
+const passes = new WeakMap<Store, { startedAt: number; policy: RetentionPolicy; isDraining: boolean }>();
 
 /**
  * Read a whole number of days from the environment.
@@ -82,14 +92,16 @@ export function retentionPolicy(): RetentionPolicy {
 }
 
 /**
- * Create the additive daily event summary table.
+ * Create the additive daily event summary table and the reference indexes retention reads.
  *
  * @param store - Project store.
  */
-function ensureSummaries(store: Store): void {
-  store.db.exec(
-    'CREATE TABLE IF NOT EXISTS event_summaries (day TEXT NOT NULL, type TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (day, type))',
-  );
+function ensureRetention(store: Store): void {
+  store.db.exec(`
+    CREATE TABLE IF NOT EXISTS event_summaries (day TEXT NOT NULL, type TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (day, type));
+    CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to);
+    CREATE INDEX IF NOT EXISTS coordination_request ON worker_coordination(request_message_id);
+  `);
 }
 
 /**
@@ -138,6 +150,30 @@ function compactEvents(store: Store, cutoff: number): number {
 }
 
 /**
+ * Run one bounded batch of a pass: messages first, then events, then expired keys.
+ *
+ * @param store - Project store.
+ * @param policy - Retention windows.
+ * @param now - When the pass began; every batch of a pass uses the same cutoffs.
+ * @returns What the batch removed, and whether the pass is drained.
+ */
+function retentionStep(store: Store, policy: RetentionPolicy, now: number): RetentionStep {
+  const messages = expireMessages(store, now - policy.messageMs);
+  if (messages > 0) {
+    return { messages, events: 0, isDone: false };
+  }
+  const events = compactEvents(store, now - policy.eventMs);
+  if (events > 0) {
+    return { messages: 0, events, isDone: false };
+  }
+  store.transaction(() => {
+    run(store.db, 'DELETE FROM message_idempotency WHERE created_at < ?', now - policy.messageMs);
+    run(store.db, 'DELETE FROM broadcast_windows WHERE delivered_at < ?', now - policy.messageMs);
+  });
+  return { messages: 0, events: 0, isDone: true };
+}
+
+/**
  * Apply the policy to one store until nothing old is left.
  *
  * @param store - Project store.
@@ -145,37 +181,36 @@ function compactEvents(store: Store, cutoff: number): number {
  * @returns What was removed.
  */
 export function applyRetention(store: Store, policy: RetentionPolicy = retentionPolicy()): RetentionResult {
-  ensureSummaries(store);
+  ensureRetention(store);
   const now = store.now();
-  let messages = 0;
-  for (let removed = expireMessages(store, now - policy.messageMs); removed > 0;) {
-    messages += removed;
-    removed = expireMessages(store, now - policy.messageMs);
+  const removed = { messages: 0, events: 0 };
+  for (let isDone = false; !isDone;) {
+    const step = retentionStep(store, policy, now);
+    removed.messages += step.messages;
+    removed.events += step.events;
+    ({ isDone } = step);
   }
-  let events = 0;
-  for (let removed = compactEvents(store, now - policy.eventMs); removed > 0;) {
-    events += removed;
-    removed = compactEvents(store, now - policy.eventMs);
-  }
-  store.transaction(() => {
-    run(store.db, 'DELETE FROM message_idempotency WHERE created_at < ?', now - policy.messageMs);
-    run(store.db, 'DELETE FROM broadcast_windows WHERE delivered_at < ?', now - policy.messageMs);
-  });
-  return { messages, events };
+  return removed;
 }
 
 /**
- * Apply retention from the broker's sweep at most once an interval per store.
+ * Run one batch of retention from the broker's sweep. A pass starts at most once an
+ * interval per store and continues one batch per sweep until it is drained.
  *
  * @param store - Project store.
- * @returns What was removed, or null when the pass was not due.
+ * @returns What this batch removed, or null when no pass is due or draining.
  */
 export function sweepRetention(store: Store): RetentionResult | null {
   const now = store.now();
-  const previous = lastPass.get(store);
-  if (previous !== undefined && now - previous < RETENTION_INTERVAL_MS) {
+  const previous = passes.get(store);
+  const isDue = previous === undefined || (!previous.isDraining && now - previous.startedAt >= RETENTION_INTERVAL_MS);
+  if (isDue) {
+    ensureRetention(store);
+  } else if (!previous.isDraining) {
     return null;
   }
-  lastPass.set(store, now);
-  return applyRetention(store);
+  const pass = isDue ? { startedAt: now, policy: retentionPolicy() } : previous;
+  const { isDone, ...removed } = retentionStep(store, pass.policy, pass.startedAt);
+  passes.set(store, { startedAt: pass.startedAt, policy: pass.policy, isDraining: !isDone });
+  return removed;
 }

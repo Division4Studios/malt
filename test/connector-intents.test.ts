@@ -106,3 +106,26 @@ await test('a completed intent replays its result, and a reused ID must repeat i
   assert.equal(remote.creates, 1, 'the replay makes no remote call');
   await assert.rejects(runIntent(directory, 'r3', { name: 'd' }, remote.creating('d')), { code: 'INVALID_INPUT' });
 });
+
+await test('overlapping calls with one request ID perform the change once', async (t) => {
+  const directory = intents(t);
+  const visible = new Set<string>();
+  let creates = 0;
+  // The remote commits the change but only shows it after the first call returns.
+  const steps: Parameters<typeof runIntent<string>>[3] = {
+    reconcile: async () => await delay(0, visible.has('d') ? 'd' : undefined),
+    perform: async () => {
+      creates += 1;
+      await delay(20);
+      visible.add('d');
+      return 'd';
+    },
+    result: z.string(),
+  };
+  const both = await Promise.all([
+    runIntent(directory, 'r4', { name: 'd' }, steps),
+    runIntent(directory, 'r4', { name: 'd' }, steps),
+  ]);
+  assert.deepEqual(both, ['d', 'd']);
+  assert.equal(creates, 1, 'the second call waited and read the recorded result');
+});
