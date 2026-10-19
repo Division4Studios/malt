@@ -9,6 +9,7 @@
  * @file
  */
 import { request, scoped } from './api.js';
+import { onLocaleChange, t } from './i18n.js';
 import { isDismissed, isOnboardingNeeded, setDismissed } from './onboarding-model.js';
 import { createOnboardingView } from './onboarding-ui.js';
 import { createSettingsView } from './settings-ui.js';
@@ -46,6 +47,8 @@ export class ProjectViews {
   private readonly settings: SettingsHandle;
   /** Projects whose first snapshot already had the chance to open onboarding. */
   private readonly offered = new Set<string>();
+  /** Project whose routes the shown view last loaded; a new one reloads them. */
+  private loadedFor: string | null = null;
   /** Project selection and routing from the shell. */
   private readonly hooks: ProjectViewHooks;
 
@@ -87,35 +90,51 @@ export class ProjectViews {
       project: hooks.project,
       preflight,
       versions: async () => await request(scoped(hooks.project(), '/api/version')),
+      control: hooks.control,
       shortcuts: [
         {
-          label: 'Factory & validation',
+          label: t('Factory & validation'),
           action: () => {
             hooks.setup(false);
           },
         },
         {
-          label: 'GitHub connection',
+          label: t('GitHub connection'),
           action: () => {
             hooks.setup(true);
           },
         },
-        { label: 'Model & effort policy', action: hooks.policy },
-        { label: 'Team & organization', action: hooks.organization },
-        { label: 'Workflow library', action: open('workflows') },
-        { label: 'Get started guide', action: open('onboarding') },
+        { label: t('Model & effort policy'), action: hooks.policy },
+        { label: t('Team & organization'), action: hooks.organization },
+        { label: t('Workflow library'), action: open('workflows') },
+        { label: t('Get started guide'), action: open('onboarding') },
       ],
     });
+    onLocaleChange(
+      () => [this.onboarding.element, this.settings.element],
+      () => {
+        void this.settings.refresh();
+      },
+    );
   }
 
   /**
-   * Give both views the latest pushed state.
+   * Give both views the latest pushed state. The selected project's first
+   * snapshot also loads the shown view's routes, since a direct link or a
+   * project switch shows a view without navigating to it.
    *
    * @param snapshot - Validated live snapshot.
+   * @param view - Route currently shown.
    */
-  public update(snapshot: unknown): void {
+  public update(snapshot: unknown, view: string): void {
     this.onboarding.update(snapshot);
     this.settings.update(snapshot);
+    const project = this.hooks.project();
+    if (project === this.loadedFor) {
+      return;
+    }
+    this.loadedFor = project;
+    this.shown(view);
   }
 
   /**
@@ -143,7 +162,7 @@ export class ProjectViews {
 
   /**
    * Whether a project's first snapshot should open onboarding instead of the
-   * overview; when it should, the guide's checks start loading.
+   * overview.
    *
    * @param observed - First validated state of the project.
    * @param observed.factory - Factory projection.
@@ -156,10 +175,7 @@ export class ProjectViews {
       return false;
     }
     this.offered.add(projectId);
-    const shouldOffer = isOnboardingNeeded(observed) && !isDismissed(projectId) && projectId === this.hooks.project();
-    if (shouldOffer) {
-      this.shown('onboarding');
-    }
-    return shouldOffer;
+    // The guide's checks load with the project's first render, once the view is switched.
+    return isOnboardingNeeded(observed) && !isDismissed(projectId) && projectId === this.hooks.project();
   }
 }

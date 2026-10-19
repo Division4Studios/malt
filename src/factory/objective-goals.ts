@@ -113,6 +113,11 @@ export function saveDefinition(
     if (feature.updatedAt !== request.expectedUpdatedAt) {
       throw new MeshError('INVALID_REVISION', 'This objective changed. Reload it and apply your edits again.');
     }
+    const ids = request.items.map((entry) => entry.id).filter((id) => id !== undefined);
+    const unique = new Set(ids);
+    if (unique.size !== ids.length) {
+      throw new MeshError('INVALID_INPUT', 'Each checklist item may appear only once.');
+    }
     const previous = new Map((feature.definitionOfDone ?? []).map((item) => [item.id, item]));
     const now = store.now();
     const items = request.items.map((entry): DoneItem => {
@@ -121,7 +126,18 @@ export function saveDefinition(
         throw new MeshError('NOT_FOUND', 'A checklist item changed. Reload the objective and try again.');
       }
       if (old?.state === entry.state) {
-        return { ...old, text: entry.text, evidence: entry.evidence ?? old.evidence };
+        const isSameText = old.text === entry.text;
+        if (isSameText && (entry.evidence === null || entry.evidence === old.evidence)) {
+          return old;
+        }
+        // Changed content is the operator's claim now, not the earlier verifier's, and old evidence fits only the old text.
+        return {
+          ...old,
+          text: entry.text,
+          by: old.state === 'open' ? null : 'operator',
+          at: now,
+          evidence: entry.evidence ?? (isSameText ? old.evidence : null),
+        };
       }
       return {
         id: old?.id ?? randomUUID(),

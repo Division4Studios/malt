@@ -7,6 +7,10 @@
  *
  * @file
  */
+import { asData } from './console-model.js';
+import { t } from './i18n.js';
+
+import type { Data } from './api.js';
 
 /** Capability floors, lowest first. */
 export const TIERS = ['small', 'standard', 'advanced'] as const;
@@ -20,8 +24,14 @@ export const MAX_SERVERS = 4;
 export const INSTRUCTIONS_MAX = 8000;
 /** Longest label. */
 export const LABEL_MAX = 120;
+/** Type and member names. */
+const NAME = /^[\da-z][\w\-]{0,63}$/v;
+/** MCP server names. */
+const SERVER_NAME = /^[a-z][\d\-_a-z]{0,31}$/v;
 /** Longest name stem kept when a copy is named, leaving room for `-copy-NN`. */
 const STEM_MAX = 55;
+/** Characters that make a command shell syntax rather than one executable. */
+const SHELL_CHARACTERS = ['"', '$', '&', "'", '*', ';', '<', '>', '?', '`', '|'] as const;
 
 /** One capability floor. */
 export type Tier = (typeof TIERS)[number];
@@ -58,6 +68,8 @@ export interface TypeDraft {
   readonly effort: string | null;
   /** How the tool list applies. */
   readonly toolMode: 'deny' | 'allow';
+  /** Deny rules saved beside an allow list; the editor keeps them unchanged. */
+  readonly keptDeny: readonly string[];
   /** Tools the mode lists. */
   readonly tools: readonly string[];
   /** Local MCP servers. */
@@ -119,6 +131,197 @@ export interface RolesModel {
 }
 
 /**
+ * Strings of an untrusted array.
+ *
+ * @param value - Untrusted value.
+ * @returns String members.
+ */
+function strings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/**
+ * A string field, or a fallback.
+ *
+ * @param record - Untrusted record.
+ * @param key - Field name.
+ * @param fallback - Value when absent.
+ * @returns Field text.
+ */
+function textOf(record: Data | null, key: string, fallback = ''): string {
+  const value = record?.[key];
+  return typeof value === 'string' ? value : fallback;
+}
+
+/**
+ * Plain-object members of an untrusted array.
+ *
+ * @param value - Untrusted value.
+ * @returns Object members.
+ */
+function objects(value: unknown): Data[] {
+  return Array.isArray(value) ? value.map((item) => asData(item)).filter((item) => item !== null) : [];
+}
+
+/**
+ * Whether a value is a provider family.
+ *
+ * @param value - Untrusted value.
+ * @returns True for codex or claude.
+ */
+function isProvider(value: unknown): value is Provider {
+  return value === 'codex' || value === 'claude';
+}
+
+/**
+ * A non-empty string field, or `null`.
+ *
+ * @param record - Untrusted record, if any.
+ * @param key - Field name.
+ * @returns Field text, or `null` when absent or empty.
+ */
+function optionalText(record: Data | null, key: string): string | null {
+  const value = textOf(record, key);
+  return value === '' ? null : value;
+}
+
+/**
+ * Read one saved type into an editable draft.
+ *
+ * @param name - Key the type is saved under.
+ * @param record - Saved type.
+ * @returns Editable copy.
+ */
+function typeDraft(name: string, record: Data): TypeDraft {
+  const model = asData(record['model']);
+  const tools = asData(record['tools']);
+  const allow = strings(tools?.['allow']);
+  const tier = textOf(record, 'minimumTier', 'small');
+  return {
+    name,
+    label: textOf(record, 'label', name),
+    instructions: textOf(record, 'instructions'),
+    skills: strings(record['skills']),
+    minimumTier: TIERS.find((candidate) => candidate === tier) ?? 'small',
+    provider: isProvider(record['provider']) ? record['provider'] : null,
+    modelId: optionalText(model, 'entryId'),
+    effort: optionalText(model, 'effort'),
+    toolMode: allow.length > 0 ? 'allow' : 'deny',
+    tools: allow.length > 0 ? allow : strings(tools?.['deny']),
+    keptDeny: allow.length > 0 ? strings(tools?.['deny']) : [],
+    servers: objects(record['mcpServers']).map((server) => {
+      return {
+        name: textOf(server, 'name'),
+        command: textOf(server, 'command'),
+        args: strings(server['args']),
+      };
+    }),
+    canAsk: strings(record['permissions']).includes('inbox.ask'),
+  };
+}
+
+/**
+ * Read the allowed models from the explicit policy.
+ *
+ * @param policy - Saved model policy, if any.
+ * @returns Allowed models.
+ */
+function policyModels(policy: Data | null): ModelChoice[] {
+  const choices: ModelChoice[] = [];
+  const entries = objects(policy?.['entries']);
+  for (const entry of entries) {
+    const { provider } = entry;
+    const id = textOf(entry, 'id');
+    if (id !== '' && isProvider(provider)) {
+      choices.push({ id, provider, model: textOf(entry, 'model', id), efforts: strings(entry['efforts']) });
+    }
+  }
+  return choices;
+}
+
+/**
+ * Secret names granted to each type.
+ *
+ * @param secrets - Snapshot secrets block.
+ * @returns Names keyed by type.
+ */
+function grantsByType(secrets: Data | null): Record<string, string[]> {
+  const byType: Record<string, string[]> = {};
+  const entries = objects(secrets?.['entries']);
+  for (const entry of entries) {
+    const grants = strings(entry['grants']);
+    for (const type of grants) {
+      byType[type] = [...(byType[type] ?? []), textOf(entry, 'name')];
+    }
+  }
+  return byType;
+}
+
+/**
+ * Read the saved types and seat members.
+ *
+ * @param organization - Saved organization, if any.
+ * @returns Editable types and members.
+ */
+function readOrganization(organization: Data | null): Pick<RolesModel, 'types' | 'members'> {
+  const types: TypeDraft[] = [];
+  const members: MemberDraft[] = [];
+  if (organization === null) {
+    return { types, members };
+  }
+  const saved = Object.entries(asData(organization['types']) ?? {});
+  for (const [name, value] of saved) {
+    const record = asData(value);
+    if (record !== null) {
+      types.push(typeDraft(name, record));
+    }
+  }
+  const seats = Object.entries(asData(organization['members']) ?? {});
+  for (const [role, value] of seats) {
+    const record = asData(value);
+    if (record !== null) {
+      members.push({ role, type: textOf(record, 'type'), reportsTo: optionalText(record, 'reportsTo') });
+    }
+  }
+  return { types, members };
+}
+
+/**
+ * Read the broker's editor choices.
+ *
+ * @param catalog - Snapshot roles block, if any.
+ * @returns Revision, skills and tools the editor may offer.
+ */
+function readCatalog(catalog: Data | null): RolesCatalog {
+  return {
+    revision: optionalText(catalog, 'revision'),
+    skills: strings(catalog?.['skills']),
+    tools: objects(catalog?.['tools']).map((tool) => ({ name: textOf(tool, 'name'), seats: strings(tool['seats']) })),
+    native: strings(catalog?.['native']),
+  };
+}
+
+/**
+ * Read the Roles view model from a snapshot.
+ *
+ * @param snapshot - Validated live snapshot.
+ * @returns Saved organization, catalog and allowed models.
+ */
+export function readRoles(snapshot: unknown): RolesModel {
+  const factory = asData(asData(snapshot)?.['factory']) ?? {};
+  const settings = asData(factory['settings']);
+  const jobs = objects(factory['jobs']);
+  return {
+    isConfigured: settings !== null,
+    isPaused: factory['active'] !== true && jobs.every((job) => job['state'] !== 'running'),
+    ...readOrganization(asData(settings?.['organization'])),
+    catalog: readCatalog(asData(factory['roles'])),
+    models: policyModels(asData(settings?.['modelPolicy'])),
+    secrets: grantsByType(asData(factory['secrets'])),
+  };
+}
+
+/**
  * Seats that use a type.
  *
  * @param members - Seat members.
@@ -162,6 +365,7 @@ export function blankType(name: string): TypeDraft {
     effort: null,
     toolMode: 'deny',
     tools: [],
+    keptDeny: [],
     servers: [],
     canAsk: false,
   };
@@ -198,6 +402,209 @@ export function argumentLines(text: string): string[] {
 }
 
 /**
+ * Problems with one server.
+ *
+ * @param server - Draft server.
+ * @returns Problems, empty when valid.
+ */
+function serverProblems(server: ServerDraft): string[] {
+  const problems: string[] = [];
+  if (!SERVER_NAME.test(server.name) || server.name === 'agentmesh') {
+    problems.push(
+      t('MCP server name "{name}" must be lower case letters, digits, - or _, and not agentmesh.', {
+        name: server.name,
+      }),
+    );
+  }
+  const isLiteral =
+    server.command !== '' &&
+    server.command.trim() === server.command &&
+    SHELL_CHARACTERS.every((character) => !server.command.includes(character));
+  if (!isLiteral) {
+    const label = server.name === '' ? '(unnamed)' : server.name;
+    problems.push(t('MCP server {label}: give one executable, not a shell command.', { label }));
+  }
+  return problems;
+}
+
+/**
+ * Problems with one type's model choice.
+ *
+ * @param type - Draft type.
+ * @param models - Allowed models.
+ * @returns Problems, empty when consistent.
+ */
+function modelProblems(type: TypeDraft, models: readonly ModelChoice[]): string[] {
+  if (type.modelId === null) {
+    return [];
+  }
+  const model = models.find((candidate) => candidate.id === type.modelId);
+  if (model === undefined) {
+    return [t('{name}: the chosen model is no longer allowed by the model policy.', { name: type.name })];
+  }
+  if (type.provider !== null && type.provider !== model.provider) {
+    return [
+      t('{name}: {model} is a {provider} model, but the role waits for {provider2}.', {
+        name: type.name,
+        model: model.model,
+        provider: model.provider,
+        provider2: type.provider,
+      }),
+    ];
+  }
+  return type.effort === null || model.efforts.includes(type.effort)
+    ? []
+    : [
+        t('{name}: {model} does not offer {effort} effort.', {
+          name: type.name,
+          model: model.model,
+          effort: type.effort,
+        }),
+      ];
+}
+
+/**
+ * Problems with one type, before the broker checks it.
+ *
+ * @param type - Draft type.
+ * @param model - Current view model.
+ * @returns Problems, empty when the type can be saved.
+ */
+export function typeProblems(type: TypeDraft, model: RolesModel): string[] {
+  const problems: string[] = [];
+  if (!NAME.test(type.name)) {
+    problems.push(t('Type names use lower case letters, digits, - or _ and start with a letter or digit.'));
+  }
+  if (type.label.trim() === '' || type.label.length > LABEL_MAX) {
+    problems.push(
+      t('{name}: give a label of at most {labelMax} characters.', { name: type.name, labelMax: LABEL_MAX }),
+    );
+  }
+  if (type.skills.length > MAX_SKILLS) {
+    problems.push(t('{name}: prioritize at most {maxSkills} skills.', { name: type.name, maxSkills: MAX_SKILLS }));
+  }
+  const unknown = type.skills.filter((skill) => !model.catalog.skills.includes(skill));
+  if (unknown.length > 0) {
+    problems.push(t('{name}: {skills} is not a reviewed skill.', { name: type.name, skills: unknown.join(', ') }));
+  }
+  if (type.servers.length > MAX_SERVERS) {
+    problems.push(t('{name}: at most {maxServers} MCP servers.', { name: type.name, maxServers: MAX_SERVERS }));
+  }
+  const serverNames = new Set(type.servers.map((server) => server.name));
+  if (serverNames.size !== type.servers.length) {
+    problems.push(t('{name}: MCP server names must be unique.', { name: type.name }));
+  }
+  return [
+    ...problems,
+    ...type.servers.flatMap((server) => serverProblems(server)),
+    ...modelProblems(type, model.models),
+  ];
+}
+
+/**
+ * Problems with the whole organization draft.
+ *
+ * @param types - Draft types.
+ * @param members - Draft members.
+ * @param model - Current view model.
+ * @returns Problems, empty when the draft can be saved.
+ */
+export function organizationProblems(
+  types: readonly TypeDraft[],
+  members: readonly MemberDraft[],
+  model: RolesModel,
+): string[] {
+  const names = new Set(types.map((type) => type.name));
+  const problems = types.flatMap((type) => typeProblems(type, model));
+  if (names.size !== types.length) {
+    problems.push(t('Type names must be unique.'));
+  }
+  for (const member of members) {
+    if (!names.has(member.type)) {
+      problems.push(t('{role} uses a type that no longer exists.', { role: member.role }));
+    }
+  }
+  return problems;
+}
+
+/**
+ * The saved form of one type.
+ *
+ * @param type - Draft type.
+ * @returns Organization type record.
+ */
+function savedType(type: TypeDraft): Data {
+  return {
+    label: type.label.trim(),
+    instructions: type.instructions,
+    skills: type.skills,
+    minimumTier: type.minimumTier,
+    provider: type.provider,
+    model: type.modelId === null ? null : { entryId: type.modelId, effort: type.effort },
+    // Deny rules kept beside an allow list still apply, and still apply when the operator switches to a deny list.
+    tools:
+      type.toolMode === 'allow'
+        ? { allow: type.tools, deny: type.keptDeny }
+        : { allow: [], deny: union(type.tools, type.keptDeny) },
+    mcpServers: type.servers.map((server) => ({ name: server.name, command: server.command, args: server.args })),
+    permissions: type.canAsk ? ['inbox.ask'] : [],
+  };
+}
+
+/**
+ * Both lists' entries once, in order.
+ *
+ * @param first - Entries kept first.
+ * @param second - Entries added after them.
+ * @returns Distinct entries.
+ */
+function union(first: readonly string[], second: readonly string[]): string[] {
+  const all = new Set(first);
+  for (const entry of second) {
+    all.add(entry);
+  }
+  return [...all];
+}
+
+/** An empty model before the first snapshot. */
+export const EMPTY_ROLES: RolesModel = {
+  isConfigured: false,
+  isPaused: false,
+  types: [],
+  members: [],
+  catalog: { revision: null, skills: [], tools: [], native: [] },
+  models: [],
+  secrets: {},
+};
+
+/**
+ * The revision-checked organization save.
+ *
+ * @param revision - Revision the draft was edited from.
+ * @param types - Draft types.
+ * @param members - Draft members.
+ * @returns Operator control.
+ */
+export function rolesSaveInput(
+  revision: string,
+  types: readonly TypeDraft[],
+  members: readonly MemberDraft[],
+): { readonly operation: 'factory_roles_save'; readonly input: Data } {
+  return {
+    operation: 'factory_roles_save',
+    input: {
+      expectedRevision: revision,
+      organization: {
+        types: Object.fromEntries(types.map((type) => [type.name, savedType(type)])),
+        members: Object.fromEntries(
+          members.map((member) => [member.role, { type: member.type, reportsTo: member.reportsTo }]),
+        ),
+      },
+    },
+  };
+}
+
+/**
  * One line describing a type's model and provider.
  *
  * @param type - Draft type.
@@ -206,10 +613,15 @@ export function argumentLines(text: string): string[] {
  */
 export function modelSummary(type: TypeDraft, models: readonly ModelChoice[]): string {
   const model = models.find((candidate) => candidate.id === type.modelId);
-  const provider = type.provider === null ? 'any provider' : `waits for ${type.provider}`;
-  const chosen = model === undefined ? 'stage default model' : model.model;
-  const effort = type.effort === null ? '' : `, ${type.effort} effort or higher`;
-  return `${chosen}${effort} · ${provider} · at least ${type.minimumTier}`;
+  const provider = type.provider === null ? t('any provider') : t('waits for {provider}', { provider: type.provider });
+  const chosen = model === undefined ? t('stage default model') : model.model;
+  const effort = type.effort === null ? '' : t(', {effort} effort or higher', { effort: type.effort });
+  return t('{chosen}{effort} · {provider} · at least {minimumTier}', {
+    chosen,
+    effort,
+    provider,
+    minimumTier: type.minimumTier,
+  });
 }
 
 /**
@@ -220,9 +632,10 @@ export function modelSummary(type: TypeDraft, models: readonly ModelChoice[]): s
  */
 export function toolSummary(type: TypeDraft): string {
   if (type.tools.length === 0) {
-    return 'Every tool its seats have';
+    return t('Every tool its seats have');
   }
-  return type.toolMode === 'allow'
-    ? `Only ${type.tools.join(', ')} of the kinds listed (MALT or native)`
-    : `All seat tools except ${type.tools.join(', ')}`;
+  return t(
+    type.toolMode === 'allow' ? 'Only {tools} of the kinds listed (MALT or native)' : 'All seat tools except {tools}',
+    { tools: type.tools.join(', ') },
+  );
 }
