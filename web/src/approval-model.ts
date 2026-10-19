@@ -5,6 +5,8 @@
  *
  * @file
  */
+import { t } from './i18n.js';
+
 import type { Delivery, InboxItem, Step } from './console-model.js';
 
 /** Longest note the server accepts. */
@@ -113,12 +115,13 @@ export function targetFromStep(delivery: Delivery, step: Step, open: readonly In
  *
  * @param target - Target of an open dialog.
  * @param open - Current open Inbox items.
- * @returns Whether a matching approval is still open.
+ * @returns Whether a matching approval is still open, for the same head when it binds one.
  */
 export function isPending(target: ApprovalTarget, open: readonly InboxItem[]): boolean {
   const id =
     target.scope === 'delivery' ? `approval:${target.id}:${target.stepId}` : `plan:${target.id}:${target.stepId}`;
-  return open.some((item) => item.id === id);
+  // A reworked delivery reopens the same step at a new head; the old dialog is no longer pending.
+  return open.some((item) => item.id === id && (target.scope !== 'delivery' || item.head === target.head));
 }
 
 /**
@@ -134,10 +137,10 @@ export function approvalInput(
 ): { input: ApprovalInput } | { error: string } {
   const note = decision.note.trim();
   if (note === '' && !decision.approve) {
-    return { error: 'Explain what must change before rejecting.' };
+    return { error: t('Explain what must change before rejecting.') };
   }
   if (note.length > NOTE_MAX) {
-    return { error: `Keep the note under ${String(NOTE_MAX)} characters.` };
+    return { error: t('Keep the note under {noteMax} characters.', { noteMax: NOTE_MAX }) };
   }
   const owner = target.scope === 'delivery' ? { taskId: target.id } : { featureId: target.id };
   return {
