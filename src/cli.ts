@@ -77,6 +77,7 @@ Usage: node src/cli.ts <command> [options]
   factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
   factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
+  factory-worktrees-adopt      Hand .malt/worktrees to this host or container (paused)
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
