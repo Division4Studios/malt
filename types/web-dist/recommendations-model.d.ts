@@ -55,6 +55,18 @@ declare module '*/web/dist/recommendations-model.js' {
     readonly nextCursor: string | null;
   }
 
+  /** One recommendation with its decision context. */
+  interface RecommendationDetail extends RecommendationSummary {
+    /** Surviving ticket of a merge. */
+    readonly survivor: number | null;
+    /** Acceptance moved to the survivor. */
+    readonly transferredAcceptance: readonly string[];
+    /** Dependencies moved to the survivor. */
+    readonly transferredDependencies: readonly number[];
+    /** Affected running assignments. */
+    readonly affectedAssignments: readonly string[];
+  }
+
   /**
    * Validate one list page.
    *
@@ -62,6 +74,14 @@ declare module '*/web/dist/recommendations-model.js' {
    * @returns Valid rows and counts, or null when malformed.
    */
   export function readPage(value: unknown): RecommendationPage | null;
+
+  /**
+   * Validate one detail response.
+   *
+   * @param value - Untrusted response.
+   * @returns The recommendation with its decision context, or null when malformed.
+   */
+  export function readDetail(value: unknown): RecommendationDetail | null;
 
   /**
    * A key that changes exactly when visible content changes.
