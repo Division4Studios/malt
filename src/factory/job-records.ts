@@ -8,6 +8,7 @@ import path from 'node:path';
 
 import { featureWorkflow, stepOf, taskWorkflow } from './pipeline.ts';
 import { LEASE_MS } from './schema.ts';
+import { grantedSecrets } from './vault.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { JobIntent } from './scheduler.ts';
@@ -41,7 +42,7 @@ export function stepProfile(context: FactoryContext, intent: JobIntent, task: Fa
  * @param admitted - Admitted provider family and its frozen routing.
  * @param admitted.provider - Provider family.
  * @param admitted.routing - Routing resolved at admission.
- * @returns Attempt record with a fresh fencing token.
+ * @returns Attempt record with a fresh fencing token and the names of the secrets its role type is granted.
  */
 export function attemptRecord(
   context: FactoryContext,
@@ -61,7 +62,16 @@ export function attemptRecord(
     target: intent.target ?? null,
     id,
     provider,
-    routing,
+    routing:
+      routing.organization === undefined
+        ? routing
+        : {
+            ...routing,
+            organization: {
+              ...routing.organization,
+              secrets: grantedSecrets(context.repository.store, routing.organization.type),
+            },
+          },
     token: randomUUID(),
     state: 'running',
     startedAt: now,
