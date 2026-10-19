@@ -25,6 +25,7 @@ import {
   REPAIR_FINDING_MAX,
   SUMMARY_MAX,
   boundedItems,
+  countedRepairs,
   PATH_MAX,
 } from './repair-schema.ts';
 
@@ -98,7 +99,7 @@ function recordRound(context: FactoryContext, task: FactoryTask, proposed: Repai
     findings: proposed.findings.slice(0, ROUND_FINDINGS).map((finding) => finding.slice(0, REPAIR_FINDING_MAX)),
   };
   const cap = capFor(context.settings, round.kind);
-  const used = task.repairs.filter((previous) => previous.kind === round.kind).length;
+  const used = countedRepairs(task).filter((previous) => previous.kind === round.kind).length;
   const noun = round.kind === 'ci' ? 'CI' : 'merge-conflict';
   if (task.repairs.some((previous) => previous.key === round.key)) {
     block(context, task, `A ${noun} repair left the failing source unchanged. ${round.summary}`);
@@ -193,7 +194,7 @@ export async function didHandleFailedChecks(
  * @returns True at or past the cap.
  */
 function isCapped(context: FactoryContext, task: FactoryTask, kind: RepairRound['kind']): boolean {
-  return task.repairs.filter((previous) => previous.kind === kind).length >= capFor(context.settings, kind);
+  return countedRepairs(task).filter((previous) => previous.kind === kind).length >= capFor(context.settings, kind);
 }
 
 /**
