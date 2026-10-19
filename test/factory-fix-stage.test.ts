@@ -13,6 +13,7 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { completeJob } from '../src/factory/completion.ts';
+import { MERGE_GATE_PENDING } from '../src/factory/merge-path.ts';
 import { startableSteps, taskWorkflow } from '../src/factory/pipeline.ts';
 import { runProcess } from '../src/factory/processes.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
@@ -319,6 +320,7 @@ await test('a fixer rules on every finding, regressions loop back, and verified 
   publishPullRequest(fix);
   const verified = await perform(fix, { role: 'regression-verifier', kind: 'regress', step: 'regress' }, {});
   assert.equal(verified.phase, 'merge_ready');
+  assert.equal(verified.error, MERGE_GATE_PENDING);
   assert.equal(verified.implementation?.head, implementation);
   assert.deepEqual(
     verified.reviews.map((review) => [review.stepId, review.head === implementation]),

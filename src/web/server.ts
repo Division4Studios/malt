@@ -47,6 +47,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
   ['/navigation.js', ['dist/navigation.js', 'text/javascript; charset=utf-8']],
   ['/freshness.js', ['dist/freshness.js', 'text/javascript; charset=utf-8']],
   ['/console-clock.js', ['dist/console-clock.js', 'text/javascript; charset=utf-8']],
+  ['/connection-status.js', ['dist/connection-status.js', 'text/javascript; charset=utf-8']],
   ['/capacity-details.js', ['dist/capacity-details.js', 'text/javascript; charset=utf-8']],
   ['/capacity-view.js', ['dist/capacity-view.js', 'text/javascript; charset=utf-8']],
   ['/admission-ui.js', ['dist/admission-ui.js', 'text/javascript; charset=utf-8']],
@@ -109,13 +110,19 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'onboarding-model',
     'onboarding-ui',
     'settings-model',
+    'recommendations-model',
+    'recommendations-ui',
+    'recommendation-decision',
     'settings-ui',
+    'shell-state',
     'project-views',
     'roles-model',
     'roles-dom',
     'roles-ui',
     'secrets-model',
     'secrets-ui',
+    'capability-model',
+    'capability-ui',
     'step-override-model',
     'workflow-history-model',
     'workflow-history-ui',
@@ -555,6 +562,7 @@ function projectReads(gateway: ProjectGateway): Readonly<Record<string, (project
   return {
     '/api/version': async (scope) => gateway.versions(scope),
     '/api/preflight': async (scope) => gateway.preflight(scope),
+    '/api/capabilities': async (scope) => gateway.capabilities(scope),
   };
 }
 
@@ -617,7 +625,7 @@ async function inspectApi(
       return;
     }
     default: {
-      // Version and preflight reads, then attempt, transcript and cost reads; any other path is unknown (404).
+      // Version, preflight and capability reads, then attempt, transcript and cost reads; else unknown (404).
       const read = projectReads(gateway)[url.pathname];
       json(response, HTTP.ok, read === undefined ? await telemetryRoute(url, gateway) : await read(project));
     }

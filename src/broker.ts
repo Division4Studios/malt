@@ -9,7 +9,8 @@
  *
  * HTTP surface:
  *
- * - `GET /health` returns `{ ok: true, version }` for health checks.
+ * - `GET /health` returns `{ ok: true, version, revision }` for health checks;
+ *   `revision` is the source commit this broker was started from.
  * - `POST /rpc` takes `{ operation, input, credentials }` and returns either
  *   `{ result }` or `{ error: { code, message } }` with a matching status.
  *   An `x-agentmesh-team` header addresses a workspace team; without it the
@@ -30,11 +31,15 @@
 
 import { Buffer } from 'node:buffer';
 import { timingSafeEqual } from 'node:crypto';
-import { once } from 'node:events';
 import http from 'node:http';
 
 import { z } from 'zod/v3';
 
+import { boundPortOf, closeServer, listen } from './broker-server.ts';
+import { PROJECT_OPERATOR, handleCapabilityOperation } from './capability-endpoints.ts';
+import { CapabilityPolicyStore } from './capability-policy.ts';
+import { handleBindingOperation } from './connector-bindings.ts';
+import { isBindingOperation } from './connector-schemas.ts';
 import { fireTrigger } from './factory/automations.ts';
 import {
   AGENT_OPERATIONS,
@@ -43,7 +48,7 @@ import {
   assertManagerScope,
 } from './factory/operator-only.ts';
 import { decideRecommendation } from './factory/recommendation-decisions.ts';
-import { isManagedToolDenied } from './factory/role-handlers.ts';
+import { managedToolGate } from './factory/role-handlers.ts';
 import { FactoryService } from './factory/service.ts';
 import { isTerminalOperation } from './factory/terminal-schema.ts';
 import { ProjectGitHub } from './github.ts';
@@ -54,23 +59,30 @@ import {
   MeshError,
   PROJECT_OPERATION_TIMEOUT_MS,
   errorStatus,
-  isGitHubOperation,
+  isCapabilityOperation,
   isFactoryOperation,
   isLearningOperation,
+  isProjectOperation,
   isOperation,
   parseInput,
 } from './protocol.ts';
+import { sweepRetention } from './retention.ts';
+import { redactResolvedSecrets } from './secrets.ts';
+import { SOURCE_REVISION } from './source-revision.ts';
 import { Store, isPublicOperation, isStoreOperation } from './store.ts';
 import { createTeam, listTeams, loadTeam, normalizeWorkspace } from './teams.ts';
+import { TRIGGER_PATH, triggerCall } from './trigger-request.ts';
 import { Waiters } from './waiters.ts';
 
+import type { CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
+import type { BindingOperation } from './connector-schemas.ts';
 import type { RecommendationOperator } from './factory/recommendation-decisions.ts';
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
 import type { GitHubRunner } from './github.ts';
-import type { GitHubOperation, LearningOperation, Operation } from './protocol.ts';
+import type { CapabilityOperation, GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
 import type { TeamAccess, TeamConfig } from './teams.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -99,8 +111,17 @@ const HTTP_OK = 200;
 /** Mutations requiring the current workspace's designated lead. */
 const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
   'github_connect',
+  'github_section_save',
+  'github_verify',
   'github_create_issue',
   'github_set_status',
+  'github_label_apply',
+  'github_label_manage',
+  'github_milestone_assign',
+  'github_milestone_manage',
+  'github_view_create',
+  'github_view_manage',
+  'github_field_manage',
   'learning_set_skill_state',
 ]);
 
@@ -165,6 +186,8 @@ export interface Team {
   readonly learning: ProjectLearning;
   /** This workspace's GitHub Project integration and operation queue. */
   readonly github: ProjectGitHub;
+  /** This workspace's connector capability policies. */
+  readonly policy: CapabilityPolicyStore;
   /** The team's configuration (token, project ID, ...). */
   readonly config: MeshConfig;
   /** The team's store. */
@@ -219,13 +242,15 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
     return context.home;
   }
   const store = new Store(config, { now: context.now });
-  const github = new ProjectGitHub(config, context.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, context.githubRunner?.(config));
   const team: Team = {
     config,
     store,
     waiters: new Waiters(store),
     github,
+    policy,
     learning,
     factory: new FactoryService(
       config,
@@ -336,11 +361,6 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
   }
 }
 
-/** Loopback webhook path: `/triggers/<trigger id>`. */
-const TRIGGER_PATH = /^\/triggers\/(?<id>[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12})$/v;
-/** Authorization scheme a trigger secret is presented with. */
-const BEARER = 'Bearer ';
-
 /**
  * Fire a webhook trigger. The caller proves itself with the trigger's own
  * secret, not the project token, so a local script can hold one narrowly
@@ -358,16 +378,7 @@ async function handleTrigger(context: BrokerContext, request: IncomingMessage, i
   if (team === undefined) {
     throw new MeshError('UNKNOWN_TEAM', 'No such open team.');
   }
-  const authorization = request.headers.authorization ?? '';
-  const key = request.headers['idempotency-key'];
-  const body = await readJson(request);
-  const isEmpty = typeof body === 'object' && body !== null && Object.keys(body).length === 0;
-  const result = fireTrigger(team.factory.repository, {
-    id,
-    secret: authorization.startsWith(BEARER) ? authorization.slice(BEARER.length) : '',
-    idempotencyKey: typeof key === 'string' ? key : null,
-    payload: isEmpty ? '' : JSON.stringify(body, null, 2),
-  });
+  const result = fireTrigger(team.factory.repository, triggerCall(request.headers, await readJson(request), id));
   team.waiters.notify();
   return result;
 }
@@ -516,11 +527,7 @@ async function handleRpc(
   // Presence expiry runs before every operation so registration and
   // authentication always see current leases.
   team.store.expire();
-  const gate = {
-    actor: (presented: PresentedCredentials) => team.store.execute('whoami', {}, team.store.authenticate(presented)),
-    isToolDenied: (actor: string, name: string) => isManagedToolDenied(team.factory.repository, actor, name),
-  };
-  assertManagedTool(gate, operation, credentials);
+  assertManagedTool(managedToolGate(team.store, team.factory.repository), operation, credentials);
   if (isFactoryOperation(operation)) {
     parseInput(operation, input);
     assertFactoryAuthority(team, operation, credentials, input);
@@ -531,7 +538,7 @@ async function handleRpc(
       credentials === undefined ? null : team.store.authenticate(credentials),
     );
   }
-  if (isLearningOperation(operation) || isGitHubOperation(operation)) {
+  if (isProjectOperation(operation)) {
     response.setTimeout(PROJECT_OPERATION_TIMEOUT_MS);
     return handleProjectOperation(team, operation, input, credentials);
   }
@@ -587,7 +594,7 @@ function assertFactoryAuthority(
  * Execute external or file-backed project coordination without holding SQLite.
  *
  * @param team - Current workspace's services.
- * @param operation - GitHub or learning operation.
+ * @param operation - MCP binding, capability policy, GitHub or learning operation.
  * @param input - Untrusted RPC input.
  * @param credentials - Authenticated bridge identity.
  * @returns Project-scoped operation result.
@@ -595,10 +602,16 @@ function assertFactoryAuthority(
  */
 async function handleProjectOperation(
   team: Team,
-  operation: GitHubOperation | LearningOperation,
+  operation: BindingOperation | CapabilityOperation | GitHubOperation | LearningOperation,
   input: unknown,
   credentials: PresentedCredentials | undefined,
 ): Promise<unknown> {
+  if (isBindingOperation(operation)) {
+    return handleBindingOperation(team, operation, input, credentials);
+  }
+  if (isCapabilityOperation(operation)) {
+    return handleCapabilityOperation(team, operation, input, credentials);
+  }
   parseInput(operation, input);
   if (credentials !== undefined && operation === 'learning_set_skill_state') {
     throw new MeshError('NOT_ORCHESTRATOR', 'Project skill activation and retirement require the human operator.');
@@ -614,9 +627,13 @@ async function handleProjectOperation(
       "Only this workspace's designated lead may change GitHub tickets or adopt project skills.",
     );
   }
+  // Mutations admit only the designated lead above, so agents act as team-lead;
+  // other credentialed callers reach here only for reads, which need no capability.
+  const principal: CapabilityPrincipal =
+    actor === null ? PROJECT_OPERATOR : { kind: 'agent', id: actor, role: 'team-lead' };
   const result = isLearningOperation(operation)
     ? await team.learning.execute(operation, input, actor ?? '')
-    : await team.github.execute(operation, input);
+    : await team.github.execute(principal, operation, input);
   if (!READ_PROJECT_OPERATIONS.has(operation)) {
     team.store.transaction(() => {
       team.store.event('PROJECT_OPERATION_COMPLETED', actor, { operation });
@@ -696,7 +713,7 @@ async function respond(
     throw new MeshError('FORBIDDEN_ORIGIN', 'Browser requests are not supported.');
   }
   if (record.method === 'GET' && record.url === '/health') {
-    sendJson(response, HTTP_OK, { ok: true, version: VERSION });
+    sendJson(response, HTTP_OK, { ok: true, version: VERSION, revision: SOURCE_REVISION });
     return;
   }
   const triggerId = record.method === 'POST' ? TRIGGER_PATH.exec(record.url ?? '')?.groups?.['id'] : undefined;
@@ -730,7 +747,7 @@ async function handleRequest(
     const code = isKnown ? error.code : 'INTERNAL';
     log(isKnown ? 'warn' : 'error', 'broker', 'rpc_failed', { operation: operationName, code });
     sendJson(response, isKnown ? error.status : errorStatus('INTERNAL'), {
-      error: { code, message: isKnown ? error.message : 'Internal broker error.' },
+      error: { code, message: isKnown ? redactResolvedSecrets(error.message) : 'Internal broker error.' },
     });
   } finally {
     if (request.url !== '/health') {
@@ -758,7 +775,8 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const port = options.port ?? (urlPort === '' ? DEFAULT_HTTP_PORT : Number(urlPort));
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
-  const github = new ProjectGitHub(config, options.githubRunner?.(config));
+  const policy = new CapabilityPolicyStore(store, config);
+  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy);
   const learning = new ProjectLearning(config, options.githubRunner?.(config));
   const context: BrokerContext = {
     home: {
@@ -766,6 +784,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       store,
       waiters,
       github,
+      policy,
       learning,
       factory: new FactoryService(
         config,
@@ -797,22 +816,21 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
 
   // Periodically expire silent agents even when no requests arrive, and wake
   // anyone waiting on a presence-dependent state.
-  const sweep = setInterval(
-    () => {
-      for (const team of allTeams()) {
-        try {
-          team.store.expire();
-          team.waiters.notify();
-        } catch (error) {
-          log('error', 'broker', 'presence_sweep_failed', {
-            team: team.config.team,
-            code: error instanceof MeshError ? error.code : 'ERROR',
-          });
-        }
+  const sweepMs = Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS);
+  const sweep = setInterval(() => {
+    for (const team of allTeams()) {
+      try {
+        team.store.expire();
+        sweepRetention(team.store);
+        team.waiters.notify();
+      } catch (error) {
+        log('error', 'broker', 'presence_sweep_failed', {
+          team: team.config.team,
+          code: error instanceof MeshError ? error.code : 'ERROR',
+        });
       }
-    },
-    Math.min(config.heartbeatMs, MAX_SWEEP_INTERVAL_MS),
-  );
+    }
+  }, sweepMs);
   // The sweep alone must never keep the process alive.
   sweep.unref();
 
@@ -871,49 +889,4 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
       }
     },
   };
-}
-
-/**
- * Start listening, resolving once bound or rejecting on a bind error.
- *
- * @param server - The HTTP server.
- * @param port - The port to bind.
- * @param host - The interface to bind.
- * @returns A promise settled when listening starts or fails.
- */
-async function listen(server: http.Server, port: number, host: string): Promise<void> {
-  const { promise, resolve, reject } = Promise.withResolvers<undefined>();
-  server.once('error', reject);
-  server.listen(port, host, () => {
-    server.removeListener('error', reject);
-    resolve(undefined);
-  });
-  return promise;
-}
-
-/**
- * Stop accepting connections and wait for in-flight requests to finish.
- *
- * @param server - The HTTP server.
- */
-async function closeServer(server: http.Server): Promise<void> {
-  // Subscribe before closing so the 'close' event cannot be missed.
-  const closed = once(server, 'close');
-  server.close();
-  await closed;
-}
-
-/**
- * Read the TCP port a listening server is bound to.
- *
- * @param server - The broker's server, after `listen` succeeded.
- * @returns The TCP port number, which the OS chose when port 0 was requested.
- * @throws {Error} When the server is not bound to a TCP address.
- */
-function boundPortOf(server: http.Server): number {
-  const address = server.address();
-  if (address === null || typeof address === 'string') {
-    throw new Error('Broker is not listening on a TCP port.');
-  }
-  return address.port;
 }
