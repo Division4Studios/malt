@@ -5,6 +5,7 @@
  *
  * @file
  */
+import { phrase, translated } from './i18n.js';
 
 /** Milliseconds per second. */
 const SECOND_MS = 1000;
@@ -36,6 +37,28 @@ const CORE_ROLES = [
   'final-tester',
   'learning-steward',
 ] as const;
+
+/**
+ * Every assignment kind an attempt can record, in the broker's `JOB_KINDS`
+ * order, with its readable label. A test keeps the keys equal to the broker's
+ * list, so filters and labels never drift from it.
+ */
+export const ATTEMPT_KINDS: Readonly<Record<string, string>> = translated({
+  plan: phrase('Specification and plan'),
+  refine: phrase('Plan refinement'),
+  plan_review: phrase('Plan review'),
+  revalidate: phrase('Brief revalidation'),
+  develop: phrase('Development'),
+  review: phrase('Review'),
+  adjudicate: phrase('Fix and rulings'),
+  document: phrase('Documentation'),
+  regress: phrase('Regression check'),
+  final: phrase('Final check'),
+  verify: phrase('Merge verification'),
+  learn: phrase('Learning research'),
+  skill: phrase('Skill review'),
+  triage: phrase('Triage'),
+});
 /** Fixed categorical slot per core role; specialist seats share the neutral "Other" slot. */
 export const ROLE_SLOTS: ReadonlyMap<string, number> = new Map(CORE_ROLES.map((role, index) => [role, index + 1]));
 /** Series key and label for roles without their own slot. */
@@ -222,7 +245,8 @@ export function stackBars(
       const extent = (value / max) * height;
       const visible = Math.max(extent - gap, 1);
       segments.push({ series, value, y: baseline - visible, height: visible });
-      baseline -= extent;
+      // A segment raised to the minimum height still takes its gap, so the next never overlaps it.
+      baseline -= Math.max(extent, visible + gap);
     }
     return { day: entry.day, total: entry.totalUsd, segments };
   });
