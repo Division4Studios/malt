@@ -18,6 +18,14 @@ import { SecretRedactor } from '../secrets.ts';
 import { writeAtomic } from '../summary.ts';
 
 import { credentialValues } from './authentication.ts';
+import {
+  boundCredentialValues,
+  claudeBoundServers,
+  claudeBoundTools,
+  codexBoundServers,
+  launchBindings,
+} from './bound-tools.ts';
+import { copilotArguments, copilotCandidate, copilotResultContract, personalServers } from './copilot.ts';
 import { livenessPolicy } from './liveness-schema.ts';
 import { nativeModelArguments } from './provider-selection.ts';
 import { claudeQuota, claudeWindows } from './quota-windows.ts';
@@ -27,7 +35,7 @@ import { CODE_JOB_KINDS } from './seats.ts';
 import type { SubscriptionWindow } from './quota-windows.ts';
 import type { MeshConfig } from '../config.ts';
 import type { ProcessResult, ProcessRunner, ProcessSpec } from './processes.ts';
-import type { AgentResult, FactoryConfig, FactoryJob } from './schema.ts';
+import type { AgentResult, FactoryConfig, FactoryJob, Provider } from './schema.ts';
 /** Extra time the provider process gets beyond the supervisor's liveness ceiling. */
 const PROCESS_GRACE_MS = 60_000;
 /** Named milliseconds per second bound. */
@@ -35,10 +43,19 @@ const MILLISECONDS_PER_SECOND = 1000;
 
 /** MCP CLI entry point independent of the target repository. */
 const CLI = path.resolve(import.meta.dirname, '..', 'cli.ts');
+/** Model vendor label each provider's bridge registers with. */
+const BRIDGE_PROVIDERS: Readonly<Record<Provider, string>> = {
+  codex: 'openai',
+  claude: 'anthropic',
+  copilot: 'github',
+};
+/** Copilot assistant message payload carrying the final answer. */
+const copilotMessageSchema = z.object({ content: z.string() });
 /** Provider event envelope, validated before any nested field is read. */
 const eventSchema = z
   .object({
     type: z.string().optional(),
+    data: z.unknown().optional(),
     subtype: z.string().optional(),
     usage: z.unknown().optional(),
     structured_output: z.unknown().optional(),
@@ -55,6 +72,8 @@ const usageSchema = z.object({
   cache_creation_input_tokens: z.number().nonnegative().default(0),
   cache_read_input_tokens: z.number().nonnegative().default(0),
 });
+/** A usage object that actually reports token counts. */
+const tokenReportSchema = z.union([z.object({ input_tokens: z.number() }), z.object({ output_tokens: z.number() })]);
 /** Verified rate-limit error code; prose mentioning limits is not telemetry. */
 const rateErrorSchema = z.object({ type: z.string().optional(), code: z.string().optional() });
 /** Claude's documented native rate-limit event. */
@@ -212,7 +231,7 @@ export function agentLaunch(
     '--runtime',
     'factory-managed',
     '--provider',
-    record.provider === 'codex' ? 'openai' : 'anthropic',
+    BRIDGE_PROVIDERS[record.provider],
     '--role',
     record.role,
   ];
@@ -222,6 +241,7 @@ export function agentLaunch(
   }
   const limits = settings.providers[record.provider];
   const native = nativeTools(record);
+  const bindings = launchBindings(mesh.directory, record);
   if (record.provider === 'codex') {
     const codexArguments = [
       'exec',
@@ -267,6 +287,7 @@ export function agentLaunch(
       '-c',
       'mcp_servers.agentmesh.tool_timeout_sec=120',
       ...codexServers(record),
+      ...codexBoundServers(bindings),
     ];
     if (native.canEdit) {
       codexArguments.push('--add-dir', record.artifact, '-c', 'sandbox_workspace_write.network_access=true');
@@ -274,10 +295,24 @@ export function agentLaunch(
     codexArguments.push(...selectionArguments, '-');
     return { args: codexArguments, output };
   }
+  if (record.provider === 'copilot') {
+    const personal = personalServers();
+    return {
+      args: copilotArguments({
+        job: record,
+        settings,
+        bridge: bridgeArguments,
+        selection: selectionArguments,
+        isDeveloper: native.canEdit,
+        personal,
+      }),
+      output,
+    };
+  }
   const mcpFile = path.join(record.artifact, 'claude-mcp.json');
   writeAtomic(
     mcpFile,
-    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...roleServers(record) } }, null, 2)}\n`,
+    `${JSON.stringify({ mcpServers: { agentmesh: { command: process.execPath, args: bridgeArguments }, ...claudeBoundServers(bindings), ...roleServers(record) } }, null, 2)}\n`,
   );
   const tools = native.claude;
   const learningTools =
@@ -293,6 +328,7 @@ export function agentLaunch(
       .split(',')
       .filter((tool) => tool !== '' && denied.every((operation) => tool !== `mcp__agentmesh__mesh_${operation}`)),
     ...(record.routing?.organization?.mcpServers ?? []).map((server) => `mcp__${server.name}`),
+    ...claudeBoundTools(bindings),
   ].join(',');
   const args = [
     ...selectionArguments,
@@ -308,7 +344,7 @@ export function agentLaunch(
     mcpFile,
     '--strict-mcp-config',
     '--permission-mode',
-    native.canEdit && limits.developerAccess === 'full-access' ? 'bypassPermissions' : 'dontAsk',
+    claudePermissionMode(native.canEdit && limits.developerAccess === 'full-access', bindings.length > 0),
     '--tools',
     tools,
     '--allowedTools',
@@ -318,6 +354,18 @@ export function agentLaunch(
     '--no-session-persistence',
   ];
   return { args, output };
+}
+
+/**
+ * Claude's permission mode for one launch. Bypass mode ignores --allowedTools,
+ * so it is withheld while a bound server could expose tools a human did not approve.
+ *
+ * @param isFullAccess - Whether this developer launch has full access.
+ * @param hasBindings - Whether approved connector bindings are attached.
+ * @returns `bypassPermissions` for an unbound full-access developer, else `dontAsk`.
+ */
+function claudePermissionMode(isFullAccess: boolean, hasBindings: boolean): string {
+  return isFullAccess && !hasBindings ? 'bypassPermissions' : 'dontAsk';
 }
 
 /**
@@ -423,7 +471,7 @@ export async function runAgent(request: AgentRequest, runner: ProcessRunner): Pr
     file: request.settings.providers[request.job.provider].executable,
     args: launch.args,
     cwd: request.cwd,
-    input: request.prompt,
+    input: request.job.provider === 'copilot' ? `${request.prompt}${copilotResultContract()}` : request.prompt,
     artifact: request.job.artifact,
     secrets: [
       request.mesh.token,
@@ -431,6 +479,7 @@ export async function runAgent(request: AgentRequest, runner: ProcessRunner): Pr
       identity.secret,
       ...credentialValues(process.env),
       ...Object.values(granted),
+      ...boundCredentialValues(launchBindings(request.mesh.directory, request.job)),
     ],
     ...(Object.keys(granted).length > 0 && { secretEnv: granted }),
     // The supervisor's liveness ceiling stops the attempt first; this bound only backs it up.
@@ -523,8 +572,9 @@ function rateEvent(state: StreamState, event: z.output<typeof eventSchema>, now:
 function absorbEvent(state: StreamState, event: z.output<typeof eventSchema>, now: number): void {
   const telemetry = state;
   const record = event;
+  // Copilot's usage object carries request counts only; never invent token totals from defaults.
   const usage = usageSchema.safeParse(record.usage);
-  if (usage.success) {
+  if (usage.success && tokenReportSchema.safeParse(record.usage).success) {
     telemetry.usageTokens =
       usage.data.input_tokens +
       usage.data.output_tokens +
@@ -536,6 +586,14 @@ function absorbEvent(state: StreamState, event: z.output<typeof eventSchema>, no
   }
   if (record.structured_output !== undefined) {
     telemetry.candidate = record.structured_output;
+  }
+  if (record.type === 'session.error') {
+    telemetry.isFailed = true;
+  }
+  const message = record.type === 'assistant.message' ? copilotMessageSchema.safeParse(record.data) : null;
+  if (message?.success === true) {
+    // The last Copilot message is its final answer; earlier ones narrate tool use.
+    telemetry.candidate = copilotCandidate(message.data.content);
   }
   rateEvent(telemetry, record, now);
 }

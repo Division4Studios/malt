@@ -15,6 +15,10 @@ const SHELL = [
   '/views.js',
   '/worker-ui.js',
   '/learning-ui.js',
+  '/pulls-ui.js',
+  '/pulls-controller.js',
+  '/manager-ui.js',
+  '/manager-controller.js',
   '/pwa.js',
   '/brand-ui.js',
   '/workflow-ui.js',
@@ -25,6 +29,7 @@ const SHELL = [
   '/navigation.js',
   '/freshness.js',
   '/console-clock.js',
+  '/connection-status.js',
   '/capacity-details.js',
   '/capacity-view.js',
   '/admission-ui.js',
@@ -81,13 +86,19 @@ const SHELL = [
   '/onboarding-model.js',
   '/onboarding-ui.js',
   '/settings-model.js',
+  '/recommendations-model.js',
+  '/recommendations-ui.js',
+  '/recommendation-decision.js',
   '/settings-ui.js',
+  '/shell-state.js',
   '/project-views.js',
   '/roles-model.js',
   '/roles-dom.js',
   '/roles-ui.js',
   '/secrets-model.js',
   '/secrets-ui.js',
+  '/capability-model.js',
+  '/capability-ui.js',
   '/step-override-model.js',
   '/workflow-history-model.js',
   '/workflow-history-ui.js',
@@ -124,6 +135,10 @@ interface LifecycleEvent extends Event {
 interface RequestEvent extends Event {
   /** Actual fetch request. */
   readonly request: Request;
+  /** Window that made the request; empty for navigations. */
+  readonly clientId?: string;
+  /** Window a navigation will create. */
+  readonly resultingClientId?: string;
   /** Supply a network or public-shell response. */
   readonly respondWith: (response: Promise<Response>) => void;
 }
@@ -154,23 +169,83 @@ function isRequestEvent(event: Event): event is RequestEvent {
 }
 
 /**
- * Prefer the latest public shell, with offline cache fallback.
+ * Windows whose page loaded from this worker's cache. They keep loading every
+ * module from the same revision, even once the network is back, so a page never
+ * mixes an offline shell with newer modules. Each pin is also recorded in the
+ * revision's own cache, so it survives the browser stopping an idle worker, and
+ * it is retired with that revision.
+ */
+const offlineWindows = new Set<string>();
+/** Cache key prefix of recorded pins; never a shell path, so never served. */
+const PIN_PREFIX = '/__malt/offline-window/';
+
+/**
+ * Whether a window loaded its page from this revision's cache.
+ *
+ * @param window - Window id.
+ * @returns True once pinned, including by an earlier run of this worker.
+ */
+async function isPinned(window: string): Promise<boolean> {
+  if (offlineWindows.has(window)) {
+    return true;
+  }
+  const cache = await caches.open(CACHE);
+  const marker = await cache.match(`${PIN_PREFIX}${encodeURIComponent(window)}`);
+  if (marker !== undefined) {
+    offlineWindows.add(window);
+  }
+  return marker !== undefined;
+}
+
+/**
+ * Pin a window to this revision because its page came from the cache.
+ *
+ * @param window - Window id.
+ */
+async function pin(window: string): Promise<void> {
+  offlineWindows.add(window);
+  const cache = await caches.open(CACHE);
+  await cache.put(`${PIN_PREFIX}${encodeURIComponent(window)}`, new Response(''));
+}
+
+/**
+ * One shell asset from this worker's own revision cache, never another revision's.
  *
  * @param request - Exact public shell request.
- * @returns Network response, or its known cached shell.
+ * @returns Cached response, or an explicit unavailable answer.
  */
-async function publicAsset(request: Request): Promise<Response> {
+async function cachedAsset(request: Request): Promise<Response> {
+  const cache = await caches.open(CACHE);
+  const cached = await cache.match(request);
+  return cached ?? new Response('Local console unavailable. Reconnect to the daemon.', { status: 503 });
+}
+
+/**
+ * Prefer the latest public shell, falling back to this revision's cache offline.
+ * Only a page that itself came from the cache pins its window; a module that
+ * fails while its page came from the network is answered from the cache once.
+ *
+ * @param request - Exact public shell request.
+ * @param window - Window the response is for, if known.
+ * @returns Network response, or this revision's cached shell.
+ */
+async function publicAsset(request: Request, window: string): Promise<Response> {
+  if (window !== '' && (await isPinned(window))) {
+    return cachedAsset(request);
+  }
   try {
     return await fetch(request);
   } catch {
-    const cached = await caches.match(request);
-    return cached ?? new Response('Local console unavailable. Reconnect to the daemon.', { status: 503 });
+    if (window !== '' && request.mode === 'navigate') {
+      await pin(window);
+    }
+    return cachedAsset(request);
   }
 }
-/** Install one complete public shell before replacing the prior cache. */
+/** Install one complete public shell, fetched past the HTTP cache, before replacing the prior cache. */
 async function installShell(): Promise<void> {
   const cache = await caches.open(CACHE);
-  await cache.addAll(SHELL);
+  await cache.addAll(SHELL.map((asset) => new Request(asset, { cache: 'reload' })));
 }
 
 addEventListener('install', (event: Event) => {
@@ -196,7 +271,8 @@ addEventListener('fetch', (event: Event) => {
   ) {
     return;
   }
-  event.respondWith(publicAsset(event.request));
+  const window = event.request.mode === 'navigate' ? (event.resultingClientId ?? '') : (event.clientId ?? '');
+  event.respondWith(publicAsset(event.request, window));
 });
 /** Retire older public shell revisions only; never touch unrelated caches. */
 async function retireCaches(): Promise<void> {

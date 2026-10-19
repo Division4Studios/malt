@@ -26,7 +26,7 @@ The console includes bounded Activity history, traceable handoff/conversation pr
 
 ## Start natively
 
-Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex/Claude CLIs with subscription login; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
+Requirements: Git, Node.js 24.15.0+ in the 24.x line, and npm. Use the latest supported Node 24 LTS update (the audited container is 24.22.0); see [dependency policy](docs/dependency-policy.md). Managed jobs additionally need the native Codex, Claude Code or GitHub Copilot CLIs with subscription login. Local delivery keeps issues, pull requests and merges in a protected hub on this machine and needs no hosted service; GitHub delivery needs `gh` authentication and an explicitly selected Project. Fixture tests do not require paid agents.
 
 ```sh
 git clone https://github.com/Division4Studios/malt.git
@@ -42,6 +42,14 @@ Run `doctor` first. It checks Node.js, Git, the Claude Code and Codex CLIs and t
 Open `http://127.0.0.1:4318/`, pair using the code printed by the owning UI process (it survives restarts; `node src/cli.ts pairing-code --project <path>` shows it again and `--rotate` re-issues it), and select **Project** to verify the repository, GitHub connection, validation commands and resource limits. Configure before starting dispatch. Use your browser's install control for a standalone window where supported. On Windows, use a quoted absolute path such as `"C:\work\your-project"`.
 
 See [complete setup and provider authentication](docs/operator-console.md), [GitHub coordination](docs/software-factory.md), and [Docker startup](#quick-start-with-docker-compose). Keep `.malt/`, provider credentials and pairing codes private.
+
+### Deliver without GitHub
+
+Set `"delivery": "local"` in the factory policy. MALT creates a protected local hub, keeps issues and pull requests in `.malt/`, squash-merges reviewed heads with an expected-base check and fast-forwards your checkout on request. **Workflow → Pull requests** shows checks, discussion and diffs. Copilot can join as a third provider, and advanced deliveries can optionally run as Codex Cloud tasks with local review and merge. See [local delivery, Copilot and cloud sessions](docs/local-delivery.md).
+
+### Talk to a persistent delivery manager
+
+**Mission → Manager** runs one long-lived Claude Code or Codex session per project on your subscription. It reads the mission brief, queues and steers objectives through the same gated operations you use, and brings blocked work to you as one-click decisions. Every message shows whether it was queued, received or answered. Urgent reports wake it immediately; routine progress is batched into digests, so it spends no turns idling. See [delivery manager](docs/delivery-manager.md).
 
 ### Interactive scratch terminals
 
@@ -320,7 +328,7 @@ Human stop/pause instructions always take precedence. These prompts guide partic
 
 ## Run without Docker
 
-Requires Node.js 24.15 or newer. Node executes backend TypeScript through built-in type stripping; `npm run build:web` separately compiles the browser application and service worker. The backend uses built-in `node:sqlite`; some Node 24 releases display an experimental-feature warning on stderr.
+Requires Node.js 24.15 or newer. Node executes backend TypeScript through built-in type stripping; `npm run build:web` separately compiles the browser application and service worker. The backend uses built-in `node:sqlite`; some Node 24 releases display an experimental-feature warning on stderr, which is harmless (see [compatibility](docs/compatibility.md)).
 
 ```sh
 npm ci --ignore-scripts
@@ -485,7 +493,7 @@ npm run test:docker  # end-to-end test of the Docker deployment
 
 **Documented code.** Every file opens with a `@file` header that explains its role. Every function, method, class, interface, type alias, interface member and module-level constant has a JSDoc description, with `@param`, `@returns` and `@throws` where they apply. Inline comments explain ordering, invariants and failure handling. The jsdoc rules enforce all of this.
 
-**Validated boundaries.** Data entering the process is validated at the point it arrives: with Zod for HTTP request bodies, broker responses, configuration and identity files, and every row read from SQLite; with small hand-written validators where no Zod boundary exists, so they add no package. Unchecked (narrowing) type assertions appear in exactly three places: the client's two network boundaries with this code base's own broker, and the test helper that decodes MCP tool results. Each carries a lint suppression with a written justification.
+**Validated boundaries.** Data entering the process is validated at the point it arrives: with Zod for HTTP request bodies, broker responses, configuration and identity files, and every row read from SQLite; with small hand-written validators for newer files such as the local delivery ledger and cloud journal, so they add no package. Unchecked (narrowing) type assertions appear in exactly three places: the client's two network boundaries with this code base's own broker, and the test helper that decodes MCP tool results. Each carries a lint suppression with a written justification.
 
 **Few, locked-down dependencies.** The browser app has no npm packages. The backend has three, each for one contained role: Zod validates input, the MCP SDK speaks the agent protocol over stdio, and `node-pty` drives scratch terminals in an isolated process. Runtime code runs with your account and can see your project, so the packages are pinned to exact versions with lockfile integrity hashes, installed with scripts disabled, audited at every severity, and license-checked on every pull request (MIT, ISC, BSD or Apache-2.0 only). New features add no runtime packages. See the [dependency policy](docs/dependency-policy.md).
 
@@ -514,6 +522,8 @@ Remaining work includes arbitrary additional managed specialist seats, complete 
 | [Workflow and state transitions](docs/workflow.md)                 | Tool examples, idle decisions, wait modes, races and recovery. |
 | [MCP and RPC reference](docs/api.md)                               | Arguments, responses, errors and the HTTP boundary.            |
 | [Architecture and source tour](docs/architecture.md)               | Modules, transactions, identity and trust.                     |
+| [Delivery manager](docs/delivery-manager.md)                       | The persistent manager session, its authority and limits.      |
+| [Local delivery](docs/local-delivery.md)                           | Local hub, pull requests, Copilot and Codex Cloud sessions.    |
 | [Logging and troubleshooting](docs/logging-and-troubleshooting.md) | Logs, stuck workers, duplicate sessions and failures.          |
 | [Claude configuration](examples/claude-mcp.json)                   | Nameless session bridge and long timeout.                      |
 | [Codex configuration](examples/codex.config.toml)                  | Launcher-based session bridge and long timeout.                |

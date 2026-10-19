@@ -7,13 +7,13 @@ import { phrase, translated } from './i18n.js';
 
 /** Existing views remain directly addressable without competing state. */
 const GROUPS = {
-  mission: ['overview', 'activity'],
+  mission: ['overview', 'manager', 'activity'],
   inbox: ['inbox'],
   board: ['board', 'objective', 'automations', 'delivery', 'deliveries'],
-  workflow: ['workflow', 'team', 'workflows', 'roles'],
+  workflow: ['workflow', 'team', 'workflows', 'roles', 'pulls'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'settings', 'learning', 'secrets', 'onboarding'],
+  project: ['setup', 'settings', 'recommendations', 'learning', 'secrets', 'capabilities', 'onboarding'],
 };
 
 /**
@@ -57,17 +57,20 @@ export function updateNavigation(view: string): void {
 /** View routes remain local UI state, not a competing delivery ledger. */
 export type View =
   | 'overview'
+  | 'manager'
   | 'inbox'
   | 'board'
   | 'automations'
   | 'roles'
   | 'secrets'
+  | 'capabilities'
   | 'delivery'
   | 'objective'
   | 'workflows'
   | 'team'
   | 'workflow'
   | 'deliveries'
+  | 'pulls'
   | 'workers'
   | 'sessions'
   | 'costs'
@@ -75,6 +78,7 @@ export type View =
   | 'learning'
   | 'setup'
   | 'settings'
+  | 'recommendations'
   | 'onboarding';
 
 /** UI navigation descriptions. */
@@ -82,6 +86,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
   overview: [
     phrase('Team operations.'),
     phrase('From intent to verified delivery. Every agent, every handoff, one local team.'),
+  ],
+  manager: [
+    phrase('Delivery manager.'),
+    phrase('One persistent session runs the mission with you. Every role reports here.'),
   ],
   inbox: [phrase('Inbox.'), phrase('Every decision waiting on you, oldest first, with what you already answered.')],
   board: [
@@ -104,6 +112,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
   workflow: [phrase('Workflow map.'), phrase('Real message traffic. Actual ticket stages. Conditional next handoffs.')],
   team: [phrase('Team constellation.'), phrase('Independent roles. Bounded sessions. Shared project memory.')],
   deliveries: [phrase('Pipeline list.'), phrase('Small scopes, independent reviews, verified outcomes.')],
+  pulls: [
+    phrase('Pull requests.'),
+    phrase('Local issues, reviewed diffs and protected merges. Nothing leaves this machine.'),
+  ],
   workers: [phrase('Worker workspaces.'), phrase('Real captured output and durable instructions, side by side.')],
   sessions: [
     phrase('Attempts and transcripts.'),
@@ -117,6 +129,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
     phrase('Settings.'),
     phrase('Appearance, provider health and build facts, with every setting one step away.'),
   ],
+  recommendations: [
+    phrase('Recommendations.'),
+    phrase('Ticket proposals from the product owner and team lead, by state, with their evidence.'),
+  ],
   onboarding: [
     phrase('Get started.'),
     phrase('From an empty project to the first role at work, with the reason if it cannot start.'),
@@ -126,6 +142,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
     phrase('What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'),
   ],
   secrets: [phrase('Secrets.'), phrase('Local encrypted keys and tokens, granted to the role types that need them.')],
+  capabilities: [
+    phrase('Capabilities.'),
+    phrase('What humans and approved roles may do through connectors, beside what the provider supports.'),
+  ],
 });
 
 /**

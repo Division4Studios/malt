@@ -94,6 +94,7 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
   Type: '类型',
   'Reports to': '汇报给',
   '{role} reports to': '{role} 汇报给',
+  '{role} type': '{role} 类型',
   'Operator (root)': '操作员（根）',
   'No seats': '没有席位',
   'Configure the factory first.': '请先配置工厂。',

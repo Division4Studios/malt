@@ -253,4 +253,6 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   'External merge commit (full SHA)': '外部合并提交（完整 SHA）',
   'Use the selected repository’s merged main. Verification must pass before completion; this does not grant an approval or merge a PR.':
     '使用所选仓库合并后的 main。完成前验证必须通过；这不会授予批准，也不会合并 PR。',
+  '"delivery": "local" keeps issues, pull requests and merges in a protected hub on this machine; use "github" with a connected Project instead. Set providers.copilot.enabled to add GitHub Copilot, and cloud.developers with cloud.environment to route developers to Codex Cloud.':
+    '"delivery": "local" 会把议题、拉取请求和合并保留在本机受保护的仓库中心；若改用已连接的 Project，请设置为 "github"。设置 providers.copilot.enabled 可添加 GitHub Copilot，设置 cloud.developers 和 cloud.environment 可把开发者路由到 Codex Cloud。',
 };

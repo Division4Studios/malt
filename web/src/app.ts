@@ -19,21 +19,27 @@ import {
 } from './api.js';
 import { QueueState } from './brand-ui.js';
 import { refreshCapacitySamples, stableFactory } from './capacity-details.js';
+import { connectionLabel, shouldResumeStream } from './connection-status.js';
 import { startConsoleClock } from './console-clock.js';
 import { ConsoleViews } from './console-views.js';
 import { Freshness } from './freshness.js';
 import { ActivityHistory } from './history.js';
 import { t } from './i18n.js';
-import { skillDialog, maintenanceDialog } from './learning-ui.js';
+import { maintenanceDialog, reviewSkill } from './learning-ui.js';
 import { LogTails } from './log-tails.js';
+import { ManagerController } from './manager-controller.js';
+import { managerView } from './manager-ui.js';
 import { modelPolicyDialog } from './model-policy-ui.js';
 import { updateNavigation, bindNavigation, HEADINGS, isView } from './navigation.js';
 import { hideWorkflowPicker, objectiveEditor } from './objective-ui.js';
 import { organizationDialog, resetConnectionFields, setupDialog } from './organization-ui.js';
 import { ProjectViews } from './project-views.js';
-import { installShellUpdates, startupFailure } from './pwa.js';
+import { PullController } from './pulls-controller.js';
+import { pullsView } from './pulls-ui.js';
+import { bindInstallPrompt, installShellUpdates, startupFailure } from './pwa.js';
 import { openRecovery } from './recovery-ui.js';
 import { refreshHandoffConnection } from './report-ui.js';
+import { initialShellState } from './shell-state.js';
 import { TerminalWorkspace } from './terminal-workspace.ts';
 import { bindThemeToggle } from './theme.js';
 import { triageDialog } from './triage-ui.js';
@@ -50,7 +56,6 @@ import {
 } from './views.js';
 import {
   isWorkerArtifact,
-  isInstallEvent,
   restoreRoleLayout,
   persistRoles,
   shellNode as node,
@@ -78,19 +83,7 @@ const layoutKey = 'malt-worker-layout-v1';
 /** Worker output inspection cadence. */
 const LOG_REFRESH_MS = 2000;
 /** Application state contains no credential material. */
-const state: ShellState = {
-  current: null,
-  project: 'home',
-  view: 'overview',
-  stream: null,
-  edit: null,
-  editProject: null,
-  installEvent: null,
-  panes: ['developer-1', 'qa-1'],
-  renderKey: '',
-  isConnected: false,
-  reconnects: 0,
-};
+const state: ShellState = initialShellState();
 
 /** Project-scoped queue interactions. */
 const queueState = new QueueState();
@@ -195,7 +188,7 @@ const actions: Actions = {
     void readLogs();
   },
   skillDecision: (requestId, shouldApprove) => {
-    void reviewSkill(requestId, shouldApprove);
+    void reviewSkill(requestId, shouldApprove, { project: () => state.project, editor, notice });
   },
   maintenance: (requestId) => {
     const dialog = maintenanceDialog(requestId);
@@ -246,6 +239,11 @@ const actions: Actions = {
   },
 };
 
+/** Local pull-request selection, diffs and ledger controls. */
+const pulls = new PullController({ project: () => state.project, control, editor, render });
+/** Persistent delivery manager conversation and controls. */
+const manager = new ManagerController({ project: () => state.project, control, notice, render });
+
 /** Get started and Settings; both reuse the shell's dialogs. */
 const projectViews = new ProjectViews({
   project: () => state.project,
@@ -257,30 +255,12 @@ const projectViews = new ProjectViews({
   control,
 });
 
-/**
- * Inspect a scoped immutable comparison before asking for an explicit decision.
- *
- * @param requestId - Reviewed proposal identity.
- * @param shouldApprove - Operator-selected approval or rejection.
- */
-async function reviewSkill(requestId: string, shouldApprove: boolean): Promise<void> {
-  const projectId = state.project;
-  try {
-    const response = await request(`${scoped(projectId, '/api/skill')}&requestId=${encodeURIComponent(requestId)}`);
-    if (state.project !== projectId) {
-      return;
-    }
-    const dialog = skillDialog(data(response), requestId, shouldApprove);
-    editor(dialog.description, dialog.action);
-  } catch (error) {
-    notice(error instanceof Error ? error.message : t('Could not retrieve the skill proposal.'));
-  }
-}
 /** Render the selected native view without touching an open operator editor. */
 function render(): void {
   syncTerminals();
   if (state.current === null) {
     state.renderKey = '';
+    projectViews.clear();
     node('content', HTMLDivElement).replaceChildren();
     return;
   }
@@ -301,6 +281,10 @@ function render(): void {
     isConnected: state.view === 'activity' ? state.isConnected : null,
     learning: observed.learning,
     github: observed.github,
+    local: observed.local,
+    // The brief's computation time changes every snapshot; only real changes re-render.
+    manager: { ...observed.manager, brief: { ...data(observed.manager?.['brief'] ?? {}), generatedAt: 0 } },
+    pull: pulls.selection,
   });
   if (renderKey === state.renderKey) {
     return;
@@ -317,6 +301,8 @@ function render(): void {
     team: () => teamView(observed, actions),
     workflow: () => workflowView(observed, actions.inspect),
     deliveries: () => deliveryView(observed, actions),
+    pulls: () => pullsView(observed.local, pulls.selection, pulls.actions, pulls.detail()),
+    manager: () => managerView(observed.manager, manager),
     workers: () => (terminalWorkspace.selected ? element('div') : workerView(observed, panes)),
     activity: () => {
       return activityPanel(
@@ -334,10 +320,11 @@ function render(): void {
     },
     learning: () => learningView(observed, actions),
     setup: () => setupView(observed, actions),
-    settings: () => projectViews.element('settings'),
-    onboarding: () => projectViews.element('onboarding'),
+    ...projectViews.builders(),
   };
+  const restoreFocus = manager.captureFocus();
   queueState.replace(target, builders[state.view](), state.project);
+  restoreFocus();
   node('project-path', HTMLSpanElement).textContent = `${text(observed.project, 'root')} / .malt`;
   const run = node('run', HTMLButtonElement);
   run.disabled = !hasFlag(observed.factory, 'configured');
@@ -357,8 +344,13 @@ function connection(isConnected: boolean): void {
   state.isConnected = isConnected;
   syncTerminals();
   document.body.dataset['connection'] = isConnected ? 'live' : 'stale';
-  const connectionText = t(isConnected ? 'LOCAL CONSOLE CONNECTED' : 'DISCONNECTED · STATE IS STALE');
-  node('connection-text', HTMLSpanElement).textContent = connectionText;
+  node('connection-text', HTMLSpanElement).textContent = connectionLabel({
+    isOnline: navigator.onLine,
+    isConnected,
+    reconnects: state.reconnects,
+    hasStopped: state.reconnects >= MAX_RECONNECTS,
+    hasState: state.current !== null,
+  });
   node('connection-dot', HTMLSpanElement).classList.toggle('idle', !isConnected);
   render();
   refreshHandoffConnection(isConnected);
@@ -412,6 +404,8 @@ function applyObserved(observed: Snapshot, projectId: string): void {
   }
   history.observe(observed.events);
   state.current = { ...observed, events: history.view().recent };
+  pulls.observe(observed.local);
+  manager.observe(observed.manager);
   if (state.view === 'overview' && projectViews.offer(observed, projectId)) {
     state.view = 'onboarding';
   }
@@ -447,16 +441,16 @@ function subscribe(): void {
     connection(false);
   });
   stream.addEventListener('error', () => {
-    connection(false);
     state.reconnects += 1;
-    if (state.reconnects < MAX_RECONNECTS) {
-      return;
+    if (state.reconnects >= MAX_RECONNECTS) {
+      state.stream?.close();
+      notice(
+        t(
+          'The local console is unavailable. Live retries have stopped; it keeps checking and resumes when it is back.',
+        ),
+      );
     }
-
-    state.stream?.close();
-    notice(
-      'The local console is unavailable. Automatic retries have stopped; refresh the page after restarting the daemon.',
-    );
+    connection(false);
   });
 }
 /** Populate the project switcher with secret-free server-discovered scopes. */
@@ -496,11 +490,11 @@ async function readLogs(): Promise<void> {
     return;
   }
   const observed = state.current;
-  const projectId = state.project;
   const artifacts = state.panes
     .map((role) => ({ id: text(roleJob(observed, role), 'id'), file: files.get(role) ?? 'stdout.log' }))
     .filter((entry) => entry.id !== '');
-  await tails.read(projectId, artifacts, () => state.project);
+  // The scope is captured before the reads so late responses for another project are dropped.
+  await tails.read(state.project, artifacts, () => state.project);
 }
 
 /** Queue an explicit product objective with its chosen workflow. */
@@ -583,6 +577,8 @@ async function start(): Promise<void> {
     state.view = requested;
   }
   state.project = parameters.get('project') ?? state.project;
+  // Activity history follows the same project from the first read.
+  history.select(state.project);
   bindThemeToggle('theme');
   node('new-objective', HTMLButtonElement).addEventListener('click', objective);
   node('run', HTMLButtonElement).addEventListener('click', () => {
@@ -628,24 +624,20 @@ async function start(): Promise<void> {
     void refresh();
     subscribe();
   });
-  addEventListener('beforeinstallprompt', (event) => {
-    if (!isInstallEvent(event)) {
-      return;
-    }
-
-    event.preventDefault();
-    state.installEvent = event;
-    node('install', HTMLButtonElement).hidden = false;
-  });
-  node('install', HTMLButtonElement).addEventListener('click', () => {
-    void state.installEvent?.prompt();
-  });
+  bindInstallPrompt(node('install', HTMLButtonElement));
   window.addEventListener('pagehide', () => {
     state.stream?.close();
     terminalWorkspace.suspend();
   });
   document.addEventListener('visibilitychange', syncTerminals);
-  startConsoleClock(freshness, refresh, () => {
+  // Each tick reads current state, and reopens the live stream once a read succeeds after its retries stopped.
+  const resume = async (): Promise<void> => {
+    await refresh();
+    if (state.isConnected && shouldResumeStream(state.stream)) {
+      subscribe();
+    }
+  };
+  startConsoleClock(freshness, resume, () => {
     connection(false);
   });
   setInterval(() => {
