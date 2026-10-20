@@ -2,12 +2,15 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { z } from 'zod/v3';
 
 import { deliveryTask, parentFeature } from '../src/factory/delivery-task.ts';
+import { enqueueDelivery } from '../src/factory/enqueue.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
-import { taskSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, factorySchemas, taskSchema } from '../src/factory/schema.ts';
+import { FactoryService } from '../src/factory/service.ts';
 import {
   branchKey,
   compareTrackerKeys,
@@ -21,11 +24,14 @@ import {
 } from '../src/factory/tracker-key.ts';
 import { taskTrackerKey } from '../src/factory/work-keys.ts';
 import { commitMessage, mergeMessage } from '../src/factory/workspaces.ts';
+import { ProjectGitHub } from '../src/github.ts';
+import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
 import { fixture } from './delivery-fixture.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
+import type { ReadyIssue } from '../src/factory/scheduler.ts';
 import type { FactoryTask } from '../src/factory/schema.ts';
 import type { TrackerKey } from '../src/factory/tracker-key.ts';
 
@@ -211,4 +217,61 @@ await test('branch names and commit messages keep GitHub forms and carry the Jir
   assert.equal(mergeMessage(jira, provenance)[1], 'Refresh PROJ-12 onto main: Diagnosable change');
   const developer = await workspaces.developer(jira);
   assert.equal(developer.branch, `malt/PROJ-12-${jira.id.slice(0, 8)}-0`, 'the Jira development panel links the key');
+});
+
+await test('factory_enqueue names Ready issues by tracker key and never reads a Jira handle as a number', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  defer(() => {
+    store.close();
+  });
+  const factory = new FactoryService(
+    mesh,
+    store,
+    { github: new ProjectGitHub(mesh), learning: new ProjectLearning(mesh) },
+    { home: mesh.root },
+  );
+  defer(async () => factory.close());
+  factory.repository.configure(
+    factoryConfigSchema.parse({
+      testCommands: [{ file: process.execPath }],
+      endToEndCommands: [{ file: process.execPath }],
+    }),
+  );
+  const context = factory.configured();
+  const ready: ReadyIssue[] = [
+    {
+      issue: 10_042,
+      parentIssue: 10_040,
+      trackerKey: { provider: 'jira', key: 'PROJ-12' },
+      parentKey: { provider: 'jira', key: 'PROJ-10' },
+      title: 'Jira delivery',
+      description: 'Keyed by Jira.',
+      acceptanceCriteria: ['Keyed'],
+    },
+    { issue: 5, parentIssue: 1, title: 'GitHub delivery', description: 'Numbered.', acceptanceCriteria: ['Numbered'] },
+  ];
+  t.mock.method(context.remote, 'verify', async () => delay(0));
+  t.mock.method(context.remote, 'readyIssues', async () => delay(0, ready));
+  t.mock.method(context.workspaces, 'origin', async () => delay(0, 'https://github.com/example/app'));
+  const scope = { title: 'Imported', description: 'Imported.', acceptanceCriteria: ['Imported'] };
+  const jira = z
+    .object({ taskId: z.string() })
+    .parse(await enqueueDelivery(context, { ...scope, issue: 'PROJ-12', parentIssue: 'PROJ-10' }));
+  assert.deepEqual(issueKey(factory.repository.task(jira.taskId)), { provider: 'jira', key: 'PROJ-12' });
+  assert.deepEqual(
+    await enqueueDelivery(context, { ...scope, issue: 'PROJ-12', parentIssue: 'PROJ-10' }),
+    jira,
+    'an imported key returns its delivery',
+  );
+  await assert.rejects(enqueueDelivery(context, { ...scope, issue: 10_042, parentIssue: 10_040 }), {
+    code: 'INVALID_INPUT',
+  });
+  const github = z
+    .object({ taskId: z.string() })
+    .parse(await enqueueDelivery(context, { ...scope, issue: '#5', parentIssue: 1 }));
+  assert.equal(issueLabel(factory.repository.task(github.taskId)), '#5');
+  assert.deepEqual(await enqueueDelivery(context, { ...scope, issue: 5, parentIssue: 1 }), github);
+  assert.throws(() => factorySchemas.factory_enqueue.parse({ ...scope, issue: 'proj-12', parentIssue: 1 }));
 });

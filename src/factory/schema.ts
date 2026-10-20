@@ -56,7 +56,7 @@ import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
 import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
-import { trackerKeySchema } from './tracker-key.ts';
+import { issueReferenceSchema, trackerKeySchema } from './tracker-key.ts';
 import {
   approvalSchema,
   approveRequestSchema,
@@ -627,8 +627,8 @@ export const factorySchemas = {
     .strict(),
   factory_enqueue: z
     .object({
-      issue: z.number().int().positive(),
-      parentIssue: z.number().int().positive(),
+      issue: issueReferenceSchema,
+      parentIssue: issueReferenceSchema,
       title: textSchema,
       description: textSchema,
       acceptanceCriteria: z.array(textSchema).min(1),

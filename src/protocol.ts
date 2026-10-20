@@ -686,7 +686,7 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_triage:
     'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, explicitly authorize verification of a confirmed external merge, or (operator only) adopt an external merge commit for merged-main verification or adopt a closed issue as done without a job. Never creates approvals.',
   factory_enqueue:
-    'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',
+    'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request. Name the issue and its parent by tracker key: a GitHub issue number (12 or "#12") or a Jira key ("PROJ-12").',
   factory_capacity:
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
   factory_local:
@@ -694,7 +694,7 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_manager:
     'Human operator only: control the persistent delivery manager. Actions: status; start; stop; send with text; answer with decisionId and text; history with after/limit. Messages are queued and delivered when the manager is free; nothing is resent automatically after a failure.',
   factory_brief:
-    'Read the mission brief: objectives, open deliveries with stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag and next action, and every decision waiting on the operator. Start from this before steering work.',
+    'Read the mission brief: objectives, open deliveries by tracker key (#12 on GitHub, PROJ-12 in Jira) with stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag and next action, and every decision waiting on the operator. Start from this before steering work.',
   factory_manager_ask:
     'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
