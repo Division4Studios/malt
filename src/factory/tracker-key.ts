@@ -27,6 +27,33 @@ export const trackerKeySchema = z.discriminatedUnion('provider', [
 export type TrackerKey = z.output<typeof trackerKeySchema>;
 
 /**
+ * An issue as an operator or model names it in a tool call: a GitHub or local
+ * issue number (`12` or `"#12"`) or a Jira key (`"PROJ-12"`).
+ */
+export const issueReferenceSchema = z.union([
+  z.number().int().positive(),
+  z
+    .string()
+    .trim()
+    .regex(/^(?:#?[1-9]\d{0,17}|[A-Z][\dA-Z_]{1,99}-[1-9]\d{0,17})$/v),
+]);
+/** An issue as a tool call names it. */
+export type IssueReference = z.output<typeof issueReferenceSchema>;
+
+/**
+ * The display key an issue reference names, comparable with {@link issueLabel}.
+ *
+ * @param reference - Number, `#12` or `PROJ-12`.
+ * @returns `#12` or `PROJ-12`.
+ */
+export function referenceLabel(reference: IssueReference): string {
+  if (typeof reference === 'number') {
+    return `#${String(reference)}`;
+  }
+  return /^\d/v.test(reference) ? `#${reference}` : reference;
+}
+
+/**
  * The key of a GitHub issue.
  *
  * @param issue - GitHub issue number.
