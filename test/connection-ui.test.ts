@@ -265,7 +265,11 @@ await test('each section shows its saved state, last check, link and step errors
   assert.equal(root.querySelector('fieldset')?.querySelector('legend')?.textContent, 'Tracker provider');
   assert.ok(root.querySelector('[role]')?.getAttribute('aria-live') === 'polite', 'progress is announced');
   const links = root.querySelectorAll('a').map((node): unknown => Reflect.get(node, 'href'));
-  assert.ok(links.includes('https://github.com/users/example/projects/10'));
+  assert.deepEqual(
+    links,
+    ['https://github.com/users/example/projects/10', 'https://github.com/example/app'],
+    'exactly the saved Project and repository are linked',
+  );
   assert.equal(text.includes(SECRET), false, 'no credential value in the DOM');
   assert.deepEqual(written, [], 'nothing goes to browser storage');
 });
