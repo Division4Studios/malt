@@ -55,7 +55,7 @@ import { formatTrackerKey, trackerKeySchema } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { JiraTrackerAccess } from '../github.ts';
-import type { DeliveryRemote, IntakeCandidate, IssueState, MergePending, PullRequest } from './remote.ts';
+import type { DeliveryRemote, FiledIssue, IntakeCandidate, IssueState, MergePending, PullRequest } from './remote.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
 import type { TrackerKey } from './tracker-key.ts';
@@ -156,6 +156,33 @@ function issueHandle(id: string): number {
     );
   }
   return Number(parsed.data);
+}
+
+/**
+ * The tracker a Jira issue's stable ID is unique within: its site. Another
+ * site can reuse the ID, so ledger records name the site they were filed on.
+ *
+ * @param site - Site origin.
+ * @returns Tracker namespace, `jira:<site>`.
+ */
+export function jiraTrackerNamespace(site: string): string {
+  return `jira:${site}`;
+}
+
+/**
+ * The issue IDs intake must not offer again: work filed on this site, and any
+ * live work recorded before records named their tracker.
+ *
+ * @param filed - Objective parents and deliveries in the ledger.
+ * @param tracker - This site's namespace.
+ * @returns Jira issue IDs, as text.
+ */
+function filedOn(filed: readonly FiledIssue[], tracker: string): Set<string> {
+  return new Set(
+    filed
+      .filter((entry) => entry.tracker === tracker || (entry.tracker === undefined && entry.isLive))
+      .map((entry) => String(entry.issue)),
+  );
 }
 
 /**
@@ -323,6 +350,7 @@ export class JiraDelivery implements DeliveryRemote {
           key: child.planKey,
           issue: issueHandle(child.id),
           parentIssue: issueHandle(parent.id),
+          parentTracker: jiraTrackerNamespace(access.tracker.site),
           trackerKey: trackerKeySchema.parse({ provider: 'jira', key: child.key }),
           parentKey: trackerKeySchema.parse({ provider: 'jira', key: parent.key }),
         };
@@ -399,11 +427,11 @@ export class JiraDelivery implements DeliveryRemote {
   /**
    * Read the intake filter, at most once a minute, and offer each workable new match.
    *
-   * @param filed - Jira issue IDs that already have an objective.
+   * @param filed - Objective parents and deliveries already in the ledger.
    * @returns Issues to file as objectives, in filter order.
    * @throws {MeshError} When Jira cannot be read; the failure is also recorded for the console.
    */
-  public async intake(filed: ReadonlySet<number>): Promise<readonly IntakeCandidate[]> {
+  public async intake(filed: readonly FiledIssue[]): Promise<readonly IntakeCandidate[]> {
     const now = this.now();
     if (now < this.nextIntakeAt) {
       return [];
@@ -424,10 +452,12 @@ export class JiraDelivery implements DeliveryRemote {
       if (read.retryAfterSeconds !== null) {
         this.nextIntakeAt = now + read.retryAfterSeconds * SECOND_MS;
       }
-      const chosen = chooseIntake(read, account, new Set([...filed].map(String)));
+      const tracker = jiraTrackerNamespace(access.tracker.site);
+      const chosen = chooseIntake(read, account, filedOn(filed, tracker));
       const candidates = chosen.queue.map((issue): IntakeCandidate => {
         return {
           issue: issueHandle(issue.id),
+          tracker,
           key: trackerKeySchema.parse({ provider: 'jira', key: issue.key }),
           objective: objectiveText(access.tracker.site, issue),
         };

@@ -140,10 +140,22 @@ export interface IssueState {
 export interface IntakeCandidate {
   /** Numeric ledger handle: the tracker issue's stable ID. */
   readonly issue: number;
+  /** Tracker the stable ID is unique within, such as `jira:<site>`. */
+  readonly tracker: string;
   /** Typed key, such as `PROJ-12`. */
   readonly key: TrackerKey;
   /** Objective text: the key and summary, then the description. */
   readonly objective: string;
+}
+
+/** A tracker issue the ledger already files work under: an objective's parent or a delivery. */
+export interface FiledIssue {
+  /** Numeric ledger handle. */
+  readonly issue: number;
+  /** Tracker the handle belongs to; absent on records filed before trackers were recorded. */
+  readonly tracker: string | undefined;
+  /** Whether the work is still live; finished work of another tracker never suppresses intake. */
+  readonly isLive: boolean;
 }
 
 /**
@@ -183,9 +195,10 @@ export interface DeliveryRemote {
 
   /**
    * Issues the tracker's configured intake filter offers as new objectives,
-   * leaving out those already filed; absent for trackers without intake.
+   * leaving out those already filed on this tracker, deliveries included;
+   * absent for trackers without intake.
    */
-  readonly intake?: (filed: ReadonlySet<number>) => Promise<readonly IntakeCandidate[]>;
+  readonly intake?: (filed: readonly FiledIssue[]) => Promise<readonly IntakeCandidate[]>;
   /** Read one delivery issue's open/closed state without mutating it. */
   readonly issueState: (key: TrackerKey) => Promise<IssueState>;
   /** Confirm every native child is closed before cleaning the parent ticket. */

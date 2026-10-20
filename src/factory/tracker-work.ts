@@ -2,8 +2,8 @@
  * Work bound to the external work tracker. Intake files each issue a
  * tracker's configured filter offers as one objective whose parent is that
  * issue, exactly once: the objective's identity is derived from the issue's
- * stable ID, and an issue already parenting an objective is never offered
- * again. The tracker fence refuses to switch the work tracker while work it
+ * stable ID and its tracker, and an issue already parenting an objective or
+ * being delivered is never offered again. The tracker fence refuses to switch the work tracker while work it
  * tracks is live, because the ledger addresses issues by numeric handles that
  * another tracker's issues could reuse.
  *
@@ -16,7 +16,7 @@ import { MeshError } from '../protocol.ts';
 import { automaticWorkflow, queueObjective } from './objectives.ts';
 
 import type { FactoryContext } from './context.ts';
-import type { IntakeCandidate } from './remote.ts';
+import type { FiledIssue, IntakeCandidate } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 
 /** Hex digits of a UUID. */
@@ -29,9 +29,9 @@ const UUID_HEX = 32;
  * @param candidate - Offered issue.
  * @returns UUID-shaped identity derived from the tracker and the issue's stable ID.
  */
-export function intakeObjectiveId(projectId: string, candidate: Pick<IntakeCandidate, 'issue' | 'key'>): string {
+export function intakeObjectiveId(projectId: string, candidate: Pick<IntakeCandidate, 'issue' | 'tracker'>): string {
   const hex = createHash('sha256')
-    .update(`${projectId}:tracker-intake:${candidate.key.provider}:${String(candidate.issue)}`)
+    .update(`${projectId}:tracker-intake:${candidate.tracker}:${String(candidate.issue)}`)
     .digest('hex')
     .slice(0, UUID_HEX);
   return hex.replace(/^(?<a>.{8})(?<b>.{4})(?<c>.{4})(?<d>.{4})(?=.{12}$)/v, '$<a>-$<b>-$<c>-$<d>-');
@@ -59,9 +59,42 @@ function fileCandidate(context: FactoryContext, candidate: IntakeCandidate): voi
       ...feature,
       parentIssue: candidate.issue,
       parentKey: candidate.key,
+      parentTracker: candidate.tracker,
       updatedAt: repository.store.now(),
     });
   }
+}
+
+/**
+ * Every tracker issue the ledger files work under: objective parents and
+ * deliveries, each with its objective's tracker. A filter that also matches
+ * the sub-tasks MALT created must not file them as objectives of their own.
+ *
+ * @param repository - Project ledger.
+ * @returns Objective parents and deliveries, with their tracker and liveness.
+ */
+export function filedIssues(repository: FactoryRepository): FiledIssue[] {
+  const features = repository.features();
+  const trackers = new Map(features.map((feature) => [feature.id, feature.parentTracker]));
+  const parents = features.flatMap((feature): FiledIssue[] => {
+    return feature.parentIssue === null
+      ? []
+      : [
+          {
+            issue: feature.parentIssue,
+            tracker: feature.parentTracker,
+            isLive: feature.phase !== 'done' && feature.scopeCleanup === undefined,
+          },
+        ];
+  });
+  const deliveries = repository.tasks().map((task): FiledIssue => {
+    return {
+      issue: task.issue,
+      tracker: task.featureId === null ? undefined : trackers.get(task.featureId),
+      isLive: task.phase !== 'done' && task.scopeCleanup === undefined,
+    };
+  });
+  return [...parents, ...deliveries];
 }
 
 /**
@@ -76,10 +109,9 @@ export async function fileTrackerObjectives(context: FactoryContext): Promise<vo
   if (remote.intake === undefined) {
     return;
   }
-  const filed = new Set(repository.features().flatMap((feature) => feature.parentIssue ?? []));
   let candidates: readonly IntakeCandidate[];
   try {
-    candidates = await remote.intake(filed);
+    candidates = await remote.intake(filedIssues(repository));
   } catch {
     // The remote records the failure where the console shows it; the next pass reads again.
     return;

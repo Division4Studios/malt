@@ -401,12 +401,16 @@ await test('intake offers workable new matches with their description, at most o
     jql: 'project = PROJ AND labels = malt',
     ids: [wanted, filed, done, taken].map((index) => index.id),
   };
-  assert.deepEqual(await fixture.delivery.intake(new Set()), [], 'intake is off until a filter is saved');
+  assert.deepEqual(await fixture.delivery.intake([]), [], 'intake is off until a filter is saved');
   fixture.workflow.intake = { jql: 'project = PROJ AND labels = malt' };
-  const offered = await fixture.delivery.intake(new Set([Number(filed.id)]));
+  const offered = await fixture.delivery.intake([
+    { issue: Number(filed.id), tracker: `jira:${ORIGIN}`, isLive: false },
+    // Another site reuses the wanted issue's ID; its finished work does not hide this one.
+    { issue: Number(wanted.id), tracker: 'jira:https://other.atlassian.net', isLive: false },
+  ]);
   assert.deepEqual(
-    offered.map((candidate) => [candidate.issue, candidate.key.key]),
-    [[Number(wanted.id), wanted.key]],
+    offered.map((candidate) => [candidate.issue, candidate.tracker, candidate.key.key]),
+    [[Number(wanted.id), `jira:${ORIGIN}`, wanted.key]],
   );
   assert.equal(
     offered[0]?.objective,
@@ -420,7 +424,7 @@ await test('intake offers workable new matches with their description, at most o
     { key: taken.key, reason: 'reassigned' },
   ]);
   const reads = fixture.site.requests.length;
-  assert.deepEqual(await fixture.delivery.intake(new Set()), [], 'a second read within a minute waits');
+  assert.deepEqual(await fixture.delivery.intake([]), [], 'a second read within a minute waits');
   assert.equal(fixture.site.requests.length, reads);
 });
 
@@ -429,15 +433,15 @@ await test('a rate-limited intake read waits as long as Jira asks, and a failure
   fixture.workflow.intake = { jql: 'project = PROJ' };
   fixture.site.intake = { jql: 'project = PROJ', ids: [] };
   fixture.site.searchFailure = { status: 429, retryAfter: '300' };
-  assert.deepEqual(await fixture.delivery.intake(new Set()), []);
+  assert.deepEqual(await fixture.delivery.intake([]), []);
   assert.equal(readIntakeRecord(fixture.config.directory)?.retryAfterSeconds, 300);
   fixture.clock.now += 120_000;
   const reads = fixture.site.requests.length;
-  await fixture.delivery.intake(new Set());
+  await fixture.delivery.intake([]);
   assert.equal(fixture.site.requests.length, reads, 'no read before Retry-After passes');
   fixture.clock.now += 200_000;
   fixture.site.searchFailure = { status: 401 };
-  await assert.rejects(fixture.delivery.intake(new Set()), { code: 'CREDENTIALS_MISSING', message: /revoked/v });
+  await assert.rejects(fixture.delivery.intake([]), { code: 'CREDENTIALS_MISSING', message: /revoked/v });
   assert.match(readIntakeRecord(fixture.config.directory)?.error ?? '', /Jira rejected the MALT credential/v);
   assert.equal(JSON.stringify(readIntakeRecord(fixture.config.directory)).includes(SITE_TOKEN), false);
 });

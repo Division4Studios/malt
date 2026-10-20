@@ -21,6 +21,7 @@ import { intakeObjectiveId } from '../src/factory/tracker-work.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { setJiraMode } from '../src/jira/modes.ts';
+import { readIntakeRecord } from '../src/jira/workflow.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { Store } from '../src/store.ts';
 
@@ -35,6 +36,8 @@ import type { FactoryTask } from '../src/factory/schema.ts';
 import type { JiraMode } from '../src/jira/modes.ts';
 import type { TestContext } from 'node:test';
 
+/** The fixture site. */
+const ORIGIN = 'https://example.atlassian.net';
 /** Spacing that always exceeds the unpaid reconcile interval and the intake interval. */
 const PASS_MS = 61_000;
 /** Project policy; nothing here runs validation. */
@@ -53,6 +56,8 @@ interface Fixture {
   readonly workflow: { -readonly [Key in keyof JiraWorkflow]: JiraWorkflow[Key] };
   readonly clock: { now: number };
   readonly projectId: string;
+  /** Project data directory, holding the intake record. */
+  readonly directory: string;
 }
 
 /**
@@ -101,14 +106,14 @@ async function build(t: TestContext, mode: JiraMode): Promise<Fixture> {
     () => {
       return {
         tracker: {
-          site: 'https://example.atlassian.net',
+          site: ORIGIN,
           projectKey: 'PROJ',
           email: 'robot@example.com',
           tokenVariable: 'JIRA_API_TOKEN',
           workflow: { ...workflow },
         },
         transport: {
-          site: { origin: 'https://example.atlassian.net', deployment: 'cloud' },
+          site: { origin: ORIGIN, deployment: 'cloud' },
           credential: { email: 'robot@example.com', token: SITE_TOKEN },
           fetch: site.fetch,
         },
@@ -154,6 +159,7 @@ async function build(t: TestContext, mode: JiraMode): Promise<Fixture> {
     workflow,
     clock,
     projectId: mesh.projectId,
+    directory: mesh.directory,
   };
 }
 
@@ -278,6 +284,20 @@ await test('read-only Jira parks provisioning once; full mode for the lead creat
     'active',
     'the objective resumes and is provisioned',
   );
+
+  // A filter as broad as the project also matches the sub-task MALT just created.
+  fixture.site.intake = { jql: 'project = PROJ', ids: [parent.id, child.id] };
+  fixture.workflow.intake = { jql: 'project = PROJ' };
+  await pass(fixture);
+  assert.deepEqual(
+    fixture.repository.features().map((candidate) => candidate.id),
+    [feature.id],
+    'neither the parent nor its delivery becomes another objective',
+  );
+  assert.deepEqual(readIntakeRecord(fixture.directory)?.skipped, [
+    { key: parent.key, reason: 'already_queued' },
+    { key: child.key, reason: 'already_queued' },
+  ]);
 });
 
 await test('intake files each workable Jira issue once as an objective whose parent is that issue', async (t) => {
@@ -293,9 +313,15 @@ await test('intake files each workable Jira issue once as an objective whose par
   const [feature] = filed;
   assert.equal(
     feature?.id,
-    intakeObjectiveId(fixture.projectId, { issue: Number(wanted.id), key: { provider: 'jira', key: wanted.key } }),
+    intakeObjectiveId(fixture.projectId, { issue: Number(wanted.id), tracker: `jira:${ORIGIN}` }),
+  );
+  assert.notEqual(
+    feature.id,
+    intakeObjectiveId(fixture.projectId, { issue: Number(wanted.id), tracker: 'jira:https://other.atlassian.net' }),
+    'the same issue ID on another site is another objective',
   );
   assert.equal(feature.parentIssue, Number(wanted.id));
+  assert.equal(feature.parentTracker, `jira:${ORIGIN}`);
   assert.deepEqual(feature.parentKey, { provider: 'jira', key: wanted.key });
   assert.match(feature.objective, /^PROJ-1: Export reports/v);
   assert.deepEqual(fixture.site.writes(), [], 'intake only reads');

@@ -668,12 +668,15 @@ function mappingIdentity(mapping: DeliveryPlanIssue): KeyedIssue & KeyedParent {
  * The parent issue identity a provisioned objective records.
  *
  * @param mapping - First confirmed creation receipt, if any.
- * @returns Parent handle and any typed parent key.
+ * @returns Parent handle and any typed parent key and tracker.
  */
-function parentIdentity(mapping: DeliveryPlanIssue | undefined): Pick<Feature, 'parentIssue' | 'parentKey'> {
+function parentIdentity(
+  mapping: DeliveryPlanIssue | undefined,
+): Pick<Feature, 'parentIssue' | 'parentKey' | 'parentTracker'> {
   return {
     parentIssue: mapping?.parentIssue ?? null,
     ...(mapping?.parentKey !== undefined && { parentKey: mapping.parentKey }),
+    ...(mapping?.parentTracker !== undefined && { parentTracker: mapping.parentTracker }),
   };
 }
 
