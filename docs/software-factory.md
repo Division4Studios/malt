@@ -289,6 +289,18 @@ To switch environments:
 
 Adoption refuses while worktrees created by the other environment remain. The previous owner is kept in the record.
 
+## Prune worktrees and snapshots
+
+Deliveries, review snapshots, main baselines and scratch terminals each get an owned worktree under `.malt/worktrees`. MALT removes them when their work ends. An interrupted job, a crash or a deleted folder can leave some behind. To clean up:
+
+1. Run `node src/cli.ts factory-prune --project <path>`. This dry run lists every worktree Git registers, every folder under `.malt/worktrees` and every ownership-ledger entry. Each one shows its owner and why it is kept or removable.
+2. Pause the factory.
+3. Run `factory-prune --apply`.
+
+Prune keeps a worktree while an unfinished delivery, a running attempt, an open terminal or a running baseline uses it. Removable means Git reports it prunable, or nothing live uses it. Uncommitted changes, and a detached commit that no branch or ref holds, are archived to `refs/malt/archive/prune/<id>` first, so no work is discarded. Removal unlinks the `.malt` link without following it, removes the folder and runs `git worktree prune`. Branches are never deleted.
+
+Prune never touches the primary checkout, worktrees outside `.malt/worktrees`, folders the ledger does not list, locked worktrees, or worktrees another environment created. It also refuses to remove anything while another environment owns `.malt/worktrees`. See [the API reference](api.md#prune-worktrees-and-snapshots).
+
 ## Scope changes and obsolete work
 
 A coordinated scope change commits its instruction and replacement objective in one SQLite transaction. A project-wide change parks old planning requests and every unfinished, unmerged delivery; a selected change also parks dependent deliveries. Old approvals are invalidated, and completed proof of already-merged code is kept. Ordinary retry cannot re-enable a superseded scope.

@@ -21,6 +21,7 @@ An assignment that makes meaningful progress is extended at each checkpoint, up 
 - A PR merged outside MALT: use **Adopt external merge** with the full merge commit and a reason. If MALT already recorded the merge, use **Verify merged main** instead. Neither invents a review.
 - `factory-reconcile-github` proposes, and with `--apply` applies, unpaid adoption of issues that were closed on GitHub.
 - `factory-worktrees-adopt` hands `.malt/worktrees` to the current host or container while the factory is paused.
+- `factory-prune` reports every worktree and snapshot with its owner. With `--apply`, while paused, it removes orphans; uncommitted work is archived to a ref first.
 
 Before retrying old work, check the actual PR and main. Old failed attempts can describe code that is already merged.
 

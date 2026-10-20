@@ -89,6 +89,7 @@ Factory commands address the home project or `--workspace PATH` and call the ope
 | `factory-export-maintenance --file FILE` | `factory_export_maintenance` | Export an approved skill to a MALT source repository                      |
 | `factory-reconcile-github [--apply]`     | `factory_reconcile_github`   | Dry run by default; `--apply` applies the proposals                       |
 | `factory-worktrees-adopt`                | `factory_worktrees_adopt`    | none; the factory must be paused                                          |
+| `factory-prune [--apply]`                | `factory_prune`              | Dry run by default; `--apply` removes orphans while paused                |
 
 `factory-cancel-job`, `factory-capacity` and `factory-export-maintenance` work but are not listed in `--help`.
 

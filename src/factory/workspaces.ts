@@ -546,6 +546,69 @@ export class WorkspaceManager {
   }
 
   /**
+   * Worktrees the ownership ledger still lists, for the prune report.
+   *
+   * @returns Their ids, directories and branches, oldest intent first.
+   */
+  public owned(): { id: string; directory: string; branch: string | null }[] {
+    return this.ownership()
+      .filter((record) => !record.removed)
+      .map((record) => ({ id: record.id, directory: record.directory, branch: record.branch }));
+  }
+
+  /**
+   * Whether removal may unlink a worktree's `.malt`: absent, or a link to this project's memory.
+   *
+   * @param directory - Owned worktree.
+   * @returns False for an ordinary folder or a link anywhere else, which removal never follows or deletes.
+   */
+  public async isMemoryLinkSafe(directory: string): Promise<boolean> {
+    this.assertOwnedPath(directory);
+    const link = path.join(directory, '.malt');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- Inspect only an owned worktree's generated memory link.
+    if (!existsSync(link)) {
+      return true;
+    }
+    try {
+      await verifyMemoryLink(link, this.mesh.directory);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Keep an orphaned worktree's uncommitted work, or a commit no ref holds, under a new archive ref, then return
+   * the worktree to its checked-out commit so the owned removal can retire it.
+   *
+   * @param directory - Owned worktree no live delivery, attempt or terminal uses.
+   * @param reference - New ref, such as `refs/malt/archive/prune/<id>`; an existing one is never overwritten.
+   * @returns The archived commit.
+   * @throws {MeshError} When the ref exists or does not hold exactly the worktree's files.
+   */
+  public async archive(directory: string, reference: string): Promise<string> {
+    this.assertOwnedPath(directory);
+    if ((await this.git(['for-each-ref', '--format=%(refname)', reference], directory)) !== '') {
+      throw new MeshError('FACTORY_GATED', `The archive ref ${reference} already exists; the worktree was kept.`);
+    }
+    const head = await this.git(['rev-parse', 'HEAD'], directory);
+    // Only this worktree's own index is staged; no branch moves, and the excluded .malt link is never added.
+    await this.git(['add', '--all'], directory);
+    const tree = await this.git(['write-tree'], directory);
+    const commit =
+      tree === (await this.git(['show', '--no-patch', '--format=%T', head], directory))
+        ? head
+        : await this.git(['commit-tree', tree, '-p', head, '-m', 'Uncommitted work archived before prune'], directory);
+    // An empty old value refuses to overwrite a ref created since the check above.
+    await this.git(['update-ref', reference, commit, ''], directory);
+    if ((await this.git(['show', '--no-patch', '--format=%T', reference], directory)) !== tree) {
+      throw new MeshError('FACTORY_GATED', `The archive ref ${reference} does not hold the worktree; it was kept.`);
+    }
+    await this.git(['reset', '--hard', '--quiet', head], directory);
+    return commit;
+  }
+
+  /**
    * Safely retire one owned snapshot; uncommitted work is never discarded.
    *
    * @param directory - Registry-owned directory.
