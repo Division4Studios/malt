@@ -21,6 +21,7 @@ import {
   issueLabel,
   parentLabel,
   parseTrackerKey,
+  pullRequestTitle,
 } from '../src/factory/tracker-key.ts';
 import { taskTrackerKey } from '../src/factory/work-keys.ts';
 import { commitMessage, mergeMessage } from '../src/factory/workspaces.ts';
@@ -105,6 +106,14 @@ await test('keys display, map to GitHub numbers only for GitHub, and name branch
   assert.equal(githubIssueNumber(jira), null);
   assert.equal(branchKey(github), 'issue-42');
   assert.equal(branchKey(jira), 'PROJ-9', 'Jira keys keep their case so the development panel links the branch');
+});
+
+await test('a Jira delivery names its pull request by key, so the Jira development panel links it', () => {
+  assert.equal(pullRequestTitle({ issue: 12, title: 'Export API' }), 'Export API');
+  assert.equal(
+    pullRequestTitle({ issue: 10_042, trackerKey: { provider: 'jira', key: 'PROJ-12' }, title: 'Export API' }),
+    'PROJ-12 Export API',
+  );
 });
 
 await test('keys sort by tracker, project and sequence number', () => {

@@ -17,7 +17,14 @@ import { reconcileDependencies } from './dependencies.ts';
 import { chooseMergePath, readProtection } from './merge-path.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
-import { formatTrackerKey, githubIssueNumber, githubKey, issueLabel, parentLabel } from './tracker-key.ts';
+import {
+  formatTrackerKey,
+  githubIssueNumber,
+  githubKey,
+  issueLabel,
+  parentLabel,
+  pullRequestTitle,
+} from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
@@ -401,7 +408,7 @@ export class GitHubDelivery implements DeliveryRemote {
     const criteria = record.acceptanceCriteria.map((criterion) => `- [ ] ${criterion}`).join('\n');
     const created = z.object({ number: z.number(), html_url: z.string().url() }).parse(
       await this.runner(['api', `repos/${repository}/pulls`, '--input', '-'], {
-        title: record.title,
+        title: pullRequestTitle(record),
         head: record.branch,
         base: config.baseBranch,
         draft: false,
