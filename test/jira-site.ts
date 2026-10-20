@@ -62,6 +62,8 @@ export interface JiraSite {
   readonly requests: SiteRequest[];
   /** Transition screen fields that are required, by target status ID. */
   readonly requiredFields: Map<string, string>;
+  /** Status IDs no transition reaches, as in a workflow without that path. */
+  readonly unreachable: Set<string>;
   /** The JQL the intake filter matches, and the issue IDs it returns. */
   intake: { jql: string; ids: string[] } | null;
   /** Whether Jira rejects every request's credential, as after a revoked token. */
@@ -173,6 +175,7 @@ export function jiraSite(): JiraSite {
     issues: [],
     requests: [],
     requiredFields: new Map(),
+    unreachable: new Set(),
     intake: null,
     defaultAssignee: null,
     isRevoked: false,
@@ -270,7 +273,8 @@ function issueRoute(site: JiraSite, method: string, rest: string, body: unknown)
     return answer(200, document(issue));
   }
   if (part === 'transitions' && method === 'GET') {
-    const transitions = STATUSES.filter((target) => target.id !== issue.status).map((target) => {
+    const reachable = STATUSES.filter((target) => target.id !== issue.status && !site.unreachable.has(target.id));
+    const transitions = reachable.map((target) => {
       const required = site.requiredFields.get(target.id);
       return {
         id: `to-${target.id}`,

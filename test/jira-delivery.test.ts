@@ -273,6 +273,21 @@ await test('a required transition field is one blocker naming it, and nothing mo
   assert.equal(other.status, STATUS.progress, 'a changed mapping is planned at once');
 });
 
+await test('a mapped status no transition reaches is one blocker that names the stage, and a deleted issue is reported', async (t) => {
+  const fixture = build(t);
+  const issue = fixture.site.add();
+  fixture.workflow.stages = { 'Merge Ready': { statusId: STATUS.review, statusName: 'In Review' } };
+  fixture.site.unreachable.add(STATUS.review);
+  const move = pending('status', Number(issue.id), 'Merge Ready');
+  await assert.rejects(fixture.delivery.effect(move), {
+    code: 'FACTORY_GATED',
+    message: /PROJ-1 has no transition to "In Review" from its current status.+"Merge Ready"/v,
+  });
+  const deleted = pending('close', 99_999, 'Verified.');
+  await assert.rejects(fixture.delivery.effect(deleted), { code: 'NOT_FOUND' });
+  assert.deepEqual(fixture.site.writes(), []);
+});
+
 await test('closing moves the issue to a done status, or to the status mapped to Done', async (t) => {
   const fixture = build(t);
   const first = fixture.site.add();
