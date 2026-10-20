@@ -35,6 +35,8 @@ import {
   readJiraAccess,
   readJiraDiscovery,
 } from './jira-model.js';
+import { readIntakePreview, workflowDraft, workflowProblem, workflowSaveInput } from './jira-workflow-model.js';
+import { jiraWorkflowBlock } from './jira-workflow-ui.js';
 import { element } from './worker-ui.js';
 
 import type { OperatorControl } from './api.js';
@@ -49,6 +51,7 @@ import type {
 import type { ConsoleViewHandle } from './console-dom.js';
 import type { DiscoveryChoices } from './discovery-model.js';
 import type { JiraAccess, JiraFindings } from './jira-model.js';
+import type { IntakePreview, JiraWorkflowDraft, JiraWorkflowView } from './jira-workflow-model.js';
 
 /** Callbacks supplied by the console shell. */
 export interface ConnectionHooks {
@@ -234,6 +237,10 @@ class ConnectionPanel {
   private githubSource: SourceDraft = { choices: null, repositoryId: '' };
   /** Jira draft. */
   private jira: JiraDraft = { form: jiraForm(null), findings: null, access: null };
+  /** Unsaved Jira workflow choices; `null` shows the saved ones. */
+  private workflow: JiraWorkflowDraft | null = null;
+  /** What intake would file under the filter just saved. */
+  private intakePreview: IntakePreview | null = null;
   /** Whether a read or control is in flight. */
   private isBusy = false;
   /** Bumped when the drafts are replaced, so a late answer for older drafts is dropped. */
@@ -274,6 +281,8 @@ class ConnectionPanel {
       this.status.textContent = '';
       this.provider = view.trackerProvider ?? 'github-projects';
       this.jira = { form: jiraForm(view.jira), findings: null, access: null };
+      this.workflow = null;
+      this.intakePreview = null;
     }
     this.view = view;
     const signature = JSON.stringify(view);
@@ -492,7 +501,7 @@ class ConnectionPanel {
         'p',
         'subtle',
         t(
-          'MALT can check and save a Jira project as the work tracker. The factory does not deliver through Jira yet, so deliveries still use GitHub or the local hub.',
+          'With a Jira project as the work tracker, issues matching the intake filter become objectives, their deliveries become sub-tasks, and stage changes, pull request links and evidence appear on the issues. Branches, pull requests and merges stay in source control.',
         ),
       ),
       fields,
@@ -506,7 +515,35 @@ class ConnectionPanel {
       nodes.push(this.jiraAccess(this.jira.access));
     }
     nodes.push(this.saveControl('tracker', jiraSaveInput(form, findings), view));
+    if (view.jiraWorkflow !== null) {
+      nodes.push(this.jiraWorkflow(view.jiraWorkflow));
+    }
     return nodes;
+  }
+
+  /**
+   * The saved Jira tracker's intake filter and stage mapping, with the last intake read.
+   *
+   * @param saved - Saved workflow and the project's statuses.
+   * @returns Workflow block.
+   */
+  private jiraWorkflow(saved: JiraWorkflowView): HTMLElement {
+    const draft = this.workflow ?? workflowDraft(saved);
+    return jiraWorkflowBlock(
+      { saved, draft, preview: this.intakePreview, isBusy: this.isBusy },
+      {
+        editFilter: (jql) => {
+          this.workflow = { ...(this.workflow ?? workflowDraft(saved)), jql };
+        },
+        editStage: (stage, statusId) => {
+          const current = this.workflow ?? workflowDraft(saved);
+          this.workflow = { ...current, stages: { ...current.stages, [stage]: statusId } };
+        },
+        save: () => {
+          void this.saveWorkflow(saved);
+        },
+      },
+    );
   }
 
   /**
@@ -921,6 +958,36 @@ class ConnectionPanel {
         this.drawn = '';
       }
       return t(isSaved ? 'Saved. Verify the connection to check it.' : 'Not saved. The notice says why.');
+    });
+  }
+
+  /**
+   * Save the Jira workflow draft; Jira checks the filter and statuses first.
+   *
+   * @param saved - Saved workflow, for the statuses and an untouched draft.
+   */
+  private async saveWorkflow(saved: JiraWorkflowView): Promise<void> {
+    const draft = this.workflow ?? workflowDraft(saved);
+    const problem = workflowProblem(draft);
+    if (problem !== null) {
+      this.status.textContent = problem;
+      return;
+    }
+    const { operation, input } = workflowSaveInput(draft, saved.statuses);
+    await this.run(t('Saving the Jira workflow…'), async (isCurrent) => {
+      const answer: { preview: IntakePreview | null } = { preview: null };
+      const isSaved = await this.hooks.control(operation, input, (result) => {
+        answer.preview = readIntakePreview(result);
+      });
+      if (!isCurrent()) {
+        return '';
+      }
+      if (isSaved) {
+        this.workflow = null;
+        this.intakePreview = answer.preview;
+        this.drawn = '';
+      }
+      return t(isSaved ? 'Saved. Jira accepted the filter and the statuses.' : 'Not saved. The notice says why.');
     });
   }
 
