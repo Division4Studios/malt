@@ -15,9 +15,8 @@ import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
 import { hasFailedCheck } from './ci-logs.ts';
-import { deliveryTask } from './delivery-task.ts';
+import { deliveryTask, parentFeature } from './delivery-task.ts';
 import { didAdoptExternalMerge } from './external-merge.ts';
-import { objectiveGates } from './gate-controls.ts';
 import { didRefreshOntoMain } from './main-refresh.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
@@ -34,7 +33,9 @@ import { reconcileSuperseded } from './supersession.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
+import type { DeliveryPlanIssue } from './scheduler.ts';
 import type { FactoryTask, Feature } from './schema.ts';
+import type { KeyedIssue, KeyedParent } from './tracker-key.ts';
 
 /** Commit id characters shown in progress log entries. */
 const SHORT_SHA = 12;
@@ -96,24 +97,7 @@ async function importReady(context: FactoryContext): Promise<void> {
     if (context.repository.tasks().some((task) => task.issue === issue.issue)) {
       continue;
     }
-    let feature = context.repository.features().find((candidate) => candidate.parentIssue === issue.parentIssue);
-    if (feature === undefined) {
-      const now = context.repository.store.now();
-      feature = {
-        id: randomUUID(),
-        objective: `Existing feature #${String(issue.parentIssue)}`,
-        phase: 'active',
-        productPlan: null,
-        plan: null,
-        parentIssue: issue.parentIssue,
-        error: null,
-        createdAt: now,
-        updatedAt: now,
-        approvals: [],
-        gates: objectiveGates(context.repository),
-      };
-      context.repository.saveFeature(feature);
-    }
+    const feature = parentFeature(context.repository, issue);
     if (feature.scopeReplacement === undefined) {
       context.repository.addTask(deliveryTask(context, issue, feature.id));
     }
@@ -569,11 +553,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
     if (existing.some((candidate) => candidate.issue === mapping.issue)) {
       continue;
     }
-    const task = deliveryTask(
-      context,
-      { ...scope, issue: mapping.issue, parentIssue: mapping.parentIssue },
-      feature.id,
-    );
+    const task = deliveryTask(context, { ...scope, ...mappingIdentity(mapping) }, feature.id);
     context.repository.addTask({
       ...task,
       id: ids.get(mapping.key) ?? task.id,
@@ -593,7 +573,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
   context.repository.saveFeature({
     ...current,
     phase: 'active',
-    parentIssue: mappings[0]?.parentIssue ?? null,
+    ...parentIdentity(mappings[0]),
     error: null,
     updatedAt: context.repository.store.now(),
   });
@@ -610,7 +590,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
 function retainSupersededMappings(
   context: FactoryContext,
   feature: Feature,
-  mappings: readonly { key: string; issue: number; parentIssue: number }[],
+  mappings: readonly DeliveryPlanIssue[],
 ): void {
   context.repository.store.transaction(() => {
     for (const mapping of mappings) {
@@ -621,8 +601,7 @@ function retainSupersededMappings(
       const task = deliveryTask(
         context,
         {
-          issue: mapping.issue,
-          parentIssue: mapping.parentIssue,
+          ...mappingIdentity(mapping),
           title: scope?.title ?? 'Superseded remote scope',
           description: scope?.description ?? feature.objective,
           acceptanceCriteria: scope?.acceptanceCriteria ?? ['Superseded; do not implement.'],
@@ -636,8 +615,37 @@ function retainSupersededMappings(
         error: feature.error,
       });
     }
-    context.repository.saveFeature({ ...feature, parentIssue: mappings[0]?.parentIssue ?? feature.parentIssue });
+    const parent = mappings[0];
+    context.repository.saveFeature(parent === undefined ? feature : { ...feature, ...parentIdentity(parent) });
   });
+}
+
+/**
+ * A provisioned mapping's issue identity, keeping a non-GitHub tracker's typed keys.
+ *
+ * @param mapping - Confirmed remote creation receipt.
+ * @returns Numeric handles and any typed keys.
+ */
+function mappingIdentity(mapping: DeliveryPlanIssue): KeyedIssue & KeyedParent {
+  return {
+    issue: mapping.issue,
+    parentIssue: mapping.parentIssue,
+    ...(mapping.trackerKey !== undefined && { trackerKey: mapping.trackerKey }),
+    ...(mapping.parentKey !== undefined && { parentKey: mapping.parentKey }),
+  };
+}
+
+/**
+ * The parent issue identity a provisioned objective records.
+ *
+ * @param mapping - First confirmed creation receipt, if any.
+ * @returns Parent handle and any typed parent key.
+ */
+function parentIdentity(mapping: DeliveryPlanIssue | undefined): Pick<Feature, 'parentIssue' | 'parentKey'> {
+  return {
+    parentIssue: mapping?.parentIssue ?? null,
+    ...(mapping?.parentKey !== undefined && { parentKey: mapping.parentKey }),
+  };
 }
 
 /**

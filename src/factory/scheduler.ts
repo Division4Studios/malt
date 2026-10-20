@@ -33,6 +33,7 @@ import type {
   Provider,
   SkillRequest,
 } from './schema.ts';
+import type { KeyedIssue, KeyedParent } from './tracker-key.ts';
 import type { TriageDecision } from './triage.ts';
 import type { Workflow, WorkflowStep } from './workflows.ts';
 /** Named percent max bound. */
@@ -49,20 +50,23 @@ export function hasFinalApproval(task: FactoryTask): boolean {
   return proof !== null && proof.head === task.head && proof.base === task.base;
 }
 
-/** Native issue identity associated with an atomic plan key. */
-export interface DeliveryPlanIssue {
+/**
+ * Native issue identity associated with an atomic plan key. A tracker whose
+ * keys are not issue numbers also returns `trackerKey` and `parentKey`.
+ */
+export interface DeliveryPlanIssue extends KeyedIssue, KeyedParent {
   /** Stable delivery key. */
   readonly key: string;
-  /** Created delivery issue number. */
+  /** Created delivery issue's numeric ledger handle. */
   readonly issue: number;
-  /** Full-feature issue number. */
+  /** Full-feature issue's numeric ledger handle. */
   readonly parentIssue: number;
 }
-/** Existing scoped Ready issue discovered on the target Project. */
-export interface ReadyIssue {
-  /** Delivery issue number. */
+/** Existing scoped Ready issue discovered on the target tracker, keyed as {@link DeliveryPlanIssue} is. */
+export interface ReadyIssue extends KeyedIssue, KeyedParent {
+  /** Delivery issue's numeric ledger handle. */
   readonly issue: number;
-  /** Feature parent number. */
+  /** Feature parent's numeric ledger handle. */
   readonly parentIssue: number;
   /** Focused delivery title. */
   readonly title: string;
