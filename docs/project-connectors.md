@@ -13,19 +13,19 @@ This page covers what ships, how to use it, and what is still missing. Storage d
 
 Every GitHub call goes through the operator's authenticated `gh` CLI session. MALT stores no GitHub token.
 
-| Feature                     | What it does                                                                                                                    | How to use it                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Connect                     | Verifies the repository, the Project and its Status field, then saves the connection.                                           | **Project → Setup & capacity → Configure connection**, or CLI `github-connect --file FILE`.                        |
-| Discovery                   | Read-only. Lists the signed-in login, accessible repositories, an owner's Projects and a Project's single-select fields.        | MCP `mesh_github_discover` from an attached session.                                                               |
-| Credential handles          | Records where each section's credential lives (the `gh` session or an environment variable name), never the credential.         | Saved automatically on connect. `mesh_github_status` reports `credentials: {tracker, source}`.                     |
-| Saved and verified sections | Saves the tracker and source sections separately, then verifies each one against discovery.                                     | CLI `github-section-save --file FILE`, then `github-verify`. MCP `mesh_github_section_save`, `mesh_github_verify`. |
-| Labels                      | Lists labels and applies existing labels. Creating, editing or deleting labels is a separate capability.                        | `mesh_github_labels`, `mesh_github_label_apply`, `mesh_github_label_manage`.                                       |
-| Milestones                  | Lists milestones and assigns existing ones. Creating, editing, closing or deleting them is a separate capability.               | `mesh_github_milestones`, `mesh_github_milestone_assign`, `mesh_github_milestone_manage`.                          |
-| Project views               | Lists and creates saved views, after a live check of whether this account reaches them through GraphQL, REST or neither.        | `mesh_github_views`, `mesh_github_view_create`.                                                                    |
-| Views and fields by target  | Changes or deletes one view by number, or creates, changes or deletes one field by ID. The connected Status field is protected. | `mesh_github_view_manage`, `mesh_github_field_manage`.                                                             |
-| Project creation            | Creates a new GitHub Project once, and reconciles an interrupted creation instead of creating a second board.                   | `github-connect` with `"createProject": true` and a `title`. The console form never creates one.                   |
-| Capability policy           | Decides who may perform each mutation: nobody, the human operator only, or approved agent roles.                                | **Project → Capabilities**, or CLI `capability-status` and `capability-set --file FILE`.                           |
-| MCP tool bindings           | Gives approved roles a reviewed third-party MCP server, limited to exact tools, after a human approves its exact hash.          | CLI `mcp-binding-propose`, `mcp-binding-status` and `mcp-binding-approve`.                                         |
+| Feature                     | What it does                                                                                                                    | How to use it                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Connect                     | Verifies the repository, the Project and its Status field, then saves the connection.                                           | **Project → Setup & capacity → Configure connection**, or CLI `github-connect --file FILE`.                       |
+| Discovery                   | Read-only. Lists the signed-in login, accessible repositories, an owner's Projects and a Project's single-select fields.        | **Project → Connections**, or MCP `mesh_github_discover` from an attached session.                                |
+| Credential handles          | Records where each section's credential lives (the `gh` session or an environment variable name), never the credential.         | Saved automatically on connect. `mesh_github_status` reports `credentials: {tracker, source}`.                    |
+| Saved and verified sections | Saves the tracker and source sections separately, then verifies each one against discovery.                                     | **Project → Connections**, CLI `github-section-save --file FILE` then `github-verify`, or the matching MCP tools. |
+| Labels                      | Lists labels and applies existing labels. Creating, editing or deleting labels is a separate capability.                        | `mesh_github_labels`, `mesh_github_label_apply`, `mesh_github_label_manage`.                                      |
+| Milestones                  | Lists milestones and assigns existing ones. Creating, editing, closing or deleting them is a separate capability.               | `mesh_github_milestones`, `mesh_github_milestone_assign`, `mesh_github_milestone_manage`.                         |
+| Project views               | Lists and creates saved views, after a live check of whether this account reaches them through GraphQL, REST or neither.        | `mesh_github_views`, `mesh_github_view_create`.                                                                   |
+| Views and fields by target  | Changes or deletes one view by number, or creates, changes or deletes one field by ID. The connected Status field is protected. | `mesh_github_view_manage`, `mesh_github_field_manage`.                                                            |
+| Project creation            | Creates a new GitHub Project once, and reconciles an interrupted creation instead of creating a second board.                   | `github-connect` with `"createProject": true` and a `title`. The console form never creates one.                  |
+| Capability policy           | Decides who may perform each mutation: nobody, the human operator only, or approved agent roles.                                | **Project → Capabilities**, or CLI `capability-status` and `capability-set --file FILE`.                          |
+| MCP tool bindings           | Gives approved roles a reviewed third-party MCP server, limited to exact tools, after a human approves its exact hash.          | CLI `mcp-binding-propose`, `mcp-binding-status` and `mcp-binding-approve`.                                        |
 
 Every GitHub Project mutation in this table is checked against the [capability policy](capability-policy.md) at one point, `ProjectGitHub.execute`, before any remote call. The check is the same whether the call comes from the console, the CLI, an MCP tool or the supervisor. A denial makes no GitHub request and writes no journal.
 
@@ -81,7 +81,7 @@ Use this path when you want to choose from real results instead of typing names,
 
 3. Verify with `node src/cli.ts github-verify`. Each section records `verified`, `degraded`, `failed` or `external`, with its errors and the time of the check.
 
-A saved section is never reported as connected until it is verified. `connected` is true only when both sections are verified. Saving needs `project-connect`; verifying needs no capability. The states are defined in [verification states](connection-records.md#verification-states). The console has no discovery or per-section controls yet (#84).
+A saved section is never reported as connected until it is verified. `connected` is true only when both sections are verified. Saving needs `project-connect`; verifying needs no capability. The states are defined in [verification states](connection-records.md#verification-states). In the console, **Project → Connections** runs the same steps: see [Connections](operator-console.md#connections).
 
 ## Labels, milestones, views and fields
 
@@ -126,11 +126,10 @@ At a managed launch, MALT includes only the approved bindings for that role and 
 
 ## Not done yet
 
-| Gap                                                                                                                                     | Issue                                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| A console panel with separate **Work tracker** and **Source control** sections, discovery results, per-section verification and errors. | [#84](https://github.com/Division4Studios/malt/issues/84)   |
-| A loopback integration test proving that a disabled capability cannot be bypassed through the web gateway, CLI, MCP or supervisor.      | [#92](https://github.com/Division4Studios/malt/issues/92)   |
-| Jira as a usable tracker (see below).                                                                                                   | [#265](https://github.com/Division4Studios/malt/issues/265) |
+| Gap                                                                                                                                | Issue                                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| A loopback integration test proving that a disabled capability cannot be bypassed through the web gateway, CLI, MCP or supervisor. | [#92](https://github.com/Division4Studios/malt/issues/92)   |
+| Jira as a usable tracker (see below).                                                                                              | [#265](https://github.com/Division4Studios/malt/issues/265) |
 
 Some GitHub effects are not capability-checked yet: the delivery adapter's pull request creation, merges, pull request and issue closure, comments and native dependency edges. See [enforcement](capability-policy.md#enforcement). The parent feature is [#72](https://github.com/Division4Studios/malt/issues/72).
 
@@ -142,12 +141,12 @@ What works today:
 
 - read-only discovery of the site, the account, the project, its issue types and workflow statuses, the account's permissions and the fields each issue type requires;
 - saving the Jira project as the tracker section and verifying it against the site;
-- the CLI and MCP controls for these steps.
+- the console (**Project → Connections**), CLI and MCP controls for these steps.
 
 The factory does not deliver through a Jira tracker yet. Intake, breakdown, stage transitions and evidence comments exist as a tested library (below), but the supervisor still delivers through GitHub or the local hub. That wiring is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
 
 1. Ask your Jira administrator to follow the [Jira admin guide](#jira-admin-guide), then set the token in the environment of the process that runs the broker, for example `JIRA_API_TOKEN`. Restart the broker so it sees the variable.
-2. Discover the project. Nothing is saved, and nothing in Jira changes.
+2. Discover the project. Nothing is saved, and nothing in Jira changes. In the console, choose **Jira Cloud** on **Project → Connections** and use **Check Jira project**; it also shows what MALT reads and may change in Jira before you enable any write. From the command line:
 
    ```sh
    cat > jira.json <<'EOF'

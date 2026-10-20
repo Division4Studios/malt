@@ -14,6 +14,7 @@ import { z } from 'zod/v3';
 import { MeshError } from '../protocol.ts';
 
 import { readArtifact } from './artifacts.ts';
+import { connectorRoute } from './connector-routes.ts';
 import { ensurePairingCode, readPairingCode } from './pairing.ts';
 import { ProjectGateway } from './projects.ts';
 import { recommendationQuery } from './recommendation-query.ts';
@@ -123,6 +124,10 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'secrets-ui',
     'capability-model',
     'capability-ui',
+    'discovery-model',
+    'jira-model',
+    'connection-model',
+    'connection-ui',
     'step-override-model',
     'workflow-history-model',
     'workflow-history-ui',
@@ -625,9 +630,15 @@ async function inspectApi(
       return;
     }
     default: {
-      // Version, preflight and capability reads, then attempt, transcript and cost reads; else unknown (404).
+      // Version, preflight and capability reads, then read-only discovery, then attempt, transcript and cost reads; else unknown (404).
       const read = projectReads(gateway)[url.pathname];
-      json(response, HTTP.ok, read === undefined ? await telemetryRoute(url, gateway) : await read(project));
+      json(
+        response,
+        HTTP.ok,
+        read === undefined
+          ? await connectorRoute(url, gateway, async () => telemetryRoute(url, gateway))
+          : await read(project),
+      );
     }
   }
 }

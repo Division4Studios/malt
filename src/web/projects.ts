@@ -522,6 +522,17 @@ export class ProjectGateway {
   }
 
   /**
+   * Discover reachable repositories, Projects and fields without saving anything.
+   *
+   * @param id - Explicit project selection.
+   * @param input - Optional repository, owner and Project number to inspect.
+   * @returns The broker's read-only discovery result for that project only.
+   */
+  public async discovery(id: string, input: Record<string, unknown>): Promise<unknown> {
+    return rpc(this.config(id), 'github_discover', input);
+  }
+
+  /**
    * Inspect metadata only; viewing a project never creates a terminal.
    *
    * @param id - Explicitly selected operator scope.

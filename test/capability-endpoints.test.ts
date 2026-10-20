@@ -40,6 +40,16 @@ const actorSchema = z.object({ kind: z.string(), id: z.string() });
 /** Audit entry fields asserted here. */
 const historySchema = z.object({ capability: z.string(), kind: z.string(), actor: actorSchema });
 /** The returned view; extra fields would be a contract change. */
+/** One Jira write the admin summary lists. */
+const jiraWriteSchema = z
+  .object({ capability: z.string(), change: z.string(), mode: z.string(), roles: z.array(z.string()) })
+  .strict();
+/** Text lists in the Jira admin summary. */
+const textsSchema = z.array(z.string());
+/** The Jira mode and admin summary. */
+const jiraSummarySchema = z
+  .object({ mode: z.string(), roles: textsSchema, reads: textsSchema, writes: z.array(jiraWriteSchema) })
+  .strict();
 const viewSchema = z
   .object({
     connected: z.boolean(),
@@ -47,6 +57,7 @@ const viewSchema = z
     capabilities: z.array(capabilitySchema).length(16),
     history: z.array(historySchema),
     historyTruncated: z.boolean(),
+    jira: jiraSummarySchema,
   })
   .strict();
 /** Event fields asserted here. */
@@ -136,6 +147,9 @@ await test('the operator edits a policy over RPC; agents read it but can never c
   assert.ok(initial.capabilities.every((item) => item.support === 'unverified'));
   assert.equal(initial.history.length, HUMAN_SETUP.size);
   assert.deepEqual(edits(initial), []);
+  assert.equal(initial.jira.mode, 'read-only', 'Jira starts read-only, and the summary says so before any write');
+  assert.ok(initial.jira.reads.length > 0);
+  assert.ok(initial.jira.writes.every((write) => write.mode === 'disabled' && write.change !== ''));
 
   const updated = viewSchema.parse(await rpc(config, 'capability_policy_set', grant));
   assert.deepEqual(entry(updated, 'issue-create'), {
@@ -146,6 +160,8 @@ await test('the operator edits a policy over RPC; agents read it but can never c
     providerCapabilities: [{ name: 'issue_create', state: 'unverified' }],
   });
   assert.equal(edits(updated).length, 1);
+  assert.equal(updated.jira.mode, 'custom', 'one capability changed on its own is not a Jira mode');
+  assert.equal(updated.jira.writes.find((write) => write.capability === 'issue-create')?.mode, 'approved-agent-roles');
   assert.deepEqual(edits(updated)[0]?.actor, { kind: 'human', id: 'project-operator' });
   const events = eventsSchema.parse(await rpc(config, 'events', { after: 0, limit: 100 }));
   assert.ok(events.events.some((event) => event.type === 'CAPABILITY_POLICY_CHANGED'));
