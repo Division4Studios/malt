@@ -8,7 +8,7 @@
 declare module '*/web/dist/connection-model.js' {
   /** Verification state, or none before a save. */
   type SectionState = 'none' | 'saved' | 'verified' | 'degraded' | 'failed' | 'external';
-  /** Credential presence. */
+  /** Whether a credential is available; never its value. */
   type CredentialPresence = 'present' | 'missing' | 'unverified';
   /** One step's failure. */
   interface StepError {
@@ -108,7 +108,7 @@ declare module '*/web/dist/connection-model.js' {
   /**
    * Name credential presence for display.
    *
-   * @param presence - Presence.
+   * @param presence - Reported availability.
    * @returns Display text.
    */
   export function credentialLabel(presence: CredentialPresence): string;

@@ -59,14 +59,14 @@ declare module '*/web/dist/jira-model.js' {
    * Prefill the form.
    *
    * @param saved - Saved Jira tracker.
-   * @returns Form.
+   * @returns Prefilled values.
    */
   export function jiraForm(saved: JiraSettings | null): JiraSettings;
 
   /**
    * The first problem with the form.
    *
-   * @param form - Form.
+   * @param form - Operator values.
    * @returns Problem or null.
    */
   export function jiraFormProblem(form: JiraSettings): string | null;
@@ -74,7 +74,7 @@ declare module '*/web/dist/jira-model.js' {
   /**
    * The discovery control.
    *
-   * @param form - Form.
+   * @param form - Operator values.
    * @returns Control.
    */
   export function jiraDiscoverInput(form: JiraSettings): {
@@ -101,8 +101,8 @@ declare module '*/web/dist/jira-model.js' {
   /**
    * The tracker save for discovered findings.
    *
-   * @param form - Form.
-   * @param findings - Findings.
+   * @param form - Operator values.
+   * @param findings - Latest discovery.
    * @returns Save or null.
    */
   export function jiraSaveInput(form: JiraSettings, findings: JiraFindings | null): SectionSave | null;
@@ -118,7 +118,7 @@ declare module '*/web/dist/jira-model.js' {
   /**
    * Name a Jira mode.
    *
-   * @param mode - Mode.
+   * @param mode - Jira mode name.
    * @returns Text.
    */
   export function jiraModeLabel(mode: string): string;
