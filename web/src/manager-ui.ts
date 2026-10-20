@@ -8,6 +8,7 @@
 import { data, firstText, number, records, text } from './api.js';
 import { formatTime, phrase, t } from './i18n.js';
 import { ago } from './manager-controller.js';
+import { isView, viewPath } from './navigation.js';
 import { element } from './worker-ui.js';
 
 import type { Data } from './api.js';
@@ -155,7 +156,10 @@ function decisionCard(item: Data, controller: ManagerController): HTMLElement {
   card.append(element('h3', '', text(item, 'title')), element('p', 'subtle', text(item, 'detail')));
   const route = text(item, 'resolveWith');
   if (text(item, 'kind') !== 'manager') {
-    card.append(element('p', 'decision-route', t('Resolve in {route}', { route })));
+    // The location comes from the console navigation itself; an older broker sends only its route text.
+    const view = text(item, 'resolveView');
+    const location = isView(view) ? viewPath(view) : route;
+    card.append(element('p', 'decision-route', t('Resolve in {route}', { route: location })));
     return card;
   }
   const id = text(item, 'id');

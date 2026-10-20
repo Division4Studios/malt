@@ -18,8 +18,12 @@ import {
   useLocale,
 } from '../web/dist/i18n.js';
 
-/** Modules that may build text without the catalog: dependency-free modules, the terminal emulator and the catalog itself. */
-const UNCATALOGUED = /^(?:api|catalog-.*|diff-parse|freshness|history|i18n|terminal-.*)\.ts$/v;
+/**
+ * Modules that may build text without the catalog: dependency-free modules, the terminal emulator and the catalog
+ * itself. The terminal workspace, pane and input controls are operator-facing and use the catalog.
+ */
+const UNCATALOGUED =
+  /^(?:api|catalog-.*|diff-parse|freshness|history|i18n|terminal-(?:contract|grid|keys|parser|render|render-model|screen|stream|style|width|writes))\.ts$/v;
 /** DOM-building patterns that would show hard-coded English instead of a translated message. */
 const HARD_CODED = [
   /\.(?:ariaLabel|placeholder|textContent|title)\s*=\s*["'`]\p{Lu}\p{Ll}/v,

@@ -340,18 +340,40 @@ function deliveryState(
 }
 
 /**
+ * Whether an open Inbox item waits on a delivery or a planning objective. The
+ * Board's Needs you column reads the same items as the Inbox, so an approval,
+ * blocker, agent question, checkpoint decision or spend cap shows in both.
+ *
+ * @param open - Open Inbox items.
+ * @param scope - A delivery, or an objective's own planning (`taskId` null).
+ * @param scope.taskId - Delivery id, or null for the objective itself.
+ * @param scope.featureId - Objective id, when the scope is an objective.
+ * @returns True when the human has something to decide for it.
+ */
+export function isAwaitingHuman(
+  open: readonly InboxItem[],
+  scope: { readonly taskId: string | null; readonly featureId: string | null },
+): boolean {
+  return open.some((item) => {
+    return scope.taskId === null
+      ? item.taskId === null && item.featureId !== null && item.featureId === scope.featureId
+      : item.taskId === scope.taskId;
+  });
+}
+
+/**
  * The board column for a delivery.
  *
  * @param task - Delivery to place.
- * @param waiting - How many of its steps wait on a human decision.
+ * @param isWaiting - Whether an open Inbox item waits on it.
  * @param running - Its live attempt, if any.
  * @returns The column the delivery card belongs in.
  */
-function deliveryColumn(task: FactoryTask, waiting: number, running: FactoryJob | undefined): Column {
+function deliveryColumn(task: FactoryTask, isWaiting: boolean, running: FactoryJob | undefined): Column {
   if (task.phase === 'done') {
     return 'done';
   }
-  if (waiting > 0 || task.phase === 'blocked') {
+  if (isWaiting) {
     return 'needs_you';
   }
   return running === undefined && task.phase === 'ready' ? 'ready' : 'in_progress';
@@ -388,6 +410,7 @@ function stepShape(step: WorkflowStep, layers: ReadonlyMap<string, number>): Omi
  * @param context.jobs - Every attempt, for retry backoff.
  * @param context.timing - Current time and reconcile interval.
  * @param context.attempted - Steps any attempt ran, for the override editor.
+ * @param context.open - Open Inbox items, which place the card in Needs you.
  * @returns Card and pipeline.
  */
 function deliveryView(
@@ -399,6 +422,7 @@ function deliveryView(
     jobs: readonly FactoryJob[];
     timing: { now: number; reconcileMs: number };
     attempted: ReadonlySet<string>;
+    open: readonly InboxItem[];
   },
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
@@ -424,7 +448,7 @@ function deliveryView(
     title: task.title,
     featureId: task.featureId,
     phase: task.phase,
-    column: deliveryColumn(task, waiting.size, running),
+    column: deliveryColumn(task, isAwaitingHuman(context.open, { taskId: task.id, featureId: null }), running),
     workflow: { id: workflow.id, name: workflow.name },
     steps,
     running:
@@ -492,14 +516,20 @@ function planningState(
  * @param feature - Objective to describe.
  * @param tasks - Deliveries, for provisioning progress.
  * @param live - Running attempts.
+ * @param open - Open Inbox items, which place the card in Needs you.
  * @returns Card and planning pipeline.
  */
-function objectiveView(feature: Feature, tasks: readonly FactoryTask[], live: readonly FactoryJob[]): ObjectiveView {
+function objectiveView(
+  feature: Feature,
+  tasks: readonly FactoryTask[],
+  live: readonly FactoryJob[],
+  open: readonly InboxItem[],
+): ObjectiveView {
   const workflow = featureWorkflow(feature);
   const layers = stepLayers(workflow.planning);
   const running = live.find((job) => job.taskId === null && job.featureId === feature.id);
   const children = tasks.filter((task) => task.featureId === feature.id);
-  const isWaiting = feature.phase === 'blocked' || planningApprovals(feature, workflow).length > 0;
+  const isWaiting = isAwaitingHuman(open, { taskId: null, featureId: feature.id });
   const stateOf = (step: WorkflowStep): StepState => planningState(feature, workflow, step, running);
   return {
     featureId: feature.id,
@@ -853,9 +883,10 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
   const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
+  const open = openItems(repository, tasks, features);
   return {
-    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing, attempted })),
-    objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
+    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing, attempted, open })),
+    objectives: planning.map((feature) => objectiveView(feature, tasks, live, open)),
     goals: [
       ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),
       ...current.filter((feature) => feature.phase !== 'done'),
@@ -867,6 +898,6 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
         .toReversed()
         .map((task) => ({ taskId: task.id, issue: task.issue, title: task.title })),
     },
-    inbox: { open: openItems(repository, tasks, features), answered: answeredItems(repository, tasks, features) },
+    inbox: { open, answered: answeredItems(repository, tasks, features) },
   };
 }

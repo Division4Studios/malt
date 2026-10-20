@@ -146,6 +146,36 @@ function rules(css: string): { selector: string; body: string }[] {
 }
 
 /**
+ * CSS rules with comments removed and their selector lists split.
+ *
+ * @param css - Stylesheet text.
+ * @returns Each rule's selectors and body.
+ */
+function selectorRules(css: string): { selectors: string[]; body: string }[] {
+  return rules(css.replaceAll(/\/\*[\s\S]*?\*\//gv, '')).map((rule) => {
+    return {
+      selectors: rule.selector.split(',').map((selector) => selector.trim()),
+      body: rule.body,
+    };
+  });
+}
+
+/**
+ * Whether one selector of classes and type names outranks another.
+ *
+ * @param left - Selector such as `.nav.active .nav-count`.
+ * @param right - Selector such as `.nav.active span`.
+ * @returns True when the left selector has the higher specificity.
+ */
+function isMoreSpecific(left: string, right: string): boolean {
+  const [leftClasses = 0, leftTypes = 0, rightClasses = 0, rightTypes = 0] = [left, right].flatMap((selector) => {
+    const types = selector.split(/[\s>]+/v).filter((part) => /^[a-z]/v.test(part));
+    return [selector.split('.').length - 1, types.length];
+  });
+  return leftClasses === rightClasses ? leftTypes > rightTypes : leftClasses > rightClasses;
+}
+
+/**
  * Start tags of one element name in an HTML document.
  *
  * @param html - Document text.
@@ -211,6 +241,34 @@ await test('reduced motion turns off every animation and transition, and removed
       `${rule.selector} replaces its outline with a visible focus style`,
     );
   }
+});
+
+await test('a navigation count keeps its own colours over every rail icon rule, active or not', async () => {
+  const icons = selectorRules(STYLE)
+    .filter((rule) => rule.body.includes('color:'))
+    .flatMap((rule) => rule.selectors.filter((selector) => /^\.nav[\w\-.]* span$/v.test(selector)));
+  assert.ok(icons.includes('.nav.active span'));
+  const count = selectorRules(await webFile('board.css')).find((rule) => rule.selectors.includes('.nav .nav-count'));
+  assert.ok(count?.body.includes('color: var(--on-accent)') === true);
+  for (const icon of icons) {
+    const state = icon.replace(/ span$/v, '');
+    assert.ok(
+      count.selectors.some((own) => own.startsWith(`${state} `) && isMoreSpecific(own, icon)),
+      `the count outranks ${icon}`,
+    );
+  }
+});
+
+await test('check boxes and radios keep their natural width, so their labels never collapse', () => {
+  const all = rules(STYLE);
+  const fullWidth = all.findIndex(
+    (rule) => rule.selector.endsWith('input,\ntextarea') && rule.body.includes('width: 100%'),
+  );
+  const natural = all.findIndex(
+    (rule) =>
+      rule.selector.endsWith("input[type='checkbox'],\ninput[type='radio']") && rule.body.includes('width: auto'),
+  );
+  assert.ok(fullWidth !== -1 && natural > fullWidth);
 });
 
 await test('view stylesheets take surface and text colours from theme tokens', async () => {

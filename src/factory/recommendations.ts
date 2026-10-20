@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { initializeRecommendationNotices, recordRecommendationNotices } from './recommendation-notices.ts';
 import {
   RECOMMENDATION_DETAIL_MAX,
+  isRetryable,
   recommendationDetailInput,
   recommendationListInput,
   recommendationReadSchemas,
@@ -123,7 +124,8 @@ export class RecommendationLedger {
       }
       const recommendation = { ...record, audit: record.audit.slice(-AUDIT_MAX), auditTotal: record.audit.length };
       const contentRevision = digest({ id: record.id, revision: record.revision, state: record.state });
-      const response = { recommendation, contentRevision };
+      // The console offers Retry only where the broker would accept it.
+      const response = { recommendation, contentRevision, retryable: isRetryable(record) };
       if (Buffer.byteLength(JSON.stringify(response)) > RECOMMENDATION_DETAIL_MAX) {
         throw new MeshError(
           'FACTORY_GATED',

@@ -751,6 +751,20 @@ export function shortSha(sha: string | null): string {
   return sha === null ? '—' : sha.slice(0, SHORT_SHA);
 }
 
+/** Address the broker records for a pull request in the protected local hub. */
+const LOCAL_PULL = /^malt-local:\/\/pulls\/(?<pull>[1-9]\d{0,8})$/v;
+
+/**
+ * The local hub pull request a delivery's pull-request address names.
+ *
+ * @param url - Recorded pull-request address.
+ * @returns Its number for a `malt-local://pulls/<number>` address, otherwise `null`.
+ */
+export function localPullNumber(url: string): number | null {
+  const pull = LOCAL_PULL.exec(url)?.groups?.['pull'];
+  return pull === undefined ? null : Number(pull);
+}
+
 /**
  * Bound an error to its leading lines.
  *

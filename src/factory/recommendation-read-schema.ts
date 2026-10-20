@@ -1,5 +1,10 @@
-/** @file Bounded recommendation inspection/read receipts, separate from human decisions. */
+/** @file Bounded recommendation inspection/read receipts and the retry rule, separate from human decisions. */
 import { z } from 'zod/v3';
+
+import type { Recommendation } from './schema.ts';
+
+/** Recommendation kinds that change remote tickets. */
+const EXECUTED_KINDS: ReadonlySet<string> = new Set(['duplicate', 'consolidate']);
 
 /** Maximum external freshness-token length; matches bounded proposal identifiers. */
 const REVISION_MAX = 200;
@@ -39,6 +44,37 @@ const inspectionSchema = z
 export const recommendationRetrySchema = z
   .object({ id: recommendationAddress, revision: recommendationAddress })
   .strict();
+
+/**
+ * Whether a record is a remote ticket operation the executor applies.
+ *
+ * @param record - Current recommendation revision.
+ * @returns True for duplicates and consolidations with a survivor.
+ */
+export function isTicketOperation(record: Recommendation): boolean {
+  return EXECUTED_KINDS.has(record.body.kind) && record.body.survivor !== null && record.body.tickets.length > 1;
+}
+
+/**
+ * Whether the executor advances a record: ticket operations and guidance suggestions.
+ *
+ * @param record - Current recommendation revision.
+ * @returns True for records with an executable approved outcome.
+ */
+export function isExecutable(record: Recommendation): boolean {
+  return isTicketOperation(record) || record.body.kind === 'guidance_suggestion';
+}
+
+/**
+ * Whether the operator may retry a record: one the executor applies, settled as failed.
+ *
+ * @param record - Recommendation revision.
+ * @returns True exactly when `factory_recommendation_retry` accepts it at this revision.
+ */
+export function isRetryable(record: Recommendation): boolean {
+  return record.state === 'failed' && isExecutable(record);
+}
+
 /** Reading one exact current revision has no approval or execution authority. */
 export const recommendationReadSchemas = {
   factory_recommendations: inspectionSchema,

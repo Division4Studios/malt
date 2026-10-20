@@ -111,6 +111,8 @@ export interface RecommendationDetail extends RecommendationSummary {
   readonly transferredDependencies: readonly number[];
   /** Running assignments the change would affect. */
   readonly affectedAssignments: readonly string[];
+  /** The broker accepts an operator retry of this failed revision. */
+  readonly isRetryable: boolean;
 }
 
 /**
@@ -237,6 +239,7 @@ export function readDetail(value: unknown): RecommendationDetail | null {
     transferredAcceptance: members(body['transferredAcceptance'], isText),
     transferredDependencies: members(body['transferredDependencies'], isIssue),
     affectedAssignments: members(body['affectedAssignments'], isText),
+    isRetryable: summary.state === 'failed' && asData(value)?.['retryable'] === true,
   };
 }
 

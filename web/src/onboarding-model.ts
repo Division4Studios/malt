@@ -3,7 +3,8 @@
  * state from the live snapshot (plus the broker-side preflight once it has
  * run), so nothing here is a second ledger: connecting GitHub, configuring
  * the factory or submitting an objective anywhere in the console completes
- * the matching step.
+ * the matching step. A project on local delivery is already connected: its
+ * protected hub on this machine is the delivery target.
  *
  * Its last step answers the question a new operator actually has after the
  * first objective: did a role start, and if not, exactly why. The reason
@@ -139,18 +140,46 @@ export function readPreflight(value: unknown): PreflightView | null {
   return { ok: isOk, checks };
 }
 
+/** Snapshot fields onboarding reads. */
+export interface OnboardingSnapshot {
+  /** Factory projection. */
+  readonly factory: Data;
+  /** GitHub connection. */
+  readonly github: Data;
+  /** Local delivery ledger summary; present only when the project delivers through the local hub. */
+  readonly local?: Data | null;
+}
+
+/**
+ * Whether the project delivers through the protected local hub instead of GitHub.
+ *
+ * @param snapshot - Live snapshot fields.
+ * @returns True when the broker reports a local delivery ledger.
+ */
+export function isLocalDelivery(snapshot: Pick<OnboardingSnapshot, 'local'>): boolean {
+  return snapshot.local !== undefined && snapshot.local !== null;
+}
+
+/**
+ * Whether the project has a delivery target: a connected GitHub Project, or the local hub.
+ *
+ * @param snapshot - Live snapshot fields.
+ * @returns True once deliveries have somewhere to go.
+ */
+function hasDeliveryTarget(snapshot: OnboardingSnapshot): boolean {
+  return hasFlag(snapshot.github, 'connected') || isLocalDelivery(snapshot);
+}
+
 /**
  * Whether a project still needs the first-run flow.
  *
  * @param snapshot - Live snapshot fields.
- * @param snapshot.factory - Factory projection.
- * @param snapshot.github - GitHub connection.
- * @returns True before setup, connection or the first objective.
+ * @returns True before setup, a delivery target or the first objective.
  */
-export function isOnboardingNeeded(snapshot: { readonly factory: Data; readonly github: Data }): boolean {
+export function isOnboardingNeeded(snapshot: OnboardingSnapshot): boolean {
   return (
     !hasFlag(snapshot.factory, 'configured') ||
-    !hasFlag(snapshot.github, 'connected') ||
+    !hasDeliveryTarget(snapshot) ||
     records(snapshot.factory['features']).length === 0
   );
 }
@@ -306,23 +335,51 @@ function preflightStep(preflight: PreflightView | null): OnboardingStep {
 }
 
 /**
+ * The delivery-target step: the GitHub connection, or the local hub already in place.
+ *
+ * @param snapshot - Live snapshot fields.
+ * @returns Connect step with its progress and summary.
+ */
+function connectStep(snapshot: OnboardingSnapshot): OnboardingStep {
+  const { github, local } = snapshot;
+  if (local !== undefined && local !== null) {
+    return {
+      id: 'connect',
+      title: t('Deliver through the local hub'),
+      progress: 'done',
+      detail: t(
+        'Issues, pull requests and merges stay in the protected hub {remote}/{base} on this machine; no GitHub Project is needed.',
+        { remote: text(local, 'remote'), base: text(local, 'base') },
+      ),
+    };
+  }
+  const isConnected = hasFlag(github, 'connected');
+  const connection = child(github, 'connection');
+  const repository = firstText(text(connection, 'repository'), t('the selected repository'));
+  return {
+    id: 'connect',
+    title: t('Connect the GitHub repository and Project'),
+    progress: isConnected ? 'done' : 'todo',
+    detail: isConnected
+      ? t('Connected to {repository}.', { repository })
+      : t('Choose the repository and the GitHub Project its deliveries appear in.'),
+  };
+}
+
+/**
  * Every step, the first one still to do marked current.
  *
  * @param snapshot - Live snapshot fields.
- * @param snapshot.factory - Factory projection.
- * @param snapshot.github - GitHub connection.
  * @param preflight - Broker-side checks, or `null` before they ran.
  * @param now - Current time.
  * @returns Steps in display order.
  */
 export function onboardingSteps(
-  snapshot: { readonly factory: Data; readonly github: Data },
+  snapshot: OnboardingSnapshot,
   preflight: PreflightView | null,
   now: number,
 ): OnboardingStep[] {
-  const { factory, github } = snapshot;
-  const connection = child(github, 'connection');
-  const isConnected = hasFlag(github, 'connected');
+  const { factory } = snapshot;
   const isConfigured = hasFlag(factory, 'configured');
   const hasPolicy = Object.keys(child(child(factory, 'settings'), 'modelPolicy')).length > 0;
   const policy = t(hasPolicy ? 'saved' : 'uses the stage defaults');
@@ -339,16 +396,7 @@ export function onboardingSteps(
   const outcome = firstOutcome(factory, now);
   const steps: OnboardingStep[] = [
     preflightStep(preflight),
-    {
-      id: 'connect',
-      title: t('Connect the GitHub repository and Project'),
-      progress: isConnected ? 'done' : 'todo',
-      detail: isConnected
-        ? t('Connected to {repository}.', {
-            repository: firstText(text(connection, 'repository'), t('the selected repository')),
-          })
-        : t('Choose the repository and the GitHub Project its deliveries appear in.'),
-    },
+    connectStep(snapshot),
     {
       id: 'factory',
       title: t('Choose providers, checks and model policy'),

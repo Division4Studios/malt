@@ -996,6 +996,11 @@ textarea {
   padding: 12px;
   resize: vertical;
 }
+/* A full-width check box or radio squeezes its label to its narrowest: one character per line in Chinese. */
+input[type='checkbox'],
+input[type='radio'] {
+  width: auto;
+}
 textarea {
   font:
     12px/1.7 Consolas,

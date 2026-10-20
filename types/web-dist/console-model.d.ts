@@ -162,6 +162,14 @@ declare module '*/web/dist/console-model.js' {
   export function shortSha(sha: string | null): string;
 
   /**
+   * The local hub pull request a delivery's pull-request address names.
+   *
+   * @param url - Recorded pull-request address.
+   * @returns Its number for a `malt-local://pulls/<number>` address, otherwise null.
+   */
+  export function localPullNumber(url: string): number | null;
+
+  /**
    * Bound an error to its leading lines.
    *
    * @param message - Full text.

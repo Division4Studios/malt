@@ -43,16 +43,31 @@ declare module '*/web/dist/onboarding-model.js' {
    */
   export function readPreflight(value: unknown): PreflightView | null;
 
+  /** Snapshot fields onboarding reads. */
+  interface OnboardingSnapshot {
+    /** Factory projection. */
+    readonly factory: Record<string, unknown>;
+    /** GitHub connection. */
+    readonly github: Record<string, unknown>;
+    /** Local delivery ledger summary; present only on local delivery. */
+    readonly local?: Record<string, unknown> | null;
+  }
+
+  /**
+   * Whether the project delivers through the protected local hub.
+   *
+   * @param snapshot - Snapshot holding the local ledger summary.
+   * @returns True when the broker reports a local delivery ledger.
+   */
+  export function isLocalDelivery(snapshot: Pick<OnboardingSnapshot, 'local'>): boolean;
+
   /**
    * Whether a project still needs the first-run flow.
    *
-   * @param snapshot - Factory projection and GitHub connection.
-   * @returns True before setup, connection or the first objective.
+   * @param snapshot - Factory projection, GitHub connection and local ledger.
+   * @returns True before setup, a delivery target or the first objective.
    */
-  export function isOnboardingNeeded(snapshot: {
-    readonly factory: Record<string, unknown>;
-    readonly github: Record<string, unknown>;
-  }): boolean;
+  export function isOnboardingNeeded(snapshot: OnboardingSnapshot): boolean;
 
   /**
    * What happened to the newest objective.
@@ -69,13 +84,13 @@ declare module '*/web/dist/onboarding-model.js' {
   /**
    * Every step, the first unfinished one marked current.
    *
-   * @param snapshot - Factory projection and GitHub connection.
+   * @param snapshot - Factory projection, GitHub connection and local ledger.
    * @param preflight - Broker-side checks, or null before they ran.
    * @param now - Current time.
    * @returns Steps in display order.
    */
   export function onboardingSteps(
-    snapshot: { readonly factory: Record<string, unknown>; readonly github: Record<string, unknown> },
+    snapshot: OnboardingSnapshot,
     preflight: PreflightView | null,
     now: number,
   ): OnboardingStep[];

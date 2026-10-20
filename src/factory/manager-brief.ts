@@ -98,8 +98,45 @@ export interface BriefDecision {
   readonly title: string;
   /** Exact evidence. */
   readonly detail: string;
-  /** Console control that resolves it. */
+  /** Where and how it is resolved, in the console's navigation labels; for a manager question, its answers. */
   readonly resolveWith: string;
+  /** Console view that resolves it, as `web/src/navigation.ts` names views. */
+  readonly resolveView: string;
+}
+
+/** Where the console resolves one decision family. */
+export interface DecisionRoute {
+  /** Console view id. */
+  readonly view: string;
+  /** Path to that view in the console's own navigation labels. */
+  readonly location: string;
+  /** The control there that resolves it. */
+  readonly control: string;
+}
+
+/** Where each operator decision is resolved; every location is a real console navigation path. */
+export const DECISION_ROUTES: Readonly<Record<Exclude<BriefDecision['kind'], 'manager'>, DecisionRoute>> = {
+  blocked_delivery: {
+    view: 'inbox',
+    location: 'Inbox',
+    control: 'Investigate… to ask the lead, send it to its owner, request fresh QA or keep it waiting',
+  },
+  triage: { view: 'overview', location: 'Mission → Overview', control: "the delivery's card under Clear the path." },
+  blocked_objective: { view: 'inbox', location: 'Inbox', control: 'Recover…' },
+  skill: { view: 'learning', location: 'Project → Learning & skills', control: 'approve or reject the revision' },
+};
+/** Console view where the manager's own questions are answered. */
+export const MANAGER_VIEW = 'manager';
+
+/**
+ * Where a decision is resolved, as the brief states it.
+ *
+ * @param kind - Decision family.
+ * @returns Route text and view.
+ */
+function routeOf(kind: keyof typeof DECISION_ROUTES): Pick<BriefDecision, 'resolveView' | 'resolveWith'> {
+  const route = DECISION_ROUTES[kind];
+  return { resolveWith: `${route.location}: ${route.control}`, resolveView: route.view };
 }
 
 /** Complete mission brief. */
@@ -244,7 +281,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: task.id,
         title: `#${String(task.issue)} ${task.title}`,
         detail: task.error ?? 'Blocked without a recorded reason.',
-        resolveWith: 'Deliveries → blocked card: retry, investigate, repair or approve',
+        ...routeOf('blocked_delivery'),
       };
     });
   const triage = triageStatus(repository)
@@ -255,7 +292,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: record.id,
         title: `Triage ${record.action}`,
         detail: record.summary,
-        resolveWith: 'Deliveries → triage decision',
+        ...routeOf('triage'),
       };
     });
   const objectives = repository
@@ -267,7 +304,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: feature.id,
         title: clip(feature.objective),
         detail: feature.error ?? 'Blocked without a recorded reason.',
-        resolveWith: 'Mission → objective recovery',
+        ...routeOf('blocked_objective'),
       };
     });
   const skills = repository
@@ -279,7 +316,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: request.id,
         title: `Skill ${request.name}`,
         detail: 'Lead-reviewed revision awaiting your exact approval or rejection.',
-        resolveWith: 'Project → Learning & skills',
+        ...routeOf('skill'),
       };
     });
   const questions = managerDecisions.map((decision): BriefDecision => {
@@ -290,6 +327,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
       title: decision.question,
       detail: decision.evidence,
       resolveWith: options === '' ? 'Answer in the manager' : `Answer: ${options}`,
+      resolveView: MANAGER_VIEW,
     };
   });
   return [...blocked, ...triage, ...objectives, ...skills, ...questions];

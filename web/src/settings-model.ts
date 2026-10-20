@@ -15,11 +15,12 @@ import type { Data } from './api.js';
 import type { PreflightView } from './onboarding-model.js';
 
 /** Provider families in display order. */
-const PROVIDERS = ['claude', 'codex'] as const;
+const PROVIDERS = ['claude', 'codex', 'copilot'] as const;
 /** Display names. */
 const PROVIDER_NAMES: Readonly<Record<(typeof PROVIDERS)[number], string>> = translated({
   claude: phrase('Claude Code'),
   codex: phrase('Codex'),
+  copilot: phrase('GitHub Copilot CLI'),
 });
 /** Characters of the shell cache revision shown. */
 const REVISION_SHOWN = 12;
