@@ -29,6 +29,7 @@ import { questionsStatus } from './questions.ts';
 import { openBlocks, spendGate } from './spend.ts';
 import { attemptedSteps } from './step-override-controls.ts';
 import { customizationView, objectiveCustomizationView } from './step-override-view.ts';
+import { issueLabel } from './tracker-key.ts';
 import { stepLayers } from './workflows.ts';
 
 import type { AnsweredItem, InboxItem } from './console-inbox-types.ts';
@@ -125,8 +126,10 @@ export interface RunningView {
 export interface DeliveryView {
   /** Delivery id. */
   readonly taskId: string;
-  /** Tracker issue number. */
+  /** Numeric ledger handle of its tracker issue. */
   readonly issue: number;
+  /** Tracker key as people see it: `#12` on GitHub, `PROJ-12` in Jira. */
+  readonly label: string;
   /** Title. */
   readonly title: string;
   /** Owning objective, if any. */
@@ -153,8 +156,8 @@ export interface DeliveryView {
   readonly prUrl: string | null;
   /** Implementation owner. */
   readonly developer: string | null;
-  /** Issue numbers of unfinished dependencies blocking implementation. */
-  readonly waitingOn: readonly number[];
+  /** Tracker keys, as shown, of unfinished dependencies blocking implementation. */
+  readonly waitingOn: readonly string[];
   /** Attempts so far. */
   readonly attempts: number;
   /** Blocker or last error. */
@@ -249,7 +252,12 @@ export interface ConsoleView {
   /** Finished deliveries archived off the board: how many, and the latest to restore from. */
   readonly archived: {
     readonly total: number;
-    readonly recent: readonly { readonly taskId: string; readonly issue: number; readonly title: string }[];
+    readonly recent: readonly {
+      readonly taskId: string;
+      readonly issue: number;
+      readonly label: string;
+      readonly title: string;
+    }[];
   };
   /** Human decisions. */
   readonly inbox: { readonly open: readonly InboxItem[]; readonly answered: readonly AnsweredItem[] };
@@ -437,7 +445,7 @@ function runningView(job: FactoryJob, quota: QuotaView | null): RunningView {
  *
  * @param task - Delivery to describe.
  * @param context - Every delivery, objectives and running attempts.
- * @param context.tasks - Every delivery, for dependency issue numbers.
+ * @param context.tasks - Every delivery, for dependency keys.
  * @param context.features - Objectives, for deliveries without a frozen workflow.
  * @param context.live - Running attempts.
  * @param context.jobs - Every attempt, for retry backoff and the latest stop.
@@ -468,7 +476,7 @@ function deliveryView(
   const startable = new Set(task.phase === 'review' ? startableSteps(task, workflow).map((step) => step.id) : []);
   const waitingOn = context.tasks
     .filter((candidate) => task.dependencies.includes(candidate.id) && candidate.phase !== 'done')
-    .map((dependency) => dependency.issue);
+    .map((dependency) => issueLabel(dependency));
   const isAdmissible = task.hold === null && waitingOn.length === 0;
   const steps = workflow.delivery.map((step) => {
     return {
@@ -480,6 +488,7 @@ function deliveryView(
   return {
     taskId: task.id,
     issue: task.issue,
+    label: issueLabel(task),
     title: task.title,
     featureId: task.featureId,
     phase: task.phase,
@@ -645,7 +654,7 @@ function spendItems(repository: FactoryRepository): InboxItem[] {
     const feature = block.scope === 'objective' ? features.get(block.id) : undefined;
     let name = 'Project';
     if (task !== undefined) {
-      name = `#${String(task.issue)} ${task.title}`;
+      name = `${issueLabel(task)} ${task.title}`;
     } else if (feature !== undefined) {
       name = titleOf(feature.objective);
     }
@@ -688,7 +697,7 @@ function deliveryItems(task: FactoryTask, features: readonly Feature[]): InboxIt
       ...NO_TARGET,
       id: `approval:${task.id}:${step.id}`,
       kind: 'approval',
-      title: `${step.title} · #${String(task.issue)} ${task.title}`,
+      title: `${step.title} · ${issueLabel(task)} ${task.title}`,
       detail:
         step.kind === 'approve'
           ? 'Approve to continue, or reject with what must change.'
@@ -705,7 +714,7 @@ function deliveryItems(task: FactoryTask, features: readonly Feature[]): InboxIt
       id: `blocked:${task.id}`,
       kind: 'blocked_delivery',
       lane: 'notice',
-      title: `Blocked · #${String(task.issue)} ${task.title}`,
+      title: `Blocked · ${issueLabel(task)} ${task.title}`,
       detail: task.error ?? 'Stopped without a recorded reason.',
       since: task.updatedAt,
       taskId: task.id,
@@ -815,7 +824,7 @@ function openItems(
 function subjectOf(question: Question, tasks: readonly FactoryTask[], features: readonly Feature[]): string {
   const task = tasks.find((candidate) => candidate.id === question.taskId);
   if (task !== undefined) {
-    return `#${String(task.issue)} ${task.title}`;
+    return `${issueLabel(task)} ${task.title}`;
   }
   const feature = features.find((candidate) => candidate.id === question.featureId);
   return feature === undefined ? 'earlier work' : titleOf(feature.objective);
@@ -859,7 +868,7 @@ function answeredItems(
     return task.approvals.map((approval) => {
       return {
         id: approval.requestId,
-        title: `Approved ${approval.stepId} · #${String(task.issue)} ${task.title}`,
+        title: `Approved ${approval.stepId} · ${issueLabel(task)} ${task.title}`,
         note: approval.note,
         at: approval.at,
       };
@@ -935,7 +944,7 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
       recent: archived
         .slice(-DONE_ON_BOARD)
         .toReversed()
-        .map((task) => ({ taskId: task.id, issue: task.issue, title: task.title })),
+        .map((task) => ({ taskId: task.id, issue: task.issue, label: issueLabel(task), title: task.title })),
     },
     inbox: { open, answered: answeredItems(repository, tasks, features) },
   };

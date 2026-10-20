@@ -12,6 +12,7 @@
  * @file
  */
 import { logObjective } from './objective-log.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
@@ -90,7 +91,7 @@ export async function didAdoptExternalMerge(
   logObjective(context.repository.store, task.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(task.issue)} ${task.title} was merged on GitHub as ${merge.slice(0, SHORT_SHA)} outside the factory; adopted, verifying on main.`,
+    body: `${issueLabel(task)} ${task.title} was merged on GitHub as ${merge.slice(0, SHORT_SHA)} outside the factory; adopted, verifying on main.`,
   });
   context.repository.notify(
     `PR #${String(pr.number)} was merged outside the factory at ${merge}. Adopted it without implying QA approvals; merged-main verification runs before its issue closes.`,

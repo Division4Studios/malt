@@ -28,6 +28,7 @@ import { recordConflict } from './repairs.ts';
 import { completeRevalidation } from './revalidation.ts';
 import { hasApprovals, validatePlan } from './scheduler.ts';
 import { CODE_JOB_KINDS, JOB_PHASE, isPlanningKind } from './seats.ts';
+import { issueLabel } from './tracker-key.ts';
 import { completeTriage } from './triage.ts';
 
 import type { ExecutedJob, FactoryContext } from './context.ts';
@@ -70,14 +71,14 @@ async function recordLesson(
   outcome: 'rework' | 'success',
 ): Promise<void> {
   const evidence = [
-    `Issue #${String(task.issue)}`,
+    `Issue ${issueLabel(task)}`,
     task.prUrl ?? `Project-local task ${task.id}`,
     `Source head ${task.head ?? 'not published'}`,
   ];
   if (outcome === 'rework') {
     context.learning.recordOnce(
       {
-        summary: `Issue #${String(task.issue)} rework: ${causeLine(finding)}`,
+        summary: `Issue ${issueLabel(task)} rework: ${causeLine(finding)}`,
         cause: finding,
         prevention: `Check for this before publishing similar work: ${causeLine(finding)}`,
         evidence,
@@ -91,7 +92,7 @@ async function recordLesson(
   await context.learning.execute(
     'learning_record',
     {
-      summary: `Issue #${String(task.issue)}: ${outcome}`,
+      summary: `Issue ${issueLabel(task)}: ${outcome}`,
       cause: finding,
       prevention:
         'Retain the project-specific acceptance checks and exact-head review evidence for similar deliveries.',

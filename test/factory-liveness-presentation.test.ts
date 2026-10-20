@@ -312,6 +312,7 @@ await test('a stopped attempt shows its recorded stop reason and its pending dec
       jobId: asking.id,
       role: 'developer-2',
       issue: 32,
+      label: '#32',
       taskId: held.id,
       featureId: null,
       step: null,

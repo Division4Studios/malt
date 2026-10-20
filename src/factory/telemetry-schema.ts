@@ -276,7 +276,11 @@ export const attemptRowSchema = z
     featureId: z.string().uuid().nullable(),
     step: z.string().nullable(),
     summary: z.string().nullable(),
-    task: z.object({ issue: z.number().int().positive(), title: z.string() }).strict().nullable(),
+    /** `label` is the tracker key as shown, `#12` or `PROJ-12`. */
+    task: z
+      .object({ issue: z.number().int().positive(), label: z.string().optional(), title: z.string() })
+      .strict()
+      .nullable(),
     objective: z.string().nullable(),
     metrics: attemptMetricsSchema,
     /** Checkpoint liveness: extensions and, once stopped, `stalled N min` or `hard ceiling`. */

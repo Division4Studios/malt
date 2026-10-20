@@ -14,6 +14,7 @@ import { credentialValues } from './authentication.ts';
 import { logObjective } from './objective-log.ts';
 import { factorySchemas } from './schema.ts';
 import { managedSourceJob } from './source-reader.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryJob } from './schema.ts';
@@ -101,7 +102,7 @@ export function enqueueProgress(
       logObjective(context.repository.store, task.featureId, {
         kind: 'check_in',
         actor: job.role,
-        body: `#${String(task.issue)} ${value.key}: ${body}`,
+        body: `${issueLabel(task)} ${value.key}: ${body}`,
       });
       context.repository.store.event('FACTORY_PROGRESS_QUEUED', null, {
         jobId: job.id,

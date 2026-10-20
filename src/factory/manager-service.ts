@@ -72,6 +72,20 @@ const handoffSchema = z.object({ data: z.string() });
 const agentSchema = z.object({ name: z.string() });
 
 /**
+ * The delivery an event names, as people see it: its recorded tracker key, or
+ * the issue number events recorded before typed keys carry.
+ *
+ * @param data - Event payload.
+ * @returns `#12` or `PROJ-12`, or null when the event names no delivery.
+ */
+function eventIssue(data: Record<string, unknown>): string | null {
+  if (typeof data['label'] === 'string') {
+    return data['label'];
+  }
+  return typeof data['issue'] === 'number' ? `#${String(data['issue'])}` : null;
+}
+
+/**
  * Report an attempt that stopped at a checkpoint and asked for the operator's decision.
  *
  * @param data - Event payload.
@@ -79,7 +93,7 @@ const agentSchema = z.object({ name: z.string() });
  */
 function checkpointReport(data: Record<string, unknown>): { text: string; isUrgent: boolean } {
   const role = typeof data['role'] === 'string' ? data['role'] : 'An assignment';
-  const subject = typeof data['issue'] === 'number' ? `#${String(data['issue'])}` : 'objective planning';
+  const subject = eventIssue(data) ?? 'objective planning';
   const reason = typeof data['reason'] === 'string' ? data['reason'] : 'no recorded reason';
   return {
     text: `${role} on ${subject} stopped at a checkpoint (${reason}). Its worktree is kept; the operator decides in the Inbox whether it continues or waits.`,
@@ -710,7 +724,7 @@ export class ManagerService {
    * @returns Report text and urgency, or null.
    */
   private describe(type: string, data: Record<string, unknown>): { text: string; isUrgent: boolean } | null {
-    const issue = typeof data['issue'] === 'number' ? `#${String(data['issue'])}` : 'A delivery';
+    const issue = eventIssue(data) ?? 'A delivery';
     switch (type) {
       case 'FACTORY_MANAGER_HANDOFF': {
         const row = selectOne(

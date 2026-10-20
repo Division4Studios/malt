@@ -17,6 +17,7 @@ import { deliveryFocus } from './objective-queue-schema.ts';
 import { isBackingOff } from './retry-policy.ts';
 import { REVALIDATION_TEXT_MAX } from './revalidation-schema.ts';
 import { sealedHead } from './source-reader.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -247,9 +248,9 @@ export function completeRevalidation(context: FactoryContext, job: FactoryJob, r
   logObjective(repository.store, task.featureId, {
     kind: 'plan',
     actor: job.role,
-    body: `Brief of #${String(task.issue)} ${isConfirmed ? 'confirmed' : 'needs revising'} after its predecessors merged. ${result.summary}`,
+    body: `Brief of ${issueLabel(task)} ${isConfirmed ? 'confirmed' : 'needs revising'} after its predecessors merged. ${result.summary}`,
   });
   if (!isConfirmed) {
-    repository.notify(`Delivery #${String(task.issue)} needs a brief decision: ${result.summary}`);
+    repository.notify(`Delivery ${issueLabel(task)} needs a brief decision: ${result.summary}`);
   }
 }

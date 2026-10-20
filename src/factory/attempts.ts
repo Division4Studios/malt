@@ -13,6 +13,7 @@ import { metricsFor } from './attempt-metrics.ts';
 import { readPrices } from './price-table.ts';
 import { jobSchema } from './schema.ts';
 import { attemptsInputSchema } from './telemetry-schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -193,7 +194,7 @@ function attemptRow(job: FactoryJob, context: AttemptContext, metrics: AttemptRo
     featureId,
     step: job.step,
     summary: job.summary === null ? null : job.summary.slice(0, SUMMARY_MAX),
-    task: task === undefined ? null : { issue: task.issue, title: task.title },
+    task: task === undefined ? null : { issue: task.issue, label: issueLabel(task), title: task.title },
     objective: objective === undefined ? null : objective.slice(0, OBJECTIVE_MAX),
     metrics,
     liveness:

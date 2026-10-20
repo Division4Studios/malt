@@ -20,8 +20,10 @@ import {
   parseTrackerKey,
 } from '../src/factory/tracker-key.ts';
 import { taskTrackerKey } from '../src/factory/work-keys.ts';
+import { commitMessage, mergeMessage } from '../src/factory/workspaces.ts';
 import { Store } from '../src/store.ts';
 
+import { fixture } from './delivery-fixture.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
 import type { FactoryTask } from '../src/factory/schema.ts';
@@ -188,4 +190,25 @@ await test('typed keys survive the ledger, follow a renamed Jira key and name im
   );
   assert.equal(github.key, 'issue-5', 'GitHub delivery keys are unchanged');
   assert.equal('trackerKey' in github, false, 'GitHub deliveries carry no typed key');
+});
+
+await test('branch names and commit messages keep GitHub forms and carry the Jira key', async (t) => {
+  const { task, workspaces } = await fixture(t);
+  assert.equal(task.branch, `malt/issue-4-${task.id.slice(0, 8)}-0`, 'GitHub branch names are unchanged');
+  const provenance = { step: 'implement', kind: 'develop', role: 'developer-1', jobId: randomUUID() };
+  assert.deepEqual(commitMessage(task, null), ['-m', 'Deliver #4: Diagnosable change']);
+  const jira = {
+    ...task,
+    id: randomUUID(),
+    trackerKey: { provider: 'jira', key: 'PROJ-12' },
+    parentKey: { provider: 'jira', key: 'PROJ-10' },
+    branch: null,
+    worktree: null,
+  } satisfies FactoryTask;
+  const [, subject, , trailers = ''] = commitMessage(jira, provenance);
+  assert.equal(subject, 'Deliver PROJ-12: Diagnosable change');
+  assert.match(trailers, /^X-MALT-Delivery: PROJ-12$/mv);
+  assert.equal(mergeMessage(jira, provenance)[1], 'Refresh PROJ-12 onto main: Diagnosable change');
+  const developer = await workspaces.developer(jira);
+  assert.equal(developer.branch, `malt/PROJ-12-${jira.id.slice(0, 8)}-0`, 'the Jira development panel links the key');
 });

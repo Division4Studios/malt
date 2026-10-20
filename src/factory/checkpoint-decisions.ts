@@ -16,6 +16,7 @@ import { MeshError } from '../protocol.ts';
 
 import { CONTINUE_MIN_MINUTES, checkpointDecideSchema } from './liveness-schema.ts';
 import { JOB_PHASE } from './seats.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { Checkpoint, JobLiveness, LivenessPolicy } from './liveness-schema.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -76,6 +77,7 @@ export function askForDecision(repository: FactoryRepository, job: FactoryJob, l
     jobId: job.id,
     role: job.role,
     issue: task?.issue ?? null,
+    ...(task !== undefined && { label: issueLabel(task) }),
     taskId: job.taskId,
     featureId: job.featureId,
     step: job.step,

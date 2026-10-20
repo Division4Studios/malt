@@ -13,6 +13,7 @@ import { MERGE_GATE_PENDING } from './merge-path.ts';
 import { awaitingApproval, featureWorkflow, isReviewComplete, planningApprovals, taskWorkflow } from './pipeline.ts';
 import { attemptBudget } from './repair-schema.ts';
 import { REJECTED_REQUESTS_MAX, factorySchemas } from './schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryRepository } from './repository.ts';
 import type { Feature } from './schema.ts';
@@ -130,7 +131,7 @@ function decideDelivery(repository: FactoryRepository, decision: Decision): Deci
         feedback: [...current.feedback, `Operator rejected "${step.title}": ${decision.note}`],
       };
     });
-    repository.notify(`Delivery #${String(task.issue)}: ${step.title} rejected — ${decision.note}`);
+    repository.notify(`Delivery ${issueLabel(task)}: ${step.title} rejected — ${decision.note}`);
     return { result: 'rejected' };
   }
   repository.editTask(task.id, (current) => {

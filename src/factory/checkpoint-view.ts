@@ -4,6 +4,8 @@
  *
  * @file
  */
+import { issueLabel } from './tracker-key.ts';
+
 import type { InboxItem } from './console-view.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
 
@@ -22,7 +24,7 @@ export function checkpointItems(jobs: readonly FactoryJob[], tasks: readonly Fac
       return [];
     }
     const task = tasks.find((candidate) => candidate.id === job.taskId);
-    const subject = task === undefined ? 'objective planning' : `#${String(task.issue)} ${task.title}`;
+    const subject = task === undefined ? 'objective planning' : `${issueLabel(task)} ${task.title}`;
     const signal = checkpoint.lastSignal === null ? '' : ` Last progress: ${checkpoint.lastSignal}.`;
     return [
       {

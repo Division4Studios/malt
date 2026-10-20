@@ -10,6 +10,7 @@ import {
   holdDeliveries,
   isClaimEligible,
 } from '../src/factory/delivery-controls.ts';
+import { briefText, missionBrief } from '../src/factory/manager-brief.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
@@ -104,6 +105,28 @@ function delivery(repository: FactoryRepository, overrides: Partial<FactoryTask>
   return task;
 }
 
+await test('cards, dependencies, the archive and the brief show the provider key, never the numeric handle', (t) => {
+  const repository = project(t);
+  const jira = { provider: 'jira', key: 'PROJ-12' } as const;
+  const prerequisite = delivery(repository, { issue: 10_042, trackerKey: jira });
+  const dependent = delivery(repository, { issue: 10_043, dependencies: [prerequisite.id] });
+  const github = delivery(repository, { issue: 7 });
+  const view = consoleView(repository);
+  const card = (id: string): (typeof view.deliveries)[number] | undefined =>
+    view.deliveries.find((candidate) => candidate.taskId === id);
+  assert.equal(card(prerequisite.id)?.label, 'PROJ-12');
+  assert.equal(card(prerequisite.id)?.issue, 10_042, 'the numeric handle stays for routing');
+  assert.deepEqual(card(dependent.id)?.waitingOn, ['PROJ-12']);
+  assert.equal(card(github.id)?.label, '#7', 'GitHub cards are unchanged');
+  const brief = missionBrief(repository, [], repository.store.now());
+  assert.equal(brief.deliveries.find((entry) => entry.taskId === prerequisite.id)?.label, 'PROJ-12');
+  const text = briefText(brief);
+  assert.match(text, /^- PROJ-12 Card \[ready\]/mv);
+  assert.match(text, /Waiting for PROJ-12 to finish\./v);
+  assert.match(text, /^- #7 Card \[ready\]/mv);
+  assert.doesNotMatch(text, /#10042/v);
+});
+
 await test('the board places deliveries by what they need next and the Inbox lists every decision', (t) => {
   const repository = project(t);
   const ready = delivery(repository, {});
@@ -128,7 +151,9 @@ await test('the board places deliveries by what they need next and the Inbox lis
   assert.equal(columns.get(waiting.id), 'needs_you');
   assert.equal(columns.get(blocked.id), 'needs_you');
   assert.equal(columns.get(shipped.id), 'done');
-  assert.deepEqual(view.deliveries.find((card) => card.taskId === dependent.id)?.waitingOn, [ready.issue]);
+  assert.deepEqual(view.deliveries.find((card) => card.taskId === dependent.id)?.waitingOn, [
+    `#${String(ready.issue)}`,
+  ]);
 
   const waitingCard = view.deliveries.find((card) => card.taskId === waiting.id);
   assert.ok(waitingCard !== undefined);

@@ -28,6 +28,7 @@ import {
   countedRepairs,
   PATH_MAX,
 } from './repair-schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
@@ -81,7 +82,7 @@ function block(context: FactoryContext, task: FactoryTask, reason: string): void
     return;
   }
   context.repository.editTask(task.id, (latest) => ({ ...latest, phase: 'blocked', error: reason }));
-  context.repository.notify(`Delivery #${String(task.issue)} needs a decision: ${reason}`);
+  context.repository.notify(`Delivery ${issueLabel(task)} needs a decision: ${reason}`);
 }
 
 /**

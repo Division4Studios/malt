@@ -378,7 +378,7 @@ void test('attempt listings filter, search and paginate with a stable cursor', a
   const rows = attemptPageSchema.parse(await telemetry.attempts(repository, mesh, { role: 'qa-1' })).attempts;
   const [qaRow] = rows;
   assert.ok(qaRow !== undefined);
-  assert.deepEqual(qaRow.task, { issue: 9, title: 'Searchable widget' });
+  assert.deepEqual(qaRow.task, { issue: 9, label: '#9', title: 'Searchable widget' });
   assert.equal(qaRow.featureId, featureId);
   await assert.rejects(telemetry.attempts(repository, mesh, { limit: 101 }));
   await assert.rejects(telemetry.attempts(repository, mesh, { cursor: 'nope' }));
