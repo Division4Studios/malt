@@ -485,6 +485,7 @@ export const GITHUB_OPERATIONS = [
   'github_field_manage',
   'github_view_manage',
   'github_discover',
+  'jira_discover',
   'github_connect',
   'github_sync',
   'github_create_issue',
@@ -794,11 +795,13 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   github_view_manage:
     "Change (rename or relayout) or delete one saved view of THIS workspace's connected Project by its exact viewNumber (change needs view-field-change, delete view-field-delete). Refused when this account has neither the GraphQL mutation nor the REST view endpoints. Pass a stable requestId and reuse it after an interruption.",
   github_section_save:
-    "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
+    "Human operator or approved lead: save THIS workspace's tracker section (a Project and its existing Status field, chosen from github_discover, or as jiraTracker a Jira Cloud project: site, project key and ID, account email and the environment variable holding its API token) and/or source section (a repository and its node ID), each independently. A saved section is unverified and never reports connected until github_verify verifies it. Needs the project-connect capability.",
   github_verify:
-    "Verify THIS workspace's saved tracker and source sections against read-only discovery and record each one's state: verified, degraded, failed or external (Jira setup). Repositories compare by node ID; the saved Status field is never created or changed. Only two verified sections report connected.",
+    "Verify THIS workspace's saved tracker and source sections against read-only discovery and record each one's state: verified, degraded, failed or external (setup outside MALT is missing). A Jira tracker is checked against its Jira Cloud site with the token read from its environment variable. Repositories compare by node ID; the saved Status field is never created or changed. Only two verified sections report connected.",
   github_discover:
     "Read-only setup discovery for THIS workspace: the authenticated GitHub login, accessible repositories, the owner's Projects v2, a Project's single-select fields and read-only capability probes. Nothing is created, changed or saved; each failure names its step.",
+  jira_discover:
+    "Read-only Jira Cloud setup discovery for THIS workspace: whether the site is Jira Cloud, the account, the project, its issue types and workflow statuses, and the account's project permissions, with each missing permission and the Jira admin action that grants it. The API token is read from the named environment variable and never returned or saved. Nothing in Jira is created or changed.",
   github_connect:
     "For the team lead: verify this workspace's repository and GitHub Project access, then save the connection inside its .malt. Supply projectNumber to reuse a project, or explicitly createProject=true to create one. Set up an MALT Status field without replacing existing project fields.",
   github_sync:

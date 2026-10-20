@@ -2,10 +2,10 @@
 
 A connector links a MALT project to the outside systems its deliveries use. A connection has two parts:
 
-- the **work tracker**, where objectives become issues and move through stages (today a GitHub Project);
-- **source control**, where branches, pull requests and merges happen (today a GitHub repository).
+- the **work tracker**, where objectives become issues and move through stages: a GitHub Project, or a Jira Cloud project;
+- **source control**, where branches, pull requests and merges happen: a GitHub repository.
 
-MALT keeps the two as separate sections of one connection record. A future tracker such as Jira therefore does not have to share GitHub's numeric issue IDs. GitHub is the only connector you can use today. If you do not want GitHub at all, use the [local delivery hub](local-delivery.md) instead.
+MALT keeps the two as separate sections of one connection record, so a Jira tracker does not have to share GitHub's numeric issue IDs. A Jira Cloud project can be discovered, saved and verified as the tracker beside a GitHub source, but the factory does not deliver through it yet (see [Connect Jira Cloud](#connect-jira-cloud)). If you do not want GitHub at all, use the [local delivery hub](local-delivery.md) instead.
 
 This page covers what ships, how to use it, and what is still missing. Storage details are in [connection records](connection-records.md), and the permission model is in [capability policy](capability-policy.md).
 
@@ -134,17 +134,62 @@ At a managed launch, MALT includes only the approved bindings for that role and 
 
 Some GitHub effects are not capability-checked yet: the delivery adapter's pull request creation, merges, pull request and issue closure, comments and native dependency edges. See [enforcement](capability-policy.md#enforcement). The parent feature is [#72](https://github.com/Division4Studios/malt/issues/72).
 
-## Jira: not yet available
+## Connect Jira Cloud
 
-You cannot connect Jira today. A Jira Cloud library exists in `src/jira/`, tested against recorded fixture responses only. It is **not wired** into connection verification, the console, the CLI or the factory. A saved Jira tracker section verifies as `external`, which means "set up outside GitHub", not connected. Connecting Jira as a tracker is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
+A Jira Cloud project can be the work tracker, with GitHub staying the source section. MALT connects with the account email and an API token. The token stays in an environment variable of the supervisor process; MALT saves only the variable's name.
 
-The rest of this section records the library and the decisions already made, so that the integration and your Jira administrator can prepare. Nothing here runs against a Jira site yet.
+What works today:
 
-### What the library does
+- read-only discovery of the site, the account, the project, its issue types and workflow statuses, the account's permissions and the fields each issue type requires;
+- saving the Jira project as the tracker section and verifying it against the site;
+- the CLI and MCP controls for these steps.
+
+The factory does not deliver through a Jira tracker yet. Intake, breakdown, stage transitions and evidence comments exist as a tested library (below), but the supervisor still delivers through GitHub or the local hub. That wiring is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
+
+1. Ask your Jira administrator to follow the [Jira admin guide](#jira-admin-guide), then set the token in the environment of the process that runs the broker, for example `JIRA_API_TOKEN`. Restart the broker so it sees the variable.
+2. Discover the project. Nothing is saved, and nothing in Jira changes.
+
+   ```sh
+   cat > jira.json <<'EOF'
+   { "site": "https://your-site.atlassian.net", "projectKey": "PROJ", "email": "malt@example.com", "tokenVariable": "JIRA_API_TOKEN" }
+   EOF
+   node src/cli.ts jira-discover --file jira.json
+   ```
+
+   The result has the discovery `state`, the account (ID and display name only), the project with its numeric `id`, the issue types and statuses, the required `fields`, each checked permission, the `missing` permissions with the admin action that grants each, the derived capabilities and the `problems`.
+
+3. Save the project as the tracker section, with the numeric project ID from discovery. A first save also needs the source section.
+
+   ```sh
+   cat > sections.json <<'EOF'
+   {
+     "jiraTracker": {
+       "site": "https://your-site.atlassian.net", "projectKey": "PROJ", "projectId": "10000",
+       "email": "malt@example.com", "tokenVariable": "JIRA_API_TOKEN"
+     },
+     "source": { "repository": "your-org/your-repo", "repositoryId": "R_xxx" }
+   }
+   EOF
+   node src/cli.ts github-section-save --file sections.json
+   ```
+
+4. Verify with `node src/cli.ts github-verify`. The Jira tracker is checked against the site, and the GitHub source against GitHub.
+
+| Tracker state | When                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `verified`    | Every read succeeded, every permission is held and every required field is one MALT fills.                                               |
+| `degraded`    | The project is readable, but a permission is missing or an issue type requires a field MALT does not fill. Each problem says what to do. |
+| `external`    | The token variable is unset, Jira rejects the token, the site or project is wrong, or the account lacks Browse Projects.                 |
+| `failed`      | The site is Jira Data Center or Server, or the section was saved without its Jira details.                                               |
+
+`jira-discover` (MCP `mesh_jira_discover`) and `github-section-save` need the workspace's designated lead or the human operator. Saving also needs the `project-connect` capability. The token is never returned, saved, logged or shown. A test drives discovery, saving and verification through the broker and checks the responses, events, logs, `.malt/` and its backup for it.
+
+### The Jira library
 
 | Module            | Purpose                                                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `discovery.ts`    | Read-only checks of the site, the credential, the project, its issue types and statuses, and the account's permissions.         |
+| `discovery.ts`    | Read-only checks of the site, the credential, the project, its issue types and statuses, the permissions and the create fields. |
+| `connection.ts`   | `jira_discover`, and verification of a saved Jira tracker section through its environment credential handle.                    |
 | `modes.ts`        | The `read-only`, `comment-only` and `full` modes as capability policies, plus an admin summary of what MALT reads and changes.  |
 | `writes.ts`       | Create issues and sub-tasks, transition, comment, link and label. Each call passes the capability gate before any request.      |
 | `creation.ts`     | Idempotent creation with a stable request ID, journaled under `.malt/jira/operations/` and reconciled after an interruption.    |
@@ -153,12 +198,12 @@ The rest of this section records the library and the decisions already made, so 
 | `traceability.ts` | Idempotent progress, pull request and merged-main comments, an issue re-read before work, and one blocker for a rejected token. |
 | `intake.ts`       | Pages through a JQL filter, and skips done, resolved or assigned-elsewhere issues with the reason.                              |
 
-Discovery reads, in order: `GET /rest/api/3/serverInfo` (the site is Jira Cloud), `/myself` (the credential works; only the account ID and display name are kept), `/project/{key}`, `/project/{key}/statuses` and `/mypermissions?projectKey=…`. Capabilities are derived from the permissions answer, never assumed. Jira versions stay unverified, and GitHub-only concepts such as Project views are reported unsupported.
+Only `connection.ts` and `discovery.ts` are called from outside `src/jira/` today. Discovery reads, in order: `GET /rest/api/3/serverInfo` (the site is Jira Cloud), `/myself` (the credential works; only the account ID and display name are kept), `/project/{key}`, `/project/{key}/statuses`, `/mypermissions?projectKey=…` and, when the account may create issues, `/issue/createmeta/{key}/issuetypes/{id}` for each issue type (at most 20). Capabilities are derived from the permissions answer, never assumed. Jira versions stay unverified, and GitHub-only concepts such as Project views are reported unsupported. Workflow transitions belong to individual issues in Jira, so they are read when a delivery moves, not during discovery.
 
 | Result                    | When                                                                                                                             |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `verified`                | Every read succeeded and every permission is held.                                                                               |
-| `degraded`                | The project is readable, but permissions are missing. Each is listed with the Jira admin action that grants it.                  |
+| `verified`                | Every read succeeded, every permission is held and every required create field is one MALT fills.                                |
+| `degraded`                | The project is readable, but permissions are missing or a required field cannot be filled. Each says what the admin must change. |
 | `external_setup_required` | The site, credential or project key is missing, the credential is rejected, the site is not Jira, or Browse Projects is missing. |
 | `unsupported`             | The site is Jira Data Center or Server. Such sites are never contacted.                                                          |
 
@@ -176,12 +221,12 @@ The operator also chooses which factory roles may perform the enabled mutations.
 
 These decisions answer #329. Revisit them only through their follow-up issues.
 
-- **API token, not OAuth 2.0 (3LO), for 1.0.** Jira Cloud will be connected with an account email and an API token held as an opaque credential handle (an environment variable name). A three-legged OAuth app needs an operator-registered Atlassian app (callback URL and client secret), a loopback callback listener, the site `cloudid` lookup, and safe storage and rotation of refresh tokens. MALT stays local-first, so it will never route authorization through a hosted relay. Where policy allows tokens only on dedicated accounts, create the token on a dedicated MALT account. Where tokens are disallowed entirely, Jira stays unavailable until the 3LO path ships in [#340](https://github.com/Division4Studios/malt/issues/340).
+- **API token, not OAuth 2.0 (3LO), for 1.0.** Jira Cloud is connected with an account email and an API token held as an opaque credential handle (an environment variable name). A three-legged OAuth app needs an operator-registered Atlassian app (callback URL and client secret), a loopback callback listener, the site `cloudid` lookup, and safe storage and rotation of refresh tokens. MALT stays local-first, so it will never route authorization through a hosted relay. Where policy allows tokens only on dedicated accounts, create the token on a dedicated MALT account. Where tokens are disallowed entirely, Jira stays unavailable until the 3LO path ships in [#340](https://github.com/Division4Studios/malt/issues/340).
 - **Data Center and Server are unsupported in 1.0.** They use REST v2 with bearer personal access tokens, and they differ from Cloud in discovery, permissions, transitions and rate limiting. Support is tracked in [#341](https://github.com/Division4Studios/malt/issues/341).
 
 ## Jira admin guide
 
-This guide is for the Jira administrator who will prepare a project for MALT once the Jira connector is available. MALT will contact only the one Jira Cloud site you configure, over HTTPS. It will change nothing until the operator enables a mode other than `read-only`.
+This guide is for the Jira administrator who prepares a project for MALT. MALT contacts only the one Jira Cloud site you configure, over HTTPS. It changes nothing until the operator enables a mode other than `read-only`, and the factory makes no Jira changes yet.
 
 ### 1. Create the account and token
 
@@ -204,11 +249,11 @@ In the project's permission scheme (**Project settings → Permissions**), grant
 | Add Comments      | Progress, pull request and merged-main evidence comments.             |
 | Link Issues       | Dependencies between issues (issue linking must be enabled in Jira).  |
 
-Grant only what the chosen mode uses. Discovery lists every missing permission with the grant above. Sub-tasks need a sub-task issue type in the project's issue type scheme.
+Grant only what the chosen mode uses. Discovery lists every missing permission with the grant above. Sub-tasks need a sub-task issue type in the project's issue type scheme. A field that an issue type requires on create, other than the summary, description, parent and labels that MALT sets, needs a default value or must be optional.
 
 ### 3. What MALT reads and changes
 
-MALT reads the site's deployment type, its own account ID and display name (never the email), the selected project's issue types and workflow statuses, its own project permissions, the issues matching the intake filter (key, summary, status, assignee and resolution), and an issue's available transitions before moving it.
+MALT reads the site's deployment type, its own account ID and display name (never the email), the selected project's issue types and workflow statuses, the fields each issue type requires when an issue is created, its own project permissions, the issues matching the intake filter (key, summary, status, assignee and resolution), and an issue's available transitions before moving it.
 
 What it changes depends on the mode. Each change is a capability that the operator can disable on its own: creating issues and sub-tasks, linking issues, transitioning issues along the mapping the operator chose, commenting evidence, and adding or removing existing labels. MALT never creates, edits or deletes projects, workflows, fields, screens, versions or labels. It never deletes issues or comments, and it never changes permissions.
 

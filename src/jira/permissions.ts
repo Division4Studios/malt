@@ -34,7 +34,7 @@ export const JIRA_PERMISSIONS: Readonly<Record<JiraPermission, string>> = {
 };
 
 /** Which part of the setup a problem concerns. */
-export type JiraProblemScope = 'site' | 'credential' | 'project' | 'permissions' | 'issue_types';
+export type JiraProblemScope = 'site' | 'credential' | 'project' | 'permissions' | 'issue_types' | 'fields';
 
 /** One actionable problem; it never contains the token. */
 export interface JiraProblem {

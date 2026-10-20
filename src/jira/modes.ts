@@ -45,6 +45,7 @@ export const JIRA_READS = [
   'The site and its deployment type.',
   "The connected account's ID and display name (never its email).",
   'The selected project, its issue types and their workflow statuses.',
+  'The fields each issue type requires when an issue is created.',
   "The connected account's permissions in that project.",
   'Issues matching the intake filter: key, summary, status, assignee and resolution.',
   'An issue’s available transitions before moving it.',

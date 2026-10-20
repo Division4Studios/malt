@@ -111,7 +111,7 @@ Every entry point supplies its principal from its transport:
 
 ### Jira
 
-The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The library is not wired into the factory yet; see [Jira: not yet available](project-connectors.md#jira-not-yet-available).
+The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The factory makes no Jira writes yet; see [Connect Jira Cloud](project-connectors.md#connect-jira-cloud).
 
 | Mutation                 | Capabilities                       |
 | ------------------------ | ---------------------------------- |

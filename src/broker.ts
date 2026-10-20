@@ -81,7 +81,8 @@ import type { RecommendationOperator } from './factory/recommendation-decisions.
 import type { FactoryOperation } from './factory/schema.ts';
 import type { FactoryOptions } from './factory/service.ts';
 import type { TerminalOperation, TerminalOperator } from './factory/terminal-schema.ts';
-import type { GitHubRunner } from './github.ts';
+import type { ConnectorProbes, GitHubRunner } from './github.ts';
+import type { JiraFetch } from './jira/client.ts';
 import type { CapabilityOperation, GitHubOperation, LearningOperation, Operation } from './protocol.ts';
 import type { PresentedCredentials } from './store.ts';
 import type { TeamAccess, TeamConfig } from './teams.ts';
@@ -113,6 +114,8 @@ const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
   'github_connect',
   'github_section_save',
   'github_verify',
+  // It reads the operator's token variable and sends it to the named Jira site, so it is not a member read.
+  'jira_discover',
   'github_create_issue',
   'github_set_status',
   'github_label_apply',
@@ -170,6 +173,8 @@ export interface BrokerOptions {
   readonly factoryOptions?: ((config: MeshConfig) => Omit<FactoryOptions, 'home'>) | undefined;
   /** Optional GitHub adapter factory for isolated integration tests. */
   readonly githubRunner?: ((config: MeshConfig) => GitHubRunner) | undefined;
+  /** Optional fixture Jira transport for isolated integration tests; it implies a fixture gh session. */
+  readonly jiraFetch?: JiraFetch | undefined;
   /** Interface to bind; defaults to loopback. Docker binds `0.0.0.0`. */
   readonly host?: string | undefined;
   /** Port to bind; defaults to the configured URL's port. Tests pass 0. */
@@ -222,6 +227,8 @@ interface BrokerContext {
   readonly factoryOptions: BrokerOptions['factoryOptions'];
   /** Optional injected per-workspace GitHub adapter. */
   readonly githubRunner: ((config: MeshConfig) => GitHubRunner) | undefined;
+  /** Credential probes carrying an injected Jira transport, when a test supplies one. */
+  readonly probes: ConnectorProbes | undefined;
   /** The home project, addressed by requests without a team header. */
   readonly home: Team;
   /** Workspace teams opened so far, keyed by slug; opened lazily. */
@@ -243,7 +250,7 @@ function openTeamStore(context: BrokerContext, config: TeamConfig): Team {
   }
   const store = new Store(config, { now: context.now });
   const policy = new CapabilityPolicyStore(store, config);
-  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy);
+  const github = new ProjectGitHub(config, context.githubRunner?.(config), policy, context.probes);
   const learning = new ProjectLearning(config, context.githubRunner?.(config));
   const team: Team = {
     config,
@@ -776,7 +783,12 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
   const store = new Store(config, { now: options.now });
   const waiters = new Waiters(store);
   const policy = new CapabilityPolicyStore(store, config);
-  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy);
+  // Only tests inject a Jira transport; they pair it with fixture GitHub, so the gh session check is skipped.
+  const probes: ConnectorProbes | undefined =
+    options.jiraFetch === undefined
+      ? undefined
+      : { ghAuthenticated: null, environment: process.env, jiraFetch: options.jiraFetch };
+  const github = new ProjectGitHub(config, options.githubRunner?.(config), policy, probes);
   const learning = new ProjectLearning(config, options.githubRunner?.(config));
   const context: BrokerContext = {
     home: {
@@ -796,6 +808,7 @@ export async function startBroker(config: MeshConfig, options: BrokerOptions = {
     teams: new Map(),
     now: options.now,
     githubRunner: options.githubRunner,
+    probes,
     factoryOptions: options.factoryOptions,
   };
   const allTeams = (): Team[] => [context.home, ...context.teams.values()];

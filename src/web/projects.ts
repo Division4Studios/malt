@@ -159,6 +159,7 @@ export const controlSchema = z
       'github_connect',
       'github_verify',
       'github_section_save',
+      'jira_discover',
       'terminal_start',
       'terminal_close',
       'terminal_input',

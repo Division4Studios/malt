@@ -64,7 +64,7 @@ await test('every checked permission names the Jira admin action that grants it'
 });
 
 await test('a project with every permission is verified at the given time', () => {
-  const result = projectResult(BASE, { issueTypes: TYPES, held: holding(), problems: [] }, NOW);
+  const result = projectResult(BASE, { issueTypes: TYPES, fields: [], held: holding(), problems: [] }, NOW);
   assert.equal(result.state, 'verified');
   assert.equal(result.verifiedAt, NOW.toISOString());
   assert.deepEqual(result.missing, []);
@@ -74,7 +74,7 @@ await test('a project with every permission is verified at the given time', () =
 await test('missing permissions degrade the result and are listed with their admin actions', () => {
   const result = projectResult(
     BASE,
-    { issueTypes: TYPES, held: holding('CREATE_ISSUES', 'LINK_ISSUES'), problems: [] },
+    { issueTypes: TYPES, fields: [], held: holding('CREATE_ISSUES', 'LINK_ISSUES'), problems: [] },
     NOW,
   );
   assert.equal(result.state, 'degraded');
@@ -91,21 +91,29 @@ await test('missing permissions degrade the result and are listed with their adm
   assert.equal(result.capabilities.issue_create, 'unsupported');
   const failedRead = projectResult(
     BASE,
-    { issueTypes: [], held: holding(), problems: [{ scope: 'issue_types', message: 'unreadable' }] },
+    { issueTypes: [], fields: [], held: holding(), problems: [{ scope: 'issue_types', message: 'unreadable' }] },
     NOW,
   );
   assert.equal(failedRead.state, 'degraded', 'a failed read is never verified');
 });
 
 await test('a permission Jira did not confirm is missing, so a partial answer is never verified', () => {
-  const result = projectResult(BASE, { issueTypes: TYPES, held: { BROWSE_PROJECTS: true }, problems: [] }, NOW);
+  const result = projectResult(
+    BASE,
+    { issueTypes: TYPES, fields: [], held: { BROWSE_PROJECTS: true }, problems: [] },
+    NOW,
+  );
   assert.equal(result.state, 'degraded');
   assert.equal(result.verifiedAt, null);
   assert.equal(result.missing.length, JIRA_PERMISSION_NAMES.length - 1);
 });
 
 await test('without Browse Projects nothing is readable, so setup is required and capabilities stay unverified', () => {
-  const result = projectResult(BASE, { issueTypes: TYPES, held: holding('BROWSE_PROJECTS'), problems: [] }, NOW);
+  const result = projectResult(
+    BASE,
+    { issueTypes: TYPES, fields: [], held: holding('BROWSE_PROJECTS'), problems: [] },
+    NOW,
+  );
   assert.equal(result.state, 'external_setup_required');
   assert.equal(result.capabilities.issue_create, 'unverified');
   assert.equal(result.verifiedAt, null);
