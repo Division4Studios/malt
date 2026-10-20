@@ -1,23 +1,27 @@
 /** @file A saved Jira tracker verifies against Jira through its environment handle; jira_discover reads and saves nothing. */
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
+
+import { z } from 'zod/v3';
 
 import { backupProject } from '../src/backup.ts';
 import { startBroker } from '../src/broker.ts';
 import { AgentClient, rpc } from '../src/client.ts';
 import { savedSections } from '../src/connection-sections.ts';
+import { GitHubDelivery } from '../src/factory/remote.ts';
 import { runFactoryCommand } from '../src/factory-cli.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { discoverJiraConnection, verifyJiraTracker } from '../src/jira/connection.ts';
 import { JIRA_PERMISSION_NAMES } from '../src/jira/discovery.ts';
 
-import { OPERATOR, brokerUrl, createCleanup, createProject, updateConfig } from './helpers.ts';
+import { OPERATOR, brokerUrl, createCleanup, createProject, mechanicsGitHub, updateConfig } from './helpers.ts';
 
 import type { TrackerConnection } from '../src/connector.ts';
+import type { GitHubRunner } from '../src/github.ts';
 import type { JiraFetch } from '../src/jira/client.ts';
 import type { TestContext } from 'node:test';
 
@@ -310,4 +314,46 @@ await test('through the CLI and broker the token never reaches logs, responses, 
     assert.equal(text.includes(TOKEN), false, `the token is absent from ${where}`);
     assert.equal(text.includes(basic), false, `the Basic credential is absent from ${where}`);
   }
+});
+
+await test('a verified Jira tracker is never read as a GitHub Project by GitHub operations or delivery', async (t) => {
+  const defer = createCleanup(t);
+  const config = createProject(defer);
+  const verified = await verifyJiraTracker(
+    savedTracker(),
+    { JIRA_API_TOKEN: TOKEN },
+    { fetch: jira().fetch, now: NOW },
+  );
+  const record = savedSections(
+    null,
+    { jiraTracker: JIRA, source: { repository: 'example/app', repositoryId: 'R_1' } },
+    NOW,
+  );
+  const source = { ...record.source, verifiedAt: NOW, verification: { state: 'verified', checkedAt: NOW, errors: [] } };
+  const directory = path.join(config.directory, 'github');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- This test's own temporary project.
+  mkdirSync(directory, { recursive: true });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- This test's own temporary project.
+  writeFileSync(path.join(directory, 'connection.json'), JSON.stringify({ version: 2, tracker: verified, source }));
+  const calls: string[][] = [];
+  const runner: GitHubRunner = async (args) => {
+    calls.push([...args]);
+    await Promise.resolve();
+    return {};
+  };
+  const github = mechanicsGitHub(config, runner);
+  const status = z
+    .object({ connected: z.boolean(), connection: z.null() })
+    .parse(await github.execute(OPERATOR, 'github_status', {}));
+  assert.equal(status.connected, true, 'both sections are verified');
+  await assert.rejects(github.execute(OPERATOR, 'github_set_status', { issue: 1, status: 'Done' }), {
+    code: 'GITHUB_NOT_CONNECTED',
+    message: /work tracker is a Jira project/v,
+  });
+  const delivery = new GitHubDelivery(config, github, runner);
+  await assert.rejects(delivery.verify('https://github.com/example/app'), {
+    code: 'GITHUB_NOT_CONNECTED',
+    message: /Jira tracker is not delivered through yet/v,
+  });
+  assert.deepEqual(calls, [], 'GitHub was never asked about the Jira project as if it were a GitHub Project');
 });

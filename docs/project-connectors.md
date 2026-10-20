@@ -147,7 +147,7 @@ What works today:
 - saving the Jira project as the tracker section and verifying it against the site;
 - the console (**Project → Connections**), CLI and MCP controls for these steps.
 
-The factory does not deliver through a Jira tracker yet. Intake, breakdown, stage transitions and evidence comments exist as a tested library (below), but the supervisor still delivers through GitHub or the local hub. That wiring is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
+The factory does not deliver through a Jira tracker yet. While the tracker is Jira, GitHub Project and issue operations (issue creation, Status moves, board sync, labels and milestones) and GitHub delivery are refused with `GITHUB_NOT_CONNECTED`, and `github_status` reports `connection: null`, so a Jira project is never mistaken for a GitHub Project. Intake, breakdown, stage transitions and evidence comments exist as a tested library (below), but the supervisor still delivers through GitHub or the local hub. That wiring is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
 
 1. Ask your Jira administrator to follow the [Jira admin guide](#jira-admin-guide), then set the token in the environment of the process that runs the broker, for example `JIRA_API_TOKEN`. Restart the broker so it sees the variable.
 2. Discover the project. Nothing is saved, and nothing in Jira changes. In the console, choose **Jira Cloud** on **Project → Connections** and use **Check Jira project**; it also shows what MALT reads and may change in Jira before you enable any write. From the command line:

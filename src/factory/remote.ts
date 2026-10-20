@@ -663,7 +663,14 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns Canonical repository and Project identity.
    */
   private async connection(): Promise<z.output<typeof connectionSchema>['connection']> {
-    return connectionSchema.parse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {})).connection;
+    const status = connectionSchema.safeParse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {}));
+    if (!status.success) {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'GitHub delivery needs a verified GitHub repository and GitHub Project. A Jira tracker is not delivered through yet.',
+      );
+    }
+    return status.data.connection;
   }
 }
 

@@ -209,7 +209,8 @@ export class ProjectGitHub {
       workspace: this.config.workspace ?? this.config.root,
       connected: connectionV2 !== null && isConnected(connectionV2),
       verification: connectionV2 === null ? null : sectionStates(connectionV2),
-      connection: saved?.legacy ?? null,
+      // The flat view names a GitHub Project; a Jira tracker has none.
+      connection: saved?.v2.tracker.provider === 'github-projects' ? saved.legacy : null,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
@@ -298,6 +299,13 @@ export class ProjectGitHub {
    */
   private connection(): LegacyConnection {
     const saved = this.savedConnection();
+    // A Jira tracker's shared fields are Jira's, so they must never be read as a GitHub Project.
+    if (saved.v2.tracker.provider !== 'github-projects') {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'The work tracker is a Jira project, so GitHub Project and issue operations are off. The factory does not deliver through a Jira tracker yet.',
+      );
+    }
     // A section saved but not yet verified may name the wrong repository or Project; never act on it.
     if (!isConnected(saved.v2)) {
       throw new MeshError(
