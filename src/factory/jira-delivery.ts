@@ -53,11 +53,14 @@ import type { TrackerKey } from './tracker-key.ts';
 import type { JiraIssueKey, JiraTransport } from '../jira/client.ts';
 import type { CreationLedger } from '../jira/creation.ts';
 import type { IntakeIssue } from '../jira/intake.ts';
+import type { MoveTarget } from '../jira/moves.ts';
 import type { StageMapping } from '../jira/transitions.ts';
 import type { JiraWriteContext } from '../jira/writes.ts';
 
 /** Least time between two intake reads. */
 const INTAKE_INTERVAL_MS = 60_000;
+/** How long a move Jira cannot make stands before Jira is asked again, unless the mapping changes. */
+const BLOCKED_RECHECK_MS = 600_000;
 /** Milliseconds per second, for `Retry-After`. */
 const SECOND_MS = 1000;
 /** Longest objective text, matching the objective schema. */
@@ -209,6 +212,8 @@ export class JiraDelivery implements DeliveryRemote {
   private intakeCursor: string | null = null;
   /** Earliest next intake read. */
   private nextIntakeAt = 0;
+  /** Moves Jira refused, by issue and target, with the mapping they were planned under. */
+  private readonly blockedMoves = new Map<string, { mapping: string; message: string; until: number }>();
 
   /**
    * Bind the Jira tracker and the source adapter of one workspace.
@@ -486,18 +491,46 @@ export class JiraDelivery implements DeliveryRemote {
       case 'status': {
         const stage = DELIVERY_STATUSES.find((candidate) => candidate === effect.value);
         if (stage !== undefined) {
-          await moveJiraIssue(context, issue, { kind: 'stage', stage, mapping });
+          await this.move(context, issue, { kind: 'stage', stage, mapping });
         }
         return;
       }
       case 'close':
       case 'close_not_planned': {
-        await moveJiraIssue(context, issue, { kind: 'done', mapping });
+        await this.move(context, issue, { kind: 'done', mapping });
         return;
       }
       case 'close_pr': {
         throw new MeshError('INVALID_INPUT', 'A pull request closure belongs to source control, not Jira.');
       }
+    }
+  }
+
+  /**
+   * Move an issue, keeping a move Jira cannot make as one standing blocker: it
+   * is not planned against Jira again until the mapping changes or a while
+   * passes, so a waiting delivery never polls Jira on every supervisor pass.
+   *
+   * @param context - Transport, gate and caller.
+   * @param issue - Jira issue ID.
+   * @param target - Stage and mapping, or closure.
+   * @throws {MeshError} FACTORY_GATED with the blocker while the move cannot be made.
+   */
+  private async move(context: JiraWriteContext, issue: string, target: MoveTarget): Promise<void> {
+    const key = `${issue}:${target.kind === 'stage' ? target.stage : 'done'}`;
+    const mapping = JSON.stringify(target.mapping);
+    const known = this.blockedMoves.get(key);
+    if (known?.mapping === mapping && known.until > this.now()) {
+      throw new MeshError('FACTORY_GATED', known.message);
+    }
+    try {
+      await moveJiraIssue(context, issue, target);
+      this.blockedMoves.delete(key);
+    } catch (error) {
+      if (error instanceof MeshError && error.code === 'FACTORY_GATED') {
+        this.blockedMoves.set(key, { mapping, message: error.message, until: this.now() + BLOCKED_RECHECK_MS });
+      }
+      throw error;
     }
   }
 

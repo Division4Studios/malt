@@ -254,6 +254,20 @@ await test('a required transition field is one blocker naming it, and nothing mo
   });
   assert.equal(issue.status, STATUS.todo);
   assert.deepEqual(fixture.site.writes(), []);
+  const reads = fixture.site.requests.length;
+  await assert.rejects(fixture.delivery.effect(move), { code: 'FACTORY_GATED', message: /requires Reviewer/v });
+  assert.equal(fixture.site.requests.length, reads, 'the standing blocker is not planned against Jira again');
+  fixture.site.requiredFields.clear();
+  fixture.clock.now += 600_000;
+  await fixture.delivery.effect(move);
+  assert.equal(issue.status, STATUS.review, 'after a while Jira is asked again, and the fixed workflow moves it');
+  const other = fixture.site.add();
+  fixture.site.requiredFields.set(STATUS.review, 'Reviewer');
+  const blocked = pending('status', Number(other.id), 'QA / Review');
+  await assert.rejects(fixture.delivery.effect(blocked), { code: 'FACTORY_GATED' });
+  fixture.workflow.stages = { 'QA / Review': { statusId: STATUS.progress, statusName: 'In Progress' } };
+  await fixture.delivery.effect(blocked);
+  assert.equal(other.status, STATUS.progress, 'a changed mapping is planned at once');
 });
 
 await test('closing moves the issue to a done status, or to the status mapped to Done', async (t) => {
