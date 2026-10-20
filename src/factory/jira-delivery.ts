@@ -17,17 +17,25 @@
  *   each created once per stable request ID; dependencies become "Blocks" links.
  * - **Stages.** A stage change performs the transition to the status a human
  *   mapped to it; closing moves the issue to the status mapped to Done, or to
- *   a done status. Comments are posted once per effect.
+ *   a done status. A move Jira cannot make stands as one blocker until the
+ *   mapping changes or a while passes. Comments are posted once per effect.
  * - **Source of truth.** The issue is re-read before every paid assignment;
  *   a done, resolved or reassigned issue reads as closed and is not worked.
+ *   The assignee Jira gave a sub-task on creation, such as a project's default
+ *   assignee, is kept in `.malt/jira/assignees.json` and is not a reassignment.
+ * - **Credential.** A token Jira rejects is one blocker: nothing is sent with
+ *   it again, and verification fails with the fix, until the token changes.
  *
  * @file
  */
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import path from 'node:path';
 
 import { z } from 'zod/v3';
 
 import { SUPERVISOR_PRINCIPAL } from '../capability-policy.ts';
+import { hasErrorCode, readJsonFile } from '../config.ts';
 import { DELIVERY_STATUSES } from '../connector.ts';
 import { breakDownJiraIssue } from '../jira/breakdown.ts';
 import { jiraGet } from '../jira/client.ts';
@@ -35,11 +43,12 @@ import { createJiraIssueOnce } from '../jira/creation.ts';
 import { chooseIntake, searchIntake } from '../jira/intake.ts';
 import { areChildrenDone, moveJiraIssue } from '../jira/moves.ts';
 import { statusesSchema } from '../jira/permissions.ts';
-import { commentOnce, recheckIssue } from '../jira/traceability.ts';
+import { CREDENTIAL_BLOCKER, commentOnce, credentialBlocker, recheckIssue } from '../jira/traceability.ts';
 import { stageMappingSchema } from '../jira/transitions.ts';
 import { jiraFailure, writeIntakeRecord } from '../jira/workflow.ts';
 import { JIRA_WRITE_CAPABILITIES, linkJiraIssues } from '../jira/writes.ts';
 import { MeshError } from '../protocol.ts';
+import { writeAtomic } from '../summary.ts';
 
 import { isPullRequestEffect } from './supersession.ts';
 import { formatTrackerKey, trackerKeySchema } from './tracker-key.ts';
@@ -50,7 +59,7 @@ import type { DeliveryRemote, IntakeCandidate, IssueState, MergePending, PullReq
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
 import type { TrackerKey } from './tracker-key.ts';
-import type { JiraIssueKey, JiraTransport } from '../jira/client.ts';
+import type { JiraCredential, JiraIssueKey, JiraTransport } from '../jira/client.ts';
 import type { CreationLedger } from '../jira/creation.ts';
 import type { IntakeIssue } from '../jira/intake.ts';
 import type { MoveTarget } from '../jira/moves.ts';
@@ -87,6 +96,12 @@ const issueLinksSchema = z.object({ issuelinks: z.array(linkSchema).default([]) 
 const linksSchema = z.object({ fields: issueLinksSchema });
 /** `GET /rest/api/3/myself`. */
 const myselfSchema = z.object({ accountId: z.string().min(1) });
+/** An issue's assignee. */
+const assigneeSchema = z.object({ accountId: z.string() }).nullable().default(null);
+/** `GET /rest/api/3/issue/{id}?fields=assignee`. */
+const assignedSchema = z.object({ fields: z.object({ assignee: assigneeSchema }) });
+/** The account Jira assigned each issue MALT created, by issue ID; empty for none. */
+const createdAssigneesSchema = z.record(z.string(), z.string());
 /** The Jira link type a delivery dependency becomes. */
 const DEPENDENCY_LINK = 'Blocks';
 
@@ -160,6 +175,16 @@ function objectiveText(site: string, issue: IntakeIssue): string {
 }
 
 /**
+ * A fingerprint of a credential, so a rejected one is recognised without being kept.
+ *
+ * @param credential - Account email and API token.
+ * @returns SHA-256 of both.
+ */
+function fingerprint(credential: JiraCredential): string {
+  return createHash('sha256').update(`${credential.email}\n${credential.token}`).digest('hex');
+}
+
+/**
  * The comment request ID of a factory effect, stable across retries.
  *
  * @param id - Effect identity.
@@ -212,6 +237,8 @@ export class JiraDelivery implements DeliveryRemote {
   private intakeCursor: string | null = null;
   /** Earliest next intake read. */
   private nextIntakeAt = 0;
+  /** Fingerprint of the credential Jira last rejected; no request is sent with it again. */
+  private rejected: string | null = null;
   /** Moves Jira refused, by issue and target, with the mapping they were planned under. */
   private readonly blockedMoves = new Map<string, { mapping: string; message: string; until: number }>();
 
@@ -248,7 +275,7 @@ export class JiraDelivery implements DeliveryRemote {
    * @param origin - The project's configured delivery remote URL.
    */
   public async verify(origin: string): Promise<void> {
-    this.tracker();
+    this.access();
     await this.source.verifySource(origin);
   }
 
@@ -264,12 +291,12 @@ export class JiraDelivery implements DeliveryRemote {
     if (deliveries.length === 0) {
       throw new MeshError('INVALID_INPUT', 'A record needs a nonempty reviewed atomic plan.');
     }
-    const access = this.tracker();
+    const access = this.access();
     const context = this.writer(access);
     // Ask before any request, so a denial parks the objective without touching Jira.
     access.gate.authorize(context.principal, [...JIRA_WRITE_CAPABILITIES.createChild]);
     const { projectKey } = access.tracker;
-    try {
+    return this.guarded(access, `the Jira issues of objective ${feature.id}`, async () => {
       const types = await creationTypes(access.transport, projectKey);
       const parent = await this.parentIssue(context, feature, { projectKey, issueTypeId: types.parent });
       const result = await breakDownJiraIssue(context, this.ledger(), {
@@ -301,10 +328,12 @@ export class JiraDelivery implements DeliveryRemote {
         };
       });
       await this.linkDependencies(context, deliveries, mappings);
+      await this.recordAssignees(
+        access.transport,
+        result.created.map((child) => child.id),
+      );
       return mappings;
-    } catch (error) {
-      throw jiraFailure(error, `the Jira issues of objective ${feature.id}`);
-    }
+    });
   }
 
   /**
@@ -350,13 +379,11 @@ export class JiraDelivery implements DeliveryRemote {
       await this.source.effect(effect);
       return;
     }
-    const access = this.tracker();
+    const access = this.access();
     const mapping: StageMapping = stageMappingSchema.parse(access.tracker.workflow.stages ?? {});
-    try {
-      await this.trackerEffect(this.writer(access), effect, mapping);
-    } catch (error) {
-      throw jiraFailure(error, `Jira issue ${String(effect.issue)}`);
-    }
+    await this.guarded(access, `Jira issue ${String(effect.issue)}`, async () =>
+      this.trackerEffect(this.writer(access), effect, mapping),
+    );
   }
 
   /**
@@ -381,7 +408,7 @@ export class JiraDelivery implements DeliveryRemote {
     if (now < this.nextIntakeAt) {
       return [];
     }
-    const access = this.tracker();
+    const access = this.access();
     const jql = access.tracker.workflow.intake?.jql;
     if (jql === undefined) {
       return [];
@@ -389,8 +416,10 @@ export class JiraDelivery implements DeliveryRemote {
     this.nextIntakeAt = now + INTAKE_INTERVAL_MS;
     const readAt = new Date(now);
     try {
-      const account = await this.accountId(access.transport);
-      const read = await searchIntake(access.transport, jql, { cursor: this.intakeCursor });
+      const account = await this.guarded(access, 'the intake filter', async () => this.accountId(access.transport));
+      const read = await this.guarded(access, 'the intake filter', async () =>
+        searchIntake(access.transport, jql, { cursor: this.intakeCursor }),
+      );
       this.intakeCursor = read.next;
       if (read.retryAfterSeconds !== null) {
         this.nextIntakeAt = now + read.retryAfterSeconds * SECOND_MS;
@@ -413,16 +442,15 @@ export class JiraDelivery implements DeliveryRemote {
       });
       return candidates;
     } catch (error) {
-      const failure = jiraFailure(error, 'the intake filter');
       writeIntakeRecord(this.mesh.directory, {
         checkedAt: readAt.toISOString(),
         offered: [],
         skipped: [],
         isTruncated: false,
         retryAfterSeconds: null,
-        error: Error.isError(failure) ? failure.message : 'The intake filter could not be read.',
+        error: Error.isError(error) ? error.message : 'The intake filter could not be read.',
       });
-      throw failure;
+      throw error;
     }
   }
 
@@ -434,10 +462,14 @@ export class JiraDelivery implements DeliveryRemote {
    */
   public async issueState(key: TrackerKey): Promise<IssueState> {
     const issueKey = jiraKey(key);
-    const { transport } = this.tracker();
-    try {
+    const access = this.access();
+    const { transport } = access;
+    return this.guarded(access, issueKey, async () => {
       const { issue, blocked } = await recheckIssue(transport, issueKey, await this.accountId(transport));
-      if (blocked === null) {
+      // The project's default assignee on an issue MALT created is not someone taking the work over.
+      const assignedAtCreation = this.createdAssignees()[issue.id] ?? '';
+      const isDefault = blocked === 'reassigned' && assignedAtCreation === (issue.assignee ?? '');
+      if (blocked === null || isDefault) {
         return { state: 'open', stateReason: null };
       }
       const reasons: Readonly<Record<typeof blocked, string>> = {
@@ -446,9 +478,7 @@ export class JiraDelivery implements DeliveryRemote {
         reassigned: 'reassigned',
       };
       return { state: 'closed', stateReason: reasons[blocked] };
-    } catch (error) {
-      throw jiraFailure(error, issueKey);
-    }
+    });
   }
 
   /**
@@ -461,12 +491,8 @@ export class JiraDelivery implements DeliveryRemote {
   public async parentComplete(parent: TrackerKey, children: readonly TrackerKey[]): Promise<boolean> {
     const parentKey = jiraKey(parent);
     const expected = children.map((child) => jiraKey(child));
-    const { transport } = this.tracker();
-    try {
-      return await areChildrenDone(transport, parentKey, expected);
-    } catch (error) {
-      throw jiraFailure(error, parentKey);
-    }
+    const access = this.access();
+    return this.guarded(access, parentKey, async () => areChildrenDone(access.transport, parentKey, expected));
   }
 
   /**
@@ -535,6 +561,41 @@ export class JiraDelivery implements DeliveryRemote {
   }
 
   /**
+   * The saved, verified Jira tracker, unless Jira rejected its credential: then
+   * nothing is sent until the token changes, and the one blocker names the fix.
+   *
+   * @returns Tracker settings, transport and gate.
+   * @throws {MeshError} CREDENTIALS_MISSING while the rejected credential is still configured.
+   */
+  private access(): JiraTrackerAccess {
+    const access = this.tracker();
+    if (this.rejected !== null && this.rejected === fingerprint(access.transport.credential)) {
+      throw new MeshError('CREDENTIALS_MISSING', CREDENTIAL_BLOCKER);
+    }
+    return access;
+  }
+
+  /**
+   * Run Jira requests, turning their failures into MeshErrors and remembering a rejected credential.
+   *
+   * @param access - Tracker whose credential the requests use.
+   * @param what - What is being read or changed, for messages.
+   * @param work - The requests.
+   * @returns What the requests returned.
+   * @throws {MeshError} With Jira's explanation, the credential blocker or the capability denial.
+   */
+  private async guarded<T>(access: JiraTrackerAccess, what: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (credentialBlocker(error) !== null) {
+        this.rejected = fingerprint(access.transport.credential);
+      }
+      throw jiraFailure(error, what);
+    }
+  }
+
+  /**
    * The write context the supervisor acts in.
    *
    * @param access - Saved tracker, transport and gate.
@@ -562,6 +623,56 @@ export class JiraDelivery implements DeliveryRemote {
   private async accountId(transport: JiraTransport): Promise<string> {
     this.account ??= myselfSchema.parse(await jiraGet(transport, '/rest/api/3/myself')).accountId;
     return this.account;
+  }
+
+  /**
+   * Where the assignees Jira gave created issues are kept.
+   *
+   * @returns Path of `.malt/jira/assignees.json`.
+   */
+  private assigneesFile(): string {
+    return path.join(this.mesh.directory, 'jira', 'assignees.json');
+  }
+
+  /**
+   * The account Jira assigned each issue MALT created, when it was created.
+   *
+   * @returns Account ID by issue ID; empty for an issue created unassigned.
+   * @throws {Error} For a file that cannot be read for another reason.
+   */
+  private createdAssignees(): Record<string, string> {
+    try {
+      return createdAssigneesSchema.parse(readJsonFile(this.assigneesFile()));
+    } catch (error) {
+      if (hasErrorCode(error, 'ENOENT')) {
+        return {};
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Remember whom Jira assigned newly created issues, such as a project's default assignee,
+   * so that assignment is never read as the work being taken over.
+   *
+   * @param transport - Site, credential and transport.
+   * @param ids - Created issue IDs.
+   */
+  private async recordAssignees(transport: JiraTransport, ids: readonly string[]): Promise<void> {
+    const known = this.createdAssignees();
+    const unknown = ids.filter((id) => !Object.hasOwn(known, id));
+    if (unknown.length === 0) {
+      return;
+    }
+    for (const id of unknown) {
+      // eslint-disable-next-line no-await-in-loop -- One bounded read per newly created sub-task.
+      const answer = assignedSchema.parse(await jiraGet(transport, `/rest/api/3/issue/${id}`, { fields: 'assignee' }));
+      known[id] = answer.fields.assignee?.accountId ?? '';
+    }
+    const file = this.assigneesFile();
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own private state directory.
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    writeAtomic(file, `${JSON.stringify(known, null, 2)}\n`);
   }
 
   /**

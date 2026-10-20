@@ -44,6 +44,8 @@ interface Fixture {
   readonly sourceCalls: string[];
   /** Fixture clock. */
   readonly clock: { now: number };
+  /** The API token the tracker's environment handle currently holds. */
+  readonly credential: { token: string };
 }
 
 /**
@@ -89,6 +91,7 @@ function build(t: TestContext, options: { mode?: JiraMode; roles?: JiraRole[] } 
       await Promise.resolve();
     },
   };
+  const credential = { token: SITE_TOKEN };
   const access = (): JiraTrackerAccess => {
     return {
       tracker: {
@@ -100,7 +103,7 @@ function build(t: TestContext, options: { mode?: JiraMode; roles?: JiraRole[] } 
       },
       transport: {
         site: { origin: ORIGIN, deployment: 'cloud' },
-        credential: { email: 'robot@example.com', token: SITE_TOKEN },
+        credential: { email: 'robot@example.com', token: credential.token },
         fetch: site.fetch,
       },
       gate,
@@ -108,7 +111,7 @@ function build(t: TestContext, options: { mode?: JiraMode; roles?: JiraRole[] } 
   };
   const clock = { now: Date.parse('2026-10-20T12:00:00.000Z') };
   const delivery = new JiraDelivery(config, access, source, { now: () => clock.now });
-  return { delivery, site, config, gate, workflow, sourceCalls, clock };
+  return { delivery, site, config, gate, workflow, sourceCalls, clock, credential };
 }
 
 /**
@@ -335,6 +338,22 @@ await test('issue state re-reads Jira: done, resolved and reassigned issues read
   assert.equal(fixture.site.requests.length, before + 1, 'a GitHub key is refused before any request');
 });
 
+await test("a project's default assignee on a created sub-task is not a reassignment; a later change is", async (t) => {
+  const fixture = build(t);
+  fixture.site.defaultAssignee = 'acc-lead';
+  const parent = fixture.site.add();
+  const [mapping] = await fixture.delivery.provision(objective(parent));
+  assert.ok(mapping?.trackerKey !== undefined);
+  assert.deepEqual(await fixture.delivery.issueState(mapping.trackerKey), { state: 'open', stateReason: null });
+  const child = fixture.site.issues.find((issue) => issue.key === mapping.trackerKey?.key);
+  assert.ok(child !== undefined);
+  child.assignee = 'acc-human';
+  assert.deepEqual(await fixture.delivery.issueState(mapping.trackerKey), {
+    state: 'closed',
+    stateReason: 'reassigned',
+  });
+});
+
 await test('a parent is complete only when every delivered child exists under it and every child is done', async (t) => {
   const fixture = build(t);
   const parent = fixture.site.add();
@@ -406,4 +425,23 @@ await test('a rate-limited intake read waits as long as Jira asks, and a failure
   await assert.rejects(fixture.delivery.intake(new Set()), { code: 'CREDENTIALS_MISSING', message: /revoked/v });
   assert.match(readIntakeRecord(fixture.config.directory)?.error ?? '', /Jira rejected the MALT credential/v);
   assert.equal(JSON.stringify(readIntakeRecord(fixture.config.directory)).includes(SITE_TOKEN), false);
+});
+
+await test('a revoked token is one blocker: nothing is sent with it again until the token changes', async (t) => {
+  const fixture = build(t);
+  const issue = fixture.site.add();
+  fixture.site.isRevoked = true;
+  const comment = pending('comment', Number(issue.id), 'Progress.');
+  const blocker = { code: 'CREDENTIALS_MISSING', message: /Jira rejected the MALT credential/v };
+  await assert.rejects(fixture.delivery.effect(comment), blocker);
+  const requests = fixture.site.requests.length;
+  await assert.rejects(fixture.delivery.effect(comment), blocker);
+  await assert.rejects(fixture.delivery.issueState({ provider: 'jira', key: issue.key }), blocker);
+  await assert.rejects(fixture.delivery.verify('https://github.com/example/app'), blocker);
+  assert.equal(fixture.site.requests.length, requests, 'the rejected token is not sent again');
+  assert.deepEqual(fixture.sourceCalls, [], 'a parked tracker stops the factory before source control');
+  fixture.site.isRevoked = false;
+  fixture.credential.token = ['rotated', 'fixture', 'credential'].join('-');
+  await fixture.delivery.effect(comment);
+  assert.equal(issue.comments.length, 1, 'a new token resumes the work');
 });

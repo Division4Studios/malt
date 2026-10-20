@@ -64,6 +64,10 @@ export interface JiraSite {
   readonly requiredFields: Map<string, string>;
   /** The JQL the intake filter matches, and the issue IDs it returns. */
   intake: { jql: string; ids: string[] } | null;
+  /** Whether Jira rejects every request's credential, as after a revoked token. */
+  isRevoked: boolean;
+  /** The account Jira assigns created issues, as a project's default assignee does. */
+  defaultAssignee: string | null;
   /** HTTP status the next search answers with instead of results, with its `Retry-After`. */
   searchFailure: { status: number; retryAfter?: string } | null;
   /** Transport. */
@@ -170,6 +174,8 @@ export function jiraSite(): JiraSite {
     requests: [],
     requiredFields: new Map(),
     intake: null,
+    defaultAssignee: null,
+    isRevoked: false,
     searchFailure: null,
     add: (fields = {}) => {
       const number = site.issues.length + 1;
@@ -200,7 +206,7 @@ export function jiraSite(): JiraSite {
       const url = new URL(raw);
       const body: unknown = init.body === undefined ? undefined : JSON.parse(init.body);
       site.requests.push({ method: init.method, path: url.pathname, query: url.searchParams, body });
-      return route(site, init.method, url, body);
+      return site.isRevoked ? answer(401, {}) : route(site, init.method, url, body);
     },
   };
   return site;
@@ -323,6 +329,7 @@ function route(site: JiraSite, method: string, url: URL, body: unknown): Awaited
       summary: fields.summary,
       description: fields.description,
       parent: fields.parent?.key ?? null,
+      assignee: site.defaultAssignee,
     });
     return answer(201, { id: issue.id, key: issue.key });
   }

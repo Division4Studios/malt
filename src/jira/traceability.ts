@@ -228,6 +228,10 @@ export async function recheckIssue(
   return { issue, blocked: unworkableReason(issue, account) };
 }
 
+/** What a rejected credential reports, once, until the token is replaced. */
+export const CREDENTIAL_BLOCKER =
+  'Jira rejected the MALT credential: the API token was revoked, rotated or expired. Create a new token and update the credential handle, then resume.';
+
 /**
  * The single blocker a rejected credential becomes, so the supervisor parks
  * the connection instead of spending paid turns on calls that will fail.
@@ -236,7 +240,5 @@ export async function recheckIssue(
  * @returns Operator action, or `null` when the failure is not about the credential.
  */
 export function credentialBlocker(error: unknown): string | null {
-  return error instanceof JiraRequestError && error.failure === 'unauthorized'
-    ? 'Jira rejected the MALT credential: the API token was revoked, rotated or expired. Create a new token and update the credential handle, then resume.'
-    : null;
+  return error instanceof JiraRequestError && error.failure === 'unauthorized' ? CREDENTIAL_BLOCKER : null;
 }

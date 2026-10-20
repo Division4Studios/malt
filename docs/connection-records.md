@@ -15,7 +15,7 @@ Version 1 records are read and normalized in memory without being rewritten. The
 
 `projectNumber` is a GitHub Project's number and only a GitHub tracker has one. A Jira tracker fills the shared fields from Jira: `owner` is the site name, `projectId` the numeric project ID, `url` the project's browse page and `workflowField` Jira's own Status field, whose options are the project's workflow statuses once verified. A `jira` block keeps the `site`, `projectKey` and account `email`, and the credential handle names the token's environment variable. Its optional `workflow` holds what a human chose with `jira_workflow_save`: `intake.jql`, the filter whose matches become objectives, and `stages`, each MALT stage mapped to a Jira `{statusId, statusName}`. Saving the same site and project again keeps `workflow`; another project starts without it. See [Deliver through Jira](project-connectors.md#deliver-through-jira).
 
-The factory keeps its other Jira state beside the connection, in `.malt/jira/`: `operations/` journals each issue creation by request ID, `comments/` each posted comment, and `intake.json` the last intake read.
+The factory keeps its other Jira state beside the connection, in `.malt/jira/`: `operations/` journals each issue creation by request ID, `comments/` each posted comment, `intake.json` the last intake read, and `assignees.json` the account Jira assigned each sub-task MALT created.
 
 ## Issue journals and repository renames
 
