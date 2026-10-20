@@ -143,6 +143,8 @@ export class ManagerController {
   private readonly input = element('textarea', 'chat-input');
   /** App collaborators. */
   private readonly dependencies: ManagerDependencies;
+  /** Request id per checkpoint decision, reused when the operator retries it. */
+  private readonly checkpointRequests = new Map<string, string>();
 
   /**
    * Build the persistent composer.
@@ -214,6 +216,27 @@ export class ManagerController {
    */
   public act(action: string, extra: Record<string, unknown> = {}): void {
     void this.dependencies.control('factory_manager', { action, ...extra });
+  }
+
+  /**
+   * Continue or let wait an attempt that stopped at a checkpoint, through the
+   * same fenced, idempotent control the Inbox uses: one request id per
+   * attempt, so a retry after a lost response is reported as a repeat.
+   *
+   * @param jobId - Stopped attempt.
+   * @param head - Delivery head the decision is fenced to.
+   * @param decision - Continue for some minutes, or wait.
+   * @param decision.action - `continue` or `wait`.
+   * @param decision.minutes - Granted minutes, for `continue`.
+   */
+  public decideCheckpoint(
+    jobId: string,
+    head: string | null,
+    decision: { readonly action: 'continue' | 'wait'; readonly minutes?: number },
+  ): void {
+    const requestId = this.checkpointRequests.get(jobId) ?? crypto.randomUUID();
+    this.checkpointRequests.set(jobId, requestId);
+    void this.dependencies.control('factory_checkpoint_decide', { jobId, requestId, expectedHead: head, ...decision });
   }
 
   /**

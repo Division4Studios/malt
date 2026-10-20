@@ -6,7 +6,9 @@
  * @file
  */
 import { data, firstText, number, records, text } from './api.js';
+import { parseStop } from './console-model.js';
 import { formatTime, phrase, t } from './i18n.js';
+import { briefProgress, stopText } from './liveness-text.js';
 import { ago } from './manager-controller.js';
 import { isView, viewPath } from './navigation.js';
 import { element } from './worker-ui.js';
@@ -25,6 +27,12 @@ const STATES: Readonly<Record<string, { label: string; tone: string }>> = {
 };
 /** Short commit identity length. */
 const SHORT = 8;
+/** Half an hour, in minutes. */
+const HALF_HOUR_MINUTES = 30;
+/** One hour, in minutes. */
+const HOUR_MINUTES = 60;
+/** Continuations offered at a checkpoint, as in the Inbox. */
+const CONTINUE_MINUTES = [HALF_HOUR_MINUTES, HOUR_MINUTES] as const;
 /** Mission table column titles. */
 const COLUMNS = [
   phrase('Delivery'),
@@ -155,6 +163,10 @@ function decisionCard(item: Data, controller: ManagerController): HTMLElement {
   const card = element('article', 'decision-card');
   card.append(element('h3', '', text(item, 'title')), element('p', 'subtle', text(item, 'detail')));
   const route = text(item, 'resolveWith');
+  if (text(item, 'kind') === 'checkpoint') {
+    card.append(checkpointActions(item, controller));
+    return card;
+  }
   if (text(item, 'kind') !== 'manager') {
     // The location comes from the console navigation itself; an older broker sends only its route text.
     const view = text(item, 'resolveView');
@@ -180,6 +192,32 @@ function decisionCard(item: Data, controller: ManagerController): HTMLElement {
 }
 
 /**
+ * Continue or wait buttons for an attempt stopped at a checkpoint, as the Inbox offers them.
+ *
+ * @param item - Brief checkpoint decision.
+ * @param controller - View controller.
+ * @returns Button row; the decision is fenced to the head the attempt stopped on.
+ */
+function checkpointActions(item: Data, controller: ManagerController): HTMLElement {
+  const jobId = text(item, 'id');
+  const head = typeof item['head'] === 'string' ? item['head'] : null;
+  const actions = element('div', 'ticket-actions');
+  for (const minutes of CONTINUE_MINUTES) {
+    actions.append(
+      button(t('Continue {minutes} min', { minutes }), () => {
+        controller.decideCheckpoint(jobId, head, { action: 'continue', minutes });
+      }),
+    );
+  }
+  actions.append(
+    button(t('Wait'), () => {
+      controller.decideCheckpoint(jobId, head, { action: 'wait' });
+    }),
+  );
+  return actions;
+}
+
+/**
  * Decisions waiting on the operator.
  *
  * @param brief - Mission brief.
@@ -201,21 +239,15 @@ function decisions(brief: Data, controller: ManagerController): HTMLElement {
 }
 
 /**
- * Progress evidence for one running assignment.
+ * The next step of a delivery, with the recorded stop of its latest attempt.
  *
- * @param job - Brief job.
- * @param now - Current time.
- * @returns Plain evidence text.
+ * @param delivery - Brief delivery.
+ * @returns Next step, then why the latest attempt stopped when a checkpoint stopped it.
  */
-function progress(job: Data, now: number): string {
-  const checkpoint = number(job, 'progressAt');
-  const activity = number(job, 'activityAt');
-  const parts = [
-    checkpoint > 0 ? t('checkpoint {ago}', { ago: ago(checkpoint, now) }) : '',
-    activity > 0 ? t('output {ago}', { ago: ago(activity, now) }) : '',
-    job['isPossiblyStalled'] === true ? t('possibly stalled') : '',
-  ].filter((part) => part !== '');
-  return parts.length === 0 ? t('no evidence yet') : parts.join(' · ');
+function nextText(delivery: Data): string {
+  const stop = parseStop(delivery['lastStop']);
+  const next = text(delivery, 'nextAction');
+  return stop === null ? next : `${next} ${t('Last attempt stopped: {stop}.', { stop: stopText(stop) })}`;
 }
 
 /**
@@ -251,8 +283,8 @@ function deliveryRow(delivery: Data, now: number): HTMLTableRowElement {
     element('td', '', text(delivery, 'stage').replaceAll('_', ' ')),
     element('td', '', ownerText(delivery, job)),
     element('td', 'mission-branch', location),
-    element('td', '', job === null ? '—' : progress(job, now)),
-    element('td', '', text(delivery, 'nextAction')),
+    element('td', '', job === null ? '—' : briefProgress(job, now)),
+    element('td', '', nextText(delivery)),
   );
   return row;
 }

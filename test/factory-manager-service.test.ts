@@ -189,6 +189,7 @@ await test('reports are batched into rate-limited digests and decisions are answ
     store.event('FACTORY_TASK_UPDATED', null, { taskId: 't-1', issue: 7, phase: 'blocked' });
     store.event('FACTORY_TASK_UPDATED', null, { taskId: 't-1', issue: 7, phase: 'blocked' });
     store.event('FACTORY_INSTRUCTION', null, { ignored: true });
+    store.event('FACTORY_CHECKPOINT_DECISION', null, { jobId: 'j-1', role: 'qa-1', issue: 9, reason: 'hard ceiling' });
   });
   manager.tick();
   await until(() => received(log).length === 1, PROCESS_WAIT_MS);
@@ -196,6 +197,11 @@ await test('reports are batched into rate-limited digests and decisions are answ
   assert.match(digest ?? '', /Triage needs attention: #7 failed QA twice/v);
   assert.match(digest ?? '', /#7 is blocked/v);
   assert.ok(!(digest ?? '').includes('ignored'), 'Unrelated events are not reported.');
+  assert.match(
+    digest ?? '',
+    /qa-1 on #9 stopped at a checkpoint \(hard ceiling\)\. Its worktree is kept; the operator decides in the Inbox/v,
+    'A pending checkpoint decision is reported truthfully.',
+  );
   assert.equal((digest?.match(/#7 is blocked/gv) ?? []).length, 1, 'A repeated phase is reported once.');
   await until(() => manager.status().session?.state === 'waiting', PROCESS_WAIT_MS);
   store.transaction(() => {

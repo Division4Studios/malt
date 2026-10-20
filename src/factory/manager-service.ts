@@ -61,6 +61,7 @@ const REPORTED_EVENTS = [
   'FACTORY_TRIAGE_REPORTED',
   'FACTORY_RESOURCE_STOP',
   'FACTORY_SCOPE_REPLACED',
+  'FACTORY_CHECKPOINT_DECISION',
 ] as const;
 
 /** Event row. */
@@ -69,6 +70,22 @@ const eventSchema = z.object({ seq: z.number(), type: z.string(), data: z.string
 const handoffSchema = z.object({ data: z.string() });
 /** Agent name row. */
 const agentSchema = z.object({ name: z.string() });
+
+/**
+ * Report an attempt that stopped at a checkpoint and asked for the operator's decision.
+ *
+ * @param data - Event payload.
+ * @returns Urgent report naming the role, the delivery and the recorded stop reason.
+ */
+function checkpointReport(data: Record<string, unknown>): { text: string; isUrgent: boolean } {
+  const role = typeof data['role'] === 'string' ? data['role'] : 'An assignment';
+  const subject = typeof data['issue'] === 'number' ? `#${String(data['issue'])}` : 'objective planning';
+  const reason = typeof data['reason'] === 'string' ? data['reason'] : 'no recorded reason';
+  return {
+    text: `${role} on ${subject} stopped at a checkpoint (${reason}). Its worktree is kept; the operator decides in the Inbox whether it continues or waits.`,
+    isUrgent: true,
+  };
+}
 
 /** Collaborators replaced by fixtures. */
 export interface ManagerOptions {
@@ -720,6 +737,9 @@ export class ManagerService {
       }
       case 'FACTORY_RESOURCE_STOP': {
         return { text: `Work stopped for resource pressure: ${String(data['reason'])}`, isUrgent: true };
+      }
+      case 'FACTORY_CHECKPOINT_DECISION': {
+        return checkpointReport(data);
       }
       default: {
         return { text: 'The scope was replaced; affected deliveries were parked for re-planning.', isUrgent: false };

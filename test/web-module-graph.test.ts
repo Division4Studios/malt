@@ -9,7 +9,7 @@ import { startWebConsole } from '../src/web/server.ts';
 import { brokerUrl, createCleanup, createProject } from './helpers.ts';
 
 /** Bound traversal independently of hostile or accidental import cycles. */
-const MAX_MODULES = 100;
+const MAX_MODULES = 128;
 
 await test('actual console HTTP serves the full app module graph and caches its public modules', async (t) => {
   const defer = createCleanup(t);
