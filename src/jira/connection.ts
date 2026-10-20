@@ -143,7 +143,6 @@ export async function verifyJiraTracker(
     ...tracker,
     ...(project !== null && {
       projectId: project.id,
-      projectNumber: Number(project.id),
       url: project.url,
       workflowField: { id: 'status', name: 'Status', options: statusOptions(discovery) },
       capabilities: discovery.capabilities,
