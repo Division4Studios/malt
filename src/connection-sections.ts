@@ -83,7 +83,6 @@ function jiraTrackerSection(
     provider: 'jira',
     owner: siteName(site.origin),
     projectId: input.projectId,
-    projectNumber: Number(input.projectId),
     url: `${site.origin}/browse/${input.projectKey}`,
     workflowField: { id: 'status', name: 'Status' },
     capabilities: unverifiedCapabilities(),

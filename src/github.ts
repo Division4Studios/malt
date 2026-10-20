@@ -210,7 +210,7 @@ export class ProjectGitHub {
       connected: connectionV2 !== null && isConnected(connectionV2),
       verification: connectionV2 === null ? null : sectionStates(connectionV2),
       // The flat view names a GitHub Project; a Jira tracker has none.
-      connection: saved?.v2.tracker.provider === 'github-projects' ? saved.legacy : null,
+      connection: saved?.legacy ?? null,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
@@ -300,7 +300,7 @@ export class ProjectGitHub {
   private connection(): LegacyConnection {
     const saved = this.savedConnection();
     // A Jira tracker's shared fields are Jira's, so they must never be read as a GitHub Project.
-    if (saved.v2.tracker.provider !== 'github-projects') {
+    if (saved.legacy === null) {
       throw new MeshError(
         'GITHUB_NOT_CONNECTED',
         'The work tracker is a Jira project, so GitHub Project and issue operations are off. The factory does not deliver through a Jira tracker yet.',
@@ -503,12 +503,13 @@ export class ProjectGitHub {
     if (journals.length === 0) {
       return [];
     }
-    const { legacy: current, v2 } = this.savedConnection();
+    const { v2 } = this.savedConnection();
+    const current = { repository: v2.source.repository, owner: v2.tracker.owner };
     // A rename keeps the node ID, so the same repository is not a switch.
     const isSameNode = repositoryId !== null && v2.source.repositoryId === repositoryId;
     const isSameRepository =
       repositoryId !== null && v2.source.repositoryId !== null ? isSameNode : current.repository === repository;
-    const isSameConnection = isSameRepository && current.owner === owner && current.project.number === projectNumber;
+    const isSameConnection = isSameRepository && current.owner === owner && v2.tracker.projectNumber === projectNumber;
     if (!isSameConnection && journals.some((journal) => journal.phase !== 'complete')) {
       throw new MeshError(
         'GITHUB_OPERATION_PENDING',

@@ -179,10 +179,13 @@ function integrationOverview(config: MeshConfig): string[] {
     `Learning: ${String(artifactCount(path.join(config.directory, 'knowledge', 'lessons')))} lessons, ${String(artifactCount(path.join(config.directory, 'knowledge', 'sources')))} pinned sources, ${String(artifactCount(path.join(config.directory, 'knowledge', 'candidates')))} skill candidates.`,
   ];
   try {
-    const { legacy: connection } = parseConnection(
+    const { legacy, v2 } = parseConnection(
       readIntegrationFile(path.join(config.directory, 'github', 'connection.json')),
     );
-    lines.push(`GitHub repository: ${cell(connection.repository)}`, `GitHub Project: ${connection.project.url}`);
+    lines.push(
+      `GitHub repository: ${cell(v2.source.repository)}`,
+      legacy === null ? `Work tracker: Jira project ${v2.tracker.url}` : `GitHub Project: ${legacy.project.url}`,
+    );
   } catch {
     lines.push('GitHub Project: not connected or saved connection needs repair.');
   }
