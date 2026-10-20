@@ -106,7 +106,7 @@ export function targetFromStep(delivery: Delivery, step: Step, open: readonly In
     stepId: step.id,
     head: item === undefined ? delivery.head : item.head,
     stepTitle: step.title,
-    subject: `#${String(delivery.issue)} ${delivery.title}`,
+    subject: `${delivery.label} ${delivery.title}`,
   };
 }
 

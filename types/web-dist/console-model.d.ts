@@ -34,8 +34,10 @@ declare module '*/web/dist/console-model.js' {
   export interface Delivery {
     /** Delivery id. */
     readonly taskId: string;
-    /** Issue number. */
+    /** Numeric ledger handle of its tracker issue. */
     readonly issue: number;
+    /** Tracker key as shown: `#12` or `PROJ-12`. */
+    readonly label: string;
     /** Title. */
     readonly title: string;
     /** Board column. */
@@ -61,8 +63,8 @@ declare module '*/web/dist/console-model.js' {
     readonly head: string | null;
     /** Pull request link. */
     readonly prUrl: string | null;
-    /** Blocking dependency issues. */
-    readonly waitingOn: readonly number[];
+    /** Tracker keys, as shown, of blocking dependencies. */
+    readonly waitingOn: readonly string[];
     /** Ledger phase. */
     readonly phase: string;
     /** Operator hold. */
@@ -121,7 +123,12 @@ declare module '*/web/dist/console-model.js' {
     /** Archived total and the latest restorable deliveries. */
     readonly archived: {
       readonly total: number;
-      readonly recent: readonly { readonly taskId: string; readonly issue: number; readonly title: string }[];
+      readonly recent: readonly {
+        readonly taskId: string;
+        readonly issue: number;
+        readonly label: string;
+        readonly title: string;
+      }[];
     };
     /** Answered decisions. */
     readonly answered: readonly {

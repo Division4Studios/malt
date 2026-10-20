@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { child, hasFlag, number, records, text } from './api.js';
+import { child, hasFlag, issueLabel, number, records, text } from './api.js';
 import { dispatchSummary } from './brand-ui.js';
 import { phrase, t, translated } from './i18n.js';
 import { renderReport } from './report-ui.js';
@@ -105,8 +105,12 @@ export function triageLabel(task: Data, decisions: Data[]): string {
 function references(task: Data, state: Snapshot): HTMLElement {
   const row = element('div', 'triage-refs');
   const repository = text(child(state.github, 'connection'), 'repository');
-  if (/^[\w\-.]+\/[\w\-.]+$/v.test(repository)) {
-    const issue = element('a', '', t('ISSUE {issue}', { issue: number(task, 'issue') }));
+  const label = issueLabel(task);
+  // Only a GitHub issue has a GitHub page; another tracker's key is shown without a link.
+  if (!label.startsWith('#')) {
+    row.append(element('span', '', t('ISSUE {issue}', { issue: label })));
+  } else if (/^[\w\-.]+\/[\w\-.]+$/v.test(repository)) {
+    const issue = element('a', '', t('ISSUE {issue}', { issue: label }));
     issue.href = `https://github.com/${repository}/issues/${String(number(task, 'issue'))}`;
     issue.target = '_blank';
     issue.rel = 'noopener noreferrer';
@@ -140,12 +144,11 @@ function blockerCard(task: Data, context: { state: Snapshot; actions: Actions; d
   card.dataset['queueKey'] = `triage:${id}`;
   const summary = element('summary');
   summary.dataset['queueFocus'] = `triage:${id}`;
-  const issue = String(number(task, 'issue'));
   const signal = element('span', 'triage-signal', '\u{203A}');
   signal.setAttribute('aria-hidden', 'true');
   summary.append(
     signal,
-    element('span', 'triage-title', `#${issue} ${text(task, 'title')}`),
+    element('span', 'triage-title', `${issueLabel(task)} ${text(task, 'title')}`),
     element('span', 'pill', triageLabel(task, decisions)),
   );
   const body = element('div', 'triage-body');
@@ -307,9 +310,9 @@ export function triageDialog(
   let readCommit = emptyCommit;
   return {
     description: {
-      title: t('{action} · issue #{issue}', {
+      title: t('{action} · issue {issue}', {
         action: TRIAGE_ACTIONS[action][0],
-        issue: number(task, 'issue'),
+        issue: issueLabel(task),
       }),
       explanation: TRIAGE_ACTIONS[action][1],
       initial: action === 'acknowledge' ? t('Reviewed the current blocker.') : '',

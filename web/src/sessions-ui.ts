@@ -6,7 +6,7 @@
  *
  * @file
  */
-import { child, data, number, records, request, scoped, text } from './api.js';
+import { child, data, issueLabel, number, records, request, scoped, text } from './api.js';
 import { formatTime, locale, t } from './i18n.js';
 import { attemptOutcome } from './liveness-text.js';
 import {
@@ -146,7 +146,7 @@ function metricsPanel(row: Data): HTMLElement {
     .join(', ');
   const entries: [string, string][] = [
     [t('Summary'), text(row, 'summary') === '' ? '—' : text(row, 'summary')],
-    [t('Delivery'), number(task, 'issue') > 0 ? `#${String(number(task, 'issue'))} ${text(task, 'title')}` : '—'],
+    [t('Delivery'), number(task, 'issue') > 0 ? `${issueLabel(task)} ${text(task, 'title')}` : '—'],
     [t('Objective'), text(row, 'objective') === '' ? '—' : text(row, 'objective')],
     [t('Overview'), metricsLine(metrics)],
     [

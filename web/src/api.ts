@@ -92,6 +92,24 @@ export function number(value: Data, key: string): number {
 }
 
 /**
+ * The tracker key a delivery record shows: `#12` on GitHub, `PROJ-12` in Jira.
+ * Console views send it as `label`; ledger tasks carry a typed `trackerKey`
+ * or `parentKey`; records written before typed keys have only a number.
+ *
+ * @param value - Delivery view or ledger task.
+ * @param field - `issue` for the delivery itself, `parentIssue` for its parent.
+ * @returns Display key.
+ */
+export function issueLabel(value: Data, field: 'issue' | 'parentIssue' = 'issue'): string {
+  const { label } = value;
+  if (field === 'issue' && typeof label === 'string' && label !== '') {
+    return label;
+  }
+  const { provider, key } = child(value, field === 'issue' ? 'trackerKey' : 'parentKey');
+  return typeof key === 'string' && key !== '' && provider === 'jira' ? key : `#${numericText(value, field)}`;
+}
+
+/**
  * Read a boolean state without treating arbitrary values as true.
  *
  * @param value - Validated object.

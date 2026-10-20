@@ -6,7 +6,7 @@
  *
  * @file
  */
-import { number, text } from './api.js';
+import { issueLabel, number, text } from './api.js';
 import { phrase, t, translated } from './i18n.js';
 import { parseCustomization } from './step-override-model.js';
 import { formatDuration } from './telemetry-format.js';
@@ -104,8 +104,10 @@ export interface WorkflowIdentity {
 export interface Delivery {
   /** Delivery id. */
   readonly taskId: string;
-  /** Tracker issue number. */
+  /** Numeric ledger handle of its tracker issue. */
   readonly issue: number;
+  /** Tracker key as shown: `#12` or `PROJ-12`. */
+  readonly label: string;
   /** Title. */
   readonly title: string;
   /** Owning objective. */
@@ -140,8 +142,8 @@ export interface Delivery {
   readonly prUrl: string | null;
   /** Implementation owner. */
   readonly developer: string | null;
-  /** Unfinished dependency issue numbers. */
-  readonly waitingOn: readonly number[];
+  /** Tracker keys, as shown, of unfinished dependencies. */
+  readonly waitingOn: readonly string[];
   /** Attempts so far. */
   readonly attempts: number;
   /** Blocker or last error. */
@@ -228,8 +230,10 @@ export interface RepairRound {
 export interface ArchivedDelivery {
   /** Delivery id. */
   readonly taskId: string;
-  /** Tracker issue number. */
+  /** Numeric ledger handle of its tracker issue. */
   readonly issue: number;
+  /** Tracker key as shown. */
+  readonly label: string;
   /** Title. */
   readonly title: string;
 }
@@ -578,6 +582,24 @@ function parseRetry(value: unknown): Retry | null {
 }
 
 /**
+ * Keys of unfinished dependencies: shown keys, or the issue numbers an older service sends.
+ *
+ * @param waiting - Untrusted entries.
+ * @returns Display keys, malformed entries dropped.
+ */
+function waitingKeys(waiting: readonly unknown[]): string[] {
+  const keys: string[] = [];
+  for (const entry of waiting) {
+    if (typeof entry === 'string' && entry !== '') {
+      keys.push(entry);
+    } else if (typeof entry === 'number' && Number.isFinite(entry)) {
+      keys.push(`#${String(entry)}`);
+    }
+  }
+  return keys;
+}
+
+/**
  * Validate one delivery.
  *
  * @param record - Untrusted delivery record.
@@ -592,6 +614,7 @@ function parseDelivery(record: Data): Delivery | null {
   return {
     taskId,
     issue: number(record, 'issue'),
+    label: issueLabel(record),
     title: text(record, 'title'),
     featureId: nullableText(record, 'featureId'),
     phase: text(record, 'phase'),
@@ -605,9 +628,7 @@ function parseDelivery(record: Data): Delivery | null {
     base: nullableText(record, 'base'),
     prUrl: nullableText(record, 'prUrl'),
     developer: nullableText(record, 'developer'),
-    waitingOn: Array.isArray(waiting)
-      ? waiting.filter((issue): issue is number => typeof issue === 'number' && Number.isFinite(issue))
-      : [],
+    waitingOn: Array.isArray(waiting) ? waitingKeys(waiting) : [],
     attempts: number(record, 'attempts'),
     error: nullableText(record, 'error'),
     held: parseHold(record['held']),
@@ -660,7 +681,14 @@ function parseHold(value: unknown): Delivery['held'] {
 function parseArchived(value: unknown): ConsoleModel['archived'] {
   const archived = asData(value) ?? {};
   const recent = objects(archived['recent'])
-    .map((record) => ({ taskId: text(record, 'taskId'), issue: number(record, 'issue'), title: text(record, 'title') }))
+    .map((record) => {
+      return {
+        taskId: text(record, 'taskId'),
+        issue: number(record, 'issue'),
+        label: issueLabel(record),
+        title: text(record, 'title'),
+      };
+    })
     .filter((entry) => entry.taskId !== '');
   return { total: number(archived, 'total'), recent };
 }

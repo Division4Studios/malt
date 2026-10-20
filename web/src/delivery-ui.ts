@@ -168,7 +168,7 @@ function livenessFacts(facts: HTMLDListElement, delivery: Delivery): void {
  */
 function header(delivery: Delivery, openPull: DeliveryHooks['openPull']): HTMLElement {
   const node = element('header', 'delivery-header');
-  const heading = element('h2', 'delivery-title', `#${String(delivery.issue)} ${delivery.title}`);
+  const heading = element('h2', 'delivery-title', `${delivery.label} ${delivery.title}`);
   heading.tabIndex = -1;
   heading.dataset['focusKey'] = TITLE_KEY;
   const facts = element('dl', 'delivery-facts');
@@ -194,7 +194,7 @@ function header(delivery: Delivery, openPull: DeliveryHooks['openPull']): HTMLEl
   }
   customizedFact(facts, delivery);
   if (delivery.waitingOn.length > 0) {
-    fact(facts, t('Waiting on'), delivery.waitingOn.map((issue) => `#${String(issue)}`).join(', '));
+    fact(facts, t('Waiting on'), delivery.waitingOn.join(', '));
   }
   node.append(heading, facts);
   if (delivery.error !== null) {

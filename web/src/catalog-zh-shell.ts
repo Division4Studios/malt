@@ -79,14 +79,14 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   '{provider}: configured scheduling budget exhausted; resets {resets}. This is separate from subscription quota.':
     '{provider}：已用尽配置的调度预算；将于 {resets} 重置。这与订阅配额无关。',
   '{provider}: provider cooldown until {until}.': '{provider}：提供方冷却至 {until}。',
-  'Issue #{issue} blocked: {blocker}': '议题 #{issue} 已阻塞：{blocker}',
+  'Issue {issue} blocked: {blocker}': '议题 {issue} 已阻塞：{blocker}',
   'QA cannot inspect the PR because its read-only assignment claim is missing or expired. This is a review-access blocker, not an approval or confirmed code defect. Restore the owned claim and rerun independent QA on the same commits.':
     'QA 无法检查该 PR，因为其只读任务认领缺失或已过期。这是评审访问受阻，不代表批准，也不是已确认的代码缺陷。请恢复所属认领，并在相同提交上重新运行独立 QA。',
   'QA cannot finish because its read-only tool cannot open large source files. This is an inspection-tool blocker, not a confirmed code defect. Repair source paging, then rerun independent QA on the same commits.':
     'QA 无法完成，因为其只读工具无法打开大型源文件。这是检查工具受阻，不是已确认的代码缺陷。请修复源文件分页，然后在相同提交上重新运行独立 QA。',
   '{excerpt}… Read the technical details below.': '{excerpt}… 请阅读下方的技术细节。',
   'Coordinator & dispatch': '协调与分派',
-  'Technical details for issue #{issue}': '议题 #{issue} 的技术细节',
+  'Technical details for issue {issue}': '议题 {issue} 的技术细节',
   'The next mission starts here': '下一项任务从这里开始',
   'Add an objective. Your product owner and lead will prepare small, verifiable deliveries.':
     '添加一个目标。产品负责人和团队负责人会将其拆分为可验证的小型交付项。',
