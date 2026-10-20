@@ -127,6 +127,8 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'capability-ui',
     'discovery-model',
     'jira-model',
+    'jira-workflow-model',
+    'jira-workflow-ui',
     'connection-model',
     'connection-ui',
     'step-override-model',
