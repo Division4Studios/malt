@@ -27,6 +27,7 @@ import { credentialBlocker } from './traceability.ts';
 import { mappingProblems, stageMappingSchema } from './transitions.ts';
 
 import type { ConnectionV2, JiraWorkflow } from '../connector.ts';
+import type { MeshErrorCode } from '../protocol.ts';
 import type { JiraFetch, JiraIssueKey, JiraTransport } from './client.ts';
 import type { SkipReason } from './intake.ts';
 
@@ -131,7 +132,11 @@ export function jiraFailure(error: unknown, what: string): unknown {
     const wait = error.retryAfterSeconds === null ? 'a short while' : `${String(error.retryAfterSeconds)} seconds`;
     return new MeshError('RATE_LIMITED', `Jira rate-limited ${what}; retry after ${wait}.`, { cause: error });
   }
-  const code = error.failure === 'invalid' ? 'INVALID_INPUT' : 'HTTP_ERROR';
+  const codes: Readonly<Partial<Record<JiraRequestError['failure'], MeshErrorCode>>> = {
+    invalid: 'INVALID_INPUT',
+    not_found: 'NOT_FOUND',
+  };
+  const code = codes[error.failure] ?? 'HTTP_ERROR';
   return new MeshError(code, `Jira could not check ${what}: ${error.message}`, { cause: error });
 }
 
