@@ -214,7 +214,7 @@ function serve(t: TestContext, answer: (route: string) => unknown, gate?: Promis
  *
  * @param t - Owns the DOM.
  * @param results - Results the control hands back per operation.
- * @param scope - Selected project, and an optional gate that holds each control's answer.
+ * @param scope - Optional selected project (home by default) and a gate that holds each control's answer.
  * @param scope.project - Currently selected project.
  * @param scope.gate - Resolves when the held answers may arrive.
  * @returns View root, update and sent controls.
@@ -222,17 +222,17 @@ function serve(t: TestContext, answer: (route: string) => unknown, gate?: Promis
 function mount(
   t: TestContext,
   results: Readonly<Record<string, unknown>> = {},
-  scope: { readonly project: () => string; readonly gate?: Promise<unknown> } = { project: () => 'home' },
+  scope?: { readonly project: () => string; readonly gate?: Promise<unknown> },
 ): { root: FakeElement; update: (snapshot: unknown) => void; sent: Sent[]; selected: string[] } {
   const dom = installDom(t);
   const sent: Sent[] = [];
   const selected: string[] = [];
   const view = createConnectionView({
-    project: scope.project,
+    project: scope?.project ?? ((): string => 'home'),
     control: async (operation, input, onResult) => {
       sent.push({ operation, input });
       // A test may hold every control's answer until it releases the gate.
-      await (scope.gate ?? Promise.resolve());
+      await (scope?.gate ?? Promise.resolve());
       onResult?.(results[operation] ?? {});
       return true;
     },
@@ -529,6 +529,6 @@ await test("a save answered after a project switch leaves the new project's draf
   gate.resolve(undefined);
   await settle();
   assert.equal(sent.length, 1, 'only project a saved');
-  assert.ok(control(root, 'Repository', 'select'), "project b's discovery is kept");
+  assert.equal(control(root, 'Repository', 'select').tagName, 'SELECT', "project b's discovery is kept");
   assert.doesNotMatch(root.textContent, /Saved\. Verify the connection/v, "a's outcome is not announced in b");
 });
