@@ -323,6 +323,14 @@ Issue creation is journaled. Reuse the same `requestId` for the same intent: a s
 
 Connector writes obey the project's [capability policy](capability-policy.md). A denied capability parks its scope with one blocker until you change the policy.
 
+## Tracker keys
+
+Every delivery and objective is named by its tracker's own key: `#12` for a GitHub or local issue, `PROJ-12` for a Jira issue. The console, the mission brief, operator notices, commit messages and pull request bodies show that key, and `factory_enqueue` accepts it.
+
+Delivery branches are named from the key. A GitHub delivery's branch is `malt/issue-12-<id>-<version>`, exactly as before. A Jira delivery's branch is `malt/PROJ-12-<id>-<version>`, so Jira's development panel links it. A delivery keeps the branch it was given, so in-flight deliveries are never renamed.
+
+The ledger keeps a numeric handle for each issue next to its key: the GitHub or local issue number, or a Jira issue's stable numeric ID. Records with a non-GitHub key store it as `trackerKey` and `parentKey`; GitHub and local records store none and derive their key from the issue number, so ledgers saved before typed keys load and behave unchanged. The `factory_task_keys` side table mirrors each delivery's key and follows a renamed Jira key. The delivery boundary addresses tracker issues by key, and the GitHub and local adapters refuse a key of another tracker before any call.
+
 ## The learning steward and skills
 
 The learning steward studies how deliveries went and proposes better guidance. It neither fixes defects nor merges code. In the factory it runs on the `learning-steward` seat after new review feedback, or when deliveries changed and `learningMs` (default six hours) has passed since its last run. In an attached session, invoke `/mcp__agentmesh__learning-steward`.
