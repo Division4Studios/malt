@@ -8,6 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { evidenceText } from '../jira/traceability.ts';
 import { MeshError } from '../protocol.ts';
 
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
@@ -31,6 +32,7 @@ import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
 import { formatTrackerKey, issueKey, issueLabel, parentKey } from './tracker-key.ts';
+import { fileTrackerObjectives } from './tracker-work.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
@@ -52,6 +54,19 @@ function shortSha(sha: string): string {
 }
 
 export { deliveryTask } from './delivery-task.ts';
+
+/**
+ * Whether two records name the same tracker issue. The numeric handle alone
+ * is not enough: a GitHub issue number and a Jira issue ID can coincide, so
+ * the tracker must match too. A renamed Jira key keeps its ID and still matches.
+ *
+ * @param left - Ledger delivery or remote mapping.
+ * @param right - Another.
+ * @returns True for the same handle on the same tracker.
+ */
+function isSameIssue(left: KeyedIssue, right: KeyedIssue): boolean {
+  return left.issue === right.issue && issueKey(left).provider === issueKey(right).provider;
+}
 
 /**
  * Provision reviewed plans and resume partial native issue creation.
@@ -95,7 +110,7 @@ async function provision(context: FactoryContext): Promise<void> {
 async function importReady(context: FactoryContext): Promise<void> {
   const ready = await context.remote.readyIssues();
   for (const issue of ready) {
-    if (context.repository.tasks().some((task) => task.issue === issue.issue)) {
+    if (context.repository.tasks().some((task) => isSameIssue(task, issue))) {
       continue;
     }
     const feature = parentFeature(context.repository, issue);
@@ -155,6 +170,18 @@ async function publish(context: FactoryContext, task: FactoryTask): Promise<void
       error: current.version === task.version && current.scopeReplacement === undefined ? null : current.error,
     };
   });
+  // A GitHub issue links its pull requests itself; a Jira issue learns of one from this comment.
+  if (issueKey(task).provider === 'jira' && task.head !== null) {
+    context.repository.enqueueEffect({
+      id: `${task.id}:pr:${String(pr.number)}:comment`,
+      kind: 'comment',
+      issue: task.issue,
+      value: evidenceText({ kind: 'pull_request', url: pr.url, head: task.head }),
+      attempts: 0,
+      retryAt: 0,
+      error: null,
+    });
+  }
 }
 
 /**
@@ -493,6 +520,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
 export async function reconcile(context: FactoryContext): Promise<void> {
   resumeCapabilityBlocks(context.repository);
   await importReady(context);
+  await fileTrackerObjectives(context);
   await provision(context);
   // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
   await advanceRecommendations(context);
@@ -542,7 +570,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
   const existing = context.repository.tasks();
   const ids = new Map(
     mappings.map((mapping): readonly [string, string] => {
-      const id = existing.find((candidate) => candidate.issue === mapping.issue)?.id ?? randomUUID();
+      const id = existing.find((candidate) => isSameIssue(candidate, mapping))?.id ?? randomUUID();
       return [mapping.key, id];
     }),
   );
@@ -551,7 +579,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
     if (scope === undefined) {
       throw new MeshError('INVALID_INPUT', 'The issue mapping no longer matches the reviewed plan.');
     }
-    if (existing.some((candidate) => candidate.issue === mapping.issue)) {
+    if (existing.some((candidate) => isSameIssue(candidate, mapping))) {
       continue;
     }
     const task = deliveryTask(context, { ...scope, ...mappingIdentity(mapping) }, feature.id);
@@ -595,7 +623,7 @@ function retainSupersededMappings(
 ): void {
   context.repository.store.transaction(() => {
     for (const mapping of mappings) {
-      if (context.repository.tasks().some((candidate) => candidate.issue === mapping.issue)) {
+      if (context.repository.tasks().some((candidate) => isSameIssue(candidate, mapping))) {
         continue;
       }
       const scope = feature.plan?.deliveries.find((entry) => entry.key === mapping.key);

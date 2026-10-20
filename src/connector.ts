@@ -33,6 +33,18 @@ export const CAPABILITY_NAMES = [
 /** Work tracker providers. */
 export const TRACKER_PROVIDERS = ['github-projects', 'jira'] as const;
 
+/** MALT delivery stages, as a tracker's workflow (the MALT Status field, or a mapped Jira status) shows them. */
+export const DELIVERY_STATUSES = [
+  'Backlog',
+  'Ready',
+  'Development',
+  'QA / Review',
+  'Merge Ready',
+  'Final Verification',
+  'Done',
+  'Blocked',
+] as const;
+
 /** Capability name to state; absent entries are unverified. */
 export const capabilitiesSchema = z.record(z.enum(CAPABILITY_NAMES), z.enum(CAPABILITY_STATES));
 
@@ -54,6 +66,37 @@ export const workflowFieldSchema = z.object({
   options: z.array(optionSchema).optional(),
 });
 
+/** Longest JQL intake filter kept. */
+export const JQL_MAX = 2000;
+/** Longest Jira status ID or name kept in a stage mapping. */
+const STATUS_TEXT_MAX = 255;
+/** The Jira status a MALT stage moves an issue to. */
+export const stageTargetSchema = z
+  .object({
+    statusId: z.string().min(1).max(STATUS_TEXT_MAX),
+    statusName: z.string().min(1).max(STATUS_TEXT_MAX),
+  })
+  .strict();
+
+/**
+ * What a human chose for the factory's Jira workflow: the JQL filter whose
+ * matches become objectives, and the Jira status each MALT stage moves an
+ * issue to.
+ */
+export const jiraWorkflowSchema = z
+  .object({
+    /** Intake filter; absent while intake is off. */
+    intake: z
+      .object({ jql: z.string().trim().min(1).max(JQL_MAX) })
+      .strict()
+      .optional(),
+    /** MALT stage to Jira status; an unmapped stage leaves the Jira status alone. */
+    stages: z.record(z.enum(DELIVERY_STATUSES), stageTargetSchema).optional(),
+  })
+  .strict();
+/** The factory's Jira workflow settings. */
+export type JiraWorkflow = z.output<typeof jiraWorkflowSchema>;
+
 /** Where a Jira tracker lives; the token itself is only ever named by the section's credential handle. */
 export const jiraTrackerSchema = z
   .object({
@@ -63,6 +106,8 @@ export const jiraTrackerSchema = z
     projectKey: z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v),
     /** Atlassian account email the API token belongs to. */
     email: z.string().email(),
+    /** Intake filter and stage mapping, set with `jira_workflow_save`. */
+    workflow: jiraWorkflowSchema.optional(),
   })
   .strict();
 

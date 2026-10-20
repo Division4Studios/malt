@@ -64,21 +64,27 @@ function siteName(origin: string): string {
 /**
  * The tracker section for a saved Jira project. The shared fields are filled
  * from Jira; Jira's own Status field is the workflow field, and the token is
- * only named by an environment handle.
+ * only named by an environment handle. Saving the same site and project
+ * again keeps the intake filter and stage mapping a human chose for it.
  *
  * @param input - Site, project key and ID from discovery, account email and the token's variable.
+ * @param current - Previously saved tracker, whose workflow settings survive for the same project.
  * @param now - Save time.
  * @returns Unverified Jira tracker section.
  * @throws {MeshError} INVALID_INPUT for a site that is not a Jira Cloud site.
  */
 function jiraTrackerSection(
   input: NonNullable<OperationInput<'github_section_save'>['jiraTracker']>,
+  current: TrackerConnection | undefined,
   now: string,
 ): TrackerConnection {
   const site = parseJiraSite(input.site);
   if (site?.deployment !== 'cloud') {
     throw new MeshError('INVALID_INPUT', 'Save an https Jira Cloud site such as https://example.atlassian.net.');
   }
+  const previous = current?.jira;
+  const workflow =
+    previous?.site === site.origin && previous.projectKey === input.projectKey ? previous.workflow : undefined;
   return {
     provider: 'jira',
     owner: siteName(site.origin),
@@ -87,7 +93,12 @@ function jiraTrackerSection(
     workflowField: { id: 'status', name: 'Status' },
     capabilities: unverifiedCapabilities(),
     credential: { kind: 'env', name: input.tokenVariable },
-    jira: { site: site.origin, projectKey: input.projectKey, email: input.email },
+    jira: {
+      site: site.origin,
+      projectKey: input.projectKey,
+      email: input.email,
+      ...(workflow !== undefined && { workflow }),
+    },
     savedAt: now,
     verifiedAt: null,
     verification: savedState(),
@@ -143,7 +154,9 @@ function savedTracker(
   if (input.tracker !== undefined) {
     return trackerSection(input.tracker, now);
   }
-  return input.jiraTracker === undefined ? current?.tracker : jiraTrackerSection(input.jiraTracker, now);
+  return input.jiraTracker === undefined
+    ? current?.tracker
+    : jiraTrackerSection(input.jiraTracker, current?.tracker, now);
 }
 
 /**

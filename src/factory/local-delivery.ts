@@ -96,6 +96,15 @@ export class LocalDelivery implements DeliveryRemote {
   }
 
   /**
+   * Verify the hub as the source of a remote whose tracker is elsewhere.
+   *
+   * @param origin - The project's configured delivery remote URL.
+   */
+  public async verifySource(origin: string): Promise<void> {
+    await this.verify(origin);
+  }
+
+  /**
    * Create the feature parent and each atomic child idempotently, with dependencies.
    *
    * @param feature - Lead-reviewed plan.
