@@ -246,14 +246,17 @@ function assignmentLabel(assignment: Data): string {
 }
 
 /**
- * Format only an explicit valid issue number.
+ * Format only an explicit valid issue: its recorded tracker key, else its number.
  *
  * @param assignment - Recorded context, never parsed prose.
  * @returns Issue identity or an explicit unknown.
  */
 function issueIdentity(assignment: Data): string {
-  const { issue } = assignment;
-  return typeof issue === 'number' && Number.isSafeInteger(issue) && issue > 0 ? `#${String(issue)}` : t('unavailable');
+  const { issue, label } = assignment;
+  if (typeof issue !== 'number' || !Number.isSafeInteger(issue) || issue <= 0) {
+    return t('unavailable');
+  }
+  return typeof label === 'string' && label !== '' ? label : `#${String(issue)}`;
 }
 
 /**

@@ -57,7 +57,7 @@ export const ZH_BOARD: Readonly<Record<string, string>> = {
   ' Running: {running}': ' 运行中：{running}',
   Held: '已暂停',
   'Held: {reason}': '已暂停：{reason}',
-  'Waiting on #{issue}': '等待 #{issue}',
+  'Waiting on {issue}': '等待 {issue}',
   'Pull request': '拉取请求',
   '{met} of {total} done criteria met': '已满足 {met}/{total} 项完成标准',
   'Planning steps': '规划步骤',

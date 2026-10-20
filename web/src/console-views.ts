@@ -309,6 +309,6 @@ export class ConsoleViews {
    */
   private deliveryLabel(taskId: string): string {
     const card = readConsole(this.snapshot).deliveries.find((delivery) => delivery.taskId === taskId);
-    return card === undefined ? t('this delivery') : `#${String(card.issue)} ${card.title}`;
+    return card === undefined ? t('this delivery') : `${card.label} ${card.title}`;
   }
 }

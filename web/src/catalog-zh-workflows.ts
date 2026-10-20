@@ -256,7 +256,7 @@ export const ZH_WORKFLOWS: Readonly<Record<string, string>> = {
   'Step {number}: ': '步骤 {number}：',
   'Extra instructions': '附加指令',
   'Added to the seat’s role prompt for this step only.': '仅在此步骤中附加到席位的角色提示词。',
-  'Associated issue #{issue} · current stage {stage}': '关联议题 #{issue} · 当前阶段 {stage}',
+  'Associated issue {issue} · current stage {stage}': '关联议题 {issue} · 当前阶段 {stage}',
   'No delivery currently associated with this role.': '此角色当前没有关联的交付项。',
   'Open worker workspace': '打开工作者工作区',
   'Attached cooperative peer. Process ownership and captured output are not managed by this factory.':

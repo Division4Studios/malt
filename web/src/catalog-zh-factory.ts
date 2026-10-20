@@ -245,7 +245,7 @@ export const ZH_FACTORY: Readonly<Record<string, string>> = {
   'Supervisor diagnostic': '监督器诊断',
   '✓ No delivery blockers awaiting attention.': '✓ 没有等待处理的交付阻塞。',
   'Additional scopes are available in the delivery board.': '更多范围可在交付看板中查看。',
-  '{action} · issue #{issue}': '{action} · 议题 #{issue}',
+  '{action} · issue {issue}': '{action} · 议题 {issue}',
   'Reviewed the current blocker.': '已评审当前阻塞。',
   'ISSUE {issue}': '议题 {issue}',
   'PR {pr}': 'PR {pr}',
