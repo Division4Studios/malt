@@ -1,26 +1,18 @@
 # Security and privacy
 
-The [verified GitHub controls](https://github.com/Division4Studios/malt/blob/main/docs/github-controls.md) distinguish enabled scanning and required checks from the temporary solo-maintainer review exception. Both Dependabot auto-dismissal presets are disabled. Existing scan findings remain subject to investigation; configured scanning is not a clean-security certificate. A second trusted maintainer and dedicated private conduct contact are still needed. Sponsorship never changes the private reporting route or security gates.
+Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/Division4Studios/malt/security/advisories/new), never in a public issue. Do not include live secrets or attach a `.malt/` archive. The [security policy](https://github.com/Division4Studios/malt/blob/main/SECURITY.md) describes the process. If a credential was exposed, revoke and rotate it first.
 
-Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/Division4Studios/malt/security/advisories/new). Do not publish a reproduction with live secrets or attach a `.malt` archive. See the repository Security tab for the current policy.
+## Keep local state private
 
-```mermaid
-flowchart TD
-  Report[Sanitized private report] --> Triage[Confirm impact and affected revision]
-  Triage --> Fix[Develop and independently review fix]
-  Triage -->|Exposed credential| Revoke[Revoke and rotate immediately]
-  Revoke --> Fix
-  Fix --> Release[Verify release and advisory]
-  Release --> Disclosure[Coordinated disclosure]
-```
+- Keep `.malt/`, provider credential folders, `.env` files, private keys and backups out of source, images, exports and public logs. MALT Git-ignores `.malt/` and refuses to dispatch when the index contains it.
+- Pair only with a console you started. Keep the pairing code private and rotate it with `pairing-code --rotate` if it may have leaked. Do not expose the console or broker ports beyond loopback.
+- Review the project's commands and role permissions before dispatch. Developers run native commands under your OS account, and `full-access` lifts the worktree restriction.
+- Secrets in **Project → Secrets** are sealed with AES-256-GCM and reach only the role types you grant. The key lives in `.malt/`, so a backup of `.malt/` contains it.
+- Treat third-party skills and tools as untrusted until you review their license, provenance and behavior. Approving a skill applies to one exact revision.
+- Ignoring a file does not remove it from Git history. Scan the history before publishing and rotate anything that leaked.
 
-- Keep `.malt`, `.mlt`, provider credential homes, `.env` and private keys out of source, images, exports and public logs.
-- Pair only with the local daemon you started. Do not expose its control ports publicly or put pairing codes in URLs.
-- Inspect permissions and project commands before dispatch. Developer full-access mode permits native execution under your OS account.
-- Scan current files and all reachable Git history before release. Ignoring a file does not remove a historical leak; revocation takes priority.
-- Review third-party skills/tools for license, provenance, compatibility and security. Human adoption is for an exact revision; downloaded instructions are not authority.
-- Runtime npm code runs with your account. The browser has no packages and the backend has three (Zod, the MCP SDK and node-pty), exactly pinned, installed with scripts disabled, audited at every severity and limited to MIT-compatible licenses on every pull request. See the [dependency policy](https://github.com/Division4Studios/malt/blob/main/docs/dependency-policy.md).
+## Supply chain
 
-The project uses the OpenSSF Baseline and best-practices criteria as review frameworks. It has not claimed a badge, penetration-test certification or complete absence of defects. See the merged [release-readiness ledger](https://github.com/Division4Studios/malt/blob/main/docs/open-source-readiness.md).
+The browser app has no npm packages. The backend has three runtime packages (Zod, the MCP SDK and `node-pty`), pinned exactly, installed with scripts disabled, audited at every severity and limited to MIT-compatible licenses on every pull request. See the [dependency policy](https://github.com/Division4Studios/malt/blob/main/docs/dependency-policy.md).
 
-On 2026-10-15, API readback verified private reporting, secret scanning/push protection and the active CodeQL rule. Required checks include all three OS checks, Docker, Quality gate and Security gate. The temporary solo-maintainer authenticated-review exception remains documented; no audit note substitutes for runtime QA or GitHub approvals.
+The repository's required checks, scanning and the temporary solo-maintainer review exception are recorded in [GitHub controls](https://github.com/Division4Studios/malt/blob/main/docs/github-controls.md). The project uses the OpenSSF Baseline as a review framework and claims no badge or certification; see the [release-readiness ledger](https://github.com/Division4Studios/malt/blob/main/docs/open-source-readiness.md).

@@ -2,9 +2,13 @@
 
 This ledger compares MALT with [mosonlab/anneal](https://github.com/mosonlab/anneal)
 (developer preview v0.9.0, commit `bfa821b`, read on 2026-10-16). For every
-Anneal capability it records what MALT already does, the gap, and the MALT design
+Anneal capability it records what MALT already had, the gap, and the MALT design
 that closes the gap while staying simpler. Status is evidence-based: a row is
-**Done** only when merged code and tests prove it on this branch.
+**Done** only when code and tests on main prove it.
+
+This is a historical parity record. The work was built on the `feat/anneal-parity`
+branch and has since landed on main in full; see [how it landed](#how-it-landed).
+For what MALT does today, read [current status](current-status.md).
 
 The reverse-engineering method was source reading only. No Anneal code was
 executed or copied. Anneal is MIT licensed; ideas are reimplemented in MALT's
@@ -46,7 +50,7 @@ own stack and vocabulary.
 
 ## Parity ledger
 
-Legend: **Done** (merged and tested here), **Partial**, **Planned**, **Better
+Legend: **Done** (merged to main and tested), **Partial**, **Planned**, **Better
 already** (MALT exceeds Anneal before this work), **Declined** (intentionally
 not copied, with the reason).
 
@@ -56,7 +60,7 @@ not copied, with the reason).
 | ------------------------------------------------------------------------------------------ | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Data-driven templates of steps with layers (parallel siblings, join)                       | Fixed pipeline in `scheduler.ts`                   | Workflow definitions with typed step kinds and explicit `after` edges; built-ins reproduce today's pipeline. **Done (W1–W2)**: the scheduler, completion, prompts and live map follow each objective's frozen workflow                                                                                                                                                                                                                                                |
 | Three built-in shapes (PR, Direct, Full Assurance)                                         | One shape (plan → refine → develop → 2 QA → final) | Built-ins: `malt-assured` (default), `pull-request`, `direct`, `full-assurance`, `quick`. **Done (W5)**: every built-in runs                                                                                                                                                                                                                                                                                                                                          |
-| Template immutable once used; digest registry; clone-then-edit                             | n/a                                                | Content digest computed automatically; each delivery freezes a copy. Editing a used workflow creates a new revision; no registry edits. **Done (W1)**: objectives freeze a revision once W2 lands                                                                                                                                                                                                                                                                     |
+| Template immutable once used; digest registry; clone-then-edit                             | n/a                                                | Content digest computed automatically; each delivery freezes a copy. Editing a used workflow creates a new revision; no registry edits. **Done (W1, W2)**: each objective freezes the revision it started with                                                                                                                                                                                                                                                        |
 | Staffing profiles, per-step agent override, optional step include/skip                     | Per-role tier/effort routing                       | Per-step role binding and `optional` include toggles; operator overrides at dispatch. **Done (W2, W3)**: per-step seats, profiles and provider preference (W2); per-objective and per-delivery overrides skip optional steps or change a step's seat, profile or provider before it starts, revalidated against every workflow rule, from the new-objective dialog and the delivery view                                                                              |
 | Typed one-JSON output per step with `schemaVersion` + `headSha`                            | One generic result schema for all stages           | Step-kind output schemas (findings, dispositions, verdicts) bound to the exact head. **Done (W4, W5)**: review findings carry severity, the fixer returns a typed disposition ledger, every step result binds the exact source, and every typed output carries `schemaVersion`; specification, plan and revision outputs record the exact source commit the attempt read                                                                                              |
 | `priorOutputKinds` whitelist; blind review receives nothing                                | QA reviews are independent by role                 | Each step declares `inputs`; `blind` steps get no peer evidence, notes or feedback. **Done (W2)**: blind steps see no peer findings, feedback or approvals; others see only their declared inputs or ancestors                                                                                                                                                                                                                                                        |
@@ -107,42 +111,59 @@ not copied, with the reason).
 | Automations and Triggers pages                                      | Schedules & triggers under Board: cron in words, next fires in its zone, fire history, run now, secret shown once              | Done S1                                                                                                                      |
 | Projects, Connections, Secrets, Settings pages                      | Project: setup & capacity, connections, secrets, learning; Settings: appearance, providers, build                              | Done P1 (Settings: theme, provider health, build; secrets P3)                                                                |
 | Theme system/light/dark                                             | Add light theme and system preference                                                                                          | Done P1                                                                                                                      |
-| English + Chinese                                                   | Message catalog with English and Simplified Chinese                                                                            | Done P4 (every console view; agent text as written)                                                                          |
+| English + Chinese                                                   | Message catalog with English and Simplified Chinese                                                                            | Done P4 (console views except the scratch-terminal controls; agent text as written)                                          |
 | No diff view                                                        | Diff summary and per-file patch for each delivery head                                                                         | Done B3: changed files with renames, modes and line counts; bounded per-file patches loaded on demand                        |
 
 ## Delivery slices
 
-Slices are ordered by dependency. Each keeps `npm run check` green.
+Slices are ordered by dependency. Each kept `npm run check` green. The issue for each slice was closed with an evidence
+comment naming its source files and tests; the PRs are the stack PRs that carried it.
 
-| Slice | Scope                                                                                                     | Status |
-| ----- | --------------------------------------------------------------------------------------------------------- | ------ |
-| W1    | Workflow and role definitions: schemas, built-ins, digest, project-local storage, validation, MCP/control | Done   |
-| W2    | Workflow interpreter drives delivery scheduling; default workflow reproduces the existing pipeline        | Done   |
-| W3    | Workflow editor and role bindings in the console                                                          | Done   |
-| W4    | Typed step outputs, input whitelists, blind isolation, adjudication and regression steps                  | Done   |
-| W5    | Objective workflows: plan review, revision, routing rubric                                                | Done   |
-| I1    | Inbox: agent questions, approval gates, notices, console lanes                                            | Done   |
-| I2    | PWA notifications for inbox items                                                                         | Done   |
-| B1    | Board view                                                                                                | Done   |
-| B2    | Hold/resume, bulk actions, archive and auto-archive                                                       | Done   |
-| B3    | Delivery detail with attempts, diagnostics, outputs, comments and diff                                    | Done   |
-| T1    | Attempt transcripts and sessions view                                                                     | Done   |
-| C1    | Usage, cost estimation, spend caps and costs view                                                         | Done   |
-| S1    | Schedules and triggers                                                                                    | Done   |
-| G1    | Objective definition of done and progress log                                                             | Done   |
-| R2    | Stall detection and failure-class retry policy                                                            | Done   |
-| R3    | Commit trailers (remote salvage declined: owned worktrees keep WIP)                                       | Done   |
-| R4    | CI-failure and conflict repair attempts                                                                   | Done   |
-| P1    | Settings: theme, provider health, build                                                                   | Done   |
-| P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Done   |
-| P3    | Local encrypted secrets granted to roles                                                                  | Done   |
-| P4    | English and Simplified Chinese catalog                                                                    | Done   |
-| O1    | First-run onboarding with preflight                                                                       | Done   |
+| Slice | Scope                                                                                                     | Status | Issue                                                                                                                    | Stack PRs                                            |
+| ----- | --------------------------------------------------------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
+| W1    | Workflow and role definitions: schemas, built-ins, digest, project-local storage, validation, MCP/control | Done   | [#358](https://github.com/Division4Studios/malt/issues/358)                                                              | #381–#384                                            |
+| W2    | Workflow interpreter drives delivery scheduling; default workflow reproduces the existing pipeline        | Done   | [#359](https://github.com/Division4Studios/malt/issues/359)                                                              | #385–#394                                            |
+| W3    | Workflow editor and role bindings in the console                                                          | Done   | [#371](https://github.com/Division4Studios/malt/issues/371)                                                              | #577–#588, fix #621                                  |
+| W4    | Typed step outputs, input whitelists, blind isolation, adjudication and regression steps                  | Done   | [#360](https://github.com/Division4Studios/malt/issues/360)                                                              | #395–#400                                            |
+| W5    | Objective workflows: plan review, revision, routing rubric                                                | Done   | [#360](https://github.com/Division4Studios/malt/issues/360), [#371](https://github.com/Division4Studios/malt/issues/371) | #395–#400, #577–#588                                 |
+| I1    | Inbox: agent questions, approval gates, notices, console lanes                                            | Done   | [#365](https://github.com/Division4Studios/malt/issues/365)                                                              | #503–#507, #511, #516, fixes #615 and #616           |
+| I2    | PWA notifications for inbox items                                                                         | Done   | [#365](https://github.com/Division4Studios/malt/issues/365)                                                              | as I1                                                |
+| B1    | Board view                                                                                                | Done   | [#362](https://github.com/Division4Studios/malt/issues/362), [#363](https://github.com/Division4Studios/malt/issues/363) | #423–#429, views #430–#469                           |
+| B2    | Hold/resume, bulk actions, archive and auto-archive                                                       | Done   | [#362](https://github.com/Division4Studios/malt/issues/362)                                                              | #423–#429                                            |
+| B3    | Delivery detail with attempts, diagnostics, outputs, comments and diff                                    | Done   | [#368](https://github.com/Division4Studios/malt/issues/368)                                                              | #542–#547                                            |
+| T1    | Attempt transcripts and sessions view                                                                     | Done   | [#361](https://github.com/Division4Studios/malt/issues/361)                                                              | #401–#422                                            |
+| C1    | Usage, cost estimation, spend caps and costs view                                                         | Done   | [#361](https://github.com/Division4Studios/malt/issues/361), [#367](https://github.com/Division4Studios/malt/issues/367) | #401–#422, #529–#531, #535–#541, fixes #618 and #620 |
+| S1    | Schedules and triggers                                                                                    | Done   | [#364](https://github.com/Division4Studios/malt/issues/364)                                                              | #470–#476, #478–#480, #492–#496, #644, fix #490      |
+| G1    | Objective definition of done and progress log                                                             | Done   | [#367](https://github.com/Division4Studios/malt/issues/367)                                                              | as C1                                                |
+| R2    | Stall detection and failure-class retry policy                                                            | Done   | [#302](https://github.com/Division4Studios/malt/issues/302), [#303](https://github.com/Division4Studios/malt/issues/303) | #497–#501, fixes #615 and #637                       |
+| R3    | Commit trailers (remote salvage declined: owned worktrees keep WIP)                                       | Done   | [#362](https://github.com/Division4Studios/malt/issues/362)                                                              | #423–#429                                            |
+| R4    | CI-failure and conflict repair attempts                                                                   | Done   | [#366](https://github.com/Division4Studios/malt/issues/366)                                                              | #523, #526–#528, #589                                |
+| P1    | Settings: theme, provider health, build                                                                   | Done   | [#369](https://github.com/Division4Studios/malt/issues/369)                                                              | #548–#556                                            |
+| P2    | Roles editor with tool permissions, skills, MCP servers                                                   | Done   | [#370](https://github.com/Division4Studios/malt/issues/370)                                                              | #557–#576, fix #619                                  |
+| P3    | Local encrypted secrets granted to roles                                                                  | Done   | [#370](https://github.com/Division4Studios/malt/issues/370)                                                              | as P2                                                |
+| P4    | English and Simplified Chinese catalog                                                                    | Done   | [#372](https://github.com/Division4Studios/malt/issues/372)                                                              | #590–#601, #603–#608, fix #622                       |
+| O1    | First-run onboarding with preflight                                                                       | Done   | [#369](https://github.com/Division4Studios/malt/issues/369)                                                              | #548–#556                                            |
+
+Follow-ups after the slices (overview progress, objective overrides after filing, the revalidation setting and this
+ledger's release scope) landed through #609–#614 ([#373](https://github.com/Division4Studios/malt/issues/373)). Review
+findings on the early slices were fixed in #485–#490.
+
+### How it landed
+
+The stack was squash-merged top-down and reached main in three commits:
+
+| Main commit | PR                                                        | Contents                                                                                       |
+| ----------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `d935640`   | [#381](https://github.com/Division4Studios/malt/pull/381) | PRs #381–#476: W1, W2, W4, T1, B1, B2, R3, the first parts of W5 and C1, and the console views |
+| `a2a2d10`   | [#279](https://github.com/Division4Studios/malt/pull/279) | The remaining slices, folded with the bottom of the local delivery stack                       |
+| `0de06b6`   | [#644](https://github.com/Division4Studios/malt/pull/644) | Wiring of the Inbox, Board, delivery and workflow views                                        |
+
+The parent issue [#262](https://github.com/Division4Studios/malt/issues/262) tracked the landing.
 
 ## Release scope
 
-Every slice above is implemented and lands for 1.0 through the stacked PRs that #262 tracks; none is deferred. The
-rows marked **Declined** stay out of 1.0 by design, each for the reason given in its row:
+Every slice above is on main and in 1.0; none is deferred. The rows marked **Declined** stay out of 1.0 by design, each
+for the reason given in its row:
 
 - **Merge train**: one serialized, head-bound merge per project is enough for a single operator; revisit only when merges
   queue for more than one reconcile cycle.
@@ -151,5 +172,8 @@ rows marked **Declined** stay out of 1.0 by design, each for the reason given in
 - **Pi runner**: it authenticates through Codex, so it adds a third CLI without a new subscription.
 - **Feishu relay**: a third-party chat service breaks local-first; installed-PWA notifications (I2) replace it.
 
-Follow-ups that are part of other 1.0 issues rather than this ledger: quota and resource gates on liveness extensions
-(#304), operator continue/wait decisions at checkpoints (#305), Docker build caching and fresh-machine runs (#258).
+Related work tracked by other 1.0 issues rather than this ledger: quota and resource gates on liveness extensions
+([#304](https://github.com/Division4Studios/malt/issues/304), done), operator continue or wait decisions at checkpoints
+([#305](https://github.com/Division4Studios/malt/issues/305), done), showing liveness in the console and manager brief
+([#306](https://github.com/Division4Studios/malt/issues/306), open), and fresh-machine runs
+([#258](https://github.com/Division4Studios/malt/issues/258), open; Docker build caching is done).

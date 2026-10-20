@@ -1,30 +1,14 @@
 # Delivery workflow
 
-```mermaid
-flowchart LR
-  Intake[Backlog] --> Plan[Product and lead refine]
-  Plan --> Ready[Ready atomic child]
-  Ready --> Dev[Development worktree]
-  Dev --> QA[Two independent QA reviews]
-  QA -->|Defect to original developer| Dev
-  QA --> Final[Merge Ready and integration gate]
-  Final --> Merge[Fresh protected merge]
-  Merge --> Verify[Final Verification on actual main]
-  Verify --> Done[Done and ticket cleanup]
-  Verify -->|Post-merge defect| Repair[Traceable repair]
-  Repair --> Dev
-```
+![Delivery loop: an outcome goes to the product owner and lead, who plan atomic deliveries; a developer works in an owned worktree; two independent reviews return defects; a final gate precedes a protected expected-head merge and verification of main](https://raw.githubusercontent.com/Division4Studios/malt/main/docs/images/diagrams/delivery-loop.svg)
 
-An issue is the underlying ticket; Backlog is a workflow status on the selected Project. Unrefined bugs and ideas belong in Backlog. Ready scopes are actionable, but genuine dependencies still need completion. Every managed parent/child belongs to the intended Project.
+1. An **objective** is one outcome you want. The product owner and team lead plan it into atomic **deliveries**, each with acceptance criteria. Only genuine prerequisites become dependencies, so independent deliveries run in parallel.
+2. A developer implements each delivery in its own worktree. The project's test commands run on the exact head.
+3. Two independent reviewers check the exact head and base. A defect returns to the same developer; a new head needs fresh reviews.
+4. A final check approves that head. MALT merges it only if the base is unchanged, always with `--match-head-commit` and never `--admin`, then verifies the merged main and closes the issue.
 
-Prefer 1–500 added/deleted text lines per PR, including tests and documentation. Features can have 20+ meaningful children. Avoid artificial ticket counts and invented blocking edges. Independent slices can proceed in parallel. For real chains, verify prerequisites on merged main before dependent work starts. Main must remain usable after every merge.
+A failed CI check or a merge conflict starts a bounded repair round for the original developer. Each project has a configurable publication-size ceiling; you can approve a one-delivery exception for an exact head and base. Model reviews never count as GitHub protected-branch approvals.
 
-QA reports and reproduces defects without implementing the fix. The responsible developer repairs its own returned work. Approvals cover exact source/base identities and become stale when those identities change. Model QA approval does not satisfy GitHub's requirement for distinct authenticated reviewer identities.
+Ticket consolidation is a human decision. The product owner and lead propose duplicates and related tickets in **Project → Recommendations**, and you approve or reject each exact revision.
 
-Duplicate/related-work inspection precedes intake. Consolidating distinct existing tickets requires a human decision. The general recommendation/approval pane is a planned capability; current skill-revision approval is a separate implemented flow. See [the source factory guide](https://github.com/Division4Studios/malt/blob/main/docs/software-factory.md).
-
-## Reconciliation and PR stacks
-
-The [2026-10-15 audit](Issue-audit-2026-10-15) links completed scopes to actual merged PRs and leaves partial integrations open. An unchecked historical review clause is not silently converted into a new approval. A parent cannot be treated as delivered merely because its first child merged. Actual open native prerequisites distinguish Blocked from dependency-ready work; retain those edges rather than deleting them for appearance.
-
-For deliberately prepared native GitHub stacks, inspect every layer and merge the complete ready stack from its top PR. Merging an intermediate layer separately can require restacking the remainder. The managed factory still delivers independent slices against refreshed main; its scheduler does not automatically turn every prerequisite chain into a GitHub stack.
+Details: [software factory](https://github.com/Division4Studios/malt/blob/main/docs/software-factory.md), [local delivery](https://github.com/Division4Studios/malt/blob/main/docs/local-delivery.md) and [mission control](https://github.com/Division4Studios/malt/blob/main/docs/operator-console.md).

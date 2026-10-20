@@ -16,7 +16,7 @@ New features do not add runtime packages. Code that needs validation outside an 
 
 ## Why everything is locked down
 
-Including transitive packages, the three runtime packages install about one hundred npm packages, most of them through the MCP SDK. Each layer below removes a different way for one of them to harm a project:
+Including transitive packages, the three runtime packages install 96 npm packages, most of them through the MCP SDK. Each layer below removes a different way for one of them to harm a project:
 
 | Control                                    | Protects against                                                                                 |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
@@ -34,7 +34,7 @@ MALT is MIT licensed, and every runtime package must be compatible with that. Th
 
 `MIT`, `ISC`, `BSD-2-Clause`, `BSD-3-Clause`, `Apache-2.0`, `0BSD`
 
-Copyleft (GPL, AGPL, LGPL), source-available and unlicensed runtime packages fail the gate. On 2026-10-16 the production inventory was 86 MIT, 7 ISC, 2 BSD-3-Clause and 1 BSD-2-Clause packages, with zero known advisories.
+Copyleft (GPL, AGPL, LGPL), source-available and unlicensed runtime packages fail the gate. A recount of the lockfile on 2026-10-19 found 86 MIT, 7 ISC, 2 BSD-3-Clause and 1 BSD-2-Clause production packages. The last recorded audit, on 2026-10-16, found zero known advisories; CI repeats it on every pull request.
 
 The allowlist applies to the **runtime** scope (`fail-on-scopes: runtime`), because only runtime packages ship: the container image installs with `--omit=dev`, and browsers receive only MALT's compiled code. Development tooling is used to lint, test and build, and is never distributed. Some of it uses other licenses: `eslint-plugin-sonarjs` and its configuration package (LGPL-3.0), `caniuse-lite` and `spdx-exceptions` data (CC-BY-4.0, CC-BY-3.0), `mdn-data` and `spdx-license-ids` (CC0-1.0), `argparse` (Python-2.0), `minimatch` (BlueOak-1.0.0) and `type-fest` (MIT or CC0-1.0). Running these tools does not place their licenses on MALT's code. A development package must never become a runtime import. `npm audit` in CI still checks development packages for vulnerabilities.
 
@@ -49,9 +49,9 @@ Permissive licenses still require keeping their copyright notices when packages 
 
 ## Upgrades
 
-MALT targets Node.js 24 LTS in native setup, CI and containers. On 2026-10-15, direct execution of the pinned official container reports Node 24.22.0, matching the latest LTS; Node 26 is still Current. Keep Node type declarations on the same major. Container updates retain a verified immutable digest. Runtime major upgrades require an explicit compatibility migration; the ended Node 25 release line is not an upgrade target.
+MALT targets Node.js 24 LTS in native setup, CI and containers: `engines` requires 24.15.0 or later, CI installs Node 24, and the `Dockerfile` pins `node:24-bookworm-slim` by digest. On 2026-10-15 the pinned container reported Node 24.22.0, then the latest LTS; Node 26 was still Current. Keep Node type declarations on the same major. Container updates retain a verified immutable digest. Runtime major upgrades require an explicit compatibility migration; the ended Node 25 release line is not an upgrade target.
 
-TypeScript upgrades must satisfy the installed typescript-eslint peer range. The current tooling supports TypeScript 6.0, not 7. Do not use forced installs or ignore peer conflicts to admit an incompatible compiler. The named parser and utility peers used by import linting are explicit development dependencies; a nested worktree must not borrow packages from its parent checkout. Validate dependency changes in a clean isolated environment. Dependabot continues patch/minor updates; compiler and Node type major upgrades require deliberate migration.
+TypeScript upgrades must satisfy the installed typescript-eslint peer range. The current tooling supports TypeScript 6.0, not 7. Do not use forced installs or ignore peer conflicts to admit an incompatible compiler. The named parser and utility peers used by import linting are explicit development dependencies; a nested worktree must not borrow packages from its parent checkout. Validate dependency changes in a clean isolated environment. Dependabot opens weekly patch and minor updates, grouping development tooling; it ignores major updates of `typescript`, `@types/node` and the `node` container image, which need a deliberate migration.
 
 Zod 4 is installed with its official `zod/v3` compatibility entry point for existing contracts. This expand step preserves schema defaults, error behavior, function schemas and MCP interoperability while updating the package. A native Zod 4 schema migration is a separate behavior-sensitive change, not an import-only replacement. Keep imports explicit so new root exports cannot silently change persisted-state validation.
 

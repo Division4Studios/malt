@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="730" viewBox="0 0 880 730" role="img" aria-labelledby="title desc">
+  <title id="title">MALT system overview: what runs where</title>
+  <desc id="desc">The operator uses a browser console served by the local console server, or the terminal CLI. Attached Claude Code or Codex sessions reach MALT through one MCP bridge per session. The console server, the CLI and the bridges all call one broker on 127.0.0.1:4317 over authenticated HTTP RPC, using the project token or agent credentials. Inside the broker, the store and waiters are the only writer of the project's .malt SQLite database, and an unpaid supervisor per project claims deliveries, launches managed Claude Code, Codex or Copilot CLI runs in owned worktrees, runs the gates, merges and verifies main. Managed runs call back through their own bridge. Delivery goes to a local hub in .malt/local/hub.git or, in GitHub mode, to GitHub through the gh CLI. Only model turns, on each CLI's subscription login, and GitHub traffic in GitHub mode leave the machine.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}.sys{fill:var(--sys);stroke:var(--sysl)}
+    .hum{fill:var(--hum);stroke:var(--huml)}.agt{fill:var(--agt);stroke:var(--agtl)}.sto{fill:var(--sto);stroke:var(--stol)}
+    .ext{fill:none;stroke:var(--wire);stroke-dasharray:5 5}
+    .ht{fill:var(--humt)}.at{fill:var(--agtt)}.st{fill:var(--stot)}
+    .w{fill:none;stroke:var(--wire);stroke-width:1.5}.ah{fill:var(--wire)}
+    .lb{font-size:13px;fill:var(--mut);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0 1L10 5L0 9z"/></marker>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="729" rx="16"/>
+  <text class="eb" x="32" y="42">MALT · SYSTEM OVERVIEW</text>
+  <text class="ttl" x="32" y="70">What runs where</text>
+
+  <!-- Machine boundary -->
+  <rect class="ext" x="20" y="92" width="840" height="500" rx="14"/>
+  <text class="m mut" x="36" y="114" letter-spacing=".08em">YOUR MACHINE · LOOPBACK ONLY</text>
+
+  <!-- Row 1: clients -->
+  <rect class="hum" x="40" y="128" width="250" height="80" rx="10"/>
+  <text class="b ht" x="56" y="153">Operator browser</text>
+  <text class="s mut" x="56" y="174">Installable PWA console</text>
+  <text class="m" x="56" y="194">127.0.0.1:4318</text>
+
+  <rect class="hum" x="315" y="128" width="240" height="80" rx="10"/>
+  <text class="b ht" x="331" y="153">Terminal CLI</text>
+  <text class="m" x="331" y="174">node src/cli.ts …</text>
+  <text class="s mut" x="331" y="194">status · factory-* · lead</text>
+
+  <rect class="agt" x="580" y="128" width="260" height="80" rx="10"/>
+  <text class="b at" x="596" y="153">Attached session</text>
+  <text class="s mut" x="596" y="174">Claude Code or Codex as MCP host</text>
+  <text class="m" x="596" y="194">mesh_* tools</text>
+
+  <!-- Row 2: adapters -->
+  <rect class="sys" x="40" y="244" width="250" height="44" rx="10"/>
+  <text class="b" x="56" y="271">Console server <tspan class="m mut">ui</tspan></text>
+  <rect class="sys" x="580" y="244" width="260" height="44" rx="10"/>
+  <text class="b" x="596" y="271">MCP bridge <tspan class="s mut">· one per session</tspan></text>
+
+  <path class="w" d="M165 208V243" marker-end="url(#ah)"/>
+  <text class="lb" x="174" y="231">loopback · pairing cookie</text>
+  <path class="w" d="M710 208V243" marker-end="url(#ah)"/>
+  <text class="lb" x="719" y="231">MCP over stdio</text>
+
+  <!-- Row 3: broker -->
+  <rect class="sys" x="40" y="328" width="800" height="104" rx="12"/>
+  <text class="b" x="56" y="352">Broker <tspan class="m mut" dx="6">127.0.0.1:4317</tspan><tspan class="s mut" dx="10">authenticated HTTP RPC · one team per workspace</tspan></text>
+  <rect class="card" x="56" y="364" width="218" height="56" rx="8"/>
+  <text class="b" x="72" y="387">Store + waiters</text>
+  <text class="s mut" x="72" y="407">SQLite WAL · held waits</text>
+  <rect class="card" x="290" y="364" width="534" height="56" rx="8"/>
+  <text class="b" x="306" y="387">Supervisor <tspan class="s mut">· one per project, unpaid</tspan></text>
+  <text class="s mut" x="306" y="407">Claims deliveries, launches roles, runs gates, merges and verifies main</text>
+
+  <path class="w" d="M165 288V327" marker-end="url(#ah)"/>
+  <text class="lb" x="174" y="313">RPC · project token</text>
+  <path class="w" d="M435 208V327" marker-end="url(#ah)"/>
+  <text class="lb" x="444" y="272">RPC · project token</text>
+  <path class="w" d="M710 288V327" marker-end="url(#ah)"/>
+  <text class="lb" x="719" y="313">RPC · agent credentials</text>
+
+  <!-- Row 4: local state and managed runs -->
+  <rect class="sto" x="40" y="472" width="250" height="96" rx="10"/>
+  <text class="b st" x="56" y="497">.malt/ project store</text>
+  <text class="m" x="56" y="517">state/mesh.db</text>
+  <text class="s mut" x="56" y="537">messages, ledger, policies</text>
+  <text class="s mut" x="56" y="556">worktrees, skills, job artifacts</text>
+
+  <rect class="agt" x="315" y="472" width="240" height="96" rx="10"/>
+  <text class="b at" x="331" y="497">Managed provider CLIs</text>
+  <text class="s" x="331" y="517">Claude Code · Codex · Copilot</text>
+  <text class="s mut" x="331" y="537">bounded runs, owned worktrees</text>
+  <text class="m" x="331" y="556">bridge factory-&lt;role&gt;</text>
+
+  <rect class="sto" x="580" y="472" width="260" height="96" rx="10"/>
+  <text class="b st" x="596" y="497">Delivery target</text>
+  <text class="s" x="596" y="517">Local hub</text>
+  <text class="m" x="596" y="537">.malt/local/hub.git</text>
+  <text class="s mut" x="596" y="556">or GitHub through the gh CLI</text>
+
+  <path class="w" d="M165 432V471" marker-end="url(#ah)"/>
+  <text class="lb" x="174" y="456">only SQLite writer</text>
+  <path class="w" d="M420 432V471" marker-end="url(#ah)"/>
+  <text class="lb" x="411" y="456" text-anchor="end">launches</text>
+  <path class="w" d="M450 472V433" marker-end="url(#ah)"/>
+  <text class="lb" x="459" y="456">MCP tools</text>
+  <path class="w" d="M710 432V471" marker-end="url(#ah)"/>
+  <text class="lb" x="719" y="456">git · gh</text>
+
+  <!-- Outside the machine -->
+  <rect class="ext" x="315" y="616" width="240" height="58" rx="10"/>
+  <text class="b" x="331" y="640">Model subscriptions</text>
+  <text class="s mut" x="331" y="660">each CLI's own login</text>
+  <rect class="ext" x="580" y="616" width="260" height="58" rx="10"/>
+  <text class="b" x="596" y="640">GitHub <tspan class="s mut">· GitHub mode only</tspan></text>
+  <text class="s mut" x="596" y="660">issues, Project, pull requests</text>
+  <path class="w" d="M435 568V615" marker-end="url(#ah)"/>
+  <text class="lb" x="444" y="585">model turns</text>
+  <path class="w" d="M710 568V615" marker-end="url(#ah)"/>
+  <text class="lb" x="719" y="585">gh CLI</text>
+
+  <!-- Legend -->
+  <g transform="translate(32 704)">
+    <rect class="hum" width="14" height="14" rx="4" y="-11"/><text class="s mut" x="22">Human operator</text>
+    <rect class="agt" x="150" width="14" height="14" rx="4" y="-11"/><text class="s mut" x="172">Agent sessions</text>
+    <rect class="sys" x="296" width="14" height="14" rx="4" y="-11"/><text class="s mut" x="318">MALT services</text>
+    <rect class="sto" x="436" width="14" height="14" rx="4" y="-11"/><text class="s mut" x="458">Local state</text>
+    <rect class="ext" x="558" width="14" height="14" rx="4" y="-11"/><text class="s mut" x="580">Outside your machine</text>
+  </g>
+</svg>

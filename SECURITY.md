@@ -10,18 +10,15 @@ Maintainers aim to acknowledge reports within seven days and provide a triage up
 
 ## Supported code
 
-```mermaid
-flowchart LR
-  Discover[Find a possible vulnerability] --> Private[Send a sanitized private report]
-  Private --> Triage[Maintainer confirms impact]
-  Triage --> Fix[Develop and independently verify a fix]
-  Fix --> Release[Release fix and advisory]
-  Release --> Disclose[Coordinate public disclosure]
-  Triage -->|Credential exposure| Rotate[Revoke and rotate immediately]
-  Rotate --> Fix
-```
+A report moves through these steps:
 
-Credential rotation must not wait for a cleanup commit. The diagram describes the disclosure process, not a promise that every report is a vulnerability.
+1. You find a possible vulnerability and send a sanitized private report.
+2. A maintainer confirms the impact. If a credential is exposed, it is revoked and rotated immediately, before any fix.
+3. A fix is developed and independently verified.
+4. The fix and an advisory are released.
+5. Public disclosure is coordinated with the reporter.
+
+Credential rotation must not wait for a cleanup commit. These steps describe the disclosure process, not a promise that every report is a vulnerability.
 
 MALT is pre-1.0. Security work targets the latest `main` commit and the latest tagged release when one exists. No older release line has a backport guarantee. Reproduce against current source and use a supported Node.js 24 patch release. The presence of a version in `package.json` does not mean a release artifact has been published.
 
@@ -43,4 +40,4 @@ See [public release readiness](docs/open-source-readiness.md) for evidence, limi
 
 ## Verified controls and reporting limits
 
-The [GitHub control inventory](docs/github-controls.md) records current scanning, protected-merge settings and the temporary solo-maintainer review exception. CodeQL configuration and a passing PR do not establish that the repository has no open alerts. Supported-pattern secret scanning and push protection are enabled; generic-pattern and validity checks are not verified enabled. Treat scanner findings as evidence to investigate and never submit secrets to public issues, Discussions or sponsorship messages.
+The [GitHub control inventory](docs/github-controls.md) records current scanning, protected-merge settings and the temporary solo-maintainer review exception. CodeQL configuration and a passing PR do not establish that the repository has no open alerts; open findings and their triage are tracked in [#245](https://github.com/Division4Studios/malt/issues/245). Supported-pattern secret scanning and push protection are enabled; generic-pattern and validity checks are disabled. Treat scanner findings as evidence to investigate and never submit secrets to public issues, Discussions or sponsorship messages.

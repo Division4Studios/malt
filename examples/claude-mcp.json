@@ -7,7 +7,7 @@
       "args": [
         "compose",
         "-f",
-        "/absolute/path/to/agent-mesh/compose.yaml",
+        "/absolute/path/to/malt/compose.yaml",
         "exec",
         "-T",
         "broker",

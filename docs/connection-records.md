@@ -1,23 +1,80 @@
-# Versioned project connections
+# Connection records
 
-The private `.malt/github/connection.json` separates the work tracker from GitHub source control in version 2. Each section has its own verification timestamp and capability descriptor: supported, unsupported or unverified. Missing repository node IDs remain unverified. Version 1 records are normalized in memory without rewriting them; a successful connection saves version 2. Status retains its legacy connection fields and adds the version 2 view. The generated project README reads both versions.
+A project's connection is saved privately in `.malt/github/connection.json`. This page describes what that record holds, how its sections are saved and verified, how credentials are referenced, and how MALT recovers from interrupted GitHub operations. For the task-oriented guide, see [project connectors](project-connectors.md).
 
-New issue journals bind their fingerprints to the stable repository node ID when available, plus the Project ID and exact validated input. Legacy journals retain their original fingerprints and receipts. Verified same-node-ID reconnects retain prior repository names in `source.repositoryAliases`, allowing those legacy fingerprints to resume across renames without rewriting journals or repeating issue creation. Alias history is bounded; exceeding its limit fails setup instead of discarding recovery information. A changed node ID cannot redirect pending operations, even if the repository name is reused. Ambiguous issue creation still requires synchronization and a unique operation marker before retrying.
+## Record layout
 
-These contracts prepare provider-specific connectors; a Jira provider value does not establish implemented Jira discovery, authentication or remote operations. Provider credentials remain outside project state.
+Version 2 of the record has two independent sections:
+
+- **`tracker`**: the work tracker, today a GitHub Project (`provider: "github-projects"`), with its owner, Project ID and number, URL and workflow (Status) field.
+- **`source`**: source control, today a GitHub repository, with its name and stable node ID.
+
+Each section has its own verification result, credential handle and capability descriptor. A **capability descriptor** says, per provider feature, whether it is `supported`, `unsupported` or `unverified`. A missing repository node ID stays unverified.
+
+Version 1 records are read and normalized in memory without being rewritten. The next successful connection saves version 2. `github_status` keeps the legacy connection fields and adds the version 2 view, and the generated project README reads both versions.
+
+The `tracker.provider` value may also be `jira`. That value only prepares the record for a future connector: it does not mean Jira discovery, authentication or remote operations are available. See [Jira: not yet available](project-connectors.md#jira-not-yet-available).
+
+## Issue journals and repository renames
+
+Each issue creation is journaled before GitHub is called, so an interrupted creation can be resumed instead of repeated. New journals bind their fingerprint to the repository's stable node ID when it is known, plus the Project ID and the exact validated input. Legacy journals keep their original fingerprints and receipts.
+
+When a reconnect verifies the same node ID under a new name, the previous names are kept in `source.repositoryAliases` (at most 100). Legacy fingerprints can then resume across renames without rewriting journals or repeating issue creation. Exceeding the alias limit fails setup instead of discarding recovery information. A changed node ID can never redirect pending operations, even if the repository name is reused. An ambiguous issue creation still requires synchronization and a unique operation marker before it is retried.
+
+`github_create_issue` reports `outcome: {issue, membership, status}`, so creating the issue, attaching it to the Project and setting its Status are reported separately.
 
 ## Project creation
 
-`github_connect` with `createProject: true` needs `project-create` as well as `project-connect`; connecting an existing `projectNumber` never creates a board. The creation is checkpointed in `.malt/github/project-creation.json` with its title and start time before GitHub is contacted. If it was interrupted without a recorded Project, the owner's Projects are listed: exactly one Project with that title created since the checkpoint is adopted, no match means the create never landed and it runs once, and several or uncertain matches are recorded as a human decision (`github_status.projectCreation` lists the candidates) and refused with `GITHUB_OPERATION_PENDING` until the operator connects one by its `projectNumber`. `github_create_issue` reports `outcome: {issue, membership, status}` so creating an issue, attaching it to the Project and setting its Status are reported separately.
+`github_connect` with `createProject: true` needs `project-create` as well as `project-connect`. Connecting an existing `projectNumber` never creates a board, and the console form never creates one.
+
+1. Before GitHub is contacted, the creation is checkpointed in `.malt/github/project-creation.json` with its title and start time.
+2. If an earlier attempt was interrupted without a recorded Project, MALT lists the owner's Projects:
+   - exactly one Project with that title, created since the checkpoint, is adopted;
+   - no match means the create never landed, so it runs once;
+   - several or uncertain matches are recorded as a human decision. `github_status.projectCreation` lists the candidates, and further attempts are refused with `GITHUB_OPERATION_PENDING` until the operator connects one of them by its `projectNumber`.
 
 ## Verification states
 
-`mesh_github_section_save` (CLI `github-section-save`, console control `github_section_save`) saves the tracker section (`owner`, `projectId`, `projectNumber`, `url` and an existing `workflowField` `{id, name}`, chosen from discovery) and/or the source section (`repository` and its `repositoryId`), each independently. The first save needs both; later saves may change one, and the other section is kept exactly as it was. Saving needs the `project-connect` capability, contacts no remote, and is fenced like `github_connect`: switching the repository or Project while ticket operations are pending is refused. A saved section is `saved` and never reports connected until verified. `github_connect` keeps working unchanged.
+Saving and verifying are separate steps, so a configuration is never mistaken for a working connection.
 
-`mesh_github_verify` (CLI `github-verify`, console control `github_verify`) checks the saved tracker and source sections against [read-only discovery](api.md) and records each section's `verification: {state, checkedAt, errors}`. States are `saved` (never checked), `verified`, `degraded` (reachable but not usable as saved: the Status field lacks a delivery option, or the Project is closed or not updatable), `failed` (authentication, a missing or different repository or Project, or a removed Status field) and `external` (a Jira tracker, which needs its site, project and credential verified outside GitHub). Repositories compare by node ID: a rename verifies, updates the name and keeps the old name in `repositoryAliases`. The saved Status field is compared by ID; verification never creates or changes fields. `github_status` reports `verification: {tracker, source}`, and `connected` is true only when both sections are verified. Records saved by a verified `github_connect`, or before states existed, carry no verification and count as verified.
+**Save.** `github_section_save` (CLI `github-section-save --file FILE`, MCP `mesh_github_section_save`) saves the tracker section and/or the source section:
+
+- tracker: `owner`, `projectId`, `projectNumber`, `url` and an existing `workflowField` `{id, name}`, chosen from discovery;
+- source: `repository` and its `repositoryId`.
+
+The first save needs both sections. Later saves may change one, and the other is kept exactly as it was. Saving needs the `project-connect` capability, contacts no remote, and is fenced like `github_connect`: switching the repository or Project while ticket operations are pending is refused. A newly saved section is in the `saved` state.
+
+**Verify.** `github_verify` (CLI `github-verify`, MCP `mesh_github_verify`) checks the saved sections against read-only discovery and records each one's `verification: {state, checkedAt, errors}`. Up to 10 step errors are kept per section. Verification needs no capability and never creates or changes fields.
+
+| State      | Meaning                                                                                                                 |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `saved`    | Saved but never checked.                                                                                                |
+| `verified` | Reachable and usable as saved.                                                                                          |
+| `degraded` | Reachable but not usable as saved: the Status field lacks a delivery option, or the Project is closed or not updatable. |
+| `failed`   | Authentication failed, the repository or Project is missing or different, or the Status field was removed.              |
+| `external` | A Jira tracker, which must be verified outside GitHub. Jira verification is not wired yet.                              |
+
+Repositories are compared by node ID. A rename verifies, updates the name and keeps the old name in `repositoryAliases`. The saved Status field is compared by ID.
+
+`github_status` reports `verification: {tracker, source}`. `connected` is true only when both sections are `verified`. Records saved by a verified `github_connect`, or saved before verification states existed, carry no verification and count as verified.
 
 ## Credential handles
 
-Each section may name where its credential lives, never the credential itself: `{"kind": "github-cli"}` is the operator's authenticated `gh` session, and `{"kind": "env", "name": "JIRA_API_TOKEN"}` names an environment variable of the supervisor process. Only the kind and the reference name are stored; a handle with any other field is rejected as damaged. Handles are scoped to their section's provider: GitHub sections accept only the gh session and Jira trackers only an environment handle. A successful GitHub connection saves `github-cli` handles for both sections; records saved before handles are treated as using the gh session.
+A **credential handle** says where a section's credential lives, never the credential itself:
 
-`github_status` reports `credentials: {tracker, source}` as `present`, `missing` or `unverified`. The gh session is checked with `gh auth status`, whose exit code is read and whose output is discarded, and its answer is reused for one minute; an environment handle is present when its variable is set and nonblank. A logged-out session or an unset variable reads as `missing`, never as connected. A value resolved from an environment handle is registered for redaction before it is returned, so diagnostics and broker error responses replace it with `[REDACTED]`; it is never written to `connection.json`, SQLite, prompts or browser output. OS keychain integration is not included.
+| Handle                                      | Meaning                                                      | Allowed for                     |
+| ------------------------------------------- | ------------------------------------------------------------ | ------------------------------- |
+| `{"kind": "github-cli"}`                    | The operator's authenticated `gh` session                    | GitHub tracker and source       |
+| `{"kind": "env", "name": "JIRA_API_TOKEN"}` | An upper-case environment variable of the supervisor process | Jira tracker (future connector) |
+
+Only the kind and the variable name are stored. A handle with any other field is rejected as damaged. Handles are scoped to their section's provider, so a Jira token handle can never be attached to a GitHub section, or the reverse. A successful GitHub connection saves `github-cli` handles for both sections. Records saved before handles existed are treated as using the `gh` session.
+
+`github_status` reports `credentials: {tracker, source}` as one of:
+
+- `present`: the `gh` session is signed in, or the environment variable is set and nonblank;
+- `missing`: `gh` reports no signed-in account, or the variable is unset or blank;
+- `unverified`: the `gh` CLI could not be run, so presence is unknown.
+
+The `gh` session is checked with `gh auth status --hostname github.com --active`. Only its exit code is read; its output is discarded. The answer is reused for one minute. Missing or unverified never reads as connected.
+
+A value resolved from an environment handle is registered for redaction before it is returned, so diagnostics and broker error responses show `[REDACTED]` instead. It is never written to `connection.json`, SQLite, prompts or browser output. OS keychain integration is not included.

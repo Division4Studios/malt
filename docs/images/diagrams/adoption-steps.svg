@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="736" viewBox="0 0 880 736" role="img" aria-labelledby="title desc">
+  <title id="title">Using MALT on your own project, in seven steps</title>
+  <desc id="desc">Seven steps. 1, Install: clone the repository, then run npm ci --ignore-scripts and npm run build:web; you need Node.js 24, Git and a signed-in Claude Code or Codex CLI. 2, Check the machine: node src/cli.ts doctor --project with your repository path prints PASS, FAIL or FIX-IT for each check and changes nothing. 3, Initialize and pair: node src/cli.ts init, then node src/cli.ts ui --with-broker, both with --project; open 127.0.0.1:4318 and enter the printed pairing code. 4, Configure the project in Project, Setup and capacity, Configure factory policy: validation commands, providers, delivery mode and resource limits, saved while the factory is paused. 5, Connect GitHub, choosing the repository and its Project, or set "delivery": "local" to create the local hub. 6, File the first objective with New objective, then Start factory; the team plans it. 7, Review and merge: answer questions and checkpoints in the Inbox, follow the Board, and with local delivery use Sync my checkout; MALT merges after both reviews and the final gate.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15.5px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}
+    .code{fill:var(--sys);stroke:var(--line)}
+    .rail{stroke:var(--agtl);stroke-width:2;stroke-dasharray:2 5;stroke-linecap:round}
+    .node{fill:var(--agt);stroke:var(--agtl);stroke-width:1.5}.done{fill:var(--sto);stroke:var(--stol);stroke-width:1.5}
+    .n{font-size:13.5px;font-weight:700;text-anchor:middle;fill:var(--agtt)}.nd{font-size:13.5px;font-weight:700;text-anchor:middle;fill:var(--stot)}
+    .pill{fill:var(--card);stroke:var(--line)}.pri{fill:var(--huml)}.pt{font-size:13.5px;text-anchor:middle}.ptp{font-size:13.5px;font-weight:600;text-anchor:middle;fill:var(--bg)}
+    .ui{font-size:13.5px;font-weight:600}
+    .sep{stroke:var(--edge)}
+  </style>
+  <rect class="panel" x=".5" y=".5" width="879" height="735" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · ADOPTION</text>
+  <text class="ttl" x="32" y="68">Use MALT on your own repository</text>
+  <text class="s mut" x="32" y="92">Commands run from the MALT checkout. Replace <tspan class="m" fill="var(--ink)">&lt;repo&gt;</tspan> with your project's absolute path.</text>
+
+  <path class="rail" d="M52 142V634"/>
+
+  <!-- 1 -->
+  <circle class="node" cx="52" cy="142" r="15"/><text class="n" x="52" y="147">1</text>
+  <text class="b" x="84" y="147">Install</text>
+  <text class="s mut" x="84" y="168">Clone the repository. Needs Node.js 24, Git and</text>
+  <text class="s mut" x="84" y="186">a signed-in Claude Code or Codex CLI.</text>
+  <rect class="code" x="444" y="122" width="404" height="62" rx="8"/>
+  <text class="m" x="460" y="147">npm ci --ignore-scripts</text>
+  <text class="m" x="460" y="168">npm run build:web</text>
+
+  <!-- 2 -->
+  <circle class="node" cx="52" cy="224" r="15"/><text class="n" x="52" y="229">2</text>
+  <text class="b" x="84" y="229">Check the machine</text>
+  <text class="s mut" x="84" y="250">Each check prints PASS, FAIL or FIX-IT with one</text>
+  <text class="s mut" x="84" y="268">fix line. It never changes project state.</text>
+  <rect class="code" x="444" y="204" width="404" height="62" rx="8"/>
+  <text class="m" x="460" y="240">node src/cli.ts doctor --project &lt;repo&gt;</text>
+
+  <!-- 3 -->
+  <circle class="node" cx="52" cy="306" r="15"/><text class="n" x="52" y="311">3</text>
+  <text class="b" x="84" y="311">Initialize and pair</text>
+  <text class="s mut" x="84" y="332">Creates .malt/ and agent discovery files. Open</text>
+  <text class="s mut" x="84" y="350">127.0.0.1:4318 and enter the printed pairing code.</text>
+  <rect class="code" x="444" y="286" width="404" height="62" rx="8"/>
+  <text class="m" x="460" y="311">node src/cli.ts init --project &lt;repo&gt;</text>
+  <text class="m" x="460" y="332">node src/cli.ts ui --with-broker --project &lt;repo&gt;</text>
+
+  <!-- 4 -->
+  <circle class="node" cx="52" cy="388" r="15"/><text class="n" x="52" y="393">4</text>
+  <text class="b" x="84" y="393">Configure the project</text>
+  <text class="s mut" x="84" y="414">Validation commands, providers, delivery mode and</text>
+  <text class="s mut" x="84" y="432">resource limits, saved while the factory is paused.</text>
+  <rect class="code" x="444" y="368" width="404" height="62" rx="8"/>
+  <text class="ui" x="460" y="393">Project → Setup &amp; capacity</text>
+  <text class="ui" x="460" y="414"><tspan class="s mut" font-weight="400">then </tspan>Configure factory policy</text>
+
+  <!-- 5 -->
+  <circle class="node" cx="52" cy="470" r="15"/><text class="n" x="52" y="475">5</text>
+  <text class="b" x="84" y="475">Connect GitHub or go local</text>
+  <text class="s mut" x="84" y="496">GitHub: choose the repository and its Project.</text>
+  <text class="s mut" x="84" y="514">Local: the delivery mode creates a private hub.</text>
+  <rect class="code" x="444" y="450" width="404" height="62" rx="8"/>
+  <rect class="pill" x="460" y="467" width="128" height="28" rx="14"/><text class="pt" x="524" y="486">Connect GitHub</text>
+  <text class="s mut" x="600" y="486">or</text>
+  <text class="m" x="624" y="486">"delivery": "local"</text>
+
+  <!-- 6 -->
+  <circle class="node" cx="52" cy="552" r="15"/><text class="n" x="52" y="557">6</text>
+  <text class="b" x="84" y="557">File the first objective</text>
+  <text class="s mut" x="84" y="578">Describe one outcome and what done means, then</text>
+  <text class="s mut" x="84" y="596">start the factory. The team plans it.</text>
+  <rect class="code" x="444" y="532" width="404" height="62" rx="8"/>
+  <rect class="pri" x="460" y="549" width="132" height="28" rx="14"/><text class="ptp" x="526" y="568">+ New objective</text>
+  <rect class="pill" x="602" y="549" width="112" height="28" rx="14"/><text class="pt" x="658" y="568">Start factory</text>
+
+  <!-- 7 -->
+  <circle class="done" cx="52" cy="634" r="15"/><text class="nd" x="52" y="639">7</text>
+  <text class="b" x="84" y="639">Review and merge</text>
+  <text class="s mut" x="84" y="660">Answer questions and checkpoints in the Inbox.</text>
+  <text class="s mut" x="84" y="678">MALT merges after both reviews and the final gate.</text>
+  <rect class="code" x="444" y="614" width="404" height="62" rx="8"/>
+  <rect class="pill" x="460" y="631" width="62" height="28" rx="14"/><text class="pt" x="491" y="650">Inbox</text>
+  <rect class="pill" x="530" y="631" width="62" height="28" rx="14"/><text class="pt" x="561" y="650">Board</text>
+  <rect class="pill" x="600" y="631" width="140" height="28" rx="14"/><text class="pt" x="670" y="650">Sync my checkout</text>
+  <text class="s mut" x="750" y="650">(local)</text>
+
+  <text class="s mut" x="32" y="714">The Get started page in the console tracks these steps and says why a role cannot start.</text>
+</svg>

@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="704" viewBox="0 0 880 704" role="img" aria-labelledby="title desc">
+  <title id="title">Layout of a project's .malt folder</title>
+  <desc id="desc">A project repository keeps three tracked files that MALT touches: .gitignore, to which setup appends .malt/, and AGENTS.md and CLAUDE.md, which get a managed reference to the shared skill library. Everything inside .malt/ is private and Git-ignored, because .malt/.gitignore ends with the rule *. Inside it: README.md, a generated overview; config.json, with the project ID and broker token; console-pairing.json, with the console pairing code; identities/, with agent credentials; state/mesh.db, the SQLite database for messages, events, the factory ledger, policies and sealed secrets; factory/, with settings, per-job logs and failure.json, and vault.key; worktrees/, with one owned worktree per delivery and owner.json; local/, with hub.git and tracker.json for local delivery; github/, with the connection, board snapshot and operation journals; knowledge/, with lessons, research, sources, candidates and adoptions; skills/, with manifest.json, the built-in baseline and approved skill revisions; and cache/, with disposable validation files. config.json, console-pairing.json, identities/ and vault.key hold credentials. The broker home also keeps .malt/teams/slug.json routing references.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}
+    .sto{fill:var(--sto);stroke:var(--stol)}.st{fill:var(--stot)}
+    .tr{fill:none;stroke:var(--line);stroke-width:1.5}
+    .fo{fill:var(--card);stroke:var(--mut);stroke-width:1.25}
+    .fos{fill:var(--sto);stroke:var(--stol);stroke-width:1.25}
+    .key{fill:none;stroke:var(--ink);stroke-width:1.5;stroke-linecap:round}
+    .tag{fill:var(--card);stroke:var(--line)}.tagp{fill:var(--card);stroke:var(--stol)}
+    .tt{font-size:13px;text-anchor:middle;fill:var(--mut)}.ttp{font-size:13px;font-weight:600;text-anchor:middle;fill:var(--stot)}
+    .bold{font-weight:700}
+  </style>
+  <defs>
+    <path id="dir" d="M0 1.5a1.5 1.5 0 0 1 1.5 -1.5h3.5l1.5 2h5a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1 -1.5 1.5h-10a1.5 1.5 0 0 1 -1.5 -1.5z"/>
+    <path id="doc" d="M1 0h6l3 3v8.5a.5 .5 0 0 1 -.5 .5h-8.5a.5 .5 0 0 1 -.5 -.5v-11a.5 .5 0 0 1 .5 -.5zM7 0v3h3"/>
+    <g id="k"><circle cx="4" cy="5" r="3.25"/><path d="M7.25 5H15M12.5 5V8M15 5V7.5"/></g>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="703" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · PROJECT STATE</text>
+  <text class="ttl" x="32" y="68">Inside a project's .malt/ folder</text>
+  <text class="s mut" x="32" y="92">Setup appends .malt/ to your .gitignore and ends .malt/.gitignore with *, so Git ignores all of it.</text>
+
+  <!-- Private region -->
+  <rect class="sto" x="32" y="246" width="816" height="398" rx="12" style="fill-opacity:.55"/>
+
+  <!-- Tree lines -->
+  <path class="tr" d="M48 158V257M48 173H64M48 201H64M48 229H64M48 257H64"/>
+  <path class="tr" d="M72 268V621M72 285H90M72 313H90M72 341H90M72 369H90M72 397H90M72 425H90M72 453H90M72 481H90M72 509H90M72 537H90M72 565H90M72 593H90M72 621H90"/>
+
+  <!-- Root -->
+  <use href="#dir" class="fo" x="40" y="138"/>
+  <text class="m bold" x="62" y="150">your-project/</text>
+  <rect class="tag" x="752" y="133" width="80" height="24" rx="12"/><text class="tt" x="792" y="150">your repo</text>
+
+  <use href="#doc" class="fo" x="68" y="167"/>
+  <text class="m" x="86" y="178">.gitignore</text>
+  <text class="s mut" x="310" y="178">setup appends <tspan class="m" fill="var(--ink)">.malt/</tspan></text>
+  <rect class="tag" x="752" y="161" width="80" height="24" rx="12"/><text class="tt" x="792" y="178">tracked</text>
+
+  <use href="#doc" class="fo" x="68" y="195"/>
+  <text class="m" x="86" y="206">AGENTS.md</text>
+  <text class="s mut" x="310" y="206">managed reference to the shared skill library</text>
+  <rect class="tag" x="752" y="189" width="80" height="24" rx="12"/><text class="tt" x="792" y="206">tracked</text>
+
+  <use href="#doc" class="fo" x="68" y="223"/>
+  <text class="m" x="86" y="234">CLAUDE.md</text>
+  <text class="s mut" x="310" y="234">the same reference, so Claude and Codex share skills</text>
+  <rect class="tag" x="752" y="217" width="80" height="24" rx="12"/><text class="tt" x="792" y="234">tracked</text>
+
+  <use href="#dir" class="fos" x="66" y="252"/>
+  <text class="m bold st" x="86" y="262">.malt/</text>
+  <text class="s st" x="310" y="262">private state; back it up after a clean broker shutdown</text>
+  <rect class="tagp" x="752" y="245" width="80" height="24" rx="12"/><text class="ttp" x="792" y="262">private</text>
+
+  <!-- .malt children -->
+  <g class="s mut">
+    <use href="#doc" class="fo" x="94" y="279"/><text class="m" x="112" y="290">.gitignore</text>
+    <text class="s mut" x="310" y="290">final rule <tspan class="m" fill="var(--ink)">*</tspan> ignores everything here, this file included</text>
+
+    <use href="#doc" class="fo" x="94" y="307"/><text class="m" x="112" y="318">README.md</text>
+    <text class="s mut" x="310" y="318">generated overview: presence, requests, connection, skills</text>
+
+    <use href="#doc" class="fo" x="94" y="335"/><text class="m" x="112" y="346">config.json</text>
+    <use href="#k" class="key" x="284" y="336"/>
+    <text class="s mut" x="310" y="346">project ID and broker bearer token</text>
+
+    <use href="#doc" class="fo" x="94" y="363"/><text class="m" x="112" y="374">console-pairing.json</text>
+    <use href="#k" class="key" x="284" y="364"/>
+    <text class="s mut" x="310" y="374">console pairing code, owner-only; rotate if it leaks</text>
+
+    <use href="#dir" class="fo" x="92" y="392"/><text class="m" x="112" y="402">identities/</text>
+    <use href="#k" class="key" x="284" y="392"/>
+    <text class="s mut" x="310" y="402">durable agent credentials</text>
+
+    <use href="#doc" class="fo" x="94" y="419"/><text class="m" x="112" y="430">state/mesh.db</text>
+    <text class="s mut" x="310" y="430">SQLite (WAL): messages, events, factory ledger, policies, sealed secrets</text>
+
+    <use href="#dir" class="fo" x="92" y="448"/><text class="m" x="112" y="458">factory/</text>
+    <use href="#k" class="key" x="284" y="448"/>
+    <text class="s mut" x="310" y="458">settings, <tspan class="m" fill="var(--ink)">jobs/&lt;id&gt;/</tspan> logs and <tspan class="m" fill="var(--ink)">failure.json</tspan>, <tspan class="m" fill="var(--ink)">vault.key</tspan></text>
+
+    <use href="#dir" class="fo" x="92" y="476"/><text class="m" x="112" y="486">worktrees/</text>
+    <text class="s mut" x="310" y="486">one owned Git worktree per delivery, plus <tspan class="m" fill="var(--ink)">owner.json</tspan></text>
+
+    <use href="#dir" class="fo" x="92" y="504"/><text class="m" x="112" y="514">local/</text>
+    <text class="s mut" x="310" y="514"><tspan class="m" fill="var(--ink)">hub.git</tspan> and <tspan class="m" fill="var(--ink)">tracker.json</tspan>, for local delivery</text>
+
+    <use href="#dir" class="fo" x="92" y="532"/><text class="m" x="112" y="542">github/</text>
+    <text class="s mut" x="310" y="542">Project connection, board snapshot, operation journals</text>
+
+    <use href="#dir" class="fo" x="92" y="560"/><text class="m" x="112" y="570">knowledge/</text>
+    <text class="s mut" x="310" y="570">lessons, research, sources, skill candidates, adoptions</text>
+
+    <use href="#dir" class="fo" x="92" y="588"/><text class="m" x="112" y="598">skills/</text>
+    <text class="s mut" x="310" y="598"><tspan class="m" fill="var(--ink)">manifest.json</tspan>, built-in baseline, approved skill revisions</text>
+
+    <use href="#dir" class="fo" x="92" y="616"/><text class="m" x="112" y="626">cache/</text>
+    <text class="s mut" x="310" y="626">disposable validation temp files</text>
+  </g>
+
+  <!-- Footer -->
+  <g transform="translate(32 678)">
+    <use href="#k" class="key" x="0" y="-10"/>
+    <text class="s mut" x="24">holds a credential</text>
+    <text class="s mut" x="190">The broker home also keeps <tspan class="m" fill="var(--ink)">.malt/teams/&lt;slug&gt;.json</tspan> routing references, never team data.</text>
+  </g>
+</svg>
