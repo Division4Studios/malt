@@ -4,7 +4,7 @@
 
 ## Identity and revisions
 
-- **Identity** hashes the project, the kind and the sorted, unique set of tickets.
+- **Identity** hashes the project, the kind and the sorted, unique set of tickets, plus the observed local objective IDs and the origin objective when the proposal has them. Independent objectives that overlap the same tickets therefore get separate recommendations.
 - **Revision** hashes the validated proposal: action, evidence, observed issue revisions, observed local objectives, survivor, transferred acceptance and dependencies, affected assignments and the before/after preview.
 - Object key order and ticket order change neither hash.
 
@@ -13,7 +13,8 @@
 - Replaying known content returns its original revision unchanged, without reactivating it.
 - Changed content supersedes `proposed` or `awaiting_human` content, which becomes `stale`.
 - After `stale` or `rejected`, new content creates a new current revision. History is kept; the old revision is never reopened.
-- `approved`, `applying`, `reconciling`, `completed` and `failed` records cannot be replaced.
+- An `approved` record the supervisor never executes (a `related` or `scope_change`, or a duplicate or consolidation without a survivor) is a settled decision and is treated like a rejected one: new content creates a new current revision, and the approved revision stays in the history.
+- Any other `approved` record, and `applying`, `reconciling`, `completed` and `failed` records, cannot be replaced.
 
 ## Lifecycle
 
@@ -37,6 +38,7 @@ A `failed` record is retryable only when the supervisor executes its kind: a `du
 
 - Every creation and transition appends an audit entry with the time, previous and new state, and rationale.
 - Every change sets the record unread. `markRead` is idempotent and fenced by the current revision. A read receipt never approves or starts anything.
+- The `pending` count covers `proposed`, `awaiting_human`, `applying` and `reconciling` records, and `approved` records the supervisor still executes. A settled approval is not pending.
 - Text is stored verbatim, up to 32,000 characters per narrative field and 200 per identifier. Collections hold at most 100 items. The project identity follows the nonempty-string configuration rule, with no extra length limit.
 - Every ticket needs exactly one observed revision, and a survivor must be one of the tickets. `related` and `scope_change` proposals may name no tickets if they observe at least one local objective.
 - The store keeps observed revisions, never ticket body snapshots.
