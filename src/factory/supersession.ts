@@ -4,6 +4,8 @@
  *
  * @file
  */
+import { issueKey, parentKey } from './tracker-key.ts';
+
 import type { FactoryContext } from './context.ts';
 import type { FactoryTask, FactoryEffect, Feature } from './schema.ts';
 
@@ -99,8 +101,8 @@ async function retireParent(context: FactoryContext, feature: Feature): Promise<
   if (parent !== null) {
     if (
       !(await context.remote.parentComplete(
-        parent,
-        tasks.map((task) => task.issue),
+        parentKey({ parentIssue: parent, parentKey: feature.parentKey }),
+        tasks.map((task) => issueKey(task)),
       ))
     ) {
       return;

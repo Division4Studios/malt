@@ -22,6 +22,7 @@ import { provisionedIssues, retainProvisionedIssues } from '../src/factory/provi
 import { GitHubDelivery } from '../src/factory/remote.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { featureSchema, taskSchema, factoryConfigSchema } from '../src/factory/schema.ts';
+import { githubKey } from '../src/factory/tracker-key.ts';
 import { DELIVERY_STATUSES, ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
 import { MeshError } from '../src/protocol.ts';
@@ -29,6 +30,7 @@ import { Store } from '../src/store.ts';
 
 import { OPERATOR, brokerUrl, createCleanup, createProject, mechanicsGitHub, updateConfig } from './helpers.ts';
 
+import type { TrackerKey } from '../src/factory/tracker-key.ts';
 import type { GitHubRunner } from '../src/github.ts';
 
 process.env['AGENTMESH_LOG_LEVEL'] = 'silent';
@@ -895,31 +897,36 @@ await test('the issue-state read is limited to the connected repository issues e
   const adapter = new GitHubDelivery(config, github, runner);
   const repository = 'https://api.github.com/repos/example/app';
   response = { state: 'closed', state_reason: 'completed', repository_url: repository };
-  assert.deepEqual(await adapter.issueState(7), { state: 'closed', stateReason: 'completed' });
+  assert.deepEqual(await adapter.issueState(githubKey(7)), { state: 'closed', stateReason: 'completed' });
   assert.deepEqual(calls, [['api', 'repos/example/app/issues/7']]);
   response = { state: 'closed', state_reason: 'not_planned' };
-  assert.deepEqual(await adapter.issueState(8), { state: 'closed', stateReason: 'not_planned' });
+  assert.deepEqual(await adapter.issueState(githubKey(8)), { state: 'closed', stateReason: 'not_planned' });
   response = { state: 'open', state_reason: null, repository_url: repository };
-  assert.deepEqual(await adapter.issueState(9), { state: 'open', stateReason: null });
+  assert.deepEqual(await adapter.issueState(githubKey(9)), { state: 'open', stateReason: null });
   response = { state: 'open', repository_url: 'https://api.github.com/repos/renamed/app' };
-  assert.deepEqual(await adapter.issueState(9), { state: 'open', stateReason: null });
+  assert.deepEqual(await adapter.issueState(githubKey(9)), { state: 'open', stateReason: null });
   response = { state: 'open', pull_request: { url: `${repository}/pulls/10` } };
-  await assert.rejects(adapter.issueState(10), { code: 'INVALID_INPUT' });
+  await assert.rejects(adapter.issueState(githubKey(10)), { code: 'INVALID_INPUT' });
   response = { state: 'open', repository_url: 'https://api.github.com/repos/other/app' };
-  await assert.rejects(adapter.issueState(11), { code: 'WRONG_PROJECT' });
+  await assert.rejects(adapter.issueState(githubKey(11)), { code: 'WRONG_PROJECT' });
   response = { state: 'open', repository_url: 'https://untrusted.example/repos/example/app' };
-  await assert.rejects(adapter.issueState(11), { code: 'WRONG_PROJECT' });
+  await assert.rejects(adapter.issueState(githubKey(11)), { code: 'WRONG_PROJECT' });
   response = { state: 'closed', state_reason: 'x'.repeat(65) };
-  await assert.rejects(adapter.issueState(11), z.ZodError);
+  await assert.rejects(adapter.issueState(githubKey(11)), z.ZodError);
   response = { state: 'merged' };
-  await assert.rejects(adapter.issueState(12), z.ZodError);
+  await assert.rejects(adapter.issueState(githubKey(12)), z.ZodError);
   response = 'not json object';
-  await assert.rejects(adapter.issueState(13), z.ZodError);
+  await assert.rejects(adapter.issueState(githubKey(13)), z.ZodError);
   const before = calls.length;
   for (const invalid of [0, -1, 1.5, NaN]) {
-    await assert.rejects(adapter.issueState(invalid), { code: 'INVALID_INPUT' });
+    const key: TrackerKey = { provider: 'github', key: String(invalid) };
+    await assert.rejects(adapter.issueState(key), { code: 'INVALID_INPUT' });
   }
-  assert.equal(calls.length, before, 'Invalid numbers never reach GitHub.');
+  await assert.rejects(adapter.issueState({ provider: 'jira', key: 'PROJ-7' }), { code: 'INVALID_INPUT' });
+  await assert.rejects(adapter.parentComplete(githubKey(1), [{ provider: 'jira', key: 'PROJ-7' }]), {
+    code: 'INVALID_INPUT',
+  });
+  assert.equal(calls.length, before, 'Invalid numbers and other trackers’ keys never reach GitHub.');
 });
 
 await test('the issue-state read is refused for an unconnected workspace', async (t) => {
@@ -933,7 +940,7 @@ await test('the issue-state read is refused for an unconnected workspace', async
     return { state: 'closed' };
   };
   const adapter = new GitHubDelivery(config, github, runner);
-  await assert.rejects(adapter.issueState(5), { code: 'GITHUB_NOT_CONNECTED' });
+  await assert.rejects(adapter.issueState(githubKey(5)), { code: 'GITHUB_NOT_CONNECTED' });
   assert.equal(isCalled, false);
 });
 

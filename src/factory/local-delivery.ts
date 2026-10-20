@@ -15,7 +15,9 @@ import { MeshError } from '../protocol.ts';
 
 import { LocalHub } from './local-hub.ts';
 import { LocalTracker } from './local-tracker.ts';
+import { githubIssue } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
+import { issueLabel, parentLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { HubGit } from './local-hub.ts';
@@ -23,6 +25,7 @@ import type { LocalPull } from './local-tracker.ts';
 import type { DeliveryRemote, IssueState, PullRequest } from './remote.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
+import type { TrackerKey } from './tracker-key.ts';
 
 /** Length of deterministic per-delivery request identities. */
 const REQUEST_HASH_LENGTH = 32;
@@ -157,7 +160,7 @@ export class LocalDelivery implements DeliveryRemote {
     const created = await this.tracker.openPull({
       issue: task.issue,
       title: task.title,
-      body: `Delivery for #${String(task.issue)}; parent #${String(task.parentIssue)}.\n\n${issueBody(task.description, task.acceptanceCriteria)}`,
+      body: `Delivery for ${issueLabel(task)}; parent ${parentLabel(task)}.\n\n${issueBody(task.description, task.acceptanceCriteria)}`,
       head: task.branch,
       base: config.baseBranch,
     });
@@ -296,14 +299,12 @@ export class LocalDelivery implements DeliveryRemote {
   /**
    * Read one delivery issue's open/closed state without mutating it.
    *
-   * @param issue - Local issue number.
+   * @param key - Local issue key, numbered as GitHub's are.
    * @returns State and closure reason.
-   * @throws {MeshError} For an invalid number, a pull request or an unknown issue.
+   * @throws {MeshError} For an invalid number, another tracker's key, a pull request or an unknown issue.
    */
-  public async issueState(issue: number): Promise<IssueState> {
-    if (!Number.isSafeInteger(issue) || issue <= 0) {
-      throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
-    }
+  public async issueState(key: TrackerKey): Promise<IssueState> {
+    const issue = githubIssue(key);
     const ledger = await this.tracker.load();
     if (ledger.pulls.some((pull) => pull.number === issue)) {
       throw new MeshError('INVALID_INPUT', `#${String(issue)} is a pull request, not a delivery issue.`);
@@ -318,15 +319,17 @@ export class LocalDelivery implements DeliveryRemote {
   /**
    * Require every expected and actual child of a feature to be closed.
    *
-   * @param parent - Feature issue.
-   * @param children - Locally verified children.
+   * @param parent - Feature issue key.
+   * @param children - Locally verified child keys.
    * @returns Whether the parent may close.
    */
-  public async parentComplete(parent: number, children: readonly number[]): Promise<boolean> {
+  public async parentComplete(parent: TrackerKey, children: readonly TrackerKey[]): Promise<boolean> {
+    const parentNumber = githubIssue(parent);
+    const expected = children.map((child) => githubIssue(child));
     const ledger = await this.tracker.load();
-    const actual = ledger.issues.filter((issue) => issue.parent === parent);
+    const actual = ledger.issues.filter((issue) => issue.parent === parentNumber);
     return (
-      children.every((number) => actual.some((child) => child.number === number)) &&
+      expected.every((number) => actual.some((child) => child.number === number)) &&
       actual.every((child) => child.state === 'closed')
     );
   }

@@ -281,7 +281,7 @@ export function loopbackRemote(mesh: MeshConfig, github: FixtureGitHub): GitHubD
   remote.issueRepositoryId = () => github.repositoryId;
   remote.issueCorpus = async () => github.corpus();
   remote.unresolvedOperations = async () => delay(0, []);
-  remote.observedIssue = async (issue) => delay(0, github.observe(issue));
+  remote.observedIssue = async (key) => delay(0, github.observe(Number(key.key)));
   remote.readyIssues = async () => delay(0, []);
   remote.verify = async () => {
     await delay(0);

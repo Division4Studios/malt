@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import { z } from 'zod/v3';
 
 import { GitHubDelivery } from '../src/factory/remote.ts';
+import { githubKey } from '../src/factory/tracker-key.ts';
 import { readIssueCorpus, readObservedIssue } from '../src/github-issues.ts';
 import { ProjectGitHub } from '../src/github.ts';
 
@@ -211,7 +212,7 @@ await test('ProjectGitHub and delivery reads require verified identity and retai
     return { data: { node: { ...repository, issue: issue(1) } } };
   });
   const delivery = new GitHubDelivery(mesh, github);
-  assert.equal((await delivery.observedIssue(1)).number, 1);
+  assert.equal((await delivery.observedIssue(githubKey(1))).number, 1);
   const denied = new ProjectGitHub(mesh, async () => {
     await Promise.resolve();
     return { errors: [{ message: 'Private remote error detail.' }] };

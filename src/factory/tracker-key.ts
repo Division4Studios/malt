@@ -168,3 +168,18 @@ export function issueLabel(record: KeyedIssue): string {
 export function parentLabel(record: KeyedParent): string {
   return formatTrackerKey(parentKey(record));
 }
+
+/**
+ * The typed key of an objective's parent issue.
+ *
+ * @param feature - Objective, possibly not yet provisioned.
+ * @param feature.parentIssue - Parent handle, null before provisioning.
+ * @param feature.parentKey - Typed parent key, absent for GitHub and local parents.
+ * @returns Typed parent key, or `null` before the parent exists.
+ */
+export function objectiveParentKey(feature: {
+  readonly parentIssue: number | null;
+  readonly parentKey?: TrackerKey | undefined;
+}): TrackerKey | null {
+  return feature.parentIssue === null ? null : (feature.parentKey ?? githubKey(feature.parentIssue));
+}
