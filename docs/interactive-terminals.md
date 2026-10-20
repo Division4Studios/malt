@@ -47,7 +47,7 @@ In Docker, the container launches its own Linux CLIs with their own credential m
 | Paste                                                   | Normalized incrementally with control sequences stripped. Each paste, including bracketed-paste framing, must fit 16 KiB of UTF-8; clipboard text over 1 MiB characters is refused before normalizing. An unconfirmed write is reported and never retried.   |
 | **Terminal columns**, **Terminal rows**, **Apply size** | Resize the real PTY (1–500 columns, 1–200 rows).                                                                                                                                                                                                             |
 | **Fit to pane**                                         | Measures the displayed font and padding, debounces resizing, and turns itself off after an unconfirmed resize.                                                                                                                                               |
-| Pane height                                             | **compact**, **standard** or **tall**.                                                                                                                                                                                                                       |
+| Pane height                                             | **Compact**, **Standard** or **Tall**.                                                                                                                                                                                                                       |
 | **Reconnect output**                                    | Resumes the bounded, redacted output from the last safe cursor. It never replays input and does not recapture the keyboard.                                                                                                                                  |
 | **Recent scrollback (memory only)**                     | Read-only recent output held in backend memory.                                                                                                                                                                                                              |
 | **Close session**                                       | Ends the native session and retires its owned process tree.                                                                                                                                                                                                  |
@@ -55,7 +55,7 @@ In Docker, the container launches its own Linux CLIs with their own credential m
 
 At most two panes are open at once. Hiding the page, going offline or switching project stops readers and input and discards unsent input. Output of an ended session stays read-only while it is retained in memory. After a backend restart the pane shows the recorded metadata and says that replay is unavailable; input stays disabled.
 
-The terminal controls are English only; they are not yet in the Simplified Chinese catalog.
+The terminal controls follow the console language, English or Simplified Chinese. Terminal output is shown exactly as the CLI wrote it.
 
 ## Native launch contract
 

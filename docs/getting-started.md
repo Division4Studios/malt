@@ -207,7 +207,7 @@ Each step opens the same dialog you would use later, so there is no separate set
 | Step                                      | Button                                           | What it does                                                                     |
 | ----------------------------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------- |
 | Check this machine                        | none                                             | Runs the `doctor` checks inside the broker and shows each fix line.              |
-| Connect the GitHub repository and Project | **Connect GitHub**                               | Opens the connection dialog. Skip it for local delivery.                         |
+| Connect the GitHub repository and Project | **Connect GitHub**                               | Opens the connection dialog. With local delivery, see below.                     |
 | Choose providers, checks and model policy | **Configure factory**, **Model & effort policy** | Opens the factory policy and the model and effort policy.                        |
 | Pick how objectives are delivered         | **Open workflow library**                        | Names the default workflow. New objectives use it.                               |
 | Submit a first objective                  | **New objective**                                | Opens the objective editor.                                                      |
@@ -216,7 +216,7 @@ Each step opens the same dialog you would use later, so there is no separate set
 
 **Hide guide** hides it for this project in this browser. Reopen it from **Project → Get started**.
 
-With local delivery the GitHub step stays marked as not done. That is expected; the other steps work without it.
+With local delivery the connect step is **Deliver through the local hub** and is already done, because the protected hub on this machine is the delivery target. Its button, **Open pull requests**, opens **Workflow → Pull requests**.
 
 ## 7. Choose local or GitHub delivery
 

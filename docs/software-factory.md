@@ -108,7 +108,7 @@ Why it is shaped this way:
 Two different size rules apply to deliveries:
 
 - **Planning target.** The team lead's planning prompt and the bundled `factory-product` skill aim for 1–500 changed lines per delivery, including tests and documentation. This is guidance for how the lead splits work, not an enforced limit.
-- **Publication ceiling.** `maxDiffLines` (default 500 changed lines) and `maxFiles` (default 20 files) are configurable factory settings. A validated delivery over either value parks with the reason `over_limit` instead of publishing. Split the scope, or approve a size exception (**Approve this size exception**) for that exact head and base; new edits or an advancing main invalidate it.
+- **Publication ceiling.** `maxDiffLines` (default 500 changed lines) and `maxFiles` (default 20 files) are configurable factory settings. A validated delivery over either value parks with the reason `over_limit` instead of publishing, and its `failure.json` records `step: "publish"` with `reason: "over_limit"`. Split the scope, or approve a size exception (**Approve this size exception**) for that exact head and base; new edits or an advancing main invalidate it.
 
 These apply to deliveries the factory publishes in your project. MALT's own repository has no pull request size limit.
 

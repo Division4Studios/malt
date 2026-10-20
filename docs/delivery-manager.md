@@ -40,7 +40,7 @@ Role reports appear as compact entries, and reports delivered to the manager are
 
 **Status bar.** The true session state: **Starting**, **Ready** (waiting for you), **Working**, **Stopping**, **Stopped** or **Failed** with the reason. It also shows the model, session generation, process ID, last activity, last tool, queued count and any rate-limit pause, with **Start manager** or **Stop** and **Export transcript**, which downloads the whole conversation as Markdown.
 
-**Needs your decision.** The manager's own questions with one-click answers, plus blocked deliveries, triage awaiting you, blocked objectives and skill approvals. Each says where to resolve it. Agent questions from managed roles, checkpoint decisions, spend caps and definitions of done are not listed here; they are in the [Inbox](operator-console.md#inbox).
+**Needs your decision.** The manager's own questions with one-click answers, plus blocked deliveries, triage awaiting you, blocked objectives and skill approvals. Each names the console location that resolves it, in the console's language: **Inbox** for a blocked delivery (**Investigate…**) or a blocked objective (**Recover…**), **Mission → Overview** for triage (the delivery's card under **Clear the path**), and **Project → Learning & skills** for a skill approval. Agent questions from managed roles, checkpoint decisions, spend caps and definitions of done are not listed here; they are in the [Inbox](operator-console.md#inbox).
 
 **Mission.** Objectives, and for each open delivery its stage, owner and model, branch, progress evidence and next action. Progress counts only a developer's structured checkpoint; recent output is shown as activity. A running delivery with neither for ten minutes is flagged **possibly stalled**.
 
