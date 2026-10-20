@@ -579,12 +579,14 @@ export class WorkspaceManager {
 
   /**
    * Keep an orphaned worktree's uncommitted work, or a commit no ref holds, under a new archive ref, then return
-   * the worktree to its checked-out commit so the owned removal can retire it.
+   * the worktree to its checked-out commit so the owned removal can retire it. The archive commit holds the
+   * working tree; when the index held something else, a second parent holds the index, as `git stash` does, so
+   * neither the staged nor the working-tree version of a file is lost.
    *
    * @param directory - Owned worktree no live delivery, attempt or terminal uses.
    * @param reference - New ref, such as `refs/malt/archive/prune/<id>`; an existing one is never overwritten.
    * @returns The archived commit.
-   * @throws {MeshError} When the ref exists or does not hold exactly the worktree's files.
+   * @throws {MeshError} When the ref exists, a merge is unresolved, or the ref does not hold exactly the worktree.
    */
   public async archive(directory: string, reference: string): Promise<string> {
     this.assertOwnedPath(directory);
@@ -592,17 +594,18 @@ export class WorkspaceManager {
       throw new MeshError('FACTORY_GATED', `The archive ref ${reference} already exists; the worktree was kept.`);
     }
     const head = await this.git(['rev-parse', 'HEAD'], directory);
-    // Only this worktree's own index is staged; no branch moves, and the excluded .malt link is never added.
-    await this.git(['add', '--all'], directory);
-    const tree = await this.git(['write-tree'], directory);
-    const commit =
-      tree === (await this.git(['show', '--no-patch', '--format=%T', head], directory))
-        ? head
-        : await this.git(['commit-tree', tree, '-p', head, '-m', 'Uncommitted work archived before prune'], directory);
-    // An empty old value refuses to overwrite a ref created since the check above.
-    await this.git(['update-ref', reference, commit, ''], directory);
-    if ((await this.git(['show', '--no-patch', '--format=%T', reference], directory)) !== tree) {
-      throw new MeshError('FACTORY_GATED', `The archive ref ${reference} does not hold the worktree; it was kept.`);
+    // Record the index before anything is staged: it can hold content the working tree no longer has.
+    const staged = await this.indexTree(directory);
+    let commit: string;
+    try {
+      commit = await this.archiveCommit(directory, head, staged);
+      // An empty old value refuses to overwrite a ref created since the check above.
+      await this.git(['update-ref', reference, commit, ''], directory);
+      await this.assertArchived(directory, reference, staged);
+    } catch (error) {
+      // Put the original index back, so a refused archive leaves the worktree as it was.
+      await this.git(['read-tree', staged], directory);
+      throw error;
     }
     await this.git(['reset', '--hard', '--quiet', head], directory);
     return commit;
@@ -697,6 +700,67 @@ export class WorkspaceManager {
       await this.git(['update-ref', '-d', `refs/heads/${record.branch}`, record.head]);
     }
     return 'Removed retired worktree and unchanged delivery branches; archived source commit retained.';
+  }
+
+  /**
+   * Commit a worktree's files, with its recorded index as a second parent when that differs.
+   *
+   * @param directory - Owned worktree.
+   * @param head - Its checked-out commit.
+   * @param staged - Tree of its index before staging.
+   * @returns The archive commit, or `head` when nothing is uncommitted.
+   */
+  private async archiveCommit(directory: string, head: string, staged: string): Promise<string> {
+    const base = await this.git(['show', '--no-patch', '--format=%T', head], directory);
+    // Only this worktree's own index is staged; no branch moves, and the excluded .malt link is never added.
+    await this.git(['add', '--all'], directory);
+    const tree = await this.git(['write-tree'], directory);
+    if (tree === base && staged === base) {
+      return head;
+    }
+    const parents = ['-p', head];
+    if (staged !== base && staged !== tree) {
+      const index = await this.git(
+        ['commit-tree', staged, '-p', head, '-m', 'Staged changes archived before prune'],
+        directory,
+      );
+      parents.push('-p', index);
+    }
+    return this.git(['commit-tree', tree, ...parents, '-m', 'Uncommitted work archived before prune'], directory);
+  }
+
+  /**
+   * Prove an archive ref holds the worktree's files and, as its second parent when there is one, its index.
+   *
+   * @param directory - Owned worktree, with every file staged.
+   * @param reference - Archive ref.
+   * @param staged - Tree of the index before staging.
+   * @throws {MeshError} When either tree differs.
+   */
+  private async assertArchived(directory: string, reference: string, staged: string): Promise<void> {
+    const tree = await this.git(['write-tree'], directory);
+    const treeOf = async (revision: string): Promise<string> =>
+      this.git(['show', '--no-patch', '--format=%T', revision], directory);
+    const ancestry = await this.git(['rev-list', '--parents', '--max-count=1', reference], directory);
+    const isIndexKept = ancestry.split(' ').length <= 2 || (await treeOf(`${reference}^2`)) === staged;
+    if (!isIndexKept || (await treeOf(reference)) !== tree) {
+      throw new MeshError('FACTORY_GATED', `The archive ref ${reference} does not hold the worktree; it was kept.`);
+    }
+  }
+
+  /**
+   * Tree of a worktree's index as it stands.
+   *
+   * @param directory - Owned worktree.
+   * @returns Its tree object id, which `commit-tree` can archive.
+   * @throws {MeshError} When the index has unmerged entries.
+   */
+  private async indexTree(directory: string): Promise<string> {
+    try {
+      return await this.git(['write-tree'], directory);
+    } catch (error) {
+      throw new MeshError('FACTORY_GATED', 'The worktree has an unresolved merge; it was kept.', { cause: error });
+    }
   }
 
   /**

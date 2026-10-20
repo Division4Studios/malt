@@ -297,7 +297,7 @@ Deliveries, review snapshots, main baselines and scratch terminals each get an o
 2. Pause the factory.
 3. Run `factory-prune --apply`.
 
-Prune keeps a worktree while an unfinished delivery, a running attempt, an open terminal or a running baseline uses it. Removable means Git reports it prunable, or nothing live uses it. Uncommitted changes, and a detached commit that no branch or ref holds, are archived to `refs/malt/archive/prune/<id>` first, so no work is discarded. Removal unlinks the `.malt` link without following it, removes the folder and runs `git worktree prune`. Branches are never deleted.
+Prune keeps a worktree while an unfinished delivery, a running attempt, an open terminal or a running baseline uses it. Removable means Git reports it prunable, or nothing live uses it. Uncommitted changes, and a detached commit that no branch or ref holds, are archived to `refs/malt/archive/prune/<id>` first, with the staged index as a second parent, so no work is discarded. Removal unlinks the `.malt` link without following it, removes the folder and runs `git worktree prune`. Branches are never deleted.
 
 Prune never touches the primary checkout, worktrees outside `.malt/worktrees`, folders the ledger does not list, locked worktrees, or worktrees another environment created. It also refuses to remove anything while another environment owns `.malt/worktrees`. See [the API reference](api.md#prune-worktrees-and-snapshots).
 

@@ -10,7 +10,7 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
-import { readFile, symlink, writeFile } from 'node:fs/promises';
+import { readFile, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -190,6 +190,12 @@ async function scene(t: TestContext): Promise<Scene> {
     foreign: 'foreign-dev-1',
   };
   const orphan = await workspaces.create(ids.orphan, head, 'malt/orphan-1');
+  // The index holds versions the working tree no longer has: a staged edit, and a staged file deleted again.
+  await put(orphan, 'shared.txt', 'staged version\n');
+  await put(orphan, 'staged.txt', 'staged only\n');
+  await workspaces.git(['add', 'shared.txt', 'staged.txt'], orphan);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture file inside its temporary worktree.
+  await unlink(path.join(orphan, 'staged.txt'));
   await put(orphan, 'orphan.txt', 'untracked orphan work\n');
   await put(orphan, 'shared.txt', 'changed by the orphan\n');
   const looseTree = await workspaces.create(ids.loose, head, null);
@@ -357,6 +363,10 @@ await test('removal keeps owned work, archives orphans first, unlinks .malt with
   assert.ok(!isPresent(directories.orphan));
   assert.equal(await git('show', `${archive}:orphan.txt`), 'untracked orphan work');
   assert.equal(await git('show', `${archive}:shared.txt`), 'changed by the orphan');
+  assert.equal(await git('ls-tree', '--name-only', archive, 'staged.txt'), '', 'the working tree had deleted it');
+  // The index is the second parent, so staged versions the working tree no longer had survive too.
+  assert.equal(await git('show', `${archive}^2:shared.txt`), 'staged version');
+  assert.equal(await git('show', `${archive}^2:staged.txt`), 'staged only');
   assert.notEqual(await git('for-each-ref', '--format=%(refname)', 'refs/heads/malt/orphan-1'), '');
   assert.equal(
     await contents(path.join(context.mesh.directory, 'sentinel.txt')),
