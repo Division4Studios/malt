@@ -12,7 +12,7 @@ Roles are not permanent processes. The supervisor admits an assignment only when
 
 ![Assignment liveness: progress extends an assignment when quota headroom is verified and the machine is not under pressure; otherwise it is held; a stall or the hard ceiling stops it; the operator chooses continue or wait](https://raw.githubusercontent.com/Division4Studios/malt/main/docs/images/diagrams/assignment-liveness.svg)
 
-An assignment that makes meaningful progress is extended at each checkpoint, up to a hard ceiling. A stalled one stops. When an extension is not allowed, the Inbox asks you: **Continue 30 min**, **Continue 60 min** or **Wait**. Failures are classified and retried with per-class backoff and caps.
+An assignment that makes meaningful progress is extended at each checkpoint, up to a hard ceiling. A stalled one stops. When an extension is not allowed, the Inbox and the delivery manager ask you: **Continue 30 min**, **Continue 60 min** or **Wait**. Delivery detail, Sessions and the manager's mission table show each attempt's last progress, next checkpoint, extensions, quota headroom or **quota unknown**, and the recorded stop reason, such as `stalled 16 min` or `hard ceiling`, instead of a plain `interrupted`. Failures are classified and retried with per-class backoff and caps.
 
 ## Recover
 

@@ -105,6 +105,7 @@ const ASSETS = new Map<string, readonly [string, string]>([
     'pulls-controller',
     'manager-ui',
     'manager-controller',
+    'liveness-text',
     'diff-model',
     'diff-ui',
     'onboarding-model',

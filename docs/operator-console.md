@@ -280,7 +280,7 @@ Long assignments pass checkpoints. Productive work is extended automatically whe
 - **Continue 30 min** or **Continue 60 min** runs the step once more from the preserved worktree, bounded by those minutes and without the automatic extension gate. The CLI and MCP accept 5 to 240 minutes.
 - **Wait** returns the step to the normal retry rules.
 
-The decision is fenced to the attempt, its head and its stage, so a stale click can never extend a replacement attempt. The operation is `factory_checkpoint_decide`. A running delivery's **Liveness** fact shows the last progress signal, the time to the next checkpoint and how often it was extended. See [assignment liveness and retries](software-factory.md#assignment-liveness-and-retries).
+The decision is fenced to the attempt, its head and its stage, so a stale click can never extend a replacement attempt. The operation is `factory_checkpoint_decide`. A running delivery's **Elapsed** fact shows how long the attempt has run. Its **Liveness** fact shows the last progress signal, the time to the next checkpoint and how often it was extended, or the stop reason while a checkpoint stops it. **Quota** shows the provider's verified headroom and when it was read, or **quota unknown** (a stale reading counts as unknown). Once an attempt has stopped at a checkpoint, **Last stop** shows the recorded reason, such as `stalled 16 min` or `hard ceiling`, and whether your decision is pending. Sessions shows the same reason on the attempt instead of a plain `interrupted`, and the delivery manager offers the same decision buttons. See [assignment liveness and retries](software-factory.md#assignment-liveness-and-retries).
 
 ### Approval gates
 
@@ -323,7 +323,7 @@ Cards show the objective, the workflow, held state, dependency waits, the pull r
 
 A delivery's page shows its pipeline step by step, findings, rulings and source:
 
-- **Facts:** phase, workflow, developer, attempts, head, base, pull request, what is running now and its **Liveness**, retry state, what it is waiting on, and the blocker or last error. **Customized** summarizes step overrides; **Brief revalidation** shows **Confirmed** or **Needs revising** when `briefRevalidation` is on (retry to implement the brief unchanged, or instruct the lead to replan).
+- **Facts:** phase, workflow, developer, attempts, head, base, pull request, what is running now with its **Elapsed** time, **Liveness** and **Quota**, the **Last stop** reason, retry state, what it is waiting on, and the blocker or last error. **Customized** summarizes step overrides; **Brief revalidation** shows **Confirmed** or **Needs revising** when `briefRevalidation` is on (retry to implement the brief unchanged, or instruct the lead to replan).
 - **Pipeline:** each step with its state, blind review and approval-gate markers, preferred provider and latest result.
 - **Findings** and **Rulings on findings** from the independent reviews.
 - **Repair rounds:** CI repair and merge-conflict repair rounds ([how repairs work](software-factory.md#repairs)).
@@ -428,7 +428,7 @@ See [Local delivery, Copilot and cloud sessions](local-delivery.md) for setup an
 
 ![Attempts list and an attempt transcript](images/screenshots/sessions.png)
 
-**Sessions → Attempts & transcripts** lists every bounded attempt with filters for role, kind, provider and state, and a search box. Each attempt shows its model, tokens (input, cache read, cache write, output, reasoning), cost source, turns, API time, tool calls and liveness. **Open transcript** shows what the attempt read, ran and changed as a tree of tool calls with results and exit codes, and the files it touched. Long text is truncated for display; the full text stays in the attempt log.
+**Sessions → Attempts & transcripts** lists every bounded attempt with filters for role, kind, provider and state, and a search box. Each attempt shows its model, tokens (input, cache read, cache write, output, reasoning), cost source, turns, API time, tool calls and liveness. An attempt that a checkpoint stopped shows its recorded stop reason in the row, marked **awaiting your decision** while a checkpoint decision is pending. **Open transcript** shows what the attempt read, ran and changed as a tree of tool calls with results and exit codes, and the files it touched. Long text is truncated for display; the full text stays in the attempt log.
 
 ### Workers & terminals
 
