@@ -13,6 +13,7 @@ import { Store } from '../src/store.ts';
 import { proposal, readObservation } from './fixtures/recommendations.ts';
 import { createCleanup, createProject } from './helpers.ts';
 
+import type { TrackerKey } from '../src/factory/tracker-key.ts';
 import type { ObservedIssue } from '../src/github-issues.ts';
 
 /** Durable inert intent row; no credential fields are projected. */
@@ -97,9 +98,9 @@ await test('concurrent duplicate clicks share sequential inspection; rejection h
     reason: 'Fixture submission',
   });
   let reads = 0;
-  const reader = async (number: number): Promise<ObservedIssue> => {
+  const reader = async (key: TrackerKey): Promise<ObservedIssue> => {
     reads += 1;
-    return await readObservation(number);
+    return await readObservation(key);
   };
   const request = {
     operationId: randomUUID(),

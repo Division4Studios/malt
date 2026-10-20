@@ -17,6 +17,7 @@ import { reconcileDependencies } from './dependencies.ts';
 import { chooseMergePath, readProtection } from './merge-path.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
+import { formatTrackerKey, githubIssueNumber, githubKey, issueLabel, parentLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
@@ -25,6 +26,7 @@ import type { CheckLog, CheckState } from './ci-logs.ts';
 import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
+import type { TrackerKey } from './tracker-key.ts';
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
 /** Bound GitHub's machine-readable close reason separately from issue prose. */
@@ -114,7 +116,13 @@ export interface IssueState {
   /** GitHub close reason such as completed or not_planned; null while open or unspecified. */
   readonly stateReason: string | null;
 }
-/** Injectable external delivery boundary, including fixture GitHub merges. */
+
+/**
+ * Injectable external delivery boundary, including fixture GitHub merges.
+ * Tracker issues are addressed by typed key; pull requests, which live in the
+ * source repository, by number. A remote refuses a key of a tracker it does
+ * not serve.
+ */
 export interface DeliveryRemote {
   /** Current verified saved source identity, read without a native subprocess. */
   readonly issueRepositoryId?: () => string;
@@ -123,7 +131,7 @@ export interface DeliveryRemote {
   /** Bounded selected-repository observations; absent fixture capability is never complete coverage. */
   readonly issueCorpus?: (input: unknown) => Promise<IssueCorpusPage>;
   /** Current issue identity/content revision for exact reviewed decisions. */
-  readonly observedIssue?: (number: number) => Promise<ObservedIssue>;
+  readonly observedIssue?: (key: TrackerKey) => Promise<ObservedIssue>;
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
@@ -144,9 +152,9 @@ export interface DeliveryRemote {
   /** Refresh externally visible MALT deliveries for reconciliation. */
   readonly readyIssues: () => Promise<ReadyIssue[]>;
   /** Read one delivery issue's open/closed state without mutating it. */
-  readonly issueState: (issue: number) => Promise<IssueState>;
+  readonly issueState: (key: TrackerKey) => Promise<IssueState>;
   /** Confirm every native child is closed before cleaning the parent ticket. */
-  readonly parentComplete: (parent: number, children: readonly number[]) => Promise<boolean>;
+  readonly parentComplete: (parent: TrackerKey, children: readonly TrackerKey[]) => Promise<boolean>;
   /** Read raw logs of failed checks; absent remotes repair from check names alone. */
   readonly checkLogs?: (checks: readonly CheckState[]) => Promise<CheckLog[]>;
 }
@@ -233,11 +241,11 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Refresh one native issue revision before a later human-approved action.
    *
-   * @param number - Repository-local issue number.
+   * @param key - Typed key of an issue in the connected repository.
    * @returns Current bounded observation.
    */
-  public async observedIssue(number: number): Promise<ObservedIssue> {
-    return await this.github.issues().get(number);
+  public async observedIssue(key: TrackerKey): Promise<ObservedIssue> {
+    return await this.github.issues().get(githubIssue(key));
   }
 
   /**
@@ -365,7 +373,7 @@ export class GitHubDelivery implements DeliveryRemote {
         head: record.branch,
         base: config.baseBranch,
         draft: false,
-        body: `Delivery for #${String(record.issue)}; parent #${String(record.parentIssue)}.\n\n${record.description}\n\nAcceptance criteria:\n${criteria}\n\n<!-- mlt-record:${record.id} -->\n\nMALT closes this issue only after independent reviews, merge and merged-main verification.`,
+        body: `Delivery for ${issueLabel(record)}; parent ${parentLabel(record)}.\n\n${record.description}\n\nAcceptance criteria:\n${criteria}\n\n<!-- mlt-record:${record.id} -->\n\nMALT closes this issue only after independent reviews, merge and merged-main verification.`,
       }),
     );
     return { number: created.number, url: created.html_url };
@@ -471,7 +479,7 @@ export class GitHubDelivery implements DeliveryRemote {
     }
     const endpoint = `repos/${connection.repository}/issues/${String(record.issue)}`;
     if (record.kind === 'close' || record.kind === 'close_not_planned') {
-      const current = await this.issueState(record.issue);
+      const current = await this.issueState(githubKey(record.issue));
       if (current.state === 'closed') {
         return;
       }
@@ -553,14 +561,12 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Read only the state of one delivery issue in the connected repository.
    *
-   * @param issue - Repository-local issue number.
+   * @param key - Typed key of an issue in the connected repository.
    * @returns Open/closed state and GitHub close reason.
-   * @throws {MeshError} For a PR number, an invalid number or another repository.
+   * @throws {MeshError} For a PR number, an invalid number, another tracker's key or another repository.
    */
-  public async issueState(issue: number): Promise<IssueState> {
-    if (!Number.isSafeInteger(issue) || issue <= 0) {
-      throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
-    }
+  public async issueState(key: TrackerKey): Promise<IssueState> {
+    const issue = githubIssue(key);
     const { repository } = await this.connection();
     const parsed = issueStateSchema.parse(await this.runner(['api', `repos/${repository}/issues/${String(issue)}`]));
     if (parsed.pull_request !== undefined) {
@@ -582,23 +588,25 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Prevent closing a feature with unresolved native children outside our ledger.
    *
-   * @param parent - Feature issue number.
-   * @param children - Local verified child issue numbers.
+   * @param parent - Feature issue key.
+   * @param children - Local verified child issue keys.
    * @returns Whether all actual native children are closed and expected children exist.
    */
-  public async parentComplete(parent: number, children: readonly number[]): Promise<boolean> {
+  public async parentComplete(parent: TrackerKey, children: readonly TrackerKey[]): Promise<boolean> {
+    const parentNumber = githubIssue(parent);
+    const expected = children.map((child) => githubIssue(child));
     const connection = await this.connection();
     const pages = nativeChildPagesSchema.parse(
       await this.runner([
         'api',
-        `repos/${connection.repository}/issues/${String(parent)}/sub_issues?per_page=100`,
+        `repos/${connection.repository}/issues/${String(parentNumber)}/sub_issues?per_page=100`,
         '--paginate',
         '--slurp',
       ]),
     );
     const actual = pages.flat();
     return (
-      children.every((number) => actual.some((child) => child.number === number)) &&
+      expected.every((number) => actual.some((child) => child.number === number)) &&
       actual.every((child) => child.state === 'closed')
     );
   }
@@ -672,6 +680,28 @@ export class GitHubDelivery implements DeliveryRemote {
     }
     return status.data.connection;
   }
+}
+
+/**
+ * The issue number of a key a numbered tracker serves: GitHub, or local
+ * delivery, which numbers its issues the same way.
+ *
+ * @param key - Typed tracker key.
+ * @returns Positive issue number.
+ * @throws {MeshError} INVALID_INPUT for another tracker's key or a number that is not a positive integer.
+ */
+export function githubIssue(key: TrackerKey): number {
+  const issue = githubIssueNumber(key);
+  if (issue === null) {
+    throw new MeshError(
+      'INVALID_INPUT',
+      `${formatTrackerKey(key)} is a ${key.provider} key; this delivery remote addresses numbered issues only.`,
+    );
+  }
+  if (!Number.isSafeInteger(issue) || issue <= 0) {
+    throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
+  }
+  return issue;
 }
 
 /**

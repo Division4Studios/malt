@@ -11,6 +11,7 @@
  * @file
  */
 import { JOB_PHASE } from './seats.ts';
+import { issueKey, issueLabel } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { IssueState } from './remote.ts';
@@ -66,13 +67,13 @@ export function isAlreadyRunning(
 /**
  * Explain why a closed issue blocks the assignment and how to recover.
  *
- * @param issue - Delivery issue number.
+ * @param issue - Delivery issue, as people see it.
  * @param kind - Assignment kind that was not started.
  * @param reason - GitHub close reason.
  * @returns Operator-facing blocker.
  */
-function closedMessage(issue: number, kind: string, reason = 'unspecified'): string {
-  return `Issue #${String(issue)} is closed (state_reason: ${reason}), so no ${ASSIGNMENT_NAMES[kind] ?? kind} assignment was started. Operator decision required: adopt the merge that delivered it, or reopen or re-scope the issue. Head, base, branch and worktree are preserved.`;
+function closedMessage(issue: string, kind: string, reason = 'unspecified'): string {
+  return `Issue ${issue} is closed (state_reason: ${reason}), so no ${ASSIGNMENT_NAMES[kind] ?? kind} assignment was started. Operator decision required: adopt the merge that delivered it, or reopen or re-scope the issue. Head, base, branch and worktree are preserved.`;
 }
 
 /**
@@ -105,7 +106,7 @@ interface Observation {
  * @returns Issue state and PR state.
  */
 async function readState(context: FactoryContext, task: FactoryTask, intent: JobIntent): Promise<Observation> {
-  const issue = await context.remote.issueState(task.issue);
+  const issue = await context.remote.issueState(issueKey(task));
   if (intent.kind === 'develop' || task.pr === null) {
     return { issue, pr: 'OPEN' };
   }
@@ -221,7 +222,7 @@ export class IssueGuard {
         return {
           ...value,
           phase: 'blocked',
-          error: closedMessage(task.issue, intent.kind, observed.issue.stateReason ?? undefined),
+          error: closedMessage(issueLabel(task), intent.kind, observed.issue.stateReason ?? undefined),
         };
       });
       return false;
@@ -260,7 +261,7 @@ export class IssueGuard {
       this.failures.set(task.id, {
         version: task.version,
         phase: task.phase,
-        reason: `Waiting to confirm issue #${String(task.issue)} is open before ${stage}: ${detail}`.slice(
+        reason: `Waiting to confirm issue ${issueLabel(task)} is open before ${stage}: ${detail}`.slice(
           0,
           WAITING_LIMIT,
         ),

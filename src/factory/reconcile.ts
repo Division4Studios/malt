@@ -30,6 +30,7 @@ import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
+import { issueKey, parentKey } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
@@ -430,8 +431,8 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       parent === null ||
       // eslint-disable-next-line no-await-in-loop -- Confirm each feature's actual native children before committing its independent closure intent.
       !(await context.remote.parentComplete(
-        parent,
-        tasks.map((task) => task.issue),
+        parentKey({ parentIssue: parent, parentKey: feature.parentKey }),
+        tasks.map((task) => issueKey(task)),
       ))
     ) {
       continue;
