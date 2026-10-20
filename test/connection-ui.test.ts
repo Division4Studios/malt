@@ -192,13 +192,14 @@ function watchStorage(t: TestContext): string[] {
  *
  * @param t - Owns the mock.
  * @param answer - Answer for a route, or an error to reject with.
+ * @param gate - Optional promise that holds every answer until it resolves.
  * @returns Requested routes.
  */
-function serve(t: TestContext, answer: (route: string) => unknown): string[] {
+function serve(t: TestContext, answer: (route: string) => unknown, gate?: Promise<unknown>): string[] {
   const routes: string[] = [];
   t.mock.method(globalThis, 'fetch', async (route: string) => {
-    await Promise.resolve();
     routes.push(route);
+    await (gate ?? Promise.resolve());
     const body = answer(route);
     if (Error.isError(body)) {
       throw body;
@@ -213,20 +214,25 @@ function serve(t: TestContext, answer: (route: string) => unknown): string[] {
  *
  * @param t - Owns the DOM.
  * @param results - Results the control hands back per operation.
+ * @param scope - Selected project, and an optional gate that holds each control's answer.
+ * @param scope.project - Currently selected project.
+ * @param scope.gate - Resolves when the held answers may arrive.
  * @returns View root, update and sent controls.
  */
 function mount(
   t: TestContext,
   results: Readonly<Record<string, unknown>> = {},
+  scope: { readonly project: () => string; readonly gate?: Promise<unknown> } = { project: () => 'home' },
 ): { root: FakeElement; update: (snapshot: unknown) => void; sent: Sent[]; selected: string[] } {
   const dom = installDom(t);
   const sent: Sent[] = [];
   const selected: string[] = [];
   const view = createConnectionView({
-    project: () => 'home',
+    project: scope.project,
     control: async (operation, input, onResult) => {
-      await Promise.resolve();
       sent.push({ operation, input });
+      // A test may hold every control's answer until it releases the gate.
+      await (scope.gate ?? Promise.resolve());
       onResult?.(results[operation] ?? {});
       return true;
     },
@@ -427,4 +433,98 @@ await test('with local delivery the source section shows the hub, and a first sa
   await settle();
   assert.ok(Reflect.get(sent[0]?.input ?? {}, 'tracker') !== undefined, 'the tracker is saved with the source');
   assert.deepEqual(Reflect.get(sent[0]?.input ?? {}, 'source'), { repository: 'example/app', repositoryId: 'R_1' });
+});
+
+/** A second project's saved connection, with its own repository. */
+const OTHER = structuredClone(SAVED);
+OTHER.github.connectionV2.source.repository = 'other/service';
+
+await test('a discovery answer that arrives after a project switch never fills the new project', async (t) => {
+  for (const [label, select] of [
+    ['Discover repositories', 'Repository'],
+    ['Discover Projects', 'GitHub Project'],
+  ] as const) {
+    const gate = Promise.withResolvers<undefined>();
+    serve(t, () => DISCOVERY, gate.promise);
+    let project = 'a';
+    const { root, update } = mount(t, {}, { project: () => project });
+    update(SAVED);
+    fire(buttonNamed(root, label), 'click');
+    project = 'b';
+    update(OTHER);
+    assert.equal(Reflect.get(buttonNamed(root, label), 'disabled'), false, 'project b is not left busy');
+    gate.resolve(undefined);
+    await settle();
+    // A later push that changes the snapshot redraws from project b's own drafts.
+    const changed = structuredClone(OTHER);
+    changed.github.connectionV2.source.verification.checkedAt = '2026-10-19T00:00:00.000Z';
+    update(changed);
+    assert.deepEqual(root.querySelectorAll('select'), [], `${label}: no ${select} choice from project a in project b`);
+    assert.doesNotMatch(root.textContent, /Discovery finished/v);
+    t.mock.restoreAll();
+  }
+});
+
+await test('Jira findings for values edited during the check are dropped, so they are never saved', async (t) => {
+  const gate = Promise.withResolvers<undefined>();
+  serve(t, () => CAPABILITIES);
+  const { root, update, sent } = mount(
+    t,
+    { jira_discover: JIRA_DISCOVERY },
+    { project: () => 'home', gate: gate.promise },
+  );
+  update(SAVED);
+  const jira = root.querySelectorAll('input').find((node) => Reflect.get(node, 'value') === 'jira');
+  assert.ok(jira !== undefined);
+  Reflect.set(jira, 'checked', true);
+  fire(jira, 'change');
+  for (const [label, value] of [
+    ['Jira Cloud site', 'https://example.atlassian.net'],
+    ['Project key', 'PROJ'],
+    ['Account email', 'robot@example.com'],
+  ] as const) {
+    const input = control(root, label, 'input');
+    Reflect.set(input, 'value', value);
+    fire(input, 'input');
+  }
+  fire(buttonNamed(root, 'Check Jira project'), 'click');
+  await settle();
+  // The operator edits the key while Jira is still answering for PROJ.
+  const key = control(root, 'Project key', 'input');
+  Reflect.set(key, 'value', 'OTHER');
+  fire(key, 'input');
+  gate.resolve(undefined);
+  await settle();
+  assert.match(root.textContent, /The form changed while Jira was checked/v);
+  assert.doesNotMatch(root.textContent, /What Jira reported/v, 'the stale findings are not shown');
+  const save = buttonNamed(root, 'Save work tracker');
+  assert.equal(Reflect.get(save, 'disabled'), true);
+  fire(save, 'click');
+  await settle();
+  assert.deepEqual(
+    sent.map((entry) => entry.operation),
+    ['jira_discover'],
+    'the project checked for PROJ is never saved with the edited form',
+  );
+});
+
+await test("a save answered after a project switch leaves the new project's drafts alone", async (t) => {
+  const gate = Promise.withResolvers<undefined>();
+  serve(t, () => DISCOVERY);
+  let project = 'a';
+  const { root, update, sent } = mount(t, {}, { project: () => project, gate: gate.promise });
+  update(SAVED);
+  fire(buttonNamed(root, 'Discover repositories'), 'click');
+  await settle();
+  choose(control(root, 'Repository', 'select'), 'R_1');
+  fire(buttonNamed(root, 'Save source control'), 'click');
+  project = 'b';
+  update(OTHER);
+  fire(buttonNamed(root, 'Discover repositories'), 'click');
+  await settle();
+  gate.resolve(undefined);
+  await settle();
+  assert.equal(sent.length, 1, 'only project a saved');
+  assert.ok(control(root, 'Repository', 'select'), "project b's discovery is kept");
+  assert.doesNotMatch(root.textContent, /Saved\. Verify the connection/v, "a's outcome is not announced in b");
 });

@@ -107,17 +107,19 @@ interface JiraDraft {
  * @param selection - Current choice, and what to call with a new one.
  * @param selection.value - Current choice.
  * @param selection.change - Called with the new value.
+ * @param selection.isLocked - Whether a read or control is in flight, so the choice cannot change under it.
  * @returns Label wrapping the select.
  */
 function choice(
   label: string,
   key: string,
   options: readonly (readonly [string, string])[],
-  selection: { readonly value: string; readonly change: (value: string) => void },
+  selection: { readonly value: string; readonly change: (value: string) => void; readonly isLocked: boolean },
 ): HTMLLabelElement {
   const { value, change } = selection;
   const select = element('select');
   select.dataset['focusKey'] = key;
+  select.disabled = selection.isLocked;
   const prompt = element('option', '', t('Choose…'));
   prompt.value = '';
   select.append(prompt);
@@ -234,6 +236,8 @@ class ConnectionPanel {
   private jira: JiraDraft = { form: jiraForm(null), findings: null, access: null };
   /** Whether a read or control is in flight. */
   private isBusy = false;
+  /** Bumped when the drafts are replaced, so a late answer for older drafts is dropped. */
+  private generation = 0;
   /** Shell callbacks. */
   private readonly hooks: ConnectionHooks;
 
@@ -262,6 +266,8 @@ class ConnectionPanel {
     if (project !== this.scope) {
       // Drafts belong to one project; another project starts from its own saved connection.
       this.scope = project;
+      this.generation += 1;
+      this.isBusy = false;
       this.drawn = '';
       this.githubTracker = { choices: null, projectId: '', fieldId: '' };
       this.githubSource = { choices: null, repositoryId: '' };
@@ -367,7 +373,7 @@ class ConnectionPanel {
       cssClass: 'button secondary',
       key: 'connection-tracker-discover',
       action: () => {
-        void this.discoverTracker(draft.choices?.owner ?? view.owner, 0);
+        void this.discoverTracker(draft.choices?.owner ?? view.owner, null);
       },
     });
     discover.disabled = this.isBusy;
@@ -386,6 +392,7 @@ class ConnectionPanel {
               choices.fields.map((field) => [field.id, field.name]),
               {
                 value: draft.fieldId,
+                isLocked: this.isBusy,
                 change: (fieldId) => {
                   this.githubTracker = { ...draft, fieldId };
                   this.render();
@@ -401,8 +408,9 @@ class ConnectionPanel {
         choices.owners.map((owner) => [owner, owner]),
         {
           value: choices.owner,
+          isLocked: this.isBusy,
           change: (owner) => {
-            void this.discoverTracker(owner, 0);
+            void this.discoverTracker(owner, null);
           },
         },
       ),
@@ -412,10 +420,10 @@ class ConnectionPanel {
         choices.projects.map((project) => [project.id, `#${String(project.number)} ${project.title}`]),
         {
           value: draft.projectId,
+          isLocked: this.isBusy,
           change: (projectId) => {
             const project = choices.projects.find((candidate) => candidate.id === projectId);
-            this.githubTracker = { ...draft, projectId, fieldId: '' };
-            void this.discoverTracker(choices.owner, project?.number ?? 0);
+            void this.discoverTracker(choices.owner, project ?? null);
           },
         },
       ),
@@ -691,6 +699,7 @@ class ConnectionPanel {
         choices.repositories.map((repository) => [repository.id, repository.name]),
         {
           value: draft.repositoryId,
+          isLocked: this.isBusy,
           change: (repositoryId) => {
             this.githubSource = { ...draft, repositoryId };
             this.render();
@@ -793,29 +802,33 @@ class ConnectionPanel {
   }
 
   /**
-   * Run one read or control with the view marked busy.
+   * Run one read or control with the view marked busy. The work is told
+   * whether its drafts are still current before it changes them: a project
+   * switch replaces the drafts, and a late answer for the old ones is dropped.
    *
    * @param message - Progress text announced while it runs.
-   * @param work - The read or control; resolves with the text to announce after.
+   * @param work - The read or control, given a check that its drafts are still current; resolves with the text to announce after.
    */
-  private async run(message: string, work: () => Promise<string>): Promise<void> {
+  private async run(message: string, work: (isCurrent: () => boolean) => Promise<string>): Promise<void> {
     if (this.isBusy) {
       return;
     }
-    const project = this.scope;
+    const started = this.generation;
+    const isCurrent = (): boolean => started === this.generation;
     this.isBusy = true;
     this.status.textContent = message;
     this.render();
     let outcome: string;
     try {
-      outcome = await work();
+      outcome = await work(isCurrent);
     } catch (error) {
       outcome = t('Not done: {error}', { error: error instanceof Error ? error.message : t('unknown error') });
     }
-    this.isBusy = false;
-    if (project !== this.hooks.project()) {
+    if (!isCurrent()) {
+      // Another project's drafts replaced these while the work ran; its view is already drawn.
       return;
     }
+    this.isBusy = false;
     this.status.textContent = outcome;
     this.render();
   }
@@ -824,14 +837,23 @@ class ConnectionPanel {
    * Discover an owner's Projects, or one Project's fields.
    *
    * @param owner - Owner to list, or empty for the signed-in account.
-   * @param projectNumber - Project to inspect, or zero.
+   * @param chosen - Project whose fields to read, or `null` to list Projects only.
+   * @param chosen.id - Its node ID, kept as the choice.
+   * @param chosen.number - Its number, sent to discovery.
    */
-  private async discoverTracker(owner: string, projectNumber: number): Promise<void> {
+  private async discoverTracker(
+    owner: string,
+    chosen: { readonly id: string; readonly number: number } | null,
+  ): Promise<void> {
     const project = this.hooks.project();
-    await this.run(t('Discovering GitHub Projects…'), async () => {
+    await this.run(t('Discovering GitHub Projects…'), async (isCurrent) => {
+      const projectNumber = chosen?.number ?? 0;
       const choices = readDiscovery(await request(discoveryRoute(project, { repository: '', owner, projectNumber })));
-      const projectId = projectNumber === 0 ? '' : this.githubTracker.projectId;
-      this.githubTracker = { choices, projectId, fieldId: '' };
+      if (!isCurrent()) {
+        return '';
+      }
+      // The fields belong to the Project this read asked about, never to a choice made since.
+      this.githubTracker = { choices, projectId: chosen?.id ?? '', fieldId: '' };
       return t(choices.errors.length === 0 ? 'Discovery finished.' : 'Discovery finished with problems.');
     });
   }
@@ -839,10 +861,13 @@ class ConnectionPanel {
   /** Discover the repositories the signed-in account can reach. */
   private async discoverSource(): Promise<void> {
     const project = this.hooks.project();
-    await this.run(t('Discovering repositories…'), async () => {
+    await this.run(t('Discovering repositories…'), async (isCurrent) => {
       const choices = readDiscovery(
         await request(discoveryRoute(project, { repository: '', owner: '', projectNumber: 0 })),
       );
+      if (!isCurrent()) {
+        return '';
+      }
       this.githubSource = { choices, repositoryId: '' };
       return t(choices.errors.length === 0 ? 'Discovery finished.' : 'Discovery finished with problems.');
     });
@@ -856,13 +881,22 @@ class ConnectionPanel {
       return;
     }
     const project = this.hooks.project();
-    await this.run(t('Checking the Jira project…'), async () => {
-      const { operation, input } = jiraDiscoverInput(this.jira.form);
+    const submitted = this.jira.form;
+    await this.run(t('Checking the Jira project…'), async (isCurrent) => {
+      const { operation, input } = jiraDiscoverInput(submitted);
       const answer: { findings: JiraFindings | null } = { findings: null };
       const isDone = await this.hooks.control(operation, input, (result) => {
         answer.findings = readJiraDiscovery(result);
       });
       const access = readJiraAccess(await request(scoped(project, '/api/capabilities')));
+      if (!isCurrent()) {
+        return '';
+      }
+      // Findings describe exactly the values that were checked; an edit since then makes them stale.
+      if (JSON.stringify(this.jira.form) !== JSON.stringify(submitted)) {
+        this.jira = { ...this.jira, findings: null, access };
+        return t('The form changed while Jira was checked. Check the Jira project again before saving.');
+      }
       this.jira = { ...this.jira, findings: answer.findings, access };
       return t(isDone && answer.findings !== null ? 'Jira answered.' : 'The check did not run. The notice says why.');
     });
@@ -874,11 +908,15 @@ class ConnectionPanel {
    * @param control - Section save.
    */
   private async save(control: SectionSave): Promise<void> {
-    await this.run(t('Saving…'), async () => {
+    await this.run(t('Saving…'), async (isCurrent) => {
       const isSaved = await this.hooks.control(control.operation, control.input);
+      if (!isCurrent()) {
+        return '';
+      }
       if (isSaved) {
         this.githubTracker = { choices: null, projectId: '', fieldId: '' };
         this.githubSource = { choices: null, repositoryId: '' };
+        this.jira = { ...this.jira, findings: null };
         // The next push redraws with the saved section, which stays unverified until checked.
         this.drawn = '';
       }
@@ -888,8 +926,11 @@ class ConnectionPanel {
 
   /** Verify both saved sections. */
   private async verify(): Promise<void> {
-    await this.run(t('Verifying…'), async () => {
+    await this.run(t('Verifying…'), async (isCurrent) => {
       const isDone = await this.hooks.control('github_verify', {});
+      if (!isCurrent()) {
+        return '';
+      }
       this.drawn = '';
       return t(isDone ? 'Verified. Each section shows its state.' : 'Not verified. The notice says why.');
     });

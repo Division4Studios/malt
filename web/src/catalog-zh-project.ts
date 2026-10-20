@@ -451,4 +451,6 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
     '工作跟踪器和源代码管理，各自独立发现、保存和验证。',
   Connections: '连接',
   'GitHub repository for GitHub delivery': '用于 GitHub 交付的 GitHub 仓库',
+  'The form changed while Jira was checked. Check the Jira project again before saving.':
+    '检查 Jira 时表单已更改。保存前请重新检查 Jira 项目。',
 };
