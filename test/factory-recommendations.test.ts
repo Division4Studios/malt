@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { z } from 'zod/v3';
+
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { recommendationStateSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
@@ -216,4 +218,31 @@ await test('project isolation, additive migration, rejected replay and bounded h
   const read = ledger.markRead(revised.id, revised.revision);
   assert.deepEqual(ledger.markRead(revised.id, revised.revision), read);
   assert.equal(store.db.prepare('SELECT value FROM preserved_fixture').get()?.['value'], 'existing');
+});
+
+await test('an approved record nothing executes is settled: not pending, and changed content supersedes it', (t) => {
+  const defer = createCleanup(t);
+  const store = new Store(createProject(defer));
+  defer(() => {
+    store.close();
+  });
+  const { recommendations: ledger } = new FactoryRepository(store);
+  const related = { ...proposal, kind: 'related' as const, survivor: null };
+  const approve = (body: typeof proposal | typeof related): { id: string; revision: string } => {
+    const record = ledger.propose(body);
+    const fence = { id: record.id, revision: record.revision, reason: 'Fixture' };
+    ledger.transition({ ...fence, state: 'proposed', next: 'awaiting_human' });
+    ledger.transition({ ...fence, state: 'awaiting_human', next: 'approved' });
+    return record;
+  };
+  const inert = approve(related);
+  const executable = approve(proposal);
+  const counts = z.object({ counts: z.object({ pending: z.number(), total: z.number() }) });
+  assert.deepEqual(counts.parse(ledger.inspect({ kind: 'list' })).counts, { pending: 1, total: 2 });
+  const revised = ledger.propose({ ...related, evidence: ['Changed evidence'] });
+  assert.equal(revised.id, inert.id);
+  assert.equal(revised.state, 'proposed');
+  assert.equal(ledger.get(inert.id, inert.revision)?.state, 'approved', 'the decided revision is kept as it was');
+  assert.throws(() => ledger.propose({ ...proposal, evidence: ['Changed evidence'] }), { code: 'FACTORY_GATED' });
+  assert.equal(ledger.get(executable.id)?.revision, executable.revision);
 });
