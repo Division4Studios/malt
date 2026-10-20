@@ -51,6 +51,13 @@ declare module '*/web/dist/connection-model.js' {
     readonly tracker: SectionView;
     /** Saved Jira tracker settings. */
     readonly jira: JiraSettings | null;
+    /** The saved Jira tracker's intake filter, stage mapping and last intake read. */
+    readonly jiraWorkflow: {
+      readonly jql: string;
+      readonly stages: Readonly<Record<string, string>>;
+      readonly statuses: readonly { readonly id: string; readonly name: string }[];
+      readonly lastIntake: unknown;
+    } | null;
     /** Source provider in use. */
     readonly sourceProvider: 'github' | 'local';
     /** GitHub source. */
