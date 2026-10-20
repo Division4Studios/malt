@@ -8,10 +8,7 @@
  */
 import { z } from 'zod/v3';
 
-import { selectOne } from '../database.ts';
 import { jiraIssueKeySchema } from '../jira/client.ts';
-
-import type { Store } from '../store.ts';
 
 /** Trackers that can hold a work item. */
 export const TRACKER_KEY_PROVIDERS = ['github', 'jira'] as const;
@@ -116,22 +113,58 @@ export function compareTrackerKeys(left: TrackerKey, right: TrackerKey): number 
   return byProject === 0 ? leftNumber - rightNumber : byProject;
 }
 
-/** One `factory_task_keys` row. */
-const keyRowSchema = z.object({ tracker_provider: z.string(), external_key: z.string() });
+/** A ledger record's issue: the numeric handle every ledger row keeps, and the typed key a non-GitHub tracker wrote. */
+export interface KeyedIssue {
+  /** Numeric ledger handle: the GitHub or local issue number, or a Jira issue's stable numeric ID. */
+  readonly issue: number;
+  /** Typed key; absent on GitHub and local records, whose key is their issue number. */
+  readonly trackerKey?: TrackerKey | undefined;
+}
+/** A ledger record's parent issue, keyed the same way. */
+export interface KeyedParent {
+  /** Numeric ledger handle of the parent issue. */
+  readonly parentIssue: number;
+  /** Typed parent key; absent on GitHub and local records. */
+  readonly parentKey?: TrackerKey | undefined;
+}
 
 /**
- * A delivery's typed key from the additive side table the ledger already keeps.
+ * The typed key of a delivery or imported issue. Records saved before typed
+ * keys, and every GitHub or local record, derive it from their issue number.
  *
- * @param store - Selected project's SQLite owner.
- * @param taskId - Delivery identifier.
- * @returns Typed key, or `null` for an unknown delivery or an unrecognised row.
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Typed key.
  */
-export function taskTrackerKey(store: Store, taskId: string): TrackerKey | null {
-  const row = selectOne(
-    store.db,
-    keyRowSchema,
-    'SELECT tracker_provider, external_key FROM factory_task_keys WHERE task_id=?',
-    taskId,
-  );
-  return row === undefined ? null : parseTrackerKey(row.tracker_provider, row.external_key);
+export function issueKey(record: KeyedIssue): TrackerKey {
+  return record.trackerKey ?? githubKey(record.issue);
+}
+
+/**
+ * The typed key of a record's parent issue.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Typed parent key.
+ */
+export function parentKey(record: KeyedParent): TrackerKey {
+  return record.parentKey ?? githubKey(record.parentIssue);
+}
+
+/**
+ * How a record's issue is shown to people: `#123` or `PROJ-123`.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Display text.
+ */
+export function issueLabel(record: KeyedIssue): string {
+  return formatTrackerKey(issueKey(record));
+}
+
+/**
+ * How a record's parent issue is shown to people.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Display text.
+ */
+export function parentLabel(record: KeyedParent): string {
+  return formatTrackerKey(parentKey(record));
 }

@@ -56,6 +56,7 @@ import { SPEND_OPERATIONS, spendSchemas } from './spend-schema.ts';
 import { stepOverridesControlSchema, stepOverridesSchema } from './step-override-schema.ts';
 import { TELEMETRY_OPERATIONS, telemetrySchemas } from './telemetry-schema.ts';
 import { terminalPolicySchema } from './terminal-lifetime.ts';
+import { trackerKeySchema } from './tracker-key.ts';
 import {
   approvalSchema,
   approveRequestSchema,
@@ -310,6 +311,8 @@ export const featureSchema = z.object({
   productPlan: resultSchema.nullable(),
   plan: resultSchema.nullable(),
   parentIssue: z.number().int().positive().nullable(),
+  /** Typed key of the parent issue; absent for GitHub and local parents, whose key is `parentIssue`. */
+  parentKey: trackerKeySchema.optional(),
   error: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
@@ -367,8 +370,13 @@ export const taskSchema = z.object({
   scopeReplacement: z.string().uuid().optional(),
   featureId: z.string().uuid().nullable(),
   scopeCleanup: z.object({ at: z.number(), note: z.string() }).optional(),
+  /** Numeric ledger handle: the GitHub or local issue number, or a Jira issue's stable numeric ID. */
   issue: z.number().int().positive(),
   parentIssue: z.number().int().positive(),
+  /** Typed tracker key; absent for GitHub and local deliveries, whose key is `issue` (see `issueKey`). */
+  trackerKey: trackerKeySchema.optional(),
+  /** Typed parent key; absent for GitHub and local deliveries, whose key is `parentIssue`. */
+  parentKey: trackerKeySchema.optional(),
   key: keySchema,
   title: z.string(),
   description: z.string(),
