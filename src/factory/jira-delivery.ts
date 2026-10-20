@@ -24,7 +24,7 @@
  *   The assignee Jira gave a sub-task on creation, such as a project's default
  *   assignee, is kept in `.malt/jira/assignees.json` and is not a reassignment.
  * - **Credential.** A token Jira rejects is one blocker: nothing is sent with
- *   it again, and verification fails with the fix, until the token changes.
+ *   it again, and every Jira step reports the fix instead, until the token changes.
  *
  * @file
  */

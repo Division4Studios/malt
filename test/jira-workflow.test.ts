@@ -299,6 +299,9 @@ await test('the tracker cannot switch to Jira while a GitHub delivery is live', 
   for (const effect of factory.repository.effects()) {
     factory.repository.settleEffect(effect, null);
   }
+  factory.repository.configure(GITHUB_SETTINGS);
+  assert.ok(factory.configured().remote instanceof GitHubDelivery);
   await fixture.github.execute(OPERATOR, 'github_section_save', { jiraTracker: JIRA });
   assert.match(savedFile(fixture.config), /"jira"/v, 'with nothing live, the switch is allowed');
+  assert.ok(factory.configured().remote instanceof JiraDelivery, 'the switched tracker gets its own remote');
 });

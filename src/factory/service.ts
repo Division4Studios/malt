@@ -216,6 +216,10 @@ export class FactoryService {
     if (this.context !== null && tracker === this.contextTracker) {
       return this.context;
     }
+    if (this.context !== null) {
+      // The new tracker's delivery remote is verified before it reconciles or dispatches anything.
+      this.connected = false;
+    }
     const settings = this.repository.config();
     if (settings === null) {
       throw new MeshError('FACTORY_GATED', 'Configure this target project and its validation commands first.');
