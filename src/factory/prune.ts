@@ -29,6 +29,7 @@ import { isBaselineMeasuring } from './baseline.ts';
 import { CommandFailureError, commandLabel } from './commands.ts';
 import { factorySchemas } from './schema.ts';
 import { ACTIVE_TERMINAL_STATES } from './terminal-sessions.ts';
+import { issueLabel } from './tracker-key.ts';
 import { currentEnvironment, readOwner } from './worktree-owner.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -265,7 +266,7 @@ function ownerOf(context: PruneContext, record: LedgerRecord, key: string, seen:
       return { label: `attempt ${id} (not running)`, isLive: false };
     }
     const served = job.taskId === null ? undefined : context.repository.tasks().find((item) => item.id === job.taskId);
-    const delivery = served === undefined ? '' : ` for delivery #${String(served.issue)}`;
+    const delivery = served === undefined ? '' : ` for delivery ${issueLabel(served)}`;
     return { label: `attempt ${id} (${job.kind}, ${job.state})${delivery}`, isLive: job.state === 'running' };
   }
   if (kind === 'terminal') {
@@ -285,7 +286,7 @@ function ownerOf(context: PruneContext, record: LedgerRecord, key: string, seen:
   const task = seen.tasks.get(key);
   return task === undefined
     ? null
-    : { label: `delivery #${String(task.issue)} (${task.phase})`, isLive: task.phase !== 'done' };
+    : { label: `delivery ${issueLabel(task)} (${task.phase})`, isLive: task.phase !== 'done' };
 }
 
 /**

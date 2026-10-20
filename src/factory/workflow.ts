@@ -6,6 +6,7 @@
  */
 import { awaitingApproval, spineStep, startableSteps, taskWorkflow } from './pipeline.ts';
 import { FACTORY_ROLES } from './schema.ts';
+import { issueLabel } from './tracker-key.ts';
 import { workflowLibrary } from './workflows.ts';
 
 import type { FactoryRepository } from './repository.ts';
@@ -135,6 +136,7 @@ export function workflowState(repository: FactoryRepository): unknown {
       provider: job?.provider ?? null,
       taskId: task?.id ?? null,
       issue: task?.issue ?? null,
+      deliveryLabel: task === undefined ? null : issueLabel(task),
       stage: task?.phase ?? null,
       actorId: actorIds.get(name) ?? null,
       ...(members[role] ?? { type: null, reportsTo: null }),
@@ -152,6 +154,7 @@ export function workflowState(repository: FactoryRepository): unknown {
       provider: actor.provider,
       taskId: null,
       issue: null,
+      deliveryLabel: null,
       stage: null,
       actorId: actor.id,
     };
@@ -164,6 +167,7 @@ export function workflowState(repository: FactoryRepository): unknown {
       return {
         taskId: task.id,
         issue: task.issue,
+        label: issueLabel(task),
         title: task.title,
         stage: task.phase,
         owner: task.developer,

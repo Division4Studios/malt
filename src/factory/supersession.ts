@@ -4,7 +4,7 @@
  *
  * @file
  */
-import { issueKey, parentKey } from './tracker-key.ts';
+import { issueKey, issueLabel, parentKey } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { FactoryTask, FactoryEffect, Feature } from './schema.ts';
@@ -54,7 +54,7 @@ export async function reconcileSuperseded(context: FactoryContext): Promise<void
         scopeCleanup: { at: context.repository.store.now(), note },
       };
     });
-    context.repository.notify(`Superseded issue #${String(task.issue)} closed as not planned. ${note}`);
+    context.repository.notify(`Superseded issue ${issueLabel(task)} closed as not planned. ${note}`);
   }
   await retireParents(context);
 }

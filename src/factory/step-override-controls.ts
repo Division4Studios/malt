@@ -17,6 +17,7 @@ import { MERGE_GATE_STEP } from './gate-schema.ts';
 import { isStepSatisfied, legacyWorkflow, withGates } from './pipeline.ts';
 import { stepOverridesControlSchema } from './step-override-schema.ts';
 import { overrideProblems } from './step-overrides.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryTask, Feature } from './schema.ts';
@@ -201,7 +202,7 @@ function changeDelivery(
     changedSteps(current, value.overrides),
   );
   repository.editTask(task.id, (edited) => ({ ...edited, stepOverrides: value.overrides }));
-  repository.notify(`Operator changed the steps of delivery #${String(task.issue)}.`);
+  repository.notify(`Operator changed the steps of delivery ${issueLabel(task)}.`);
   return value.overrides;
 }
 

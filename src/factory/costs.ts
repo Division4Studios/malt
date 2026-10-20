@@ -13,6 +13,7 @@ import { readPrices } from './price-table.ts';
 import { FACTORY_ROLES } from './seats.ts';
 import { refreshSpend, spendStatus } from './spend.ts';
 import { costsInputSchema } from './telemetry-schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { AttemptContext } from './attempts.ts';
@@ -169,7 +170,7 @@ function breakdowns(
       byDelivery,
       task === undefined
         ? { key: NONE, label: 'Planning and maintenance' }
-        : { key: task.id, label: `#${String(task.issue)} ${task.title}` },
+        : { key: task.id, label: `${issueLabel(task)} ${task.title}` },
       attempt,
     );
   }
@@ -364,7 +365,7 @@ export async function costSummary(
           startedAt: job.startedAt,
           costUsd: metrics.cost.usd ?? 0,
           costSource: metrics.cost.source,
-          delivery: task === undefined ? null : `#${String(task.issue)} ${task.title}`,
+          delivery: task === undefined ? null : `${issueLabel(task)} ${task.title}`,
         };
       }),
     tokens: tokenTotals(attempts),

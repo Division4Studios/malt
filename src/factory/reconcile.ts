@@ -30,7 +30,7 @@ import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
-import { issueKey, parentKey } from './tracker-key.ts';
+import { formatTrackerKey, issueKey, issueLabel, parentKey } from './tracker-key.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
@@ -274,7 +274,7 @@ async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: Pu
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(merge)}; verifying on main.`,
+    body: `${issueLabel(record)} ${record.title} merged as ${shortSha(merge)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged PR #${String(record.pr)} at ${merge}. Refresh main in every remaining developer worktree before submission. Final merged-main testing is next.`,
@@ -313,18 +313,18 @@ async function closeVerified(context: FactoryContext, task: FactoryTask): Promis
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} verified on main ${shortSha(base)} and done.`,
+    body: `${issueLabel(record)} ${record.title} verified on main ${shortSha(base)} and done.`,
   });
   await context.learning.execute(
     'learning_record',
     {
-      summary: `Issue #${String(record.issue)} delivered`,
+      summary: `Issue ${issueLabel(record)} delivered`,
       cause: record.verifiedMain.summary,
       prevention: 'Retain successful acceptance checks and head-specific reviews for similar deliveries.',
       evidence: [
         `Merged main ${base}`,
         `Final attempt ${record.verifiedMain.jobId}`,
-        record.prUrl ?? `Issue #${String(record.issue)}`,
+        record.prUrl ?? `Issue ${issueLabel(record)}`,
       ],
       outcome: 'success',
       ticket: record.issue,
@@ -374,7 +374,7 @@ async function completionEffects(context: FactoryContext, task: FactoryTask): Pr
       error: notes.startsWith('Preserved') ? notes : null,
     };
   });
-  context.repository.notify(`Issue #${String(task.issue)} delivered. ${notes}`);
+  context.repository.notify(`Issue ${issueLabel(task)} delivered. ${notes}`);
 }
 
 /**
@@ -480,7 +480,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       body: `Objective complete: every delivery verified and closed${criteria}.`,
     });
     context.repository.notify(
-      `Feature #${String(parent)} is delivered: all atomic child issues were independently reviewed, merged, verified on main and closed.`,
+      `Feature ${formatTrackerKey(parentKey({ parentIssue: parent, parentKey: feature.parentKey }))} is delivered: all atomic child issues were independently reviewed, merged, verified on main and closed.`,
     );
   }
 }
@@ -737,7 +737,7 @@ async function recoverMerge(context: FactoryContext, task: FactoryTask, pr: Pull
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(pr.mergeCommit.oid)}; verifying on main.`,
+    body: `${issueLabel(record)} ${record.title} merged as ${shortSha(pr.mergeCommit.oid)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged #${String(record.pr)} into ${context.settings.baseBranch}. Every developer must refresh main before its next submission.`,

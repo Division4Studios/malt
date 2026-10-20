@@ -31,6 +31,7 @@ import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
+import type { TrackerKey } from '../src/factory/tracker-key.ts';
 import type { TestContext } from 'node:test';
 
 /** Validated fixture policy; no provider is launched. */
@@ -601,8 +602,9 @@ function mockEvidence(
 ): { contained: string[][]; reads: number[] } {
   const contained: string[][] = [];
   const reads: number[] = [];
-  t.mock.method(context.remote, 'issueState', async (issue: number) => {
+  t.mock.method(context.remote, 'issueState', async (key: TrackerKey) => {
     await delay(0);
+    const issue = Number(key.key);
     reads.push(issue);
     const reason = states[issue];
     return reason === undefined ? { state: 'open', stateReason: null } : { state: 'closed', stateReason: reason };
