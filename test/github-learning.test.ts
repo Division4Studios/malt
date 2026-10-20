@@ -933,7 +933,7 @@ await test('the issue-state read is refused for an unconnected workspace', async
     return { state: 'closed' };
   };
   const adapter = new GitHubDelivery(config, github, runner);
-  await assert.rejects(adapter.issueState(5), z.ZodError);
+  await assert.rejects(adapter.issueState(5), { code: 'GITHUB_NOT_CONNECTED' });
   assert.equal(isCalled, false);
 });
 

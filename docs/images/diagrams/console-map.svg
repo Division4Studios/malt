@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="880" height="770" viewBox="0 0 880 770" role="img" aria-labelledby="title desc">
   <title id="title">Operator console map: sections and their pages</title>
-  <desc id="desc">The console rail has seven sections; the tabs under the page heading select a page within the section, and the first tab is where the section opens. Mission: Overview, Manager and Activity. Inbox: every decision waiting on you, with a count on the rail. Board: Board, Objectives, Schedules and triggers, and Pipeline list; a delivery's detail page opens from its card. Workflow: Live map, Team and organization, Workflow library, Roles and Pull requests. Sessions: Attempts and transcripts, and Workers and terminals. Costs: spend and tokens with optional spend caps. Project: Setup and capacity, Settings, Recommendations, Learning and skills, Secrets, Capabilities and Get started, with a recommendation count on the rail.</desc>
+  <desc id="desc">The console rail has seven sections; the tabs under the page heading select a page within the section, and the first tab is where the section opens. Mission: Overview, Manager and Activity. Inbox: every decision waiting on you, with a count on the rail. Board: Board, Objectives, Schedules and triggers, and Pipeline list; a delivery's detail page opens from its card. Workflow: Live map, Team and organization, Workflow library, Roles and Pull requests. Sessions: Attempts and transcripts, and Workers and terminals. Costs: spend and tokens with optional spend caps. Project: Setup and capacity, Connections, Settings, Recommendations, Learning and skills, Secrets, Capabilities and Get started, with a recommendation count on the rail.</desc>
   <style>
     svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
     @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
@@ -68,13 +68,14 @@
   <text class="b" x="74" y="621">Project</text>
   <circle class="cnt" cx="145" cy="616" r="4.5"/>
   <rect class="home" x="232" y="602" width="136" height="28" rx="14"/><text class="cth" x="300" y="621">Setup &amp; capacity</text>
-  <rect class="chip" x="376" y="602" width="81" height="28" rx="14"/><text class="ct" x="416.5" y="621">Settings</text>
-  <rect class="chip" x="465" y="602" width="130" height="28" rx="14"/><text class="ct" x="530" y="621">Recommendations</text>
-  <rect class="chip" x="603" y="602" width="143" height="28" rx="14"/><text class="ct" x="674.5" y="621">Learning &amp; skills</text>
+  <rect class="chip" x="376" y="602" width="105" height="28" rx="14"/><text class="ct" x="428.5" y="621">Connections</text>
+  <rect class="chip" x="489" y="602" width="81" height="28" rx="14"/><text class="ct" x="529.5" y="621">Settings</text>
+  <rect class="chip" x="578" y="602" width="130" height="28" rx="14"/><text class="ct" x="643" y="621">Recommendations</text>
+  <rect class="chip" x="716" y="602" width="143" height="28" rx="14"/><text class="ct" x="787.5" y="621">Learning &amp; skills</text>
   <rect class="chip" x="232" y="638" width="74" height="28" rx="14"/><text class="ct" x="269" y="657">Secrets</text>
   <rect class="chip" x="314" y="638" width="109" height="28" rx="14"/><text class="ct" x="368.5" y="657">Capabilities</text>
   <rect class="chip" x="431" y="638" width="102" height="28" rx="14"/><text class="ct" x="482" y="657">Get started</text>
-  <text class="s mut" x="232" y="688">Repository, gates and capacity; settings; recommendations, skills, secrets, capabilities</text>
+  <text class="s mut" x="232" y="688">Repository, gates and capacity; tracker and source connections; settings; recommendations, skills, secrets, capabilities</text>
   <g transform="translate(32 742)">
     <rect class="home" x="0" y="-13" width="34" height="18" rx="9"/><text class="s mut" x="44">page the section opens on</text>
     <rect class="ctx" x="232" y="-13" width="34" height="18" rx="9"/><text class="s mut" x="276">opened from a board card</text>

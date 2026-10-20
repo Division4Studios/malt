@@ -28,6 +28,16 @@ const savedTrackerSchema = z
     workflowField: z.object({ id: z.string().min(1), name: z.string().min(1) }).strict(),
   })
   .strict();
+/** A Jira project chosen from `jira_discover`, and where its API token lives. */
+const savedJiraTrackerSchema = z
+  .object({
+    site: z.string().url(),
+    projectKey: z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v),
+    projectId: z.string().regex(/^[1-9]\d{0,17}$/v),
+    email: z.string().email(),
+    tokenVariable: z.string().regex(/^[A-Z][\dA-Z_]{0,127}$/v),
+  })
+  .strict();
 /** An exact repository label name. */
 const labelNameSchema = z.string().min(1).max(LABEL_NAME_MAX);
 
@@ -123,7 +133,19 @@ export const connectorSchemas = {
     })
     .strict(),
   github_section_save: z
-    .object({ tracker: savedTrackerSchema.optional(), source: savedSourceSchema.optional() })
+    .object({
+      tracker: savedTrackerSchema.optional(),
+      jiraTracker: savedJiraTrackerSchema.optional(),
+      source: savedSourceSchema.optional(),
+    })
+    .strict(),
+  jira_discover: z
+    .object({
+      site: z.string().url(),
+      projectKey: z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v),
+      email: z.string().email(),
+      tokenVariable: z.string().regex(/^[A-Z][\dA-Z_]{0,127}$/v),
+    })
     .strict(),
   github_discover: z
     .object({

@@ -116,7 +116,7 @@ await test('saved sections are not connected until both verify', async () => {
   assert.deepEqual(sectionStates(record), { tracker: 'saved', source: 'saved' });
   assert.equal(isConnected(record), false);
   const { run, writes } = fixture();
-  const verified = await verifyConnection(run, record, DELIVERY_STATUSES, () => NOW);
+  const verified = await verifyConnection(run, record, DELIVERY_STATUSES, { now: () => NOW });
   assert.deepEqual(sectionStates(verified), { tracker: 'verified', source: 'verified' });
   assert.equal(isConnected(verified), true);
   assert.equal(verified.source.verifiedAt, NOW);
@@ -125,20 +125,24 @@ await test('saved sections are not connected until both verify', async () => {
 
 await test('a renamed repository verifies by node ID and keeps its old name as an alias', async () => {
   const { run } = fixture({ repositoryName: 'example/renamed' });
-  const verified = await verifyConnection(run, saved(), DELIVERY_STATUSES, () => NOW);
+  const verified = await verifyConnection(run, saved(), DELIVERY_STATUSES, { now: () => NOW });
   assert.equal(verified.source.verification?.state, 'verified');
   assert.equal(verified.source.repository, 'example/renamed');
   assert.deepEqual(verified.source.repositoryAliases, ['example/app']);
 });
 
 await test('a different repository, a deleted Project or a removed field fail without creating anything', async () => {
-  const swapped = await verifyConnection(fixture({ repositoryId: 'R_2' }).run, saved(), DELIVERY_STATUSES, () => NOW);
+  const swapped = await verifyConnection(fixture({ repositoryId: 'R_2' }).run, saved(), DELIVERY_STATUSES, {
+    now: () => NOW,
+  });
   assert.equal(swapped.source.verification?.state, 'failed');
-  const deleted = await verifyConnection(fixture({ projectId: null }).run, saved(), DELIVERY_STATUSES, () => NOW);
+  const deleted = await verifyConnection(fixture({ projectId: null }).run, saved(), DELIVERY_STATUSES, {
+    now: () => NOW,
+  });
   assert.equal(deleted.tracker.verification?.state, 'failed');
   assert.equal(deleted.tracker.verification.errors[0]?.step, 'project');
   const removed = fixture({ options: null });
-  const unfielded = await verifyConnection(removed.run, saved(), DELIVERY_STATUSES, () => NOW);
+  const unfielded = await verifyConnection(removed.run, saved(), DELIVERY_STATUSES, { now: () => NOW });
   assert.equal(unfielded.tracker.verification?.state, 'failed');
   assert.match(unfielded.tracker.verification.errors[0]?.message ?? '', /never creates fields/v);
   assert.deepEqual(removed.writes, []);
@@ -148,23 +152,22 @@ await test('a different repository, a deleted Project or a removed field fail wi
 });
 
 await test('a reachable but unusable tracker is degraded and not connected', async () => {
-  const partial = await verifyConnection(
-    fixture({ options: OPTIONS.slice(0, 2) }).run,
-    saved(),
-    DELIVERY_STATUSES,
-    () => NOW,
-  );
+  const partial = await verifyConnection(fixture({ options: OPTIONS.slice(0, 2) }).run, saved(), DELIVERY_STATUSES, {
+    now: () => NOW,
+  });
   assert.equal(partial.tracker.verification?.state, 'degraded');
   assert.equal(partial.tracker.workflowField.id, 'F_1', 'the selected field is kept');
   assert.equal(isConnected(partial), false);
-  const readOnly = await verifyConnection(fixture({ canUpdate: false }).run, saved(), DELIVERY_STATUSES, () => NOW);
+  const readOnly = await verifyConnection(fixture({ canUpdate: false }).run, saved(), DELIVERY_STATUSES, {
+    now: () => NOW,
+  });
   assert.equal(readOnly.tracker.verification?.state, 'degraded');
 });
 
-await test('a Jira tracker needs external setup and is never connected', async () => {
-  const verified = await verifyConnection(fixture().run, saved('jira'), DELIVERY_STATUSES, () => NOW);
-  assert.equal(verified.tracker.verification?.state, 'external');
-  assert.match(verified.tracker.verification.errors[0]?.message ?? '', /External setup required/v);
+await test('a Jira tracker saved without its Jira details fails verification and is never connected', async () => {
+  const verified = await verifyConnection(fixture().run, saved('jira'), DELIVERY_STATUSES, { now: () => NOW });
+  assert.equal(verified.tracker.verification?.state, 'failed');
+  assert.match(verified.tracker.verification.errors[0]?.message ?? '', /Save the Jira tracker again/v);
   assert.equal(verified.source.verification?.state, 'verified');
   assert.equal(isConnected(verified), false);
 });

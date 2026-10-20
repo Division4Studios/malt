@@ -2,9 +2,10 @@
  * Per-section verification of a saved connection against read-only discovery.
  * The tracker and source sections are checked independently and each records
  * a state: `saved` (never checked), `verified`, `degraded` (reachable but not
- * usable as saved), `failed`, or `external` (a Jira tracker that needs its
- * site, project and credential verified outside GitHub). Only a record whose
- * sections are both verified reports connected. Repositories compare by node
+ * usable as saved), `failed`, or `external` (setup outside MALT is missing).
+ * A Jira tracker is verified against its Jira Cloud site
+ * (`src/jira/connection.ts`). Only a record whose sections are both verified
+ * reports connected. Repositories compare by node
  * ID, so a rename verifies; the selected Status field is compared by ID and
  * never created or changed here.
  *
@@ -13,11 +14,13 @@
 import { ERRORS_KEPT } from './connection-state.ts';
 import { connectionV2Schema } from './connector.ts';
 import { discoverGitHub } from './github-discovery.ts';
+import { verifyJiraTracker } from './jira/connection.ts';
 
 import type { VerificationState } from './connection-state.ts';
 import type { ConnectionV2, SourceConnection, TrackerConnection } from './connector.ts';
 import type { Discovery, DiscoveryError } from './github-discovery.ts';
 import type { GitHubRunner } from './github-runner.ts';
+import type { JiraFetch } from './jira/client.ts';
 
 /**
  * The state of each section; records saved by a verified connect, or before
@@ -161,14 +164,21 @@ function verifyTracker(
  * @param runner - GitHub CLI seam.
  * @param record - Saved connection.
  * @param requiredOptions - Options delivery needs on the Status field.
- * @param now - Verification clock.
+ * @param options - Verification clock, and for a Jira tracker the environment holding its token variable and the Jira transport.
+ * @param options.now - Verification clock.
+ * @param options.environment - The supervisor's environment; defaults to the process environment.
+ * @param options.jiraFetch - Jira transport; defaults to the global `fetch`.
  * @returns The record with each section's new verification.
  */
 export async function verifyConnection(
   runner: GitHubRunner,
   record: ConnectionV2,
   requiredOptions: readonly string[],
-  now?: () => string,
+  options: {
+    readonly now?: () => string;
+    readonly environment?: NodeJS.ProcessEnv;
+    readonly jiraFetch?: JiraFetch;
+  } = {},
 ): Promise<ConnectionV2> {
   const { tracker, source } = record;
   const isGitHubTracker = tracker.provider === 'github-projects';
@@ -177,25 +187,19 @@ export async function verifyConnection(
     {
       repository: source.repository,
       repositoryId: source.repositoryId ?? undefined,
-      owner: tracker.owner,
+      owner: isGitHubTracker ? tracker.owner : undefined,
       projectNumber: isGitHubTracker ? tracker.projectNumber : undefined,
       // The saved Project and Status field are read by ID, so neither needs to be on the first listed page.
       projectId: isGitHubTracker ? tracker.projectId : undefined,
       fieldIds: isGitHubTracker ? [tracker.workflowField.id] : undefined,
     },
-    now,
+    options.now,
   );
-  const external: TrackerConnection = {
-    ...tracker,
-    verification: {
-      state: 'external',
-      checkedAt: discovery.verifiedAt,
-      errors: [{ step: 'tracker', message: 'External setup required: verify the Jira site, project and credential.' }],
-    },
-  };
-  return connectionV2Schema.parse({
-    version: 2,
-    tracker: isGitHubTracker ? verifyTracker(tracker, discovery, requiredOptions) : external,
-    source: verifySource(source, discovery),
-  });
+  const verifiedTracker: TrackerConnection = isGitHubTracker
+    ? verifyTracker(tracker, discovery, requiredOptions)
+    : await verifyJiraTracker(tracker, options.environment ?? process.env, {
+        ...(options.jiraFetch !== undefined && { fetch: options.jiraFetch }),
+        now: discovery.verifiedAt,
+      });
+  return connectionV2Schema.parse({ version: 2, tracker: verifiedTracker, source: verifySource(source, discovery) });
 }

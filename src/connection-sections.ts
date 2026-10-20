@@ -7,6 +7,7 @@
  * @file
  */
 import { REPOSITORY_ALIAS_MAX, connectionV2Schema, unverifiedCapabilities } from './connector.ts';
+import { parseJiraSite } from './jira/client.ts';
 import { MeshError } from './protocol.ts';
 
 import type { Verification } from './connection-state.ts';
@@ -49,6 +50,52 @@ function trackerSection(
 }
 
 /**
+ * The site name of a Jira Cloud origin, which stands in for the tracker owner.
+ *
+ * @param origin - `https://<name>.atlassian.net`.
+ * @returns The first host label, for example `example` for `https://example.atlassian.net`.
+ */
+function siteName(origin: string): string {
+  const { hostname } = new URL(origin);
+  const [name = 'jira'] = hostname.split('.', 1);
+  return name;
+}
+
+/**
+ * The tracker section for a saved Jira project. The shared fields are filled
+ * from Jira; Jira's own Status field is the workflow field, and the token is
+ * only named by an environment handle.
+ *
+ * @param input - Site, project key and ID from discovery, account email and the token's variable.
+ * @param now - Save time.
+ * @returns Unverified Jira tracker section.
+ * @throws {MeshError} INVALID_INPUT for a site that is not a Jira Cloud site.
+ */
+function jiraTrackerSection(
+  input: NonNullable<OperationInput<'github_section_save'>['jiraTracker']>,
+  now: string,
+): TrackerConnection {
+  const site = parseJiraSite(input.site);
+  if (site?.deployment !== 'cloud') {
+    throw new MeshError('INVALID_INPUT', 'Save an https Jira Cloud site such as https://example.atlassian.net.');
+  }
+  return {
+    provider: 'jira',
+    owner: siteName(site.origin),
+    projectId: input.projectId,
+    projectNumber: Number(input.projectId),
+    url: `${site.origin}/browse/${input.projectKey}`,
+    workflowField: { id: 'status', name: 'Status' },
+    capabilities: unverifiedCapabilities(),
+    credential: { kind: 'env', name: input.tokenVariable },
+    jira: { site: site.origin, projectKey: input.projectKey, email: input.email },
+    savedAt: now,
+    verifiedAt: null,
+    verification: savedState(),
+  };
+}
+
+/**
  * The source section for a saved repository selection.
  *
  * @param input - Selected repository and its node ID.
@@ -82,6 +129,25 @@ function sourceSection(
 }
 
 /**
+ * The tracker after a save: a new GitHub Projects or Jira selection, or the current one.
+ *
+ * @param current - Saved record, or null before the first save.
+ * @param input - Sections to save.
+ * @param now - Save time.
+ * @returns Tracker section, or undefined when none is saved yet.
+ */
+function savedTracker(
+  current: ConnectionV2 | null,
+  input: OperationInput<'github_section_save'>,
+  now: string,
+): TrackerConnection | undefined {
+  if (input.tracker !== undefined) {
+    return trackerSection(input.tracker, now);
+  }
+  return input.jiraTracker === undefined ? current?.tracker : jiraTrackerSection(input.jiraTracker, now);
+}
+
+/**
  * Apply a section save to the current record.
  *
  * @param current - Saved record, or null before the first save.
@@ -95,10 +161,13 @@ export function savedSections(
   input: OperationInput<'github_section_save'>,
   now: string,
 ): ConnectionV2 {
-  if (input.tracker === undefined && input.source === undefined) {
+  if (input.tracker === undefined && input.jiraTracker === undefined && input.source === undefined) {
     throw new MeshError('INVALID_INPUT', 'Save a tracker section, a source section, or both.');
   }
-  const tracker = input.tracker === undefined ? current?.tracker : trackerSection(input.tracker, now);
+  if (input.tracker !== undefined && input.jiraTracker !== undefined) {
+    throw new MeshError('INVALID_INPUT', 'Save either a GitHub Projects tracker or a Jira tracker, not both.');
+  }
+  const tracker = savedTracker(current, input, now);
   const source = input.source === undefined ? current?.source : sourceSection(input.source, current?.source, now);
   if (tracker === undefined || source === undefined) {
     throw new MeshError(

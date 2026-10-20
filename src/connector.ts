@@ -54,7 +54,25 @@ export const workflowFieldSchema = z.object({
   options: z.array(optionSchema).optional(),
 });
 
-/** Work tracker section; `projectId` is the provider's stable identifier. */
+/** Where a Jira tracker lives; the token itself is only ever named by the section's credential handle. */
+export const jiraTrackerSchema = z
+  .object({
+    /** `https://<name>.atlassian.net`. */
+    site: z.string().url(),
+    /** Project key such as `PROJ`. */
+    projectKey: z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v),
+    /** Atlassian account email the API token belongs to. */
+    email: z.string().email(),
+  })
+  .strict();
+
+/**
+ * Work tracker section; `projectId` is the provider's stable identifier. A
+ * Jira tracker fills the shared fields from Jira: `owner` is the site name,
+ * `projectId` and `projectNumber` the numeric project ID, `url` the project's
+ * browse page and `workflowField` Jira's own Status field; `jira` holds the
+ * site, project key and account email.
+ */
 export const trackerSchema = z.object({
   provider: z.enum(TRACKER_PROVIDERS),
   owner: z.string().regex(/^[\w\-]+$/v),
@@ -65,6 +83,8 @@ export const trackerSchema = z.object({
   capabilities: capabilitiesSchema,
   /** Where this section's credential lives; absent on records saved before handles. */
   credential: credentialHandleSchema.optional(),
+  /** Jira site, project key and account, for a Jira tracker only. */
+  jira: jiraTrackerSchema.optional(),
   /** Latest verification; absent on records saved by a verified connect or before states existed. */
   verification: verificationSchema.optional(),
   savedAt: z.string().datetime(),

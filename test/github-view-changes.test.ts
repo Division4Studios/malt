@@ -217,6 +217,15 @@ await test('a delete whose response was lost is not repeated', async (t) => {
   assert.deepEqual(project.mutations, ['delete PVTV_1']);
 });
 
+await test('a view change retried after switching Projects is refused, not replayed', async (t) => {
+  const { context, project } = fixture(t, 'graphql');
+  const remove = { requestId: 'switch', action: 'delete' as const, viewNumber: 1 };
+  project.shouldLoseResponse = true;
+  await assert.rejects(manageView(context, remove), { code: 'GITHUB_UNAVAILABLE' });
+  await assert.rejects(manageView({ ...context, projectId: 'PVT_9' }, remove), { code: 'INVALID_INPUT' });
+  assert.deepEqual(project.mutations, ['delete PVTV_1'], 'nothing ran against the other Project');
+});
+
 await test('an unknown view stays refused on retry, and an unread list never confirms a delete', async (t) => {
   const { context, project } = fixture(t, 'graphql');
   const unknown = { requestId: 'h', action: 'delete' as const, viewNumber: 9 };

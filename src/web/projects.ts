@@ -164,6 +164,7 @@ export const controlSchema = z
       'github_connect',
       'github_verify',
       'github_section_save',
+      'jira_discover',
       'terminal_start',
       'terminal_close',
       'terminal_input',
@@ -523,6 +524,17 @@ export class ProjectGateway {
    */
   public async capabilities(id: string): Promise<unknown> {
     return rpc(this.config(id), 'capability_policy_status', {});
+  }
+
+  /**
+   * Discover reachable repositories, Projects and fields without saving anything.
+   *
+   * @param id - Explicit project selection.
+   * @param input - Optional repository, owner and Project number to inspect.
+   * @returns The broker's read-only discovery result for that project only.
+   */
+  public async discovery(id: string, input: Record<string, unknown>): Promise<unknown> {
+    return rpc(this.config(id), 'github_discover', input);
   }
 
   /**

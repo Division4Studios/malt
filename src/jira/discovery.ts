@@ -1,7 +1,8 @@
 /**
  * Read-only Jira Cloud discovery. It verifies the site, the caller, the
- * selected project, its issue types and their workflow statuses, and the
- * caller's project permissions, then derives the tracker capability descriptor
+ * selected project, its issue types and their workflow statuses, the
+ * caller's project permissions and, when it may create issues, the fields each
+ * issue type requires, then derives the tracker capability descriptor
  * from those permissions rather than assuming any. A missing site, project or
  * credential, or a rejected credential, is reported as external setup
  * required; a reachable project with missing permissions is degraded, with the
@@ -17,10 +18,12 @@ import { z } from 'zod/v3';
 
 import { JiraRequestError, globalJiraFetch, jiraGet, jiraProjectKeySchema, parseJiraSite } from './client.ts';
 import { projectResult, setupRequired, unsupported } from './discovery-result.ts';
+import { discoverCreateFields, fieldProblems } from './fields.ts';
 import { JIRA_PERMISSION_NAMES, permissionsSchema, statusesSchema } from './permissions.ts';
 
 import type { JiraCredential, JiraCredentialSource, JiraFetch, JiraSite, JiraTransport } from './client.ts';
 import type { JiraDiscovery, JiraProjectAccess } from './discovery-result.ts';
+import type { JiraIssueTypeFields } from './fields.ts';
 import type { JiraIssueType, JiraPermission, JiraProblem, JiraProblemScope } from './permissions.ts';
 
 export { JIRA_PERMISSION_NAMES } from './permissions.ts';
@@ -112,11 +115,12 @@ function asRequestError(error: unknown): unknown {
 }
 
 /**
- * Read the project's issue types and the caller's permissions.
+ * Read the project's issue types, the caller's permissions and, when the
+ * caller may create issues, each issue type's required create fields.
  *
  * @param transport - Site, credential and transport.
  * @param key - Selected project's key, such as PROJ.
- * @returns Issue types and held permissions.
+ * @returns Issue types, required fields and held permissions.
  */
 async function discoverProjectAccess(transport: JiraTransport, key: string): Promise<JiraProjectAccess> {
   const problems: JiraProblem[] = [];
@@ -140,7 +144,16 @@ async function discoverProjectAccess(transport: JiraTransport, key: string): Pro
   } catch (error) {
     problems.push(requestProblem(asRequestError(error), 'permissions'));
   }
-  return { issueTypes, held, problems };
+  let fields: JiraIssueTypeFields[] = [];
+  if (held.CREATE_ISSUES === true && issueTypes.length > 0) {
+    try {
+      fields = await discoverCreateFields(transport, key, issueTypes);
+      problems.push(...fieldProblems(fields));
+    } catch (error) {
+      problems.push(requestProblem(asRequestError(error), 'fields'));
+    }
+  }
+  return { issueTypes, fields, held, problems };
 }
 
 /**

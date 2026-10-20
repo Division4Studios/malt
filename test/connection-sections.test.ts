@@ -10,6 +10,7 @@ import { startBroker } from '../src/broker.ts';
 import { rpc } from '../src/client.ts';
 import { savedSections } from '../src/connection-sections.ts';
 import { isConnected, sectionStates } from '../src/connection-verify.ts';
+import { parseConnection } from '../src/connector.ts';
 import { MeshError } from '../src/protocol.ts';
 
 import { OPERATOR, brokerUrl, createCleanup, createProject, mechanicsGitHub, updateConfig } from './helpers.ts';
@@ -102,4 +103,45 @@ await test('saving a section requires the project-connect capability', async (t)
   });
   const saved = statusSchema.parse(await rpc(config, 'github_section_save', { tracker, source }));
   assert.equal(saved.connected, false);
+});
+
+/** A Jira project chosen from discovery, with the variable that holds its API token. */
+const jiraTracker = {
+  site: 'https://example.atlassian.net',
+  projectKey: 'PROJ',
+  projectId: '10000',
+  email: 'robot@example.com',
+  tokenVariable: 'JIRA_API_TOKEN',
+};
+
+await test('a Jira tracker saves beside a GitHub source, unverified, with only an environment handle', () => {
+  const first = savedSections(null, { jiraTracker, source }, NOW);
+  assert.equal(first.tracker.provider, 'jira');
+  assert.deepEqual(first.tracker.jira, {
+    site: 'https://example.atlassian.net',
+    projectKey: 'PROJ',
+    email: 'robot@example.com',
+  });
+  assert.deepEqual(first.tracker.credential, { kind: 'env', name: 'JIRA_API_TOKEN' });
+  assert.equal(first.tracker.owner, 'example');
+  assert.equal(first.tracker.projectNumber, 10_000);
+  assert.equal(first.tracker.url, 'https://example.atlassian.net/browse/PROJ');
+  assert.deepEqual(sectionStates(first), { tracker: 'saved', source: 'saved' });
+  assert.equal(isConnected(first), false);
+  assert.equal(JSON.stringify(first).includes('token'), false, 'only the variable name is saved, never a value');
+  const back = parseConnection(structuredClone(first));
+  assert.equal(back.v2.tracker.provider, 'jira');
+  const switched = savedSections(first, { tracker }, NOW);
+  assert.equal(switched.tracker.provider, 'github-projects');
+  assert.equal(switched.tracker.jira, undefined);
+});
+
+await test('a Jira tracker needs a Cloud site and cannot be saved together with a GitHub tracker', () => {
+  assert.throws(
+    () => savedSections(null, { jiraTracker: { ...jiraTracker, site: 'https://jira.example.com' }, source }, NOW),
+    {
+      code: 'INVALID_INPUT',
+    },
+  );
+  assert.throws(() => savedSections(null, { tracker, jiraTracker, source }, NOW), { code: 'INVALID_INPUT' });
 });

@@ -650,7 +650,6 @@ For logs, verbose diagnostics and coordination errors, see [Logging and troubles
 - A complete live delivery on a protected GitHub branch with paid agents has not yet been proven end to end (#259).
 - The installed-PWA audit (install, offline and update in a real browser, plus a keyboard and screen-reader pass) is open (#261).
 - Fresh-machine runs on clean installs are open (#258). There is no published release yet (#260).
-- There is no worktree prune command yet (#411); clean up with Git as described above.
-- The console does not yet have separate Work tracker and Source control connection sections (#84). Jira support exists only as a library and is not yet available in the console or the factory.
+- A Jira Cloud tracker can be checked, saved and verified on **Project → Connections**, but the factory does not deliver through Jira yet (#265).
 
 See [current capabilities](current-status.md) for the full map.

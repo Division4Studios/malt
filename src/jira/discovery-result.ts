@@ -14,6 +14,7 @@ import { JIRA_PERMISSION_NAMES, jiraCapabilities, missingPermission, permissionP
 
 import type { Capabilities } from '../connector.ts';
 import type { JiraDeployment } from './client.ts';
+import type { JiraIssueTypeFields } from './fields.ts';
 import type { JiraIssueType, JiraPermission, JiraProblem } from './permissions.ts';
 
 /** Discovery outcome; only `verified` means every check passed. */
@@ -35,6 +36,8 @@ export interface JiraDiscovery {
   readonly project: { readonly id: string; readonly key: string; readonly name: string; readonly url: string } | null;
   /** Issue types and statuses. */
   readonly issueTypes: readonly JiraIssueType[];
+  /** Required create fields of each issue type, read when the account may create issues. */
+  readonly fields: readonly JiraIssueTypeFields[];
   /** Each checked permission and whether the caller holds it. */
   readonly permissions: Readonly<Partial<Record<JiraPermission, boolean>>>;
   /** Missing permissions with the admin action for each. */
@@ -51,6 +54,8 @@ export interface JiraDiscovery {
 export interface JiraProjectAccess {
   /** Issue types and statuses. */
   readonly issueTypes: JiraIssueType[];
+  /** Required create fields of each issue type. */
+  readonly fields: JiraIssueTypeFields[];
   /** Each checked permission and whether the caller holds it. */
   readonly held: Partial<Record<JiraPermission, boolean>>;
   /** Problems reading them. */
@@ -65,6 +70,7 @@ const EMPTY = {
   caller: null,
   project: null,
   issueTypes: [],
+  fields: [],
   permissions: {},
   missing: [],
   verifiedAt: null,
@@ -136,6 +142,7 @@ export function projectResult(
     ...base,
     state,
     issueTypes: access.issueTypes,
+    fields: access.fields,
     permissions: access.held,
     missing,
     capabilities: canBrowse ? jiraCapabilities(access.held, access.issueTypes) : unverifiedCapabilities(),

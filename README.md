@@ -68,7 +68,7 @@ Everything below is merged on `main` and covered by automated tests. Inference a
 - **MCP tool bindings:** connector MCP servers are bound only after a human approves their exact hash.
 - **Local hub:** issues, pull requests and squash merges with an expected-base check, kept in `.malt/`.
 - **Providers:** Claude Code and Codex, plus opt-in GitHub Copilot.
-- **Jira:** not yet available. A read-only library exists, but it is not wired into connections, the console or the factory.
+- **Jira Cloud:** discovered, saved and verified as the work tracker (**Project → Connections**, CLI or MCP), with the API token held only as an environment variable name. The factory does not deliver through Jira yet (#265).
 
 ### Safety
 
@@ -171,7 +171,7 @@ Not verified yet, and tracked for 1.0 on [milestone 1](https://github.com/Divisi
 - live Copilot assignments and live Codex Cloud tasks;
 - a release, distribution and the v1.0.0 tag (#260).
 
-Also open: a worktree prune command (#411), the connector console with separate work-tracker and source-control sections (#84), Jira, and CodeQL alert #3 (#245).
+Also open: a worktree prune command (#411), factory delivery through a Jira tracker (#331–#336), and CodeQL alert #3 (#245).
 
 ## Community and support
 

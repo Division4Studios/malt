@@ -60,6 +60,8 @@ export interface ClientResults
   readonly github_status: unknown;
   /** Read-only setup discovery of the account, repositories, Projects and capabilities. */
   readonly github_discover: unknown;
+  /** Read-only Jira Cloud discovery of the site, account, project and permissions. */
+  readonly jira_discover: unknown;
   /** Per-section verification of the saved connection. */
   readonly github_verify: unknown;
   /** Independently saved, still unverified tracker or source section. */
