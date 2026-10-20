@@ -1,37 +1,43 @@
-# Recommendation persistence
+# Recommendation store
 
-`FactoryRepository.recommendations` stores private recommendations in the existing SQLite store, bound to its verified project identity. No remote calls or agent decision tools are added. Identity hashes the project, kind and sorted unique ticket set. Revision hashes the validated proposal: action, evidence, observed issue revisions, survivor, transferred acceptance/dependencies, affected assignments and before/after preview. Object key order and ticket order do not change either hash.
+`FactoryRepository.recommendations` (`src/factory/recommendations.ts`) stores the project's [ticket recommendations](project-management-decisions.md) privately in the existing SQLite store, bound to the project's verified identity. This page is the reference for its identities, lifecycle and limits. For how recommendations are reviewed and executed, see [review ticket recommendations](project-management-decisions.md).
 
-`propose` creates `proposed` content. Replaying known content returns its original revision without reactivation. Changed content supersedes proposed or awaiting-human content as stale. Stale or rejected content may have a new current revision while preserving history. Approved, applying, reconciling, completed and failed records cannot be replaced.
+## Identity and revisions
 
-Allowed same-revision transitions:
+- **Identity** hashes the project, the kind and the sorted, unique set of tickets.
+- **Revision** hashes the validated proposal: action, evidence, observed issue revisions, observed local objectives, survivor, transferred acceptance and dependencies, affected assignments and the before/after preview.
+- Object key order and ticket order change neither hash.
 
-- proposed → awaiting_human or stale
-- awaiting_human → approved, rejected or stale
-- approved → applying or stale
-- applying → completed, reconciling, stale or failed
-- reconciling → completed, applying or failed
+`propose` stores new content as `proposed`:
 
-Rejected, stale, completed and failed revisions have no outgoing transitions. Stale → proposed requires new content. Failure is terminal; a future retry workflow needs explicit authorization. Transitions require the current revision and expected state in a SQLite transaction. Creation/transition audit entries retain time, previous/new state and rationale. Changes set unread; `markRead` is idempotent and fenced by current revision. Text is preserved verbatim, bounded to 32,000 characters per narrative field and 200 per recommendation identifier; the verified project identity follows the nonempty-string configuration contract without an additional length limit; collections are bounded to 100 items. Every ticket requires exactly one observed revision. The store retains observed revisions, never ticket body snapshots.
+- Replaying known content returns its original revision unchanged, without reactivating it.
+- Changed content supersedes `proposed` or `awaiting_human` content, which becomes `stale`.
+- After `stale` or `rejected`, new content creates a new current revision. History is kept; the old revision is never reopened.
+- `approved`, `applying`, `reconciling`, `completed` and `failed` records cannot be replaced.
 
-## Same-revision state diagram
+## Lifecycle
 
-```mermaid
-stateDiagram-v2
-  proposed --> awaiting_human
-  proposed --> stale
-  awaiting_human --> approved
-  awaiting_human --> rejected
-  awaiting_human --> stale
-  approved --> applying
-  approved --> stale
-  applying --> completed
-  applying --> reconciling
-  applying --> stale
-  applying --> failed
-  reconciling --> completed
-  reconciling --> applying
-  reconciling --> failed
-```
+Transitions apply to one revision. Each requires the current revision and the expected current state, inside a SQLite transaction, so a concurrent change refuses the transition without mutating anything.
 
-Terminal revisions stay immutable. Re-proposing with changed content after stale or rejected creates a new revision; it does not reopen the same revision. Replaying identical content returns its original revision unchanged. This diagram documents the existing store, not an implemented human approval endpoint or ticket executor. See [project management scope](project-management-decisions.md) for the remaining integration.
+| From                             | Allowed next states                           | Who or what moves it                                                                    |
+| -------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `proposed`                       | `awaiting_human`, `stale`                     | Submission or intake queues it for review.                                              |
+| `awaiting_human`                 | `approved`, `rejected`, `stale`               | The human decision, after a freshness re-read.                                          |
+| `approved`                       | `applying`, `stale`                           | The supervisor, after re-reading the observed issues and objectives.                    |
+| `applying`                       | `completed`, `reconciling`, `stale`, `failed` | The supervisor, as effects are confirmed, become ambiguous or fail.                     |
+| `reconciling`                    | `completed`, `applying`, `failed`             | The supervisor, after resolving an ambiguous remote result.                             |
+| `failed`                         | `approved`, `applying`                        | An operator retry: revalidate from `approved`, or re-queue the same idempotent effects. |
+| `rejected`, `stale`, `completed` | none                                          | Terminal. A stale or rejected proposal can only be replaced by new content.             |
+
+Only `duplicate`, `consolidate` and `guidance_suggestion` records are advanced past `approved` by the supervisor. Approved `related` and `scope_change` records stay `approved`; they record the decision and notify the affected roles.
+
+## Audit, unread state and limits
+
+- Every creation and transition appends an audit entry with the time, previous and new state, and rationale.
+- Every change sets the record unread. `markRead` is idempotent and fenced by the current revision. A read receipt never approves or starts anything.
+- Text is stored verbatim, up to 32,000 characters per narrative field and 200 per identifier. Collections hold at most 100 items. The project identity follows the nonempty-string configuration rule, with no extra length limit.
+- Every ticket needs exactly one observed revision, and a survivor must be one of the tickets. `related` and `scope_change` proposals may name no tickets if they observe at least one local objective.
+- The store keeps observed revisions, never ticket body snapshots.
+- List reads return bounded summaries and the 25 most recent audit entries; the full history stays durable.
+
+The store makes no remote calls. Decisions arrive only from the paired console, and remote effects are applied by the supervisor's outbox; see [what approval executes](project-management-decisions.md#what-approval-executes).

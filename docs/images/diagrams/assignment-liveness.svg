@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="762" viewBox="0 0 880 762" role="img" aria-labelledby="title desc">
+  <title id="title">Assignment liveness: checkpoints, extensions and operator decisions</title>
+  <desc id="desc">A managed attempt is one bounded provider CLI run in its owned worktree. Every sampleMs the unpaid supervisor samples meaningful progress: completed tool and check calls, file changes, commits and check-ins. Every jobTimeoutMs, the checkpoint interval, it decides in order. If the hard ceiling, maxMs from the start, is reached, the run stops with the reason hard ceiling. Otherwise, if there was no meaningful progress for stallMs, the run stops with the reason stalled N minutes and follows automatic retry. Otherwise the extension gate is checked: fresh, verified quota headroom above the 15 percent margin per running attempt, no provider cooldown and no machine memory or CPU pressure. If it passes, the run is extended by one interval and keeps running. If not, the run stops as held. A held run, or one that reached the ceiling while still progressing, asks the operator in the Inbox, keeping its worktree: Continue 30 or 60 minutes runs once more from the kept worktree for 5 to 240 minutes without the extension gate, and Wait returns it to the normal retry rules. Retries back off per failure class: stalled from 5 to 30 minutes with a cap of 3, held from 15 to 30 minutes with a cap of 2.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}.sys{fill:var(--sys);stroke:var(--sysl)}
+    .hum{fill:var(--hum);stroke:var(--huml)}.agt{fill:var(--agt);stroke:var(--agtl)}.sto{fill:var(--sto);stroke:var(--stol)}
+    .ht{fill:var(--humt)}.at{fill:var(--agtt)}.st{fill:var(--stot)}
+    .w{fill:none;stroke:var(--wire);stroke-width:1.5}.ah{fill:var(--wire)}
+    .g{fill:none;stroke:var(--stol);stroke-width:1.75}.gh{fill:var(--stol)}
+    .lb{font-size:13px;fill:var(--mut);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+    .lbg{font-size:13px;font-weight:600;fill:var(--stot);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+    .dia{fill:var(--card);stroke:var(--ink);stroke-width:1.5}
+    .stop{fill:none;stroke:var(--mut);stroke-width:1.5}
+    .pill{fill:var(--card);stroke:var(--huml)}.pillp{fill:var(--huml)}.pt{font-size:13px;font-weight:600;text-anchor:middle}
+    .ptp{fill:var(--bg)}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0 1L10 5L0 9z"/></marker>
+    <marker id="gh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="gh" d="M0 1L10 5L0 9z"/></marker>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="761" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · ASSIGNMENT LIVENESS</text>
+  <text class="ttl" x="32" y="68">Extend productive work, stop stalled work</text>
+  <text class="s mut" x="32" y="92">Sampling and checkpoints are unpaid. No automatic paid retry ever bypasses a pending operator decision.</text>
+
+  <!-- Row 1: running loop -->
+  <g transform="translate(32 116)">
+    <rect class="agt" width="250" height="92" rx="10"/>
+    <text class="b at" x="16" y="28">Managed attempt</text>
+    <text class="s mut" x="16" y="52">One bounded provider CLI run</text>
+    <text class="s mut" x="16" y="71">in its owned worktree</text>
+  </g>
+  <g transform="translate(315 116)">
+    <rect class="sys" width="250" height="92" rx="10"/>
+    <text class="b" x="16" y="28">Sample progress <tspan class="m mut">sampleMs</tspan></text>
+    <text class="s mut" x="16" y="52">Counts tool and check calls, file</text>
+    <text class="s mut" x="16" y="71">changes, commits and check-ins</text>
+  </g>
+  <g transform="translate(598 116)">
+    <rect class="sys" width="250" height="92" rx="10"/>
+    <text class="b" x="16" y="28">Checkpoint <tspan class="m mut">jobTimeoutMs</tspan></text>
+    <text class="s mut" x="16" y="52">The interval is a checkpoint,</text>
+    <text class="s mut" x="16" y="71">not a blind deadline</text>
+  </g>
+  <path class="w" d="M282 162H314" marker-end="url(#ah)"/>
+  <path class="w" d="M565 162H597" marker-end="url(#ah)"/>
+  <path class="w" d="M723 208V251" marker-end="url(#ah)"/>
+
+  <!-- Row 2: decisions, evaluated right to left -->
+  <g transform="translate(598 252)">
+    <rect class="card" width="250" height="120" rx="10"/>
+    <path class="dia" d="M24 14l9 9l-9 9l-9 -9z"/>
+    <text class="b" x="42" y="28">Hard ceiling reached?</text>
+    <text class="s mut" x="16" y="56"><tspan class="m">maxMs</tspan> after the start;</text>
+    <text class="s mut" x="16" y="75">default 2 h, or the interval</text>
+    <text class="s mut" x="16" y="94">if that is longer</text>
+  </g>
+  <g transform="translate(315 252)">
+    <rect class="card" width="250" height="120" rx="10"/>
+    <path class="dia" d="M24 14l9 9l-9 9l-9 -9z"/>
+    <text class="b" x="42" y="28">Quiet for stallMs?</text>
+    <text class="s mut" x="16" y="56">No meaningful progress;</text>
+    <text class="s mut" x="16" y="75">default 15 min, or the interval</text>
+    <text class="s mut" x="16" y="94">if that is shorter</text>
+  </g>
+  <g transform="translate(32 252)">
+    <rect class="card" width="250" height="120" rx="10"/>
+    <path class="dia" d="M24 14l9 9l-9 9l-9 -9z"/>
+    <text class="b" x="42" y="28">Extension gate passes?</text>
+    <text class="s mut" x="16" y="56">Fresh, verified quota headroom</text>
+    <text class="s mut" x="16" y="75">above the 15% margin per run,</text>
+    <text class="s mut" x="16" y="94">no provider cooldown, no</text>
+    <text class="s mut" x="16" y="113">memory or CPU pressure</text>
+  </g>
+  <path class="w" d="M598 300H566" marker-end="url(#ah)"/>
+  <text class="lb" x="582" y="292" text-anchor="middle">no</text>
+  <path class="w" d="M315 300H283" marker-end="url(#ah)"/>
+  <text class="lb" x="299" y="292" text-anchor="middle">no</text>
+  <path class="g" d="M157 252V209" marker-end="url(#gh)"/>
+  <text class="lbg" x="166" y="236">yes: extend one interval</text>
+
+  <!-- Row 3: stops -->
+  <g transform="translate(32 412)">
+    <rect class="card" width="250" height="84" rx="10"/>
+    <rect class="stop" x="14" y="15" width="12" height="12" rx="2"/>
+    <text class="b" x="36" y="26">Held</text>
+    <text class="m mut" x="16" y="49">no extension: …</text>
+    <text class="s mut" x="16" y="69">Asks the operator</text>
+  </g>
+  <g transform="translate(315 412)">
+    <rect class="card" width="250" height="84" rx="10"/>
+    <rect class="stop" x="14" y="15" width="12" height="12" rx="2"/>
+    <text class="b" x="36" y="26">Stalled</text>
+    <text class="m mut" x="16" y="49">stalled N min</text>
+    <text class="s mut" x="16" y="69">Automatic retry</text>
+  </g>
+  <g transform="translate(598 412)">
+    <rect class="card" width="250" height="84" rx="10"/>
+    <rect class="stop" x="14" y="15" width="12" height="12" rx="2"/>
+    <text class="b" x="36" y="26">Hard ceiling</text>
+    <text class="m mut" x="16" y="49">hard ceiling</text>
+    <text class="s mut" x="16" y="69">Still progressing: asks the operator</text>
+  </g>
+  <path class="w" d="M157 372V411" marker-end="url(#ah)"/>
+  <text class="lb" x="166" y="397">no</text>
+  <path class="w" d="M440 372V411" marker-end="url(#ah)"/>
+  <text class="lb" x="449" y="397">yes</text>
+  <path class="w" d="M723 372V411" marker-end="url(#ah)"/>
+  <text class="lb" x="732" y="397">yes</text>
+
+  <!-- Row 4: operator decision and retry -->
+  <g transform="translate(32 536)">
+    <rect class="hum" width="380" height="168" rx="10"/>
+    <text class="b ht" x="16" y="28">Inbox: checkpoint decision</text>
+    <text class="s mut" x="16" y="51">The run stopped; its worktree and edits are kept.</text>
+    <rect class="pillp" x="16" y="64" width="128" height="28" rx="14"/><text class="pt ptp" x="80" y="83">Continue 30 min</text>
+    <rect class="pill" x="152" y="64" width="128" height="28" rx="14"/><text class="pt ht" x="216" y="83">Continue 60 min</text>
+    <rect class="pill" x="288" y="64" width="76" height="28" rx="14"/><text class="pt ht" x="326" y="83">Wait</text>
+    <text class="s mut" x="16" y="117">Continue: one more bounded run from the kept</text>
+    <text class="s mut" x="16" y="136">worktree, 5–240 min, without the extension gate.</text>
+    <text class="s mut" x="16" y="155">Wait: back to the normal held retry rule.</text>
+  </g>
+  <g transform="translate(436 536)">
+    <rect class="sys" width="412" height="168" rx="10"/>
+    <text class="b" x="16" y="28">Automatic retry with backoff</text>
+    <text class="m" x="16" y="56">stalled</text><text class="s mut" x="96" y="56">5 min, doubling to 30 min · cap 3</text>
+    <text class="m" x="16" y="79">held</text><text class="s mut" x="96" y="79">15 min, doubling to 30 min · cap 2</text>
+    <text class="s mut" x="16" y="117">A capped class stops offering the step.</text>
+    <text class="s mut" x="16" y="136">A new head, another step or a success</text>
+    <text class="s mut" x="16" y="155">resets the count.</text>
+  </g>
+  <path class="w" d="M157 496V535" marker-end="url(#ah)"/>
+  <path class="w" d="M500 496V535" marker-end="url(#ah)"/>
+  <path class="w" d="M780 496V535" marker-end="url(#ah)"/>
+  <text class="lb" x="771" y="521" text-anchor="end">not progressing</text>
+  <path class="w" d="M412 614H435" marker-end="url(#ah)"/>
+
+  <text class="s mut" x="32" y="736">Pause, cancellation, shutdown, a moved head or a newer attempt always win over a continuation.</text>
+</svg>

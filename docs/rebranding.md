@@ -1,4 +1,8 @@
-﻿# MALT branding and state migration
+# MALT branding and state migration
+
+> **Historical record (2026-10).** The rename from MLT and AgentMesh to MALT is complete. This page is kept because its
+> migration steps still apply to projects that hold state from an older release. For the current product state, read
+> [current status](current-status.md).
 
 **MALT — Multi-Agent Local Team** is the public product name. The native CLI provides `malt` and retains `agentmesh` as a compatibility alias. From a source checkout, use `node src/cli.ts`; an optional `npm link` makes both commands available on your machine.
 
@@ -6,7 +10,20 @@ The console is a native TypeScript PWA with a midnight, gold and coral visual sy
 
 ## Project storage
 
-New and migrated projects store operational state in `<project>/.malt/`. Stop the broker and its operator console before upgrading. On the next `init`, `start` or configuration load, a stopped `.mlt/` directory is renamed as a whole. The migration preserves project IDs, bearer tokens, identities, SQLite messages, skills, raw logs and user edits. Factory JSON paths and database path values are rebased. Ledger-owned Git worktrees receive repaired Git back-pointers and a `.malt` memory link. Dirty edits are preserved.
+MALT keeps each project's operational state in `<project>/.malt/`. Older releases used two other names, and both are
+migrated automatically the next time `init`, `start` or any command loads the project:
+
+| Legacy directory | What happens                                                                                                                   |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `.mlt/`          | Renamed to `.malt/` with a checkpointed, resumable repair of stored paths and owned worktrees (below).                         |
+| `.agentmesh/`    | Renamed to `.malt/` as one directory. It is refused if `.malt/` already exists or if any SQLite `-wal` or `-shm` file remains. |
+
+A broker that serves several workspaces also moves each workspace's state out of the old central team folder into that
+workspace's own `.malt/` when the team is next opened.
+
+### Migrating from `.mlt/`
+
+Stop the broker and its operator console before upgrading. On the next `init`, `start` or configuration load, a stopped `.mlt/` directory is renamed as a whole. The migration preserves project IDs, bearer tokens, identities, SQLite messages, skills, raw logs and user edits. Factory JSON paths and database path values are rebased. Ledger-owned Git worktrees receive repaired Git back-pointers and a `.malt` memory link. Dirty edits are preserved.
 
 `.malt/brand-migration.json` checkpoints the migration. Interrupted repairs resume before a broker opens the project; successful operations are idempotent. Migration refuses two existing stores, remaining SQLite WAL/SHM journals, foreign worktrees, or unexpected memory links/directories. Reconcile these explicitly rather than deleting state or journal files. For an unclean shutdown, stop every process using that database and recover/checkpoint it using SQLite before retrying. Never remove a WAL file to silence the check.
 
@@ -31,4 +48,4 @@ Installing the PWA updates the operator interface. It does not install the nativ
 
 ## Visual references
 
-The visual direction combines [RuView?s conceptual automation card](https://raw.githubusercontent.com/ruvnet/RuView/main/assets/readme/feature-automation-spatial-v4.svg) with the midnight, gold, amber and coral palette of [ruOS](https://ruos.cognitum.one/). MALT uses original isometric SVG illustrations, a grain mark, native CSS motion and factual backend metrics. These references supply visual direction; no reference application code, logo, font service or animation asset is included. Decorative illustration motion is distinct from job activity and stops under reduced-motion preferences.
+The visual direction combines [RuView's conceptual automation card](https://raw.githubusercontent.com/ruvnet/RuView/main/assets/readme/feature-automation-spatial-v4.svg) with the midnight, gold, amber and coral palette of [ruOS](https://ruos.cognitum.one/). MALT uses original isometric SVG illustrations, a grain mark, native CSS motion and factual backend metrics. These references supply visual direction; no reference application code, logo, font service or animation asset is included. Decorative illustration motion is distinct from job activity and stops under reduced-motion preferences.

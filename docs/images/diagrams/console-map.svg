@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="770" viewBox="0 0 880 770" role="img" aria-labelledby="title desc">
+  <title id="title">Operator console map: sections and their pages</title>
+  <desc id="desc">The console rail has seven sections; the tabs under the page heading select a page within the section, and the first tab is where the section opens. Mission: Overview, Manager and Activity. Inbox: every decision waiting on you, with a count on the rail. Board: Board, Objectives, Schedules and triggers, and Pipeline list; a delivery's detail page opens from its card. Workflow: Live map, Team and organization, Workflow library, Roles and Pull requests. Sessions: Attempts and transcripts, and Workers and terminals. Costs: spend and tokens with optional spend caps. Project: Setup and capacity, Settings, Recommendations, Learning and skills, Secrets, Capabilities and Get started, with a recommendation count on the rail.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.rail{fill:var(--sys);stroke:var(--sysl)}
+    .chip{fill:var(--card);stroke:var(--line)}.home{fill:var(--agt);stroke:var(--agtl)}.ctx{fill:none;stroke:var(--wire);stroke-dasharray:4 4}
+    .ct{font-size:13.5px;text-anchor:middle}.cth{font-size:13.5px;font-weight:600;text-anchor:middle;fill:var(--agtt)}
+    .sep{stroke:var(--edge)}
+    .gl{fill:none;stroke:var(--agtl);stroke-width:1.5;stroke-linejoin:round}.glf{fill:var(--agtl)}
+    .cnt{fill:var(--huml)}
+  </style>
+  <rect class="panel" x=".5" y=".5" width="879" height="769" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · OPERATOR CONSOLE</text>
+  <text class="ttl" x="32" y="68">Console sections and their pages</text>
+  <text class="s mut" x="32" y="92">The rail picks a section; the tabs under the page heading pick a page.</text>
+  <rect class="rail" x="32" y="116" width="176" height="590" rx="12"/>
+  <path class="sep" d="M44 198H196M232 198H848M44 276H196M232 276H848M44 354H196M232 354H848M44 432H196M232 432H848M44 510H196M232 510H848M44 588H196M232 588H848"/>
+  <!-- Mission -->
+  <g transform="translate(54 148)"><path class="gl" d="M0 -7L7 0L0 7L-7 0Z"/><path class="glf" d="M0 -3L3 0L0 3L-3 0Z"/></g>
+  <text class="b" x="74" y="153">Mission</text>
+  <rect class="home" x="232" y="134" width="81" height="28" rx="14"/><text class="cth" x="272.5" y="153">Overview</text>
+  <rect class="chip" x="321" y="134" width="74" height="28" rx="14"/><text class="ct" x="358" y="153">Manager</text>
+  <rect class="chip" x="403" y="134" width="81" height="28" rx="14"/><text class="ct" x="443.5" y="153">Activity</text>
+  <text class="s mut" x="232" y="184">Objectives and progress, the delivery manager, and the committed activity stream</text>
+  <!-- Inbox -->
+  <g transform="translate(54 226)"><circle class="gl" r="7"/><circle class="glf" r="3"/></g>
+  <text class="b" x="74" y="231">Inbox</text>
+  <circle class="cnt" cx="128" cy="226" r="4.5"/>
+  <rect class="home" x="232" y="212" width="61" height="28" rx="14"/><text class="cth" x="262.5" y="231">Inbox</text>
+  <text class="s mut" x="232" y="262">Every decision waiting on you, oldest first: questions, approvals, checkpoints</text>
+  <!-- Board -->
+  <g transform="translate(54 304)"><rect class="gl" x="-7" y="-7" width="14" height="14" rx="2"/><path class="gl" d="M-7 -2.5H7M-7 2H7"/></g>
+  <text class="b" x="74" y="309">Board</text>
+  <rect class="home" x="232" y="290" width="61" height="28" rx="14"/><text class="cth" x="262.5" y="309">Board</text>
+  <rect class="chip" x="301" y="290" width="95" height="28" rx="14"/><text class="ct" x="348.5" y="309">Objectives</text>
+  <rect class="chip" x="404" y="290" width="164" height="28" rx="14"/><text class="ct" x="486" y="309">Schedules &amp; triggers</text>
+  <rect class="chip" x="576" y="290" width="116" height="28" rx="14"/><text class="ct" x="634" y="309">Pipeline list</text>
+  <rect class="ctx" x="700" y="290" width="81" height="28" rx="14"/><text class="ct mut" x="740.5" y="309">Delivery</text>
+  <text class="s mut" x="232" y="340">Deliveries by what they need next, definitions of done, cron and webhook triggers</text>
+  <!-- Workflow -->
+  <g transform="translate(54 382)"><circle class="gl" r="7"/><circle class="gl" r="3.5"/></g>
+  <text class="b" x="74" y="387">Workflow</text>
+  <rect class="home" x="232" y="368" width="81" height="28" rx="14"/><text class="cth" x="272.5" y="387">Live map</text>
+  <rect class="chip" x="321" y="368" width="157" height="28" rx="14"/><text class="ct" x="399.5" y="387">Team &amp; organization</text>
+  <rect class="chip" x="486" y="368" width="136" height="28" rx="14"/><text class="ct" x="554" y="387">Workflow library</text>
+  <rect class="chip" x="630" y="368" width="61" height="28" rx="14"/><text class="ct" x="660.5" y="387">Roles</text>
+  <rect class="chip" x="699" y="368" width="116" height="28" rx="14"/><text class="ct" x="757" y="387">Pull requests</text>
+  <text class="s mut" x="232" y="418">Live message map, team, workflow revisions, the roles editor and local pull requests</text>
+  <!-- Sessions -->
+  <g transform="translate(54 460)"><rect class="gl" x="-7" y="-7" width="14" height="14" rx="2"/><rect class="glf" x="-3" y="-3" width="6" height="6" rx="1"/></g>
+  <text class="b" x="74" y="465">Sessions</text>
+  <rect class="home" x="232" y="446" width="178" height="28" rx="14"/><text class="cth" x="321" y="465">Attempts &amp; transcripts</text>
+  <rect class="chip" x="418" y="446" width="157" height="28" rx="14"/><text class="ct" x="496.5" y="465">Workers &amp; terminals</text>
+  <text class="s mut" x="232" y="496">What each attempt read, ran, changed and cost; worker output and scratch terminals</text>
+  <!-- Costs -->
+  <g transform="translate(54 538)"><circle class="gl" r="7"/><path class="glf" d="M0 0V-7A7 7 0 0 1 7 0Z"/></g>
+  <text class="b" x="74" y="543">Costs</text>
+  <rect class="home" x="232" y="524" width="61" height="28" rx="14"/><text class="cth" x="262.5" y="543">Costs</text>
+  <text class="s mut" x="232" y="574">Spend and tokens by role, model and delivery, with optional USD spend caps</text>
+  <!-- Project -->
+  <g transform="translate(54 616)"><circle class="gl" r="4"/><path class="gl" d="M0 -8V-5.5M0 8V5.5M-8 0H-5.5M8 0H5.5M-5.7 -5.7L-3.9 -3.9M5.7 5.7L3.9 3.9M-5.7 5.7L-3.9 3.9M5.7 -5.7L3.9 -3.9" stroke-linecap="round"/></g>
+  <text class="b" x="74" y="621">Project</text>
+  <circle class="cnt" cx="145" cy="616" r="4.5"/>
+  <rect class="home" x="232" y="602" width="136" height="28" rx="14"/><text class="cth" x="300" y="621">Setup &amp; capacity</text>
+  <rect class="chip" x="376" y="602" width="81" height="28" rx="14"/><text class="ct" x="416.5" y="621">Settings</text>
+  <rect class="chip" x="465" y="602" width="130" height="28" rx="14"/><text class="ct" x="530" y="621">Recommendations</text>
+  <rect class="chip" x="603" y="602" width="143" height="28" rx="14"/><text class="ct" x="674.5" y="621">Learning &amp; skills</text>
+  <rect class="chip" x="232" y="638" width="74" height="28" rx="14"/><text class="ct" x="269" y="657">Secrets</text>
+  <rect class="chip" x="314" y="638" width="109" height="28" rx="14"/><text class="ct" x="368.5" y="657">Capabilities</text>
+  <rect class="chip" x="431" y="638" width="102" height="28" rx="14"/><text class="ct" x="482" y="657">Get started</text>
+  <text class="s mut" x="232" y="688">Repository, gates and capacity; settings; recommendations, skills, secrets, capabilities</text>
+  <g transform="translate(32 742)">
+    <rect class="home" x="0" y="-13" width="34" height="18" rx="9"/><text class="s mut" x="44">page the section opens on</text>
+    <rect class="ctx" x="232" y="-13" width="34" height="18" rx="9"/><text class="s mut" x="276">opened from a board card</text>
+    <circle class="cnt" cx="462" cy="-4" r="4.5"/><text class="s mut" x="474">count of items waiting on you</text>
+  </g>
+</svg>

@@ -1,7 +1,9 @@
 # Distribution decision for 1.0
 
 **Status: PROPOSED.** This record lists the options and their trade-offs for the maintainer to decide. Nothing here is
-published, `package.json` stays `"private": true` at version 0.1.0, and no tag or release exists.
+published, `package.json` stays `"private": true` at version 0.1.0, and no tag or release exists (checked on
+2026-10-19). The decision is tracked in [#260](https://github.com/Division4Studios/malt/issues/260); no decision has been
+recorded there yet.
 
 ## What has to be distributed
 

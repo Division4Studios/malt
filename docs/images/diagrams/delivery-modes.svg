@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="726" viewBox="0 0 880 726" role="img" aria-labelledby="title desc">
+  <title id="title">Delivery modes: GitHub delivery, local hub and Codex Cloud tasks</title>
+  <desc id="desc">A comparison of three options. GitHub delivery, set with "delivery": "github" and the default for existing projects, tracks issues and sub-issues on a GitHub Project, opens pull requests on GitHub while MALT's QA and final review run locally, and merges with a direct merge, the merge queue or auto-merge, always with --match-head-commit, never with --admin; model turns and GitHub API traffic leave the machine; it has a private-repository pilot, and a live protected-branch run is still open in issue 259. The local hub, set with "delivery": "local" and proposed for new projects, tracks issues in .malt/local/tracker.json, pushes branches to .malt/local/hub.git with local pull requests, squash-merges with merge-tree, commit-tree and update-ref from the expected base, rejects pushes to the base with a hook and checks malt/up-to-date and malt/mergeable; only model turns leave the machine; it is verified end to end with real Git and fixture inference. Codex Cloud tasks, set with cloud.developers and optional with either mode, run developer turns in Codex Cloud and apply the diff to the owned worktree, while QA, final review, merge and verification stay local; it falls back to the local CLI and records why in cloud.json; the staged commit goes to cloud.remote; it is tested with a fixture backend and no paid cloud task has run yet.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}
+    .col{fill:var(--card);stroke:var(--line)}.colx{fill:var(--card);stroke:var(--wire);stroke-dasharray:5 5}.cols{fill:var(--card);stroke:var(--stol)}
+    .hs{fill:var(--sys)}.hg{fill:var(--sto)}.ha{fill:var(--agt)}
+    .st{fill:var(--stot)}.at{fill:var(--agtt)}
+    .row{stroke:var(--line)}
+    .rl{font-size:13.5px;font-weight:600;fill:var(--mut)}
+    .ic{fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+  </style>
+  <rect class="panel" x=".5" y=".5" width="879" height="725" rx="16"/>
+  <text class="eb" x="32" y="40">MALT · DELIVERY MODES</text>
+  <text class="ttl" x="32" y="68">Where issues, pull requests and merges live</text>
+  <text class="s mut" x="32" y="92">Pick one delivery mode per project. Codex Cloud tasks optionally move developer turns off the machine in either mode.</text>
+
+  <!-- Columns -->
+  <rect class="colx" x="164" y="112" width="220" height="552" rx="12"/>
+  <path class="hs" d="M165 196V124a11 11 0 0 1 11 -11H372a11 11 0 0 1 11 11V196Z"/>
+  <rect class="cols" x="396" y="112" width="220" height="552" rx="12"/>
+  <path class="hg" d="M397 196V124a11 11 0 0 1 11 -11H604a11 11 0 0 1 11 11V196Z"/>
+  <rect class="colx" x="628" y="112" width="220" height="552" rx="12"/>
+  <path class="ha" d="M629 196V124a11 11 0 0 1 11 -11H836a11 11 0 0 1 11 11V196Z"/>
+
+  <!-- Header glyphs: globe (hosted), drive (local), cloud (Codex Cloud) -->
+  <g class="ic" stroke="var(--mut)" transform="translate(350 126)"><circle cx="9" cy="9" r="8"/><path d="M1 9H17M9 1C5 5 5 13 9 17M9 1C13 5 13 13 9 17"/></g>
+  <g class="ic" stroke="var(--stol)" transform="translate(582 128)"><rect x="0" y="0" width="18" height="14" rx="3"/><path d="M0 9H18"/><circle cx="14" cy="11.5" r=".6" fill="var(--stol)"/></g>
+  <g class="ic" stroke="var(--agtl)" transform="translate(812 128)"><path d="M5 14H15a4 4 0 0 0 .5 -8A5.5 5.5 0 0 0 5 5.5A4.25 4.25 0 0 0 5 14Z"/></g>
+
+  <text class="b" x="178" y="140">GitHub delivery</text>
+  <text class="m" x="178" y="162">"delivery": "github"</text>
+  <text class="s mut" x="178" y="182">default for existing projects</text>
+  <text class="b st" x="410" y="140">Local hub</text>
+  <text class="m" x="410" y="162">"delivery": "local"</text>
+  <text class="s mut" x="410" y="182">proposed for new projects</text>
+  <text class="b at" x="642" y="140">Codex Cloud tasks</text>
+  <text class="m" x="642" y="162">cloud.developers</text>
+  <text class="s mut" x="642" y="182">optional, with either mode</text>
+
+  <!-- Row separators -->
+  <path class="row" d="M32 196H848M32 272H848M32 348H848M32 424H848M32 500H848M32 576H848"/>
+
+  <!-- Row 1 -->
+  <text class="rl" x="32" y="220">Issues and</text><text class="rl" x="32" y="239">board</text>
+  <text class="s" x="178" y="220">Issues and sub-issues on</text>
+  <text class="s" x="178" y="239">a GitHub Project board</text>
+  <text class="s" x="410" y="220"><tspan class="m">tracker.json</tspan> issues in</text>
+  <text class="s" x="410" y="239">eight MALT Status columns</text>
+  <text class="s" x="642" y="220">Unchanged: the chosen</text>
+  <text class="s" x="642" y="239">mode's issues</text>
+
+  <!-- Row 2 -->
+  <text class="rl" x="32" y="296">Code and</text><text class="rl" x="32" y="315">review</text>
+  <text class="s" x="178" y="296">Branch and pull request on</text>
+  <text class="s" x="178" y="315">GitHub; MALT's QA and final</text>
+  <text class="s" x="178" y="334">review run locally</text>
+  <text class="s" x="410" y="296">Branch on <tspan class="m">hub.git</tspan>; local</text>
+  <text class="s" x="410" y="315">pull request with diff,</text>
+  <text class="s" x="410" y="334">checks and discussion</text>
+  <text class="s" x="642" y="296">Developer turns run in</text>
+  <text class="s" x="642" y="315">Codex Cloud; the diff is</text>
+  <text class="s" x="642" y="334">applied to the worktree</text>
+
+  <!-- Row 3 -->
+  <text class="rl" x="32" y="372">Merge</text>
+  <text class="s" x="178" y="372">Direct merge, merge queue</text>
+  <text class="s" x="178" y="391">or auto-merge, always with</text>
+  <text class="m" x="178" y="410">--match-head-commit</text>
+  <text class="s" x="410" y="372">Squash with merge-tree,</text>
+  <text class="s" x="410" y="391">commit-tree and update-ref</text>
+  <text class="s" x="410" y="410">from the expected base</text>
+  <text class="s" x="642" y="372">QA, final review, merge</text>
+  <text class="s" x="642" y="391">and verification stay local,</text>
+  <text class="s" x="642" y="410">as in the chosen mode</text>
+
+  <!-- Row 4 -->
+  <text class="rl" x="32" y="448">Safeguards</text>
+  <text class="s" x="178" y="448">GitHub's rules apply; MALT</text>
+  <text class="s" x="178" y="467">never uses <tspan class="m">--admin</tspan> or</text>
+  <text class="s" x="178" y="486">changes protection</text>
+  <text class="s" x="410" y="448">A hook rejects pushes to the</text>
+  <text class="s" x="410" y="467">base; checks <tspan class="m">malt/up-to-date</tspan></text>
+  <text class="s" x="410" y="486">and <tspan class="m">malt/mergeable</tspan></text>
+  <text class="s" x="642" y="448">Falls back to the local CLI</text>
+  <text class="s" x="642" y="467">and records the reason in</text>
+  <text class="m" x="642" y="486">cloud.json</text>
+
+  <!-- Row 5 -->
+  <text class="rl" x="32" y="524">Leaves your</text><text class="rl" x="32" y="543">machine</text>
+  <text class="s" x="178" y="524">Model turns and GitHub</text>
+  <text class="s" x="178" y="543">API traffic</text>
+  <text class="s" x="410" y="524">Model turns only</text>
+  <text class="s" x="642" y="524">Model turns, the staged</text>
+  <text class="s" x="642" y="543">commit on <tspan class="m">cloud.remote</tspan></text>
+  <text class="s" x="642" y="562">and the cloud task</text>
+
+  <!-- Row 6 -->
+  <text class="rl" x="32" y="600">Verified</text>
+  <text class="s mut" x="178" y="600">A private-repository pilot;</text>
+  <text class="s mut" x="178" y="619">a live protected-branch run</text>
+  <text class="s mut" x="178" y="638">is still open (#259)</text>
+  <text class="s mut" x="410" y="600">End to end with real Git</text>
+  <text class="s mut" x="410" y="619">and fixture inference</text>
+  <text class="s mut" x="642" y="600">Real-Git tests with a</text>
+  <text class="s mut" x="642" y="619">fixture backend; no paid</text>
+  <text class="s mut" x="642" y="638">cloud task run yet</text>
+
+  <text class="s mut" x="32" y="700">Every mode runs the same pipeline: plan, develop, two QA reviews, final gate, merge, verify main.</text>
+</svg>

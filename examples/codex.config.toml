@@ -4,7 +4,7 @@
 # broker container. Requires Node.js 24 on the host.
 [mcp_servers.agentmesh]
 command = "node"
-args = ["/absolute/path/to/agent-mesh/src/docker-mcp.ts", "--provider", "openai", "--runtime", "codex-cli"]
+args = ["/absolute/path/to/malt/src/docker-mcp.ts", "--provider", "openai", "--runtime", "codex-cli"]
 startup_timeout_sec = 30
 # Waiting stays inside one tool call; allow up to an hour before the host cancels it.
 tool_timeout_sec = 3600

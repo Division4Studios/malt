@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="614" viewBox="0 0 880 614" role="img" aria-labelledby="title desc">
+  <title id="title">MALT delivery loop: from outcome to verified main</title>
+  <desc id="desc">Eight steps. 1, Outcome: you describe one outcome and what done means; the objective is queued. 2, Plan: the product owner specifies and the team lead splits it into atomic deliveries with dependencies; the objective is refining. 3, Atomic deliveries: the supervisor provisions one issue per delivery with acceptance criteria, on GitHub or in the local tracker; each delivery starts ready. 4, Develop: developer-1 or developer-2 works in an owned worktree; the supervisor runs the checks and publishes a pull request. 5, Two independent reviews: qa-1 and qa-2 review the exact head and base. QA findings, failed CI checks and merge conflicts return the delivery to its original developer. 6, Final gate: the final tester approves the exact reviewed head after both reviews pass; the delivery is merge_ready. 7, Protected merge: the unpaid supervisor merges only the expected head, through a direct merge, the merge queue or auto-merge, never with --admin; the delivery is merging. 8, Verify main: the final tester verifies merged main, then the issues close and the worktree retires.</desc>
+  <style>
+    svg{--bg:#fbfaf7;--edge:#e7e2d9;--card:#fff;--line:#d6d0c5;--ink:#1c1a21;--mut:#5f5a66;--wire:#7d7784;--sys:#f2f0eb;--sysl:#9a9384;--hum:#fff0ea;--huml:#e56a3c;--humt:#b0431b;--agt:#fdf4e2;--agtl:#d39a2b;--agtt:#875905;--sto:#ebf7ef;--stol:#4dab6e;--stot:#1f6d3c}
+    @media (prefers-color-scheme:dark){svg{--bg:#14141c;--edge:#2b2934;--card:#1b1b25;--line:#3a3745;--ink:#f2efe9;--mut:#aca6b0;--wire:#8f8997;--sys:#1e1d28;--sysl:#625d6c;--hum:#2b1a16;--huml:#ff7a4d;--humt:#ff9d7a;--agt:#29210f;--agtl:#e8a634;--agtt:#f3c063;--sto:#13251a;--stol:#7ed99b;--stot:#93e5ae}}
+    text{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;fill:var(--ink)}
+    .m{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px}
+    .b{font-size:15px;font-weight:600}.s{font-size:13.5px}.mut{fill:var(--mut)}
+    .eb{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;letter-spacing:.14em;fill:var(--agtt)}
+    .ttl{font-size:21px;font-weight:700}
+    .panel{fill:var(--bg);stroke:var(--edge)}.card{fill:var(--card);stroke:var(--line)}.sys{fill:var(--sys);stroke:var(--sysl)}
+    .hum{fill:var(--hum);stroke:var(--huml)}.agt{fill:var(--agt);stroke:var(--agtl)}.sto{fill:var(--sto);stroke:var(--stol)}
+    .ht{fill:var(--humt)}.at{fill:var(--agtt)}.st{fill:var(--stot)}
+    .w{fill:none;stroke:var(--wire);stroke-width:1.5}.ah{fill:var(--wire)}
+    .rw{fill:none;stroke:var(--huml);stroke-width:1.5;stroke-dasharray:6 4}.rh{fill:var(--huml)}
+    .lb{font-size:13px;fill:var(--mut);paint-order:stroke;stroke:var(--bg);stroke-width:5px;stroke-linejoin:round}
+    .n{font-size:13px;font-weight:700;text-anchor:middle}
+    .dot{fill:var(--card)}
+    .rule{stroke:var(--edge)}.sep{stroke:var(--line);opacity:.7}
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0 1L10 5L0 9z"/></marker>
+    <marker id="rh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="rh" d="M0 1L10 5L0 9z"/></marker>
+  </defs>
+  <rect class="panel" x=".5" y=".5" width="879" height="613" rx="16"/>
+  <text class="eb" x="24" y="40">MALT · DELIVERY LOOP</text>
+  <text class="ttl" x="24" y="68">From outcome to verified main</text>
+
+  <!-- Row 1, left to right -->
+  <g transform="translate(24 96)">
+    <rect class="hum" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--huml)"/><text class="n ht" x="24" y="31">1</text>
+    <text class="b ht" x="44" y="31">Outcome</text>
+    <text class="s mut" x="16" y="58">Describe one outcome</text>
+    <text class="s mut" x="16" y="77">and what done means.</text>
+    <text class="s ht" x="16" y="128">You, the operator</text>
+    <text class="m mut" x="16" y="148">queued</text>
+  </g>
+  <g transform="translate(238 96)">
+    <rect class="agt" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--agtl)"/><text class="n at" x="24" y="31">2</text>
+    <text class="b at" x="44" y="31">Plan</text>
+    <text class="s mut" x="16" y="58">Specify, then split</text>
+    <text class="s mut" x="16" y="77">into atomic deliveries</text>
+    <text class="s mut" x="16" y="96">with dependencies.</text>
+    <text class="s at" x="16" y="128">Product owner, lead</text>
+    <text class="m mut" x="16" y="148">refining</text>
+  </g>
+  <g transform="translate(452 96)">
+    <rect class="sto" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--stol)"/><text class="n st" x="24" y="31">3</text>
+    <text class="b st" x="44" y="31">Atomic deliveries</text>
+    <text class="s mut" x="16" y="58">One issue each, with</text>
+    <text class="s mut" x="16" y="77">acceptance criteria,</text>
+    <text class="s mut" x="16" y="96">on GitHub or local.</text>
+    <text class="s st" x="16" y="128">Supervisor provisions</text>
+    <text class="m mut" x="16" y="148">ready</text>
+  </g>
+  <g transform="translate(666 96)">
+    <rect class="agt" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--agtl)"/><text class="n at" x="24" y="31">4</text>
+    <text class="b at" x="44" y="31">Develop</text>
+    <text class="s mut" x="16" y="58">Owned worktree per</text>
+    <text class="s mut" x="16" y="77">delivery; supervisor</text>
+    <text class="s mut" x="16" y="96">checks and opens a PR.</text>
+    <text class="s at" x="16" y="128">developer-1 or -2</text>
+    <text class="m mut" x="16" y="148">development</text>
+  </g>
+  <path class="w" d="M214 176H237" marker-end="url(#ah)"/>
+  <path class="w" d="M428 176H451" marker-end="url(#ah)"/>
+  <path class="w" d="M642 176H665" marker-end="url(#ah)"/>
+
+  <!-- Between rows: publish down, rework up -->
+  <path class="w" d="M811 256V323" marker-end="url(#ah)"/>
+  <text class="lb" x="820" y="295">PR</text>
+  <path class="rw" d="M731 324V257" marker-end="url(#rh)"/>
+  <text class="lb" x="722" y="295" text-anchor="end">QA findings, failed CI or a merge conflict → original developer</text>
+
+  <!-- Row 2, right to left -->
+  <g transform="translate(666 324)">
+    <rect class="agt" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--agtl)"/><text class="n at" x="24" y="31">5</text>
+    <text class="b at" x="44" y="31">Two reviews</text>
+    <text class="s mut" x="16" y="58">Independent QA of</text>
+    <text class="s mut" x="16" y="77">the exact head and</text>
+    <text class="s mut" x="16" y="96">base, in parallel.</text>
+    <text class="s at" x="16" y="128">qa-1 and qa-2</text>
+    <text class="m mut" x="16" y="148">review</text>
+  </g>
+  <g transform="translate(452 324)">
+    <rect class="agt" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--agtl)"/><text class="n at" x="24" y="31">6</text>
+    <text class="b at" x="44" y="31">Final gate</text>
+    <text class="s mut" x="16" y="58">Approves the exact</text>
+    <text class="s mut" x="16" y="77">reviewed head after</text>
+    <text class="s mut" x="16" y="96">both reviews pass.</text>
+    <text class="s at" x="16" y="128">Final tester</text>
+    <text class="m mut" x="16" y="148">merge_ready</text>
+  </g>
+  <g transform="translate(238 324)">
+    <rect class="sys" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--sysl)"/><text class="n" x="24" y="31">7</text>
+    <text class="b" x="44" y="31">Protected merge</text>
+    <text class="s mut" x="16" y="58">Expected head only:</text>
+    <text class="s mut" x="16" y="77">merge, queue or auto-</text>
+    <text class="s mut" x="16" y="96">merge; never --admin.</text>
+    <text class="s" x="16" y="128">Unpaid supervisor</text>
+    <text class="m mut" x="16" y="148">merging</text>
+  </g>
+  <g transform="translate(24 324)">
+    <rect class="agt" width="190" height="160" rx="10"/><path class="sep" d="M16 106H174"/>
+    <circle class="dot" cx="24" cy="26" r="12" style="stroke:var(--agtl)"/><text class="n at" x="24" y="31">8</text>
+    <text class="b at" x="44" y="31">Verify main</text>
+    <text class="s mut" x="16" y="58">Verify merged main,</text>
+    <text class="s mut" x="16" y="77">then close issues and</text>
+    <text class="s mut" x="16" y="96">retire the worktree.</text>
+    <text class="s at" x="16" y="128">Final tester</text>
+    <text class="m mut" x="16" y="148">verifying → done</text>
+  </g>
+  <path class="w" d="M666 404H643" marker-end="url(#ah)"/>
+  <path class="w" d="M452 404H429" marker-end="url(#ah)"/>
+  <path class="w" d="M238 404H215" marker-end="url(#ah)"/>
+
+  <!-- Invariants -->
+  <path class="rule" d="M24 516H856"/>
+  <g transform="translate(24 548)">
+    <path d="M0 -5l4 4l8 -8" fill="none" stroke="var(--stol)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="s mut" x="22">Every approval binds an exact head and base. New commits, or main moving under a PR, re-run the reviews.</text>
+    <path d="M0 21l4 4l8 -8" fill="none" stroke="var(--stol)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="s mut" x="22" y="26">GitHub merges pass <tspan class="m">--match-head-commit</tspan>; the local hub moves the base only if it is still the reviewed base.</text>
+  </g>
+</svg>

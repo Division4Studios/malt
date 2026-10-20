@@ -6,13 +6,13 @@ Link the issue and describe the observable before/after result. State exclusions
 
 - Parent/child issue:
 - Real prerequisite PRs/issues (or independent):
-- Added/deleted text lines, including tests/docs:
 - Why main remains usable after this merge:
 
 ## Verification
 
 List exact commands, platform and results. Separate fixtures from real services and identify unverified boundaries. Include a reproduction for the fixed defect and meaningful failure-path checks.
 
+- [ ] The PR title is a Conventional Commit (`feat:`, `fix:`, `docs:`, …); it becomes the generated `CHANGELOG.md` entry.
 - [ ] `npm run check` passes with zero warnings.
 - [ ] Relevant regression, isolation, cancellation and recovery checks pass.
 - [ ] Affected documentation and API contracts are updated.

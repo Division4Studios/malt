@@ -1,6 +1,6 @@
 # Public community operations
 
-MALT is pre-1.0 and MIT licensed. Keep public guidance useful, evidence-backed and safe to share. This guide records the 2026-10-16 community/settings audit; it does not certify the entire factory or establish account billing readiness.
+MALT is pre-1.0 and MIT licensed. Keep public guidance useful, evidence-backed and safe to share. This guide records the 2026-10-16 community and settings audit, with the labels, milestone and alert counts rechecked on 2026-10-19. It does not certify the factory or establish account billing readiness. For product status, read [current status](current-status.md).
 
 ## Find the right route
 
@@ -34,10 +34,13 @@ Existing labels and their URLs remain intact. Every native issue is audited, inc
 | `area:connectors`, `area:learning`                   | Tracker/source integrations and reviewed skill/lesson guidance.                     |
 | `area:community`, `area:ci`                          | Public community material and verification/supply-chain automation.                 |
 | `accessibility`, `performance`, `security`           | Evidenced cross-cutting concerns. Security labels do not replace private reporting. |
+| `question`                                           | A report that turned out to be a usage question; move it to Q&A where possible.     |
+| `dependencies`                                       | Dependabot and other dependency updates.                                            |
+| `skip-changelog`                                     | A merged PR that `scripts/changelog.ts` leaves out of `CHANGELOG.md`.               |
 | `duplicate`, `invalid`, `wontfix`                    | Only after a reasoned maintainer decision; never automatic closure from a keyword.  |
 | `good first issue`, `help wanted`                    | Deliberately curated scopes with clear acceptance and support, not bulk promises.   |
 
-No release milestone or version tag is fabricated from backlog membership. Future release tags use `v*` and are protected against modification/deletion; follow the [release checklist](maintainer-operations.md#release-checklist) before creating one.
+The [v1.0 milestone](https://github.com/Division4Studios/malt/milestone/1) holds the issues that must close before `v1.0.0`; the roadmap issue [#263](https://github.com/Division4Studios/malt/issues/263) explains its scope and exit criteria. Milestone membership is a plan, not a release. No version tag exists yet. Release tags use `v*` and are protected against modification and deletion; follow the [release checklist](maintainer-operations.md#release-checklist) before creating one.
 
 ## Discussions that lead somewhere
 
@@ -59,7 +62,9 @@ Q&A keeps a focused question and what was tried; mark an answer only when it ans
 
 See [verified controls](github-controls.md), [security policy](../SECURITY.md), [governance](../GOVERNANCE.md) and [funding](../SPONSORING.md). Financial onboarding, a private conduct contact, another trusted maintainer and restoring distinct authenticated reviews remain account-owner work.
 
-Following owner reauthentication on 2026-10-16, the actual Sponsors short bio, introduction, funding priorities and featured MALT repository were saved and verified through an unauthenticated public-page fetch. This is separate from publishing repository funding copy. Tax, payout readiness and financial terms remain account-owned and unverified. Three existing CodeQL findings remain visible, with independent evidence-backed triage tracked in [#245](https://github.com/Division4Studios/malt/issues/245). No alert is dismissed or suppressed merely to make this audit green.
+Following owner reauthentication on 2026-10-16, the actual Sponsors short bio, introduction, funding priorities and featured MALT repository were saved and verified through an unauthenticated public-page fetch. This is separate from publishing repository funding copy. Tax, payout readiness and financial terms remain account-owned and unverified.
+
+CodeQL triage is tracked in [#245](https://github.com/Division4Studios/malt/issues/245). On 2026-10-19, alert 1 was fixed on main, alert 2 was dismissed as a false positive, and alert 3 remained open for the owner's disposition after a review found no reachable defect. No alert is dismissed or suppressed merely to make an audit green; a dismissal records its reason.
 
 ## Primary references
 
