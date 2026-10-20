@@ -188,6 +188,7 @@ const VIEW_LABELS: Readonly<Partial<Record<View, string>>> = translated({
   sessions: phrase('Attempts & transcripts'),
   workers: phrase('Workers & terminals'),
   setup: phrase('Setup & capacity'),
+  connections: phrase('Connections'),
   settings: phrase('Settings'),
   recommendations: phrase('Recommendations'),
   learning: phrase('Learning & skills'),
