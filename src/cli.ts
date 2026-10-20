@@ -56,6 +56,7 @@ Usage: node src/cli.ts <command> [options]
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  jira-discover --file FILE    Read-only Jira Cloud discovery: {"site","projectKey","email","tokenVariable"}
   capability-status            Show connector capability policies, support and history
   capability-set --file FILE   Change one connector capability policy (human only)
   mcp-binding-status           Show connector MCP bindings, their hashes and approval

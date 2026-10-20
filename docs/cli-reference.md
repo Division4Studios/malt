@@ -106,4 +106,4 @@ Factory commands address the home project or `--workspace PATH` and call the ope
 | `mcp-binding-propose --file FILE` | `mcp_binding_propose`      | `{binding}`                                                                      |
 | `mcp-binding-approve --file FILE` | `mcp_binding_approve`      | `{name, hash}`                                                                   |
 
-`github-section-save`, `github-verify` and `jira-discover` work but are not listed in `--help`. See [Connector capability policy](api.md#connector-capability-policy).
+`github-section-save` and `github-verify` work but are not listed in `--help`. See [Connector capability policy](api.md#connector-capability-policy).
