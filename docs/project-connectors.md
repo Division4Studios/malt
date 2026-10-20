@@ -126,12 +126,16 @@ At a managed launch, MALT includes only the approved bindings for that role and 
 
 ## Not done yet
 
-| Gap                                                                                                                                | Issue                                                       |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| A loopback integration test proving that a disabled capability cannot be bypassed through the web gateway, CLI, MCP or supervisor. | [#92](https://github.com/Division4Studios/malt/issues/92)   |
-| Jira as a usable tracker (see below).                                                                                              | [#265](https://github.com/Division4Studios/malt/issues/265) |
+| Gap                                                                                                                                         | Issue                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Factory delivery through a Jira tracker: typed tracker keys across the factory, then intake, breakdown, stage transitions and traceability. | [#331](https://github.com/Division4Studios/malt/issues/331)–[#335](https://github.com/Division4Studios/malt/issues/335)  |
+| Jira writes made by the factory, each denial parking one durable blocker.                                                                   | [#330](https://github.com/Division4Studios/malt/issues/330)                                                              |
+| A live proof against a test Jira Cloud project.                                                                                             | [#336](https://github.com/Division4Studios/malt/issues/336)                                                              |
+| Jira OAuth 2.0 (3LO), and Jira Data Center or Server with personal access tokens. Both are after 1.0.                                       | [#340](https://github.com/Division4Studios/malt/issues/340), [#341](https://github.com/Division4Studios/malt/issues/341) |
 
-Some GitHub effects are not capability-checked yet: the delivery adapter's pull request creation, merges, pull request and issue closure, comments and native dependency edges. See [enforcement](capability-policy.md#enforcement). The parent feature is [#72](https://github.com/Division4Studios/malt/issues/72).
+Some GitHub effects are not capability-checked yet: the delivery adapter's pull request creation, merges, pull request and issue closure, comments and native dependency edges. See [enforcement](capability-policy.md#enforcement). The parent features are [#72](https://github.com/Division4Studios/malt/issues/72) and, for Jira, [#265](https://github.com/Division4Studios/malt/issues/265).
+
+A loopback test (`test/capability-enforcement.test.ts`) proves that a disabled or human-only capability cannot be bypassed through operator RPC, an MCP tool call, the factory CLI, the paired console or the supervisor's delivery adapter, that a connection switch never replays an intent recorded for the previous repository, and that a Jira tracker whose token variable is unset needs external setup and is never sent anything.
 
 ## Connect Jira Cloud
 
@@ -262,9 +266,9 @@ Map each MALT stage (Ready, Development, QA / Review, Final Verification, Done) 
 
 ## Design rules for connectors
 
-These rules apply to GitHub today and to any future connector.
+These rules apply to GitHub and Jira, and to any later connector.
 
-- **Separate tracker and source control.** A tracker's keys are never forced into another provider's numeric IDs. Switching connectors must not replay old side effects into a different project. Pending operations are fenced to the repository node ID and Project ID they started with.
+- **Separate tracker and source control.** A tracker's keys are never forced into another provider's numeric IDs. Switching connectors never replays old side effects into a different project: issue journals are fenced to the repository node ID and Project ID they started with, and label, milestone, view and field intents to their repository or Project.
 - **Saved is not verified.** A saved configuration never reports connected until a live check verifies it.
 - **Deny by default.** Every mutating capability starts disabled or human-only, and connecting never widens a decision a human made. Role instructions explain the policy; the backend gate enforces it.
 - **Credentials stay out of state.** MALT stores where a credential lives, never its value. Credentials never go into browser storage, prompts, project memory or `.malt/`.

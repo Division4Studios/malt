@@ -176,7 +176,9 @@ async function perform(context: MilestoneContext, input: ManageInput): Promise<v
  * @throws {MeshError} GITHUB_UNAVAILABLE when GitHub does not show the change afterwards.
  */
 export async function manageMilestone(context: MilestoneContext, input: ManageInput): Promise<Change> {
-  return runIntent(path.join(context.directory, 'intents', 'milestones'), input.requestId, input, {
+  // The intent names its repository, so a retry after the workspace switched repositories is refused.
+  const intent = { ...input, repository: context.repository };
+  return runIntent(path.join(context.directory, 'intents', 'milestones'), input.requestId, intent, {
     reconcile: async () => observed(await listMilestones(context), input),
     perform: async () => {
       await perform(context, input);

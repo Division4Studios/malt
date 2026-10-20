@@ -26,7 +26,7 @@ Every capability starts `disabled`, apart from the initialization grants describ
 | `relationships`         | Native parent/child links and dependencies                                                          |
 | `membership`            | Adding an issue to the Project                                                                      |
 | `transition`            | Moving an issue's Status                                                                            |
-| `comment`               | Commenting (used by the Jira library only)                                                          |
+| `comment`               | Commenting on Jira issues (the Jira library only; the factory makes no Jira writes yet)             |
 | `label-use`             | Applying existing labels                                                                            |
 | `label-manage`          | Creating, editing and deleting labels                                                               |
 | `milestone-use`         | Assigning existing milestones                                                                       |
@@ -107,11 +107,13 @@ Every entry point supplies its principal from its transport:
 - **MCP or RPC with agent credentials.** The call must first pass the designated-lead rule for mutations, then acts as `{ kind: 'agent', role: 'team-lead' }`.
 - **Supervisor.** The delivery adapter provisions lead-reviewed plans, re-verifies the saved connection and moves Project status as `{ kind: 'supervisor', role: 'team-lead' }`.
 
-**Not yet gated:** the delivery adapter's direct repository effects (pull request creation, merges, pull request and issue closure, comments and native dependency edges) still call GitHub without a capability check. This includes the comments and not-planned closures of an [approved recommendation](project-management-decisions.md). Dependency edges are reachable only after the same plan's `relationships`-gated issue creation. A test that proves no entry point can bypass a disabled capability is still open (#92).
+**Not yet gated:** the delivery adapter's direct repository effects (pull request creation, merges, pull request and issue closure, comments and native dependency edges) still call GitHub without a capability check. This includes the comments and not-planned closures of an [approved recommendation](project-management-decisions.md). Dependency edges are reachable only after the same plan's `relationships`-gated issue creation.
+
+`test/capability-enforcement.test.ts` drives a real broker with a fixture GitHub CLI and proves that a disabled or human-only capability is denied, with no GitHub request and no journal, through operator RPC, the lead and a real MCP tool call, the factory CLI, the paired console, and the supervisor's own delivery adapter (provisioning and a Project status move as `supervisor`).
 
 ### Jira
 
-The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The factory makes no Jira writes yet; see [Connect Jira Cloud](project-connectors.md#connect-jira-cloud).
+The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The factory makes no Jira writes yet; see [Connect Jira Cloud](project-connectors.md#connect-jira-cloud). `capability_policy_status` also reports `jira`: the current Jira mode (`read-only`, `comment-only`, `full` or `custom`), what MALT always reads, and each Jira write with its current policy. **Project → Connections** shows it beside a Jira tracker before any write is enabled. Turning a Jira denial into one durable blocker comes with the factory's Jira writes (#330).
 
 | Mutation                 | Capabilities                       |
 | ------------------------ | ---------------------------------- |

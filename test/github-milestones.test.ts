@@ -166,6 +166,18 @@ await test('edit, close and delete are each confirmed against the remote state',
   });
 });
 
+await test('a milestone change retried after switching repositories is refused, not replayed', async (t) => {
+  const { context, remote } = fixture(t);
+  const create = { requestId: 'm-switch', action: 'create' as const, title: 'v3' };
+  remote.shouldLoseResponse = true;
+  await assert.rejects(manageMilestone(context, create), { code: 'GITHUB_UNAVAILABLE' });
+  const changes = remote.changes.length;
+  await assert.rejects(manageMilestone({ ...context, repository: 'example/other' }, create), {
+    code: 'INVALID_INPUT',
+  });
+  assert.equal(remote.changes.length, changes, 'nothing ran against the other repository');
+});
+
 await test('assigning needs milestone-use and every change needs milestone-manage', async (t) => {
   assert.deepEqual(githubCapabilities('github_milestones', {}), []);
   assert.deepEqual(githubCapabilities('github_milestone_assign', { issue: 1, title: 'v1.0' }), ['milestone-use']);

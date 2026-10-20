@@ -181,6 +181,14 @@ await test('a create whose response was lost yields exactly one view', async (t)
   assert.deepEqual(project.mutations, ['createProjectV2View']);
 });
 
+await test('a view create retried after switching Projects is refused, not replayed', async (t) => {
+  const { context, project } = fixture(t, 'graphql');
+  project.shouldLoseResponse = true;
+  await assert.rejects(createView(context, create), { code: 'GITHUB_UNAVAILABLE' });
+  await assert.rejects(createView({ ...context, projectId: 'PVT_9' }, create), { code: 'INVALID_INPUT' });
+  assert.deepEqual(project.mutations, ['createProjectV2View'], 'nothing ran against the other Project');
+});
+
 await test('reading views needs view-field-read and creating needs view-field-create', () => {
   assert.deepEqual(githubCapabilities('github_views', {}), ['view-field-read']);
   assert.deepEqual(githubCapabilities('github_view_create', create), ['view-field-create']);

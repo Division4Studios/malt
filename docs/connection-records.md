@@ -23,6 +23,8 @@ When a reconnect verifies the same node ID under a new name, the previous names 
 
 `github_create_issue` reports `outcome: {issue, membership, status}`, so creating the issue, attaching it to the Project and setting its Status are reported separately.
 
+The durable intents for labels, milestones, views and fields (`.malt/github/intents/`) record the repository or Project they were made for. After a switch to another repository or Project, a retry with the same `requestId` is refused as a different change, so it never runs against the new target. A switch saved but not yet verified refuses every change until it is verified.
+
 ## Project creation
 
 `github_connect` with `createProject: true` needs `project-create` as well as `project-connect`. Connecting an existing `projectNumber` never creates a board, and the console form never creates one.
