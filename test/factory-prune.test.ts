@@ -16,7 +16,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 
 import { run } from '../src/database.ts';
-import { pruneWorktrees, registrations } from '../src/factory/prune.ts';
+import { canonicalPath, pruneWorktrees, registrations } from '../src/factory/prune.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
 import { MeshError } from '../src/protocol.ts';
@@ -246,16 +246,6 @@ function entry(result: PruneResult, id: string): PruneEntry {
 }
 
 /**
- * Comparable form of a path on any host.
- *
- * @param directory - Fixture or Git path.
- * @returns Resolved, lower-cased path.
- */
-function same(directory: string): string {
-  return path.resolve(directory).toLowerCase();
-}
-
-/**
  * Directories Git registers as worktrees.
  *
  * @param workspaces - Project Git.
@@ -263,7 +253,7 @@ function same(directory: string): string {
  */
 async function registered(workspaces: WorkspaceManager): Promise<string[]> {
   const output = await workspaces.git(['worktree', 'list', '--porcelain', '-z']);
-  return registrations(output).map((item) => same(item.directory));
+  return Promise.all(registrations(output).map(async (item) => canonicalPath(item.directory)));
 }
 
 await test('a dry run reports every worktree and snapshot with its owner and why, and changes nothing', async (t) => {
@@ -315,7 +305,9 @@ await test('a dry run reports every worktree and snapshot with its owner and why
   assert.equal(folder.action, 'keep');
   assert.match(folder.reason, /Neither Git nor the ownership ledger/v);
 
-  const session = result.entries.find((item) => same(item.directory) === same(outside));
+  const outsideKey = await canonicalPath(outside);
+  const keys = await Promise.all(result.entries.map(async (item) => canonicalPath(item.directory)));
+  const session = result.entries[keys.indexOf(outsideKey)];
   assert.equal(session?.action, 'keep');
   assert.match(session.reason, /Outside .malt\/worktrees/v);
   assert.equal(result.entries.find((item) => item.reason === 'The primary checkout.')?.action, 'keep');
@@ -383,7 +375,7 @@ await test('removal keeps owned work, archives orphans first, unlinks .malt with
 
   // Git worktree prune dropped the registration whose folder was gone, and the ledger retired it.
   assert.equal(entry(result, ids.stale).action, 'pruned');
-  assert.ok(!(await registered(context.workspaces)).includes(same(directories.stale)));
+  assert.ok(!(await registered(context.workspaces)).includes(await canonicalPath(directories.stale)));
   const owned = new Set(context.workspaces.owned().map((record) => record.id));
   assert.ok(!owned.has(ids.stale) && !owned.has(ids.orphan) && !owned.has(ids.finished) && owned.has(ids.foreign));
 
@@ -435,4 +427,23 @@ await test('Git porcelain parsing keeps locked and prunable reasons, including p
     { directory: '/repo/.malt/worktrees/a b', isDetached: true, locked: 'held by the operator', prunable: null },
     { directory: '/gone', isDetached: false, locked: '', prunable: 'gitdir file points to non-existent location' },
   ]);
+});
+
+await test('one path compares equal however Git, the ledger or a link spells it', async (t) => {
+  const { mesh } = await fixture(t);
+  const real = path.join(mesh.directory, 'worktrees', 'real');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture folder inside its temporary project.
+  mkdirSync(real, { recursive: true });
+  const alias = path.join(mesh.directory, 'alias');
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture link inside its temporary project.
+  await symlink(real, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  const canonical = await canonicalPath(path.join(real, 'gone'));
+  assert.equal(await canonicalPath(path.join(alias, 'gone')), canonical, 'a link, like macOS /var, resolves');
+  assert.equal(await canonicalPath(`${real}${path.sep}.${path.sep}gone${path.sep}`), canonical);
+  if (process.platform !== 'linux') {
+    assert.equal(await canonicalPath(path.join(real, 'gone').toUpperCase()), canonical, 'case is folded');
+  }
+  if (process.platform === 'win32') {
+    assert.equal(await canonicalPath(path.join(real, 'gone').replaceAll(path.sep, '/')), canonical);
+  }
 });

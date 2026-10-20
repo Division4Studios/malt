@@ -142,13 +142,19 @@ function messageOf(error: unknown): string {
   return Error.isError(error) ? error.message : String(error);
 }
 
+/** Hosts whose default file systems compare names without case. */
+const CASE_FOLDED: ReadonlySet<string> = new Set(['win32', 'darwin']);
+
 /**
- * Canonical identity of a directory that may no longer exist, using the host's case rules.
+ * Canonical form of a directory that may no longer exist, so Git's, the ledger's and the file system's spellings
+ * of one path compare equal: symbolic links and aliases such as macOS `/var` → `/private/var` and Windows 8.3
+ * short names are resolved through the nearest existing ancestor, separators are normalized, and case is folded
+ * on Windows and macOS. MALT's own worktree ids are lower case, so folding never merges two of them.
  *
  * @param directory - Ledger, Git or folder path.
  * @returns The real path of its nearest existing ancestor joined with the rest.
  */
-async function identity(directory: string): Promise<string> {
+export async function canonicalPath(directory: string): Promise<string> {
   let existing = path.resolve(directory);
   const missing: string[] = [];
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Only resolves paths the ledger or Git recorded; nothing is read.
@@ -163,7 +169,7 @@ async function identity(directory: string): Promise<string> {
   } catch {
     /* An unreadable ancestor compares by its resolved path. */
   }
-  return process.platform === 'win32' ? canonical.toLowerCase() : canonical;
+  return CASE_FOLDED.has(process.platform) ? canonical.toLowerCase() : canonical;
 }
 
 /**
@@ -217,7 +223,7 @@ async function holders(context: PruneContext): Promise<Holders> {
       continue;
     }
     // eslint-disable-next-line no-await-in-loop -- Path resolution is cheap and keeps the delivery order.
-    const key = await identity(task.worktree);
+    const key = await canonicalPath(task.worktree);
     if (tasks.get(key)?.phase === 'done' || !tasks.has(key)) {
       tasks.set(key, task);
     }
@@ -292,7 +298,7 @@ function ownerOf(context: PruneContext, record: LedgerRecord, key: string, seen:
 async function candidates(context: PruneContext, root: string): Promise<Candidate[]> {
   const found = new Map<string, Candidate>();
   const add = async (directory: string): Promise<Candidate> => {
-    const key = await identity(directory);
+    const key = await canonicalPath(directory);
     const existing = found.get(key) ?? { directory, key, isPrimary: false };
     found.set(key, existing);
     return existing;
@@ -582,7 +588,7 @@ export async function pruneWorktrees(context: PruneContext, input: unknown): Pro
     assertMayRemove(context);
   }
   const directory = path.join(context.mesh.directory, 'worktrees');
-  const root = await identity(directory);
+  const root = await canonicalPath(directory);
   const seen = await holders(context);
   const found = await candidates(context, directory);
   const plan: Planned[] = [];
