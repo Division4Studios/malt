@@ -78,6 +78,7 @@ Usage: node src/cli.ts <command> [options]
   factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   factory-worktrees-adopt      Hand .malt/worktrees to this host or container (paused)
+  factory-prune [--apply]      Report (or, paused, remove) orphaned worktrees and snapshots
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
@@ -176,7 +177,7 @@ interface CliOptions {
   readonly limit?: string | undefined;
   /** `--all`: include acknowledged messages. */
   readonly all?: boolean | undefined;
-  /** `--apply`: apply proposed GitHub reconciliation decisions instead of a dry run. */
+  /** `--apply`: apply proposed GitHub reconciliation decisions, or remove pruned worktrees, instead of a dry run. */
   readonly apply?: boolean | undefined;
   /** `--json`: print one machine-readable document (doctor). */
   readonly json?: boolean | undefined;

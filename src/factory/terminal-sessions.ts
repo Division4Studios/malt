@@ -14,8 +14,8 @@ const PATH_LIMIT = 4096;
 const REASON_LIMIT = 200;
 /** All durable terminal lifecycle states. */
 const STATES = ['requested', 'starting', 'running', 'closing', 'exited', 'failed', 'cancelled', 'timed_out'] as const;
-/** Session states which need recovery after the owning broker stops. */
-const ACTIVE: ReadonlySet<string> = new Set(['requested', 'starting', 'running', 'closing']);
+/** Session states which need recovery after the owning broker stops; such a session still owns its worktree. */
+export const ACTIVE_TERMINAL_STATES: ReadonlySet<string> = new Set(['requested', 'starting', 'running', 'closing']);
 /** Metadata schema doubles as the SQL row boundary. Strictness rejects content fields. */
 export const terminalSessionSchema = z
   .object({
@@ -171,7 +171,7 @@ export class TerminalSessions {
       if (
         current?.state !== expected ||
         (next !== expected && !EDGES[expected].includes(next)) ||
-        (next === expected && !ACTIVE.has(next))
+        (next === expected && !ACTIVE_TERMINAL_STATES.has(next))
       ) {
         throw new MeshError('FACTORY_GATED', 'Terminal session state changed or transition is not allowed.');
       }

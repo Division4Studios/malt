@@ -155,6 +155,10 @@ The message reads ".malt/worktrees belongs to the host (win32) at … but this s
 
 Adoption refuses while worktrees created by the other environment remain, and it refuses while the factory is running. See [Worktree ownership](software-factory.md#worktree-ownership).
 
+### Old worktrees and snapshots pile up under .malt/worktrees
+
+Run `node src/cli.ts factory-prune --project <path>` for a dry run. Each entry names its owner and why it is kept or removable. Pause the factory, then repeat with `--apply`. Uncommitted work is archived to `refs/malt/archive/prune/<id>` before removal, and branches are never deleted. An entry kept with "Removal failed" shows the Git error. Fix the cause, for example a `.malt` that is a real folder instead of a link, and run prune again. See [Prune worktrees and snapshots](software-factory.md#prune-worktrees-and-snapshots).
+
 ### A delivery waits in Merging
 
 The gate reason is exact, for example "PR #12 is awaiting 1 approving review. Auto-merge is off for this repository…". Approve or merge the pull request on GitHub, or enable auto-merge; the next reconcile adopts the merge and verifies main. MALT never uses `--admin`. See [the protected-branch merge path](software-factory.md#protected-branch-merge-path).
