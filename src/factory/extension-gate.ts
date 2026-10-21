@@ -74,6 +74,45 @@ function verifiedUsage(capacity: Capacity, now: number): number | 'unknown' | 's
   return windowFreshness(observed, now) === 'stale' ? 'stale' : capacity.subscriptionUsedPercent;
 }
 
+/** What the gate would trust about one provider's subscription quota, for display. */
+export interface QuotaView {
+  /** `current` for a fresh verified reading; otherwise why none is trusted. */
+  readonly freshness: 'current' | 'stale' | 'unknown';
+  /** Headroom left in the most used fresh window, in percentage points; null unless current. */
+  readonly headroomPercent: number | null;
+  /** Oldest observation the reading rests on; null when there is none. */
+  readonly observedAt: number | null;
+}
+
+/**
+ * When the reading the gate trusts was observed.
+ *
+ * @param capacity - Provider snapshot.
+ * @returns The oldest native window's observation, the single reading's update time, or null without a reading.
+ */
+function oldestObservation(capacity: Capacity): number | null {
+  const windows = capacity.subscriptionWindows ?? [];
+  if (windows.length > 0) {
+    return Math.min(...windows.map((window) => window.observedAt));
+  }
+  return capacity.subscriptionUsedPercent === null ? null : capacity.updatedAt;
+}
+
+/**
+ * The quota evidence the gate would use right now, never an inferred number.
+ *
+ * @param capacity - Provider snapshot.
+ * @param now - Current time.
+ * @returns Fresh headroom, or stale or unknown.
+ */
+export function quotaView(capacity: Capacity, now: number): QuotaView {
+  const observedAt = oldestObservation(capacity);
+  const usage = verifiedUsage(capacity, now);
+  return typeof usage === 'number'
+    ? { freshness: 'current', headroomPercent: PERCENT_MAX - usage, observedAt }
+    : { freshness: usage, headroomPercent: null, observedAt };
+}
+
 /**
  * Decide whether a productive assignment may be extended by one more interval.
  *
