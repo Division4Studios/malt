@@ -327,9 +327,11 @@ Connector writes obey the project's [capability policy](capability-policy.md). A
 
 Every delivery and objective is named by its tracker's own key: `#12` for a GitHub or local issue, `PROJ-12` for a Jira issue. The console, the mission brief, operator notices, commit messages and pull request bodies show that key, and `factory_enqueue` accepts it.
 
-Delivery branches are named from the key. A GitHub delivery's branch is `malt/issue-12-<id>-<version>`, exactly as before. A Jira delivery's branch is `malt/PROJ-12-<id>-<version>`, so Jira's development panel links it. A delivery keeps the branch it was given, so in-flight deliveries are never renamed.
+Delivery branches are named from the key. A GitHub delivery's branch is `malt/issue-12-<id>-<version>`, exactly as before. A Jira delivery's branch is `malt/PROJ-12-<id>-<version>`, and its pull request title starts with the key (`PROJ-12 Export API`), so Jira's development panel links both. A delivery keeps the branch it was given, so in-flight deliveries are never renamed.
 
 The ledger keeps a numeric handle for each issue next to its key: the GitHub or local issue number, or a Jira issue's stable numeric ID. Records with a non-GitHub key store it as `trackerKey` and `parentKey`; GitHub and local records store none and derive their key from the issue number, so ledgers saved before typed keys load and behave unchanged. The `factory_task_keys` side table mirrors each delivery's key and follows a renamed Jira key. The delivery boundary addresses tracker issues by key, and the GitHub and local adapters refuse a key of another tracker before any call.
+
+When the saved tracker is a Jira project, the delivery boundary is the Jira remote: Jira issues matching the intake filter become objectives, their deliveries are created as Jira sub-tasks, and pull requests stay with GitHub or the local hub. Jira work enters through intake, so `factory_enqueue` imports GitHub and local Ready issues only. See [Deliver through Jira](project-connectors.md#deliver-through-jira).
 
 ## The learning steward and skills
 

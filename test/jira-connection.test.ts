@@ -353,7 +353,7 @@ await test('a verified Jira tracker is never read as a GitHub Project by GitHub 
   const delivery = new GitHubDelivery(config, github, runner);
   await assert.rejects(delivery.verify('https://github.com/example/app'), {
     code: 'GITHUB_NOT_CONNECTED',
-    message: /Jira tracker is not delivered through yet/v,
+    message: /Jira tracker delivers through the Jira delivery remote/v,
   });
   assert.deepEqual(calls, [], 'GitHub was never asked about the Jira project as if it were a GitHub Project');
 });

@@ -9,6 +9,20 @@ import { issueKey, issueLabel, parentKey } from './tracker-key.ts';
 import type { FactoryContext } from './context.ts';
 import type { FactoryTask, FactoryEffect, Feature } from './schema.ts';
 
+/** Identity suffix of the comment a superseded delivery's pull request receives. */
+const PR_COMMENT = ':pr-comment';
+
+/**
+ * Whether an effect acts on a pull request rather than a tracker issue. Both
+ * share one number space on GitHub and the local hub, but not with Jira.
+ *
+ * @param effect - Durable effect.
+ * @returns True for a pull request closure or comment.
+ */
+export function isPullRequestEffect(effect: Pick<FactoryEffect, 'id' | 'kind'>): boolean {
+  return effect.kind === 'close_pr' || (effect.kind === 'comment' && effect.id.endsWith(PR_COMMENT));
+}
+
 /**
  * Enqueue ordered retirement effects and clean only confirmed closed scopes.
  *
@@ -161,12 +175,12 @@ function isPullRequestRetired(context: FactoryContext, task: FactoryTask, key: s
     return false;
   }
   queue(context, {
-    id: `${key}:pr-comment`,
+    id: `${key}${PR_COMMENT}`,
     kind: 'comment',
     issue: task.pr,
     value: `Scope superseded by replacement objective ${task.scopeReplacement ?? ''}. Preserve source history; do not merge this obsolete scope.`,
   });
-  if (!context.repository.effectCompleted(`${key}:pr-comment`)) {
+  if (!context.repository.effectCompleted(`${key}${PR_COMMENT}`)) {
     return false;
   }
   queue(context, { id: `${key}:pr-close`, kind: 'close_pr', issue: task.pr, value: task.head });

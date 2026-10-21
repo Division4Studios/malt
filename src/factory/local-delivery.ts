@@ -17,7 +17,7 @@ import { LocalHub } from './local-hub.ts';
 import { LocalTracker } from './local-tracker.ts';
 import { githubIssue } from './remote.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
-import { issueLabel, parentLabel } from './tracker-key.ts';
+import { issueLabel, parentLabel, pullRequestTitle } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { HubGit } from './local-hub.ts';
@@ -96,6 +96,15 @@ export class LocalDelivery implements DeliveryRemote {
   }
 
   /**
+   * Verify the hub as the source of a remote whose tracker is elsewhere.
+   *
+   * @param origin - The project's configured delivery remote URL.
+   */
+  public async verifySource(origin: string): Promise<void> {
+    await this.verify(origin);
+  }
+
+  /**
    * Create the feature parent and each atomic child idempotently, with dependencies.
    *
    * @param feature - Lead-reviewed plan.
@@ -159,7 +168,7 @@ export class LocalDelivery implements DeliveryRemote {
     }
     const created = await this.tracker.openPull({
       issue: task.issue,
-      title: task.title,
+      title: pullRequestTitle(task),
       body: `Delivery for ${issueLabel(task)}; parent ${parentLabel(task)}.\n\n${issueBody(task.description, task.acceptanceCriteria)}`,
       head: task.branch,
       base: config.baseBranch,

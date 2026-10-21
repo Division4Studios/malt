@@ -3,9 +3,9 @@
 A connector links a MALT project to the outside systems its deliveries use. A connection has two parts:
 
 - the **work tracker**, where objectives become issues and move through stages: a GitHub Project, or a Jira Cloud project;
-- **source control**, where branches, pull requests and merges happen: a GitHub repository.
+- **source control**, where branches, pull requests and merges happen: a GitHub repository, or the local delivery hub.
 
-MALT keeps the two as separate sections of one connection record, so a Jira tracker does not have to share GitHub's numeric issue IDs. A Jira Cloud project can be discovered, saved and verified as the tracker beside a GitHub source, but the factory does not deliver through it yet (see [Connect Jira Cloud](#connect-jira-cloud)). If you do not want GitHub at all, use the [local delivery hub](local-delivery.md) instead.
+MALT keeps the two as separate sections of one connection record, so a Jira tracker does not have to share GitHub's numeric issue IDs. With a Jira Cloud project as the tracker, the factory takes objectives from Jira, creates their deliveries there and moves them through the project's workflow, while branches, pull requests and merges stay with GitHub or the local hub (see [Deliver through Jira](#deliver-through-jira)). If you do not want GitHub at all, use the [local delivery hub](local-delivery.md) instead.
 
 This page covers what ships, how to use it, and what is still missing. Storage details are in [connection records](connection-records.md), and the permission model is in [capability policy](capability-policy.md).
 
@@ -126,12 +126,10 @@ At a managed launch, MALT includes only the approved bindings for that role and 
 
 ## Not done yet
 
-| Gap                                                                                                                                                                                | Issue                                                                                                                    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Factory delivery through a Jira tracker: intake, breakdown, stage transitions and traceability. The factory already names work by [tracker key](software-factory.md#tracker-keys). | [#332](https://github.com/Division4Studios/malt/issues/332)–[#335](https://github.com/Division4Studios/malt/issues/335)  |
-| Jira writes made by the factory, each denial parking one durable blocker.                                                                                                          | [#330](https://github.com/Division4Studios/malt/issues/330)                                                              |
-| A live proof against a test Jira Cloud project.                                                                                                                                    | [#336](https://github.com/Division4Studios/malt/issues/336)                                                              |
-| Jira OAuth 2.0 (3LO), and Jira Data Center or Server with personal access tokens. Both are after 1.0.                                                                              | [#340](https://github.com/Division4Studios/malt/issues/340), [#341](https://github.com/Division4Studios/malt/issues/341) |
+| Gap                                                                                                   | Issue                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| A live proof against a test Jira Cloud project.                                                       | [#336](https://github.com/Division4Studios/malt/issues/336)                                                              |
+| Jira OAuth 2.0 (3LO), and Jira Data Center or Server with personal access tokens. Both are after 1.0. | [#340](https://github.com/Division4Studios/malt/issues/340), [#341](https://github.com/Division4Studios/malt/issues/341) |
 
 Some GitHub effects are not capability-checked yet: the delivery adapter's pull request creation, merges, pull request and issue closure, comments and native dependency edges. See [enforcement](capability-policy.md#enforcement). The parent features are [#72](https://github.com/Division4Studios/malt/issues/72) and, for Jira, [#265](https://github.com/Division4Studios/malt/issues/265).
 
@@ -145,9 +143,11 @@ What works today:
 
 - read-only discovery of the site, the account, the project, its issue types and workflow statuses, the account's permissions and the fields each issue type requires;
 - saving the Jira project as the tracker section and verifying it against the site;
+- the intake filter and stage mapping, checked against Jira before they are saved;
+- factory delivery through the Jira tracker, with GitHub or the local hub as source control ([Deliver through Jira](#deliver-through-jira));
 - the console (**Project → Connections**), CLI and MCP controls for these steps.
 
-The factory does not deliver through a Jira tracker yet. While the tracker is Jira, GitHub Project and issue operations (issue creation, Status moves, board sync, labels and milestones) and GitHub delivery are refused with `GITHUB_NOT_CONNECTED`, and `github_status` reports `connection: null`, so a Jira project is never mistaken for a GitHub Project. Intake, breakdown, stage transitions and evidence comments exist as a tested library (below), but the supervisor still delivers through GitHub or the local hub. That wiring is tracked by [#265](https://github.com/Division4Studios/malt/issues/265) and its children.
+While the tracker is Jira, GitHub Project and issue operations (issue creation, Status moves, board sync, labels and milestones) are refused with `GITHUB_NOT_CONNECTED`, and `github_status` reports `connection: null`, so a Jira project is never mistaken for a GitHub Project. GitHub stays the source: pull requests, checks and merges use the verified source repository.
 
 1. Ask your Jira administrator to follow the [Jira admin guide](#jira-admin-guide), then set the token in the environment of the process that runs the broker, for example `JIRA_API_TOKEN`. Restart the broker so it sees the variable.
 2. Discover the project. Nothing is saved, and nothing in Jira changes. In the console, choose **Jira Cloud** on **Project → Connections** and use **Check Jira project**; it also shows what MALT reads and may change in Jira before you enable any write. From the command line:
@@ -177,6 +177,23 @@ The factory does not deliver through a Jira tracker yet. While the tracker is Ji
    ```
 
 4. Verify with `node src/cli.ts github-verify`. The Jira tracker is checked against the site, and the GitHub source against GitHub.
+5. Set the intake filter and the stage mapping. In the console, use **Factory workflow in Jira** in the Jira section of **Project → Connections**: type the filter, choose a status for each stage you want MALT to move, and use **Save intake and stages**. From the command line:
+
+   ```sh
+   cat > workflow.json <<'EOF'
+   {
+     "jql": "project = PROJ AND labels = malt AND statusCategory != Done",
+     "stages": {
+       "Development": { "statusId": "3", "statusName": "In Progress" },
+       "QA / Review": { "statusId": "10002", "statusName": "In Review" },
+       "Done": { "statusId": "10003", "statusName": "Done" }
+     }
+   }
+   EOF
+   node src/cli.ts jira-workflow-save --file workflow.json
+   ```
+
+   The status IDs are the `workflowField.options` of the verified tracker in `github-status`, or the statuses `jira-discover` lists. MALT runs the filter once against the Jira search API and answers with `intakePreview`: the issues intake would file, and those it would skip with the reason. A filter Jira rejects, or a status that no workflow of the project has, is refused and nothing is saved. `"jql": null` turns intake off. Either field may be sent alone; the other is kept. Saving the same Jira project again with `github-section-save` keeps both.
 
 | Tracker state | When                                                                                                                                     |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
@@ -185,7 +202,22 @@ The factory does not deliver through a Jira tracker yet. While the tracker is Ji
 | `external`    | The token variable is unset, Jira rejects the token, the site or project is wrong, or the account lacks Browse Projects.                 |
 | `failed`      | The site is Jira Data Center or Server, or the section was saved without its Jira details.                                               |
 
-`jira-discover` (MCP `mesh_jira_discover`) and `github-section-save` need the workspace's designated lead or the human operator. Saving also needs the `project-connect` capability. The token is never returned, saved, logged or shown. A test drives discovery, saving and verification through the broker and checks the responses, events, logs, `.malt/` and its backup for it.
+`jira-discover` (MCP `mesh_jira_discover`), `github-section-save` and `jira-workflow-save` (MCP `mesh_jira_workflow_save`) need the workspace's designated lead or the human operator. Saving also needs the `project-connect` capability. The token is never returned, saved, logged or shown. A test drives discovery, saving and verification through the broker and checks the responses, events, logs, `.malt/` and its backup for it.
+
+### Deliver through Jira
+
+When the saved tracker section is a Jira project, the supervisor delivers through `JiraDelivery` (`src/factory/jira-delivery.ts`). Jira tracks the work; source control stays GitHub, or the local hub when the factory settings say `"delivery": "local"`. Pull requests, their checks, merges, auto-merge and CI logs go to source control exactly as before. Every delivery and objective is named by its [Jira key](software-factory.md#tracker-keys), and the ledger keeps the issue's stable numeric ID as its handle.
+
+- **Intake.** The supervisor reads the intake filter at most once a minute, a bounded 200 issues per read, resuming where the last read stopped. Each match that is not done, resolved or assigned to someone other than MALT's account becomes one objective, `PROJ-12: <summary>` followed by a link and the description, whose parent is that issue. An issue that already parents an objective, or is one of the sub-tasks MALT created, is never filed again, even after its key was renamed. Objectives record the site their issue lives on, so after the tracker moves to another site, finished work of the old site never hides a new site's issue that reuses its ID. A rate limit waits as long as `Retry-After` says. The last read (what it filed, what it skipped and why, or why it failed) is kept in `.malt/jira/intake.json`, shown in `github_status` as `jiraIntake` and on **Connections**.
+- **Breakdown.** Provisioning creates each delivery of the reviewed plan as a sub-task of the objective's issue, with its acceptance criteria, and links each to the deliveries it depends on with "Blocks". An objective filed in MALT gets a new parent issue first (the project's Task or Story type). Each creation has a stable request ID journaled before Jira is called, so a retry or an interrupted batch never creates a duplicate.
+- **Stages.** Each stage change performs the transition to the status a human mapped to that stage. An unmapped stage leaves the Jira status alone. Closing an issue moves it to the status mapped to Done or, without that mapping, to a status in Jira's done category.
+- **Traceability.** Progress, the pull request link when it opens and the merged-main evidence are posted as comments, each once per factory effect.
+- **Source of truth.** The issue is read again before every paid assignment. A done, resolved or reassigned issue reads as closed, and the delivery is not worked. The account Jira assigns a new sub-task, such as the project's default assignee, is recorded when MALT creates it and does not count as a reassignment; assigning it to someone else later does.
+- **Parents.** An objective closes in Jira only once every delivered sub-task exists under it and every child is done.
+
+Every Jira write asks the project's capability policy first ([modes](#the-jira-library) and [capability policy](capability-policy.md#jira)). The supervisor acts for the team lead, so grant the enabled writes to `team-lead`. A denial sends nothing to Jira and parks its scope as one durable blocker, exactly as a GitHub denial does: the delivery or objective is blocked with the capability's name, nothing is retried and no assignment starts, and changing the mode or the capability resumes it under its original identity. A transition Jira cannot make (no transition to the mapped status, or a screen field without a default) is one blocker naming the transition and fields. It is not planned against Jira again until the mapping changes or ten minutes pass. A revoked or expired token becomes one blocker that names the fix: no request is sent with that token again, and every Jira step, including the issue re-read before each paid assignment, reports that blocker instead, so no paid turn starts. Set a new token in the variable and restart the broker to resume.
+
+The tracker cannot switch between GitHub Projects and Jira, or to another Jira project, while work the current tracker tracks is still live: unfinished deliveries, objectives with tracker issues, or pending tracker updates. Issue numbers of one tracker could be reused by the other. Finish, retire or supersede the work first.
 
 ### The Jira library
 
@@ -200,8 +232,11 @@ The factory does not deliver through a Jira tracker yet. While the tracker is Ji
 | `transitions.ts`  | Maps MALT stages to Jira statuses and plans the transition. A missing mapping or required screen field becomes one blocker.     |
 | `traceability.ts` | Idempotent progress, pull request and merged-main comments, an issue re-read before work, and one blocker for a rejected token. |
 | `intake.ts`       | Pages through a JQL filter, and skips done, resolved or assigned-elsewhere issues with the reason.                              |
+| `workflow.ts`     | Checks and saves the intake filter and stage mapping, and keeps the last intake read.                                           |
+| `moves.ts`        | Moves an issue to a stage's mapped status or a done status, and checks a parent's children.                                     |
+| `adf.ts`          | Reads Atlassian Document Format: text runs for markers, and plain lines for an objective's brief.                               |
 
-Only `connection.ts` and `discovery.ts` are called from outside `src/jira/` today. Discovery reads, in order: `GET /rest/api/3/serverInfo` (the site is Jira Cloud), `/myself` (the credential works; only the account ID and display name are kept), `/project/{key}`, `/project/{key}/statuses`, `/mypermissions?projectKey=…` and, when the account may create issues, `/issue/createmeta/{key}/issuetypes/{id}` for each issue type (at most 20). Capabilities are derived from the permissions answer, never assumed. Jira versions stay unverified, and GitHub-only concepts such as Project views are reported unsupported. Workflow transitions belong to individual issues in Jira, so they are read when a delivery moves, not during discovery.
+The factory's Jira remote (`src/factory/jira-delivery.ts`) calls intake, creation, breakdown, moves, traceability and the writes; the connection integration calls `connection.ts`, `discovery.ts` and `workflow.ts`. Discovery reads, in order: `GET /rest/api/3/serverInfo` (the site is Jira Cloud), `/myself` (the credential works; only the account ID and display name are kept), `/project/{key}`, `/project/{key}/statuses`, `/mypermissions?projectKey=…` and, when the account may create issues, `/issue/createmeta/{key}/issuetypes/{id}` for each issue type (at most 20). Capabilities are derived from the permissions answer, never assumed. Jira versions stay unverified, and GitHub-only concepts such as Project views are reported unsupported. Workflow transitions belong to individual issues in Jira, so they are read when a delivery moves, not during discovery.
 
 | Result                    | When                                                                                                                             |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
@@ -229,7 +264,7 @@ These decisions answer #329. Revisit them only through their follow-up issues.
 
 ## Jira admin guide
 
-This guide is for the Jira administrator who prepares a project for MALT. MALT contacts only the one Jira Cloud site you configure, over HTTPS. It changes nothing until the operator enables a mode other than `read-only`, and the factory makes no Jira changes yet.
+This guide is for the Jira administrator who prepares a project for MALT. MALT contacts only the one Jira Cloud site you configure, over HTTPS. It changes nothing until the operator enables a mode other than `read-only` and grants it to the factory's roles.
 
 ### 1. Create the account and token
 
@@ -262,7 +297,7 @@ What it changes depends on the mode. Each change is a capability that the operat
 
 ### 4. Workflow and live proof
 
-Map each MALT stage (Ready, Development, QA / Review, Final Verification, Done) to a status in the project's workflow. A transition whose screen requires fields without defaults blocks the move and names the fields. Give those fields defaults, or map the stage elsewhere. Before relying on the connection, deliver one objective end to end against a test project and keep the issue links as evidence ([#336](https://github.com/Division4Studios/malt/issues/336)).
+The operator maps each MALT stage (Ready, Development, QA / Review, Merge Ready, Final Verification, Done, Blocked) that should move issues to a status in the project's workflow; unmapped stages leave issues where they are. MALT creates deliveries as sub-tasks, so the project's issue type scheme needs a sub-task type, and the intake filter should select issues of this project that are not epics. A transition whose screen requires fields without defaults blocks the move and names the fields. Give those fields defaults, or map the stage elsewhere. Before relying on the connection, deliver one objective end to end against a test project and keep the issue links as evidence ([#336](https://github.com/Division4Studios/malt/issues/336)).
 
 ## Design rules for connectors
 

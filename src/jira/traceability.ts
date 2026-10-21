@@ -139,6 +139,30 @@ export async function commentEvidenceOnce(
   ledger: Pick<CreationLedger, 'directory' | 'projectId' | 'now'>,
   input: { readonly requestId: string; readonly issueKey: JiraIssueKey; readonly evidence: Evidence },
 ): Promise<{ id: string }> {
+  return commentOnce(context, ledger, {
+    requestId: input.requestId,
+    issueKey: input.issueKey,
+    text: evidenceText(input.evidence),
+  });
+}
+
+/**
+ * Post a plain-text comment once per request ID, reconciling a lost response by its marker line.
+ *
+ * @param context - Transport, capability gate and caller.
+ * @param ledger - Journal directory and project identity.
+ * @param input - Request ID, issue and text.
+ * @param input.requestId - Stable ID, for example derived from the factory effect that asks for it.
+ * @param input.issueKey - Issue to comment on: its key, or its numeric ID, which Jira accepts in the same place.
+ * @param input.text - Comment text; the marker line is appended.
+ * @returns The comment's ID.
+ * @throws {MeshError} CAPABILITY_DENIED before any request when comments are not allowed.
+ */
+export async function commentOnce(
+  context: JiraWriteContext,
+  ledger: Pick<CreationLedger, 'directory' | 'projectId' | 'now'>,
+  input: { readonly requestId: string; readonly issueKey: JiraIssueKey; readonly text: string },
+): Promise<{ id: string }> {
   const requestId = requestIdSchema.parse(input.requestId);
   const directory = path.join(ledger.directory, 'jira', 'comments');
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- The project's own private state directory.
@@ -151,20 +175,20 @@ export async function commentEvidenceOnce(
 }
 
 /**
- * Reconcile or post one evidence comment while holding its lock.
+ * Reconcile or post one comment while holding its lock.
  *
  * @param context - Transport, capability gate and caller.
  * @param file - The comment's journal.
- * @param input - Issue, evidence and marker.
+ * @param input - Issue, text and marker.
  * @param input.issueKey - Issue to comment on.
- * @param input.evidence - What to report.
+ * @param input.text - What the comment says; the marker line follows it.
  * @param input.marker - Marker line.
  * @returns The comment's ID.
  */
 async function commentLocked(
   context: JiraWriteContext,
   file: string,
-  input: { readonly issueKey: JiraIssueKey; readonly evidence: Evidence; readonly marker: string },
+  input: { readonly issueKey: JiraIssueKey; readonly text: string; readonly marker: string },
 ): Promise<{ id: string }> {
   const { marker } = input;
   const isFresh = writeIfAbsent(file, `${JSON.stringify({ marker, commentId: null }, null, 2)}\n`) === 'created';
@@ -179,7 +203,7 @@ async function commentLocked(
       return { id: found };
     }
   }
-  const posted = await commentOnJiraIssue(context, input.issueKey, `${evidenceText(input.evidence)}\n${marker}`);
+  const posted = await commentOnJiraIssue(context, input.issueKey, `${input.text}\n${marker}`);
   writeAtomic(file, `${JSON.stringify({ marker, commentId: posted.id }, null, 2)}\n`);
   return posted;
 }
@@ -204,6 +228,10 @@ export async function recheckIssue(
   return { issue, blocked: unworkableReason(issue, account) };
 }
 
+/** What a rejected credential reports, once, until the token is replaced. */
+export const CREDENTIAL_BLOCKER =
+  'Jira rejected the MALT credential: the API token was revoked, rotated or expired. Create a new token and update the credential handle, then resume.';
+
 /**
  * The single blocker a rejected credential becomes, so the supervisor parks
  * the connection instead of spending paid turns on calls that will fail.
@@ -212,7 +240,5 @@ export async function recheckIssue(
  * @returns Operator action, or `null` when the failure is not about the credential.
  */
 export function credentialBlocker(error: unknown): string | null {
-  return error instanceof JiraRequestError && error.failure === 'unauthorized'
-    ? 'Jira rejected the MALT credential: the API token was revoked, rotated or expired. Create a new token and update the credential handle, then resume.'
-    : null;
+  return error instanceof JiraRequestError && error.failure === 'unauthorized' ? CREDENTIAL_BLOCKER : null;
 }

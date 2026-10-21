@@ -14,9 +14,11 @@
 import { child, data, firstText, number, text } from './api.js';
 import { stepErrors } from './discovery-model.js';
 import { t } from './i18n.js';
+import { readJiraWorkflow } from './jira-workflow-model.js';
 
 import type { Data } from './api.js';
 import type { StepError } from './discovery-model.js';
+import type { JiraWorkflowView } from './jira-workflow-model.js';
 
 /** Verification states a section can be in. */
 const STATES = ['saved', 'verified', 'degraded', 'failed', 'external'] as const;
@@ -79,6 +81,8 @@ export interface ConnectionView {
   readonly tracker: SectionView;
   /** Saved Jira tracker settings, for prefilling; `null` for any other tracker. */
   readonly jira: JiraSettings | null;
+  /** The saved Jira tracker's intake filter, stage mapping and last intake read; `null` for any other tracker. */
+  readonly jiraWorkflow: JiraWorkflowView | null;
   /** Source control provider in use: the local hub when the factory delivers locally. */
   readonly sourceProvider: SourceProvider;
   /** GitHub source section. */
@@ -223,6 +227,7 @@ export function readConnection(snapshot: unknown): ConnectionView {
     trackerProvider: provider === 'jira' || provider === 'github-projects' ? provider : null,
     tracker: readSection(tracker, text(credentials, 'tracker'), trackerSelection(tracker, jira)),
     jira,
+    jiraWorkflow: readJiraWorkflow(github),
     sourceProvider: hub === null ? 'github' : 'local',
     source: readSection(
       { ...source, ...(repository !== '' && { url: `https://github.com/${repository}` }) },

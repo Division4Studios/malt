@@ -20,6 +20,7 @@ import { readJsonFile, writeIfAbsent } from '../config.ts';
 import { MeshError } from '../protocol.ts';
 import { writeAtomic } from '../summary.ts';
 
+import { adfText } from './adf.ts';
 import { jiraGet, jiraIssueKeySchema, jiraProjectKeySchema } from './client.ts';
 import { withRequestLock } from './request-lock.ts';
 import { createJiraIssue } from './writes.ts';
@@ -114,21 +115,6 @@ const reconcileSchema = z.object({
  */
 export function creationMarker(ledger: Pick<CreationLedger, 'projectId'>, requestId: string): string {
   return `MALT request ${ledger.projectId}:${requestId}`;
-}
-
-/**
- * Every text run in an Atlassian Document Format node.
- *
- * @param node - Any ADF value.
- * @returns Its text, depth first.
- */
-function adfText(node: unknown): string[] {
-  if (typeof node !== 'object' || node === null) {
-    return [];
-  }
-  const own = 'text' in node && typeof node.text === 'string' ? [node.text] : [];
-  const children: unknown[] = 'content' in node && Array.isArray(node.content) ? node.content : [];
-  return [...own, ...children.flatMap((child) => adfText(child))];
 }
 
 /**

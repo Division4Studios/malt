@@ -109,6 +109,21 @@ export function branchKey(key: TrackerKey): string {
 }
 
 /**
+ * A delivery's pull request title. Jira's development panel links pull
+ * requests by the issue key in their title or branch, so a Jira delivery's
+ * title starts with its key; GitHub links its own issues, so a GitHub title
+ * is the delivery title unchanged.
+ *
+ * @param record - Delivery with its title and keys.
+ * @param record.title - What the delivery delivers, as its issue names it.
+ * @returns `PROJ-12 Export API` for Jira, the title alone otherwise.
+ */
+export function pullRequestTitle(record: KeyedIssue & { readonly title: string }): string {
+  const key = issueKey(record);
+  return key.provider === 'github' ? record.title : `${key.key} ${record.title}`;
+}
+
+/**
  * Split a key into the parts it sorts by.
  *
  * @param key - Typed key.

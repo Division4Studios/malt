@@ -486,6 +486,7 @@ export const GITHUB_OPERATIONS = [
   'github_view_manage',
   'github_discover',
   'jira_discover',
+  'jira_workflow_save',
   'github_connect',
   'github_sync',
   'github_create_issue',
@@ -804,6 +805,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     "Read-only setup discovery for THIS workspace: the authenticated GitHub login, accessible repositories, the owner's Projects v2, a Project's single-select fields and read-only capability probes. Nothing is created, changed or saved; each failure names its step.",
   jira_discover:
     "Read-only Jira Cloud setup discovery for THIS workspace: whether the site is Jira Cloud, the account, the project, its issue types and workflow statuses, and the account's project permissions, with each missing permission and the Jira admin action that grants it. The API token is read from the named environment variable and never returned or saved. Nothing in Jira is created or changed.",
+  jira_workflow_save:
+    "Human operator or approved lead: set THIS workspace's Jira workflow for the factory: jql, the intake filter whose matching issues become objectives (null turns intake off), and/or stages, each MALT stage mapped to a Jira status ID and name (an unmapped stage leaves the Jira status alone). The filter is run once against the Jira search API and the reply previews what intake would file; each status must exist in the project's workflows. Nothing in Jira changes. Needs the project-connect capability.",
   github_connect:
     "For the team lead: verify this workspace's repository and GitHub Project access, then save the connection inside its .malt. Supply projectNumber to reuse a project, or explicitly createProject=true to create one. Set up an MALT Status field without replacing existing project fields.",
   github_sync:

@@ -102,6 +102,8 @@ const SHELL = [
   '/capability-ui.js',
   '/discovery-model.js',
   '/jira-model.js',
+  '/jira-workflow-model.js',
+  '/jira-workflow-ui.js',
   '/connection-model.js',
   '/connection-ui.js',
   '/step-override-model.js',
