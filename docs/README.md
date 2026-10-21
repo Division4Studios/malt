@@ -54,7 +54,7 @@ Every page in `docs/`, grouped by what you want to do. Start at the top if MALT 
 
 | Page                                        | What it is for                                                                                       |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [Project connectors](project-connectors.md) | GitHub and Jira Cloud connections, what is shipped, and what is not wired into the factory yet.      |
+| [Project connectors](project-connectors.md) | GitHub and Jira Cloud connections, delivering through Jira, and what is still missing.               |
 | [GitHub controls](github-controls.md)       | The repository's own GitHub settings: required checks, scanning, review exception and CodeQL triage. |
 
 ## Project and community

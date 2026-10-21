@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { MeshError } from '../protocol.ts';
 
 import { command } from './commands.ts';
+import { JiraDelivery } from './jira-delivery.ts';
 import { LocalDelivery, issueBody } from './local-delivery.ts';
 import { LOCAL_STATUSES } from './local-tracker.ts';
 import { GitHubDelivery } from './remote.ts';
@@ -191,15 +192,21 @@ export async function localControl(mesh: MeshConfig, settings: FactoryConfig, ra
 }
 
 /**
- * Select the configured delivery boundary for a project.
+ * Select the configured delivery boundary for a project. Source control is
+ * the local hub or GitHub, as the factory settings say; when the saved work
+ * tracker is a Jira project, the Jira remote tracks the work and delegates
+ * pull requests and merges to that source.
  *
  * @param mesh - Target project.
  * @param settings - Factory policy.
- * @param github - Existing project GitHub integration, used only in GitHub mode.
- * @returns The local hub adapter or the GitHub adapter.
+ * @param github - Existing project integration: the GitHub source and the saved tracker.
+ * @returns The local hub adapter, the GitHub adapter, or the Jira remote over either.
  */
 export function deliveryFor(mesh: MeshConfig, settings: FactoryConfig, github: ProjectGitHub): DeliveryRemote {
-  return settings.delivery === 'local' ? new LocalDelivery(mesh, settings) : new GitHubDelivery(mesh, github);
+  const source = settings.delivery === 'local' ? new LocalDelivery(mesh, settings) : new GitHubDelivery(mesh, github);
+  return github.trackerSection()?.provider === 'jira'
+    ? new JiraDelivery(mesh, () => github.jiraTracker(), source)
+    : source;
 }
 
 /**

@@ -155,6 +155,7 @@ const FIXED_CAPABILITIES: Readonly<Record<FixedOperation, readonly Capability[]>
   github_verify: [],
   github_discover: [],
   jira_discover: [],
+  jira_workflow_save: ['project-connect'],
   github_sync: [],
   github_labels: [],
   github_milestones: [],

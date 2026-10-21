@@ -11,6 +11,7 @@
  */
 import { z } from 'zod/v3';
 
+import { adfPlainText } from './adf.ts';
 import { JiraRequestError, jiraGet, jiraIssueKeySchema } from './client.ts';
 
 import type { JiraIssueKey, JiraTransport } from './client.ts';
@@ -22,7 +23,7 @@ export const INTAKE_LIMIT = 200;
 /** Longest JQL accepted from settings. */
 export const JQL_MAX = 2000;
 /** Fields intake needs. */
-const FIELDS = 'summary,status,assignee,resolution,issuetype,updated';
+const FIELDS = 'summary,description,status,assignee,resolution,issuetype,updated';
 
 /** A configured intake filter. */
 export const jqlSchema = z.string().trim().min(1).max(JQL_MAX);
@@ -39,6 +40,8 @@ const fieldsSchema = z.object({
   status: statusSchema,
   assignee: z.object({ accountId: z.string() }).nullable().default(null),
   resolution: z.object({ name: z.string() }).nullable().default(null),
+  /** Atlassian Document Format; absent when the read did not ask for it. */
+  description: z.unknown().optional(),
 });
 /** One issue from the search response. */
 export const searchIssueSchema = z.object({ id: z.string().min(1), key: jiraIssueKeySchema, fields: fieldsSchema });
@@ -65,6 +68,8 @@ export interface IntakeIssue {
   readonly assignee: string | null;
   /** Resolution name, if resolved. */
   readonly resolution: string | null;
+  /** Description as plain text, when the read included it. */
+  readonly description?: string;
 }
 
 /** Why intake skipped an issue. */
@@ -181,6 +186,7 @@ export function intakeIssue(issue: z.output<typeof searchIssueSchema>): IntakeIs
     category: issue.fields.status.statusCategory?.key ?? null,
     assignee: issue.fields.assignee?.accountId ?? null,
     resolution: issue.fields.resolution?.name ?? null,
+    ...(issue.fields.description !== undefined && { description: adfPlainText(issue.fields.description) }),
   };
 }
 

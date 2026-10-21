@@ -61,6 +61,8 @@ export interface DeliveryPlanIssue extends KeyedIssue, KeyedParent {
   readonly issue: number;
   /** Full-feature issue's numeric ledger handle. */
   readonly parentIssue: number;
+  /** Tracker the parent's handle is unique within; absent for GitHub and local parents. */
+  readonly parentTracker?: string | undefined;
 }
 /** Existing scoped Ready issue discovered on the target tracker, keyed as {@link DeliveryPlanIssue} is. */
 export interface ReadyIssue extends KeyedIssue, KeyedParent {

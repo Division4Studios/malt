@@ -103,6 +103,7 @@ For `factory-capacity`, `provider` is `codex`, `claude` or `copilot`, `usedPerce
 | `github-connect --file FILE`      | `github_connect`           | `{repository, owner?, projectNumber?, statusFieldName?, createProject?, title?}`        |
 | `github-section-save --file FILE` | `github_section_save`      | `{tracker?, jiraTracker?, source?}`: save the tracker and/or source section, unverified |
 | `jira-discover --file FILE`       | `jira_discover`            | `{site, projectKey, email, tokenVariable}`: read-only Jira Cloud discovery              |
+| `jira-workflow-save --file FILE`  | `jira_workflow_save`       | `{jql?, stages?}`: set the Jira intake filter and stage mapping, checked against Jira   |
 | `github-verify`                   | `github_verify`            | none; verifies each saved section read-only                                             |
 | `capability-status`               | `capability_policy_status` | none                                                                                    |
 | `capability-set --file FILE`      | `capability_policy_set`    | `{capability, policy: {mode, roles}}`                                                   |

@@ -116,6 +116,7 @@ const LEAD_PROJECT_OPERATIONS: ReadonlySet<Operation> = new Set([
   'github_verify',
   // It reads the operator's token variable and sends it to the named Jira site, so it is not a member read.
   'jira_discover',
+  'jira_workflow_save',
   'github_create_issue',
   'github_set_status',
   'github_label_apply',

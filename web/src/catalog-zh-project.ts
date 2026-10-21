@@ -405,8 +405,8 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   "Only the variable's name. Set the API token in the environment of the process that runs MALT; it is never typed or shown here.":
     '只填写变量名。请在运行 MALT 的进程环境中设置 API 令牌；令牌绝不会在此输入或显示。',
   'Check Jira project': '检查 Jira 项目',
-  'MALT can check and save a Jira project as the work tracker. The factory does not deliver through Jira yet, so deliveries still use GitHub or the local hub.':
-    'MALT 可以检查并保存一个 Jira 项目作为工作跟踪器。工厂尚未通过 Jira 交付，因此交付仍使用 GitHub 或本地中心。',
+  'With a Jira project as the work tracker, issues matching the intake filter become objectives, their deliveries become sub-tasks, and stage changes, pull request links and evidence appear on the issues. Branches, pull requests and merges stay in source control.':
+    '以 Jira 项目作为工作跟踪器时，与接收筛选器匹配的议题会成为目标，其交付会成为子任务，阶段变更、拉取请求链接和证据会显示在议题上。分支、拉取请求和合并仍在源代码管理中进行。',
   'What Jira reported': 'Jira 的报告',
   'Signed in as {account}': '已登录为 {account}',
   '{key} · {name} · {count} issue types': '{key} · {name} · {count} 种议题类型',
@@ -468,4 +468,29 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'GitHub repository for GitHub delivery': '用于 GitHub 交付的 GitHub 仓库',
   'The form changed while Jira was checked. Check the Jira project again before saving.':
     '检查 Jira 时表单已更改。保存前请重新检查 Jira 项目。',
+  'Factory workflow in Jira': 'Jira 中的工厂工作流',
+  'Intake filter (JQL)': '接收筛选器（JQL）',
+  'Issues this filter matches become objectives, unless they are done, resolved or assigned to someone else. Leave it empty to turn intake off.':
+    '与此筛选器匹配的议题会成为目标，除非它们已完成、已解决或已分配给他人。留空即可关闭接收。',
+  'Stage mapping': '阶段映射',
+  'Each MALT stage moves an issue to the status chosen here. An unmapped stage leaves the Jira status alone; closing an issue without a Done mapping moves it to a done status.':
+    '每个 MALT 阶段都会将议题移到此处选择的状态。未映射的阶段不会改变 Jira 状态；在没有“完成”映射时关闭议题，会将其移到一个已完成类别的状态。',
+  'Verify the Jira tracker to choose statuses for the stages.': '请先验证 Jira 跟踪器，再为各阶段选择状态。',
+  'Not mapped': '未映射',
+  'Save intake and stages': '保存接收与阶段',
+  'Intake would file nothing new.': '接收不会新建任何目标。',
+  'Intake would file {keys}.': '接收将新建：{keys}。',
+  'More issues match than the preview read.': '匹配的议题多于预览读取的数量。',
+  '{key} skipped: {reason}': '{key} 已跳过：{reason}',
+  'Last intake read {time}': '上次接收读取于 {time}',
+  'No new issue was filed.': '没有新建任何议题。',
+  'Filed as objectives: {keys}.': '已作为目标新建：{keys}。',
+  'Jira asked to wait {seconds} seconds before the next read.': 'Jira 要求在下次读取前等待 {seconds} 秒。',
+  'Saving the Jira workflow…': '正在保存 Jira 工作流…',
+  'Saved. Jira accepted the filter and the statuses.': '已保存。Jira 已接受该筛选器和这些状态。',
+  'Keep the intake filter under 2,000 characters.': '接收筛选器请保持在 2,000 个字符以内。',
+  'done in Jira': '在 Jira 中已完成',
+  'resolved in Jira': '在 Jira 中已解决',
+  'assigned to someone else': '已分配给他人',
+  'already an objective': '已是目标',
 };

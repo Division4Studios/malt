@@ -38,6 +38,17 @@ const savedJiraTrackerSchema = z
     tokenVariable: z.string().regex(/^[A-Z][\dA-Z_]{0,127}$/v),
   })
   .strict();
+/** Longest JQL intake filter accepted; `connector.ts` keeps the same bound. */
+const JQL_MAX = 2000;
+/** Longest Jira status ID or name, or MALT stage name, accepted. */
+const STATUS_TEXT_MAX = 255;
+/** The Jira status one MALT stage moves an issue to; stage names are checked when saved. */
+const stageTargetSchema = z
+  .object({
+    statusId: z.string().min(1).max(STATUS_TEXT_MAX),
+    statusName: z.string().min(1).max(STATUS_TEXT_MAX),
+  })
+  .strict();
 /** An exact repository label name. */
 const labelNameSchema = z.string().min(1).max(LABEL_NAME_MAX);
 
@@ -137,6 +148,12 @@ export const connectorSchemas = {
       tracker: savedTrackerSchema.optional(),
       jiraTracker: savedJiraTrackerSchema.optional(),
       source: savedSourceSchema.optional(),
+    })
+    .strict(),
+  jira_workflow_save: z
+    .object({
+      jql: z.string().trim().min(1).max(JQL_MAX).nullable().optional(),
+      stages: z.record(z.string().min(1).max(STATUS_TEXT_MAX), stageTargetSchema).optional(),
     })
     .strict(),
   jira_discover: z

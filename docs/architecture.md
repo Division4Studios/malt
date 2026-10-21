@@ -99,7 +99,7 @@ The delivery manager is one persistent session per project, launched with the sa
 
 Scratch terminals reserve the same admission pool, build an allowlisted provider launch in a separate worktree and stream redacted output from a bounded in-memory ring. Terminal operations are absent from MCP and ordinary RPC. See [Interactive terminals](interactive-terminals.md).
 
-Connector support is partly shipped. GitHub discovery, credential handles, the capability policy (enforced in the GitHub integration), verified connection sections, gated labels, milestones, views, fields, Project creation and reviewed MCP tool bindings are in place, and **Project → Connections** shows the work tracker and source control as separate sections. A Jira Cloud project can be discovered, saved and verified as the tracker (`src/jira/connection.ts`), but the factory still delivers only through GitHub or the local hub: the Jira intake, breakdown, transition and traceability library is not wired into the supervisor yet (#331–#335).
+Connector support is partly shipped. GitHub discovery, credential handles, the capability policy (enforced in the GitHub integration), verified connection sections, gated labels, milestones, views, fields, Project creation and reviewed MCP tool bindings are in place, and **Project → Connections** shows the work tracker and source control as separate sections. A Jira Cloud project can be discovered, saved and verified as the tracker (`src/jira/connection.ts`). When it is, `deliveryFor` gives the supervisor `JiraDelivery` (`src/factory/jira-delivery.ts`): Jira tracks the work through the `src/jira/` library (intake, breakdown, stage moves and comments, each write gated by the capability policy), and pull requests and merges are delegated to the GitHub or local hub adapter.
 
 ## Source tour
 
@@ -168,13 +168,13 @@ The browser app is in `web/src/`. `navigation.ts` lists the console sections, an
 
 ### 5. Connectors and learning
 
-| Module                                                  | Responsibility                                                                            |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| `src/connector.ts`, `connection-*.ts`, `credentials.ts` | Connection records, per-section save and verification, credential handles                 |
-| `src/capability-policy.ts`, `capability-endpoints.ts`   | The capability policy store and its read and human edit                                   |
-| `src/connector-bindings.ts`                             | Reviewed, role-scoped MCP tool bindings                                                   |
-| `src/github.ts`, `github-*.ts`                          | GitHub Projects, discovery, issues, labels, milestones, views and fields through `gh`     |
-| `src/learning.ts`, `guidance.ts`                        | Lessons, pinned research, skill candidates and the managed `AGENTS.md`/`CLAUDE.md` block  |
-| `src/jira/`                                             | Jira Cloud discovery and tracker verification; modes, creation and transitions for later. |
+| Module                                                  | Responsibility                                                                                 |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/connector.ts`, `connection-*.ts`, `credentials.ts` | Connection records, per-section save and verification, credential handles                      |
+| `src/capability-policy.ts`, `capability-endpoints.ts`   | The capability policy store and its read and human edit                                        |
+| `src/connector-bindings.ts`                             | Reviewed, role-scoped MCP tool bindings                                                        |
+| `src/github.ts`, `github-*.ts`                          | GitHub Projects, discovery, issues, labels, milestones, views and fields through `gh`          |
+| `src/learning.ts`, `guidance.ts`                        | Lessons, pinned research, skill candidates and the managed `AGENTS.md`/`CLAUDE.md` block       |
+| `src/jira/`                                             | Jira Cloud discovery, tracker verification, modes, intake, creation, transitions and comments. |
 
 Inline comments explain the ordering and failure rules that matter: authorization, state transitions, migrations, cancellation and waiting.

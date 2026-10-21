@@ -313,6 +313,8 @@ export const featureSchema = z.object({
   parentIssue: z.number().int().positive().nullable(),
   /** Typed key of the parent issue; absent for GitHub and local parents, whose key is `parentIssue`. */
   parentKey: trackerKeySchema.optional(),
+  /** Tracker the parent's handle is unique within, such as `jira:<site>`; absent for GitHub and local parents. */
+  parentTracker: z.string().min(1).optional(),
   error: z.string().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),

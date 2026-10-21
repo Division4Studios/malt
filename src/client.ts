@@ -62,6 +62,8 @@ export interface ClientResults
   readonly github_discover: unknown;
   /** Read-only Jira Cloud discovery of the site, account, project and permissions. */
   readonly jira_discover: unknown;
+  /** The saved Jira workflow and a preview of what intake would file. */
+  readonly jira_workflow_save: unknown;
   /** Per-section verification of the saved connection. */
   readonly github_verify: unknown;
   /** Independently saved, still unverified tracker or source section. */
