@@ -200,6 +200,32 @@ async function managerSummary(config: MeshConfig): Promise<unknown> {
   }
 }
 
+/**
+ * Read and validate the factory view.
+ *
+ * @param config - Selected project.
+ * @returns Validated factory status.
+ */
+async function readFactoryView(config: MeshConfig): Promise<z.output<typeof factoryViewSchema>> {
+  return factoryViewSchema.parse(await rpc(config, 'factory_status', {}));
+}
+
+/**
+ * Read the local ledger summary only when the policy uses local delivery;
+ * asking otherwise fails on every refresh.
+ *
+ * @param config - Selected project.
+ * @param factoryRead - The same refresh's factory view.
+ * @returns Summary, or null.
+ */
+async function localSummaryWhenEnabled(
+  config: MeshConfig,
+  factoryRead: Promise<z.output<typeof factoryViewSchema>>,
+): Promise<unknown> {
+  const { settings } = await factoryRead;
+  return settings?.delivery === 'local' ? await localSummary(config) : null;
+}
+
 /** One project gateway proxies the existing broker without another scheduler. */
 export class ProjectGateway {
   /** Colocated operator-only decisions cannot be serialized into agent RPC authority. */
@@ -307,18 +333,20 @@ export class ProjectGateway {
    */
   public async snapshot(id: string, afterEvent?: number): Promise<unknown> {
     const config = this.config(id);
+    const factoryRead = readFactoryView(config);
+    const localRead = localSummaryWhenEnabled(config, factoryRead);
     const [factory, events, agents, github, learning, local, manager] = await Promise.all([
-      rpc(config, 'factory_status', {}),
+      factoryRead,
       rpc(config, 'events', { after: afterEvent ?? 0, limit: 50, recent: afterEvent === undefined }),
       rpc(config, 'list_agents', {}),
       rpc(config, 'github_status', {}),
       rpc(config, 'learning_status', {}),
-      localSummary(config),
+      localRead,
       managerSummary(config),
     ]);
     return {
       project: { id, name: config.name, root: config.workspace ?? config.root },
-      factory: factoryViewSchema.parse(factory),
+      factory,
       events,
       agents,
       github,

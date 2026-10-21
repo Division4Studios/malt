@@ -111,12 +111,12 @@ Windows: quote absolute paths, for example `--project "C:\work\your-project"`. T
 ## Initialize the project and pair the console
 
 ```sh
-node src/cli.ts ui --with-broker --project /absolute/path/to/your/project --port 4318
+node src/cli.ts attach --project /absolute/path/to/your/project
 ```
 
-`ui --with-broker` creates `.malt/` on first use, starts the broker and the console in one process and prints a pairing code. Open `http://127.0.0.1:4318/` and enter the code. The code is kept in `.malt/console-pairing.json` and survives restarts. `node src/cli.ts pairing-code --project <path>` shows it again and `--rotate` replaces it. `node src/cli.ts init --project <path>` only creates `.malt/`, if you want to inspect it before starting anything.
+`attach` creates `.malt/` on first use, registers MALT as the `agentmesh` MCP server for Claude Code and Codex sessions in the project, and starts the broker and the console together in the background. It prints the console URL and a pairing code. Open the URL and enter the code. A session opened in the project later starts the runtime again if it stopped, and `node src/cli.ts stop --project <path>` stops it. To run in the foreground instead, use `ui --with-broker --project <path> --port 4318`. See [Attach MALT to the project](getting-started.md#4-attach-malt-to-the-project). The code is kept in `.malt/console-pairing.json` and survives restarts. `node src/cli.ts pairing-code --project <path>` shows it again and `--rotate` replaces it. `node src/cli.ts init --project <path>` only creates `.malt/`, if you want to inspect it before starting anything.
 
-Use `--with-broker`. A console started without it can inspect and control the factory, but not open scratch terminals or decide recommendations.
+A console started with plain `ui`, without its own broker, can inspect and control the factory, but not open scratch terminals or decide recommendations. `attach` and `ui --with-broker` both own the broker.
 
 ![Project section with the repository, connections and validation commands](images/screenshots/project.png)
 

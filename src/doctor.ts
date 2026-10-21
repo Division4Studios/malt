@@ -4,9 +4,12 @@
  * first start instead of from a silent factory.
  *
  * - **fail** blocks MALT itself: an unsupported Node.js, no Git, an unwritable
- *   project, a busy port, or no subscription provider at all.
+ *   project, a busy port (including one held by another project's or a Docker
+ *   broker), or no subscription provider at all.
  * - **fix-it** is worth fixing but does not stop MALT: one provider of two is
- *   missing or logged out, or GitHub CLI cannot deliver to a Project yet.
+ *   missing or logged out, GitHub CLI cannot deliver to a Project yet, or the
+ *   project has not registered MALT's bridge for its sessions (`attach`),
+ *   which also names a user-wide registration left from a Docker setup.
  *
  * Every probe is injectable, so tests need no real CLIs, network or ports.
  * Doctor never creates `.malt` or edits project state; its write probe is a
@@ -17,13 +20,18 @@
  * @file
  */
 import { randomUUID } from 'node:crypto';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:net';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-import { STATE_DIRECTORY_NAME } from './config.ts';
+import { z } from 'zod/v3';
+
+import { SERVER_NAME, projectRegistrations } from './attach.ts';
+import { STATE_DIRECTORY_NAME, readJsonFile } from './config.ts';
 import { diagnoseProvider, nativeDiagnostic } from './factory/authentication.ts';
 import { packageEngines } from './package-info.ts';
+import { errorStatus } from './protocol.ts';
+import { isPortFree, isProcessAlive, readRuntimeRecord } from './runtime.ts';
 
 import type { DiagnosticRunner, ProviderDiagnosis } from './factory/authentication.ts';
 import type { Provider } from './factory/schema.ts';
@@ -76,6 +84,14 @@ export interface DoctorProbes {
   readonly probeWrite: (directory: string) => Promise<void>;
   /** Whether a path exists. */
   readonly exists: (target: string) => boolean;
+  /** Whether the broker on a port accepts this project's token; null without a saved project or answer. */
+  readonly ownsBroker: (project: string, port: number) => Promise<boolean | null>;
+  /** Whether the project registers MALT's bridge for each provider. */
+  readonly registrations: (project: string) => { readonly claude: boolean; readonly codex: boolean };
+  /** A provider's user-wide configuration text, or null when absent; read only. */
+  readonly userConfig: (provider: 'claude' | 'codex') => string | null;
+  /** Console port of this project's live background runtime, or null. */
+  readonly runtimeConsolePort: (project: string) => number | null;
 }
 
 /** What to check. */
@@ -154,23 +170,18 @@ export function isAtLeast(version: string, range: string): boolean {
 }
 
 /**
- * Whether a loopback port can be bound right now.
+ * The console port this project's recorded runtime serves, if it is alive.
  *
- * @param port - TCP port.
- * @returns True when nothing listens on it.
+ * @param project - Project folder.
+ * @returns Port, or null without a live runtime record.
  */
-async function isPortFree(port: number): Promise<boolean> {
-  return await new Promise((resolve) => {
-    const server = createServer();
-    server.once('error', () => {
-      resolve(false);
-    });
-    server.listen(port, '127.0.0.1', () => {
-      server.close(() => {
-        resolve(true);
-      });
-    });
-  });
+function runtimeConsolePort(project: string): number | null {
+  const record = readRuntimeRecord({ directory: path.join(project, STATE_DIRECTORY_NAME) });
+  if (record === null || !isProcessAlive(record.pid)) {
+    return null;
+  }
+  const { port } = new URL(record.consoleUrl);
+  return Number(port);
 }
 
 /**
@@ -188,6 +199,59 @@ async function isBroker(port: number): Promise<boolean> {
     return false;
   }
   return typeof body === 'object' && body !== null && 'ok' in body && body.ok === true;
+}
+
+/** The saved broker access a project's `.malt/config.json` holds. */
+const savedAccessSchema = z.object({ projectId: z.string(), token: z.string() });
+
+/**
+ * Whether the broker on a port is this project's: it accepts the saved token.
+ * Doctor reads the saved file directly so it never migrates or creates state.
+ *
+ * @param project - Project folder.
+ * @param port - Port a MALT broker answers on.
+ * @returns True or false, or null when the project has no saved access or nothing answered.
+ */
+async function ownsBroker(project: string, port: number): Promise<boolean | null> {
+  let saved: z.output<typeof savedAccessSchema>;
+  try {
+    saved = savedAccessSchema.parse(readJsonFile(path.join(project, STATE_DIRECTORY_NAME, 'config.json')));
+  } catch {
+    return null;
+  }
+  try {
+    const response = await fetch(`http://127.0.0.1:${String(port)}/rpc`, {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(HEALTH_MS),
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${saved.token}`,
+        'x-agentmesh-project': saved.projectId,
+      },
+      body: JSON.stringify({ operation: 'team_status', input: {} }),
+    });
+    return response.status !== errorStatus('UNAUTHORIZED');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A provider's user-wide configuration, read without changing it.
+ *
+ * @param provider - Claude Code (`~/.claude.json`) or Codex (`CODEX_HOME/config.toml`).
+ * @returns Its text, or null when it does not exist.
+ */
+function userConfig(provider: 'claude' | 'codex'): string | null {
+  const codexHome = process.env['CODEX_HOME'] ?? path.join(os.homedir(), '.codex');
+  const file = provider === 'claude' ? path.join(os.homedir(), '.claude.json') : path.join(codexHome, 'config.toml');
+  try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- A provider's fixed user configuration, read only.
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -216,6 +280,10 @@ export const DEFAULT_PROBES: DoctorProbes = {
   probeWrite,
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- Checks only the operator's chosen project.
   exists: (target) => existsSync(target),
+  ownsBroker,
+  registrations: projectRegistrations,
+  userConfig,
+  runtimeConsolePort,
 };
 
 /** What one check is about. */
@@ -374,16 +442,33 @@ const BROKER_RUNNING = 'a MALT broker is already listening';
  * @param probes - Injected bind and health probes.
  * @param port - TCP port the broker or console will bind.
  * @param role - Which listener the port belongs to.
+ * @param project - Project whose saved token identifies its own broker.
  * @returns Reported outcome with a fix line when it did not pass.
  */
-async function portCheck(probes: DoctorProbes, port: number, role: 'broker' | 'console'): Promise<DoctorCheck> {
+async function portCheck(
+  probes: DoctorProbes,
+  port: number,
+  role: 'broker' | 'console',
+  project: string,
+): Promise<DoctorCheck> {
   const id = `${role}-port`;
   const label = `${role === 'broker' ? 'Broker' : 'Console'} port ${String(port)}`;
   if (await probes.isPortFree(port)) {
     return check({ id, label }, 'pass', 'free');
   }
+  if (role === 'console' && probes.runtimeConsolePort(project) === port) {
+    return check({ id, label }, 'pass', "this project's console is running");
+  }
   if (role === 'broker' && (await probes.isBroker(port))) {
-    return check({ id, label }, 'pass', BROKER_RUNNING);
+    const isForeign = (await probes.ownsBroker(project, port)) === false;
+    return isForeign
+      ? check(
+          { id, label },
+          'fail',
+          "another project's broker (or a Docker broker) is listening",
+          'Stop it (`docker compose down` for Docker), or give this project its own port with `attach --broker-port <free port>`.',
+        )
+      : check({ id, label }, 'pass', BROKER_RUNNING);
   }
   return check(
     { id, label },
@@ -421,6 +506,73 @@ async function writableCheck(probes: DoctorProbes, project: string): Promise<Doc
   }
 }
 
+/** The part of Claude Code's user configuration that lists MCP servers. */
+const claudeServersSchema = z.object({ mcpServers: z.record(z.string(), z.unknown()) });
+
+/**
+ * Whether a user-wide `agentmesh` registration runs the bridge through Docker.
+ *
+ * @param provider - Which provider's configuration.
+ * @param text - Its user-wide configuration.
+ * @returns True for a `docker compose exec` or `docker-mcp.ts` bridge.
+ */
+function isDockerBridge(provider: 'claude' | 'codex', text: string): boolean {
+  if (provider === 'codex') {
+    const start = text.indexOf(`[mcp_servers.${SERVER_NAME}]`);
+    if (start === -1) {
+      return false;
+    }
+    const next = text.indexOf('\n[', start + 1);
+    const table = next === -1 ? text.slice(start) : text.slice(start, next);
+    return table.includes('docker');
+  }
+  let document: unknown;
+  try {
+    document = JSON.parse(text);
+  } catch {
+    return false;
+  }
+  const entry = claudeServersSchema.safeParse(document).data?.mcpServers[SERVER_NAME];
+  return entry !== undefined && JSON.stringify(entry).includes('docker');
+}
+
+/**
+ * Whether this project registers MALT's bridge for Claude Code and Codex, and
+ * whether a user-wide registration still points at a Docker broker.
+ *
+ * @param probes - Registration and configuration readers.
+ * @param project - Project folder.
+ * @returns Pass when both providers use the project's bridge; fix-it otherwise.
+ */
+function mcpCheck(probes: DoctorProbes, project: string): DoctorCheck {
+  const subject = { id: 'mcp', label: 'Session MCP registration' };
+  const registered = probes.registrations(project);
+  const docker = (['claude', 'codex'] as const)
+    .filter((provider) => {
+      const text = probes.userConfig(provider);
+      return text !== null && isDockerBridge(provider, text);
+    })
+    .map((provider) => PROVIDER_NAMES[provider]);
+  const entries = docker.length === 1 ? 'entry targets' : 'entries target';
+  const dockerNote = docker.length === 0 ? '' : `; the user-wide ${docker.join(' and ')} ${entries} a Docker broker`;
+  if (registered.claude && registered.codex) {
+    return check(subject, 'pass', `Claude Code and Codex use this project's bridge${dockerNote}`);
+  }
+  const missing = (['claude', 'codex'] as const)
+    .filter((provider) => !registered[provider])
+    .map((p) => PROVIDER_NAMES[p]);
+  const cleanup =
+    docker.length === 0
+      ? ''
+      : ' If you no longer use Docker, also run `claude mcp remove -s user agentmesh` and `codex mcp remove agentmesh`.';
+  return check(
+    subject,
+    'fix-it',
+    `${missing.join(' and ')} not registered in this project${dockerNote}`,
+    `Run \`node src/cli.ts attach --project "${project}"\`; a project registration overrides a user-wide one.${cleanup}`,
+  );
+}
+
 /**
  * Run every check.
  *
@@ -444,10 +596,11 @@ export async function runDoctor(input: DoctorInput): Promise<DoctorReport> {
     ...(input.skipPorts === true
       ? []
       : [
-          await portCheck(probes, input.brokerPort ?? DEFAULT_BROKER_PORT, 'broker'),
-          await portCheck(probes, input.consolePort ?? DEFAULT_CONSOLE_PORT, 'console'),
+          await portCheck(probes, input.brokerPort ?? DEFAULT_BROKER_PORT, 'broker', input.project),
+          await portCheck(probes, input.consolePort ?? DEFAULT_CONSOLE_PORT, 'console', input.project),
         ]),
     await writableCheck(probes, input.project),
+    mcpCheck(probes, input.project),
   ];
   return { ok: checks.every((item) => item.status !== 'fail'), checks };
 }
@@ -468,12 +621,12 @@ export function formatDoctor(report: DoctorReport): string {
   });
   const failures = report.checks.filter((item) => item.status === 'fail').length;
   const plural = failures === 1 ? '' : 's';
-  // `--with-broker` starts its own broker, which cannot share a port with one already running.
-  const isBrokerRunning = report.checks.some((item) => item.id === 'broker-port' && item.detail === BROKER_RUNNING);
-  const next = isBrokerRunning ? 'node src/cli.ts ui' : 'node src/cli.ts ui --with-broker';
+  // `attach` reuses this project's running broker or starts one in the background.
   lines.push(
     '',
-    report.ok ? `Ready. Next: ${next}` : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
+    report.ok
+      ? 'Ready. Next: node src/cli.ts attach'
+      : `${String(failures)} check${plural} failed. Fix them and run doctor again.`,
   );
   return `${lines.join('\n')}\n`;
 }

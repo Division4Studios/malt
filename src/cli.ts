@@ -47,6 +47,9 @@ const HELP = `MALT 0.1 — durable local agent communication
 Usage: node src/cli.ts <command> [options]
   doctor [--json]              Preflight: Node, Git, provider logins, GitHub CLI, ports, .malt
   init                         Initialize .malt and project agent discovery files
+  attach [--broker-port PORT]  Initialize .malt, register MALT for Claude Code and Codex
+                               in this project, and start its background runtime
+  stop                         Stop the project's background runtime
   start                        Start the broker (foreground; Ctrl+C to stop)
   ui --port 4318              Serve the installable local PWA; prints a pairing code
   ui --with-broker             Own broker and console together; enables native terminals
@@ -85,6 +88,7 @@ Usage: node src/cli.ts <command> [options]
   mcp                          Run a stdio MCP bridge for one session; it joins
                                its workspace's team when the model calls mesh_join
   mcp --name NAME              Run a stdio MCP bridge for a fixed, durable identity
+  mcp --autostart              Start the project's background runtime if nothing answers
   message --name NAME --to PEER --body TEXT
   messages --name NAME         Read this identity's unread inbox
   ack --name NAME --id ID      Acknowledge an inbox message
@@ -116,6 +120,8 @@ const COMMANDS = [
   'ui',
   ...FACTORY_COMMANDS,
   'init',
+  'attach',
+  'stop',
   'start',
   'mcp',
   'status',
@@ -134,7 +140,7 @@ type Command = (typeof COMMANDS)[number];
 /** A command that reads or controls one team. */
 type TeamCommand = Exclude<
   Command,
-  'backup' | 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'restore' | 'start' | 'teams' | 'ui'
+  'attach' | 'backup' | 'doctor' | 'init' | 'mcp' | 'pairing-code' | 'restore' | 'start' | 'stop' | 'teams' | 'ui'
 >;
 
 /** Default page size for `messages` and `events`. */
@@ -184,6 +190,10 @@ interface CliOptions {
   readonly rotate?: boolean | undefined;
   /** `--dir`: backup folder to write or restore from. */
   readonly dir?: string | undefined;
+  /** `--autostart`: a bridge starts the project's background runtime when nothing answers. */
+  readonly autostart?: boolean | undefined;
+  /** `--broker-port`: the port `attach` saves for this project's broker. */
+  readonly 'broker-port'?: string | undefined;
 }
 
 /**
@@ -293,6 +303,16 @@ async function runBridge(config: MeshConfig, options: CliOptions): Promise<void>
   }
   // Never print anything to stdout here: it is the JSON-RPC channel. All
   // diagnostics, including verbose ones, go to stderr through log.ts.
+  if (record.autostart === true) {
+    const { ensureRuntime } = await import('./runtime.ts');
+    try {
+      const runtime = await ensureRuntime(config, { cli: import.meta.filename });
+      log('info', 'bridge', 'runtime_ready', { started: runtime.started, console: runtime.record?.consoleUrl });
+    } catch (error) {
+      // The bridge still connects; its tools report the unreachable broker.
+      log('warn', 'bridge', 'runtime_start_failed', { message: Error.isError(error) ? error.message : String(error) });
+    }
+  }
   const { startMcp } = await import('./mcp.ts');
   const bridge = await startMcp(config, {
     name: record.name,
@@ -400,6 +420,17 @@ async function runBackupCommand(command: 'backup' | 'restore', options: CliOptio
 }
 
 /**
+ * Whether a command may create the project; see loadConfig.
+ *
+ * @param command - Validated CLI command.
+ * @param record - Parsed options; `ui` creates only when it owns the broker.
+ * @returns True for `init`, `attach`, `start` and `ui --with-broker`.
+ */
+function isCreatingCommand(command: Command, record: CliOptions): boolean {
+  return ['attach', 'init', 'start'].includes(command) || (command === 'ui' && record['with-broker'] === true);
+}
+
+/**
  * Dispatch a validated command.
  *
  * @param command - The command to run.
@@ -411,10 +442,7 @@ async function run(command: Command, options: CliOptions): Promise<void> {
     await runProjectFileCommand(command, record);
     return;
   }
-  // Only `init` and `start` may create a project; see loadConfig.
-  const home = loadConfig(record.project, {
-    create: command === 'init' || command === 'start' || (command === 'ui' && record['with-broker'] === true),
-  });
+  const home = loadConfig(record.project, { create: isCreatingCommand(command, record) });
   if (isTeamCommand(command)) {
     const config =
       record.workspace === undefined ? home : await openTeamConfig(home, absoluteWorkspace(record.workspace));
@@ -423,6 +451,11 @@ async function run(command: Command, options: CliOptions): Promise<void> {
     switch (command) {
       case 'init': {
         print({ project: home.name, directory: home.directory, url: home.url });
+        return;
+      }
+      case 'attach':
+      case 'stop': {
+        print(await runRuntimeCommand(command, home, record));
         return;
       }
       case 'start': {
@@ -461,7 +494,13 @@ async function runConsole(home: MeshConfig, record: CliOptions): Promise<void> {
   if (!Number.isSafeInteger(port) || port < 0 || port > MAX_PORT) {
     throw new Error('Use a valid local UI port.');
   }
-  const console = await startNativeConsole(home, port, record['with-broker'] === true);
+  const isOwner = record['with-broker'] === true;
+  const console = await startNativeConsole(home, port, isOwner);
+  const { clearRuntimeRecord, writeRuntimeRecord } = await import('./runtime.ts');
+  if (isOwner) {
+    // Bridges, attach and stop find the owning process through this record.
+    writeRuntimeRecord(home, { pid: process.pid, brokerUrl: home.url, consoleUrl: console.url, startedAt: Date.now() });
+  }
   // The one log record that contains the code, so it survives a scrolled-away terminal.
   log('info', 'console', 'pairing_code', { url: console.url, pairingCode: console.pairingCode });
   print({
@@ -469,12 +508,83 @@ async function runConsole(home: MeshConfig, record: CliOptions): Promise<void> {
     pairingCode: console.pairingCode,
     note: 'Pair locally; browser installation does not install the native daemon. Re-show it with pairing-code.',
   });
-  process.once('SIGINT', () => {
+  const close = (): void => {
+    if (isOwner) {
+      clearRuntimeRecord(home, process.pid);
+    }
     void console.close();
-  });
-  process.once('SIGTERM', () => {
-    void console.close();
-  });
+  };
+  process.once('SIGINT', close);
+  process.once('SIGTERM', close);
+}
+
+/**
+ * Attach the project, or stop its background runtime.
+ *
+ * @param command - `attach` or `stop`.
+ * @param home - Project.
+ * @param record - Parsed options.
+ * @returns The command's single result.
+ */
+async function runRuntimeCommand(command: 'attach' | 'stop', home: MeshConfig, record: CliOptions): Promise<unknown> {
+  if (command === 'attach') {
+    return await runAttach(home, record);
+  }
+  const { stopRuntime } = await import('./runtime.ts');
+  const pid = await stopRuntime(home);
+  return { stopped: pid !== null, pid };
+}
+
+/**
+ * Attach MALT to a project: initialize `.malt`, register the bridge for
+ * Claude Code and Codex in the project, and start its background runtime.
+ *
+ * @param home - Project, created by the caller when missing.
+ * @param record - `--broker-port` saves a port for this project's broker.
+ * @returns What was registered and where the runtime answers.
+ * @throws {Error} When `--broker-port` is not a valid port.
+ */
+async function runAttach(home: MeshConfig, record: CliOptions): Promise<unknown> {
+  const { registerProjectBridges } = await import('./attach.ts');
+  const { ensureRuntime, isProcessAlive, readRuntimeRecord, RUNTIME_LOG } = await import('./runtime.ts');
+  const { ensurePairingCode } = await import('./web/pairing.ts');
+  let config = home;
+  if (record['broker-port'] !== undefined) {
+    const port = Number(record['broker-port']);
+    if (!Number.isSafeInteger(port) || port < 1 || port > MAX_PORT) {
+      throw new Error('Use a broker port between 1 and 65535.');
+    }
+    const url = new URL(home.url);
+    url.port = String(port);
+    const running = readRuntimeRecord(home);
+    if (running !== null && url.origin !== home.url && isProcessAlive(running.pid)) {
+      // Two brokers must never share one project store.
+      throw new Error(`This project's runtime is running on ${home.url}. Run stop first, then attach --broker-port.`);
+    }
+    config = { ...home, url: url.origin };
+    saveBrokerDiscovery(config);
+  }
+  const cli = import.meta.filename;
+  const registrations = registerProjectBridges(config.root, cli);
+  const runtime = await ensureRuntime(config, { cli });
+  return {
+    project: config.name,
+    directory: config.directory,
+    registrations,
+    runtime: {
+      started: runtime.started,
+      broker: runtime.record?.brokerUrl ?? config.url,
+      console: runtime.record?.consoleUrl ?? null,
+      log: path.join(config.directory, RUNTIME_LOG),
+    },
+    pairingCode: ensurePairingCode(config.directory),
+    next: [
+      'Open the console URL and enter the pairing code.',
+      'Claude Code: start `claude` in this folder and approve the project MCP server "agentmesh" when asked.',
+      'Codex: start `codex` in this folder and trust the project so it loads .codex/config.toml.',
+      'Either session: run mesh_join (or /mcp__agentmesh__lead) to join the team.',
+    ],
+  };
 }
 
 /**
@@ -618,6 +728,8 @@ async function main(): Promise<void> {
       json: { type: 'boolean' },
       rotate: { type: 'boolean' },
       dir: { type: 'string' },
+      autostart: { type: 'boolean' },
+      'broker-port': { type: 'string' },
       verbose: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
@@ -656,5 +768,17 @@ try {
  * @returns Whether it addresses one workspace team.
  */
 function isTeamCommand(value: Command): value is TeamCommand {
-  return !['backup', 'doctor', 'init', 'start', 'mcp', 'pairing-code', 'restore', 'teams', 'ui'].includes(value);
+  return ![
+    'attach',
+    'backup',
+    'doctor',
+    'init',
+    'start',
+    'stop',
+    'mcp',
+    'pairing-code',
+    'restore',
+    'teams',
+    'ui',
+  ].includes(value);
 }

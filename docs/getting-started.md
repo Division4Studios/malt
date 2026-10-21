@@ -125,8 +125,10 @@ PASS   GitHub CLI: authenticated
 PASS   Broker port 4317: free
 PASS   Console port 4318: free
 PASS   Project folder is writable: C:\work\malt-sandbox
+FIX-IT Session MCP registration: Claude Code and Codex not registered in this project
+       fix: Run `node src/cli.ts attach --project "C:\work\malt-sandbox"`; a project registration overrides a user-wide one.
 
-Ready. Next: node src/cli.ts ui --with-broker
+Ready. Next: node src/cli.ts attach
 ```
 
 Each line is one of three results:
@@ -144,43 +146,55 @@ FAIL   Project folder is writable: C:\nonexistent-malt-probe could not be writte
 1 check failed. Fix them and run doctor again.
 ```
 
-| Check                    | What it means                                                                                | If it does not pass                                                                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js                  | The running Node satisfies `engines` in `package.json` (`>=24.15.0`).                        | **FAIL.** Install Node 24.15.0 or later. If you use a version manager, make sure this terminal uses it.                                      |
-| Git                      | `git --version` runs.                                                                        | **FAIL.** Install Git and reopen the terminal.                                                                                               |
-| Claude Code CLI          | The `claude` executable exists and its subscription login is verified, without a model turn. | **FIX-IT.** Install it, or run `claude auth login`. On Windows you can instead set the native `.exe` path in the factory policy.             |
-| Codex CLI                | The same for `codex`.                                                                        | **FIX-IT.** Install it, or run `codex login`.                                                                                                |
-| Subscription providers   | At least one of Claude Code and Codex is ready.                                              | **FAIL.** Fix one of the two lines above.                                                                                                    |
-| GitHub CLI               | `gh` exists and `gh auth status` succeeds.                                                   | **FIX-IT.** Needed only for GitHub delivery. Install `gh`, then `gh auth login` with the `repo` and `project` scopes.                        |
-| Broker port 4317         | The broker port is free, or a MALT broker already answers on it.                             | **FAIL** if another program uses it. Stop that program. If a MALT broker is already running, `doctor` suggests `ui` without `--with-broker`. |
-| Console port 4318        | The console port is free. `--port` changes which port is checked.                            | **FAIL.** Stop the other program, or start the console with `ui --port <free port>`.                                                         |
-| Project folder / `.malt` | The project folder (or its `.malt/` once it exists) is writable.                             | **FAIL.** Create the folder or give your user write access to it.                                                                            |
+| Check                    | What it means                                                                                | If it does not pass                                                                                                                   |
+| ------------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Node.js                  | The running Node satisfies `engines` in `package.json` (`>=24.15.0`).                        | **FAIL.** Install Node 24.15.0 or later. If you use a version manager, make sure this terminal uses it.                               |
+| Git                      | `git --version` runs.                                                                        | **FAIL.** Install Git and reopen the terminal.                                                                                        |
+| Claude Code CLI          | The `claude` executable exists and its subscription login is verified, without a model turn. | **FIX-IT.** Install it, or run `claude auth login`. On Windows you can instead set the native `.exe` path in the factory policy.      |
+| Codex CLI                | The same for `codex`.                                                                        | **FIX-IT.** Install it, or run `codex login`.                                                                                         |
+| Subscription providers   | At least one of Claude Code and Codex is ready.                                              | **FAIL.** Fix one of the two lines above.                                                                                             |
+| GitHub CLI               | `gh` exists and `gh auth status` succeeds.                                                   | **FIX-IT.** Needed only for GitHub delivery. Install `gh`, then `gh auth login` with the `repo` and `project` scopes.                 |
+| Broker port 4317         | The broker port is free, or this project's MALT broker already answers on it.                | **FAIL** if another program, another project's broker or a Docker broker uses it. Stop it, or run `attach --broker-port <free port>`. |
+| Console port 4318        | The console port is free. `--port` changes which port is checked.                            | **FAIL.** Stop the other program, or start the console with `ui --port <free port>`.                                                  |
+| Project folder / `.malt` | The project folder (or its `.malt/` once it exists) is writable.                             | **FAIL.** Create the folder or give your user write access to it.                                                                     |
+| Session MCP registration | The project registers MALT for Claude Code (`.mcp.json`) and Codex (`.codex/config.toml`).   | **FIX-IT.** Run `attach`. It also names a user-wide `agentmesh` entry left from a Docker setup and the commands that remove it.       |
 
 `doctor --json` prints the same report as one JSON document (`{ ok, checks: [{ id, label, status, detail, fix }] }`) for scripts. The console runs the same checks, except the ports, inside the broker in **Get started → Check this machine**.
 
-## 4. Start the broker and console
+## 4. Attach MALT to the project
 
 ```sh
-node src/cli.ts ui --with-broker --project /absolute/path/to/malt-sandbox --port 4318
+node src/cli.ts attach --project /absolute/path/to/malt-sandbox
 ```
 
-`--with-broker` runs the broker and the console in one process. That process also holds the memory-only authority that scratch terminals and recommendation decisions need, so use it unless you have a reason to run them separately. The first start initializes `.malt/` in the project.
+`attach` does three things and prints one JSON document describing them:
 
-The command stays in the foreground and prints one JSON document with the console URL and a pairing code:
+1. It creates `.malt/` and the managed block in `AGENTS.md` and `CLAUDE.md`.
+2. It registers MALT's bridge as the `agentmesh` MCP server for this project: `.mcp.json` for Claude Code and `.codex/config.toml` for Codex. Both files hold paths on this machine, so `attach` keeps them out of commits through the repository's local `.git/info/exclude`. It never edits a file Git already tracks, and never edits your user-wide Claude Code or Codex configuration.
+3. It starts the project's **runtime** in the background: one process that owns the broker and the console, the same as `ui --with-broker`. Its output goes to `.malt/logs/runtime.log`, and `.malt/runtime.json` records its process and addresses.
 
 ```json
 {
-  "url": "http://127.0.0.1:4318",
-  "pairingCode": "…",
-  "note": "Pair locally; browser installation does not install the native daemon. Re-show it with pairing-code."
+  "project": "malt-sandbox",
+  "registrations": { "claude": { "state": "written" }, "codex": { "state": "written" } },
+  "runtime": { "started": true, "broker": "http://127.0.0.1:4317", "console": "http://127.0.0.1:4318" },
+  "pairingCode": "…"
 }
 ```
+
+The console uses port 4318 when it is free and another free port otherwise; the `console` field says which. Running `attach` again is safe: it reuses a running runtime and leaves current registrations unchanged.
+
+Each registration starts its bridge with `--autostart`, so opening a Claude Code or Codex session in the project starts the runtime again if it stopped. Two sessions that start at once share one runtime.
+
+If another project's broker or a Docker broker already uses port 4317, `attach` stops with `WRONG_PROJECT`. Stop the other broker, or give this project its own port with `attach --broker-port 4327`.
+
+To run the broker and console in the foreground instead, use `node src/cli.ts ui --with-broker --project <path> --port 4318`; it prints the console URL and pairing code and stops with Ctrl+C.
 
 The project you pass here is the broker's **home project**. You can open other repositories later from the project switcher in the console header.
 
 ## 5. Pair your browser
 
-Open `http://127.0.0.1:4318/`. The console asks for the code.
+Open the console URL that `attach` printed (usually `http://127.0.0.1:4318/`). The console asks for the code.
 
 ![The Connect MALT console dialog asking for the console pairing code](images/screenshots/pairing.png)
 
@@ -342,6 +356,17 @@ Managed roles need none of this. Attach a session when you want to work alongsid
 
 An attached session connects through a **bridge**, a small `mcp` process that exposes MALT's tools to the session. A bridge started without a name joins nothing until you ask the session to join. It then joins the team of the folder the session started in, under a generated name such as `claude-code-1a2b3c4d`.
 
+### After `attach`
+
+`attach` already registered the bridge for this project, so there is nothing to configure:
+
+- **Claude Code:** start `claude` in the project folder. Claude Code asks once whether to use the project's MCP server `agentmesh`; approve it.
+- **Codex:** start `codex` in the project folder and trust the project when asked. Codex reads `.codex/config.toml` only in trusted projects.
+
+A project registration takes precedence over a user-wide `agentmesh` entry with the same name. If you set up Docker earlier and no longer use it, remove the old entries with `claude mcp remove -s user agentmesh` and `codex mcp remove agentmesh`; `doctor` names them.
+
+The sections below register the bridge by hand instead, for a Docker broker or for one broker home that serves several folders.
+
 ### Claude Code
 
 Register the bridge once at user scope. For a native broker:
@@ -398,7 +423,7 @@ These environment variables are read when the broker starts. Set them in the she
 
 ## Stop, upgrade and back up
 
-**Stop.** Select **Pause factory** so owned processes stop and new dispatch ends, then press Ctrl+C in the terminal running `ui --with-broker`. With Docker, run `docker compose down`. It keeps project data and the provider credential volume. `docker compose down --volumes` also deletes the credential volume.
+**Stop.** Select **Pause factory** so owned processes stop and new dispatch ends, then run `node src/cli.ts stop --project <path>` for a runtime that `attach` started, or press Ctrl+C in the terminal running `ui --with-broker`. On Windows `stop` ends the runtime at once, so pause first. With Docker, run `docker compose down`. It keeps project data and the provider credential volume. `docker compose down --volumes` also deletes the credential volume.
 
 **Back up.** A backup is a consistent snapshot of `.malt/`, taken even while the broker runs:
 
@@ -422,7 +447,7 @@ Restore refuses while the broker runs, and it moves the current `.malt/` aside i
    npm run build:web
    ```
 
-5. Start `ui --with-broker` again and pair with the same code.
+5. Run `attach` again (or start `ui --with-broker`) and pair with the same code.
 6. Check **Project → Settings → Build**: it shows the source revision the broker and console are running.
 
 Merging or pulling new source never upgrades a running broker; only a restart does. With Docker, run `docker compose up -d --build --wait`, then reconnect any attached MCP sessions. A database migrated by a newer release cannot be opened by an older one, which is why the backup comes first.
