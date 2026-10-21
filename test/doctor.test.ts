@@ -57,6 +57,13 @@ function probes(overrides: Partial<DoctorProbes> = {}, missing: readonly string[
       await Promise.resolve();
     },
     exists: () => true,
+    ownsBroker: async () => {
+      await Promise.resolve();
+      return null;
+    },
+    registrations: () => ({ claude: true, codex: true }),
+    userConfig: () => null,
+    runtimeConsolePort: () => null,
     ...overrides,
   };
 }
@@ -79,7 +86,7 @@ await test('a healthy machine passes every check without echoing account details
   assert.equal(report.ok, true);
   assert.deepEqual(
     report.checks.map((item) => item.id),
-    ['node', 'git', 'claude', 'codex', 'providers', 'github', 'broker-port', 'console-port', 'writable'],
+    ['node', 'git', 'claude', 'codex', 'providers', 'github', 'broker-port', 'console-port', 'writable', 'mcp'],
   );
   assert.ok(report.checks.every((item) => item.status === 'pass' && item.fix === null));
   const text = JSON.stringify(report);
@@ -154,9 +161,29 @@ await test('GitHub CLI absent or logged out is fix-it, and a port held by a MALT
   assert.equal(busy.ok, true);
   assert.match(
     formatDoctor(busy),
-    /^Ready\. Next: node src\/cli\.ts ui$/mv,
-    'A running broker is reused, not started again.',
+    /^Ready\. Next: node src\/cli\.ts attach$/mv,
+    'attach reuses a running broker instead of starting another.',
   );
+  const foreign = await runDoctor({
+    project: '/p',
+    brokerPort: 5000,
+    probes: probes({
+      isPortFree: async (port) => {
+        await Promise.resolve();
+        return port !== 5000;
+      },
+      isBroker: async () => {
+        await Promise.resolve();
+        return true;
+      },
+      ownsBroker: async () => {
+        await Promise.resolve();
+        return false;
+      },
+    }),
+  });
+  assert.equal(status(foreign, 'broker-port').status, 'fail', "Another project's broker is not this project's.");
+  assert.match(status(foreign, 'broker-port').fix ?? '', /--broker-port/v);
   const skipped = await runDoctor({ project: '/p', skipPorts: true, probes: probes() });
   assert.ok(skipped.checks.every((item) => !item.id.endsWith('-port')));
 });
@@ -196,4 +223,41 @@ await test('engines comparison accepts equal and newer versions only', () => {
   assert.equal(isAtLeast('24.14.9', '>=24.15.0'), false);
   assert.equal(isAtLeast('v24', '>=24.15.0'), false);
   assert.equal(isAtLeast('unknown', '>=24.15.0'), false);
+});
+
+await test('an unattached project is fix-it, and a user-wide Docker bridge is named with its cleanup', async () => {
+  const docker = await runDoctor({
+    project: '/p',
+    probes: probes({
+      registrations: () => ({ claude: false, codex: true }),
+      userConfig: (provider) => {
+        return provider === 'claude'
+          ? JSON.stringify({ mcpServers: { agentmesh: { command: 'docker', args: ['compose', 'exec'] } } })
+          : [
+              '[mcp_servers.agentmesh]',
+              'command = "node"',
+              'args = ["malt/src/docker-mcp.ts"]',
+              '',
+              '[mcp_servers.other]',
+              'command = "x"',
+            ].join('\n');
+      },
+    }),
+  });
+  assert.equal(docker.ok, true, 'A missing registration never blocks MALT.');
+  assert.equal(status(docker, 'mcp').status, 'fix-it');
+  assert.match(status(docker, 'mcp').fix ?? '', /attach --project/v);
+  assert.match(status(docker, 'mcp').fix ?? '', /claude mcp remove -s user agentmesh/v);
+  const detail = docker.checks.find((item) => item.id === 'mcp')?.detail ?? '';
+  assert.match(detail, /^Claude Code not registered/v);
+  assert.match(detail, /Claude Code and Codex entries target a Docker broker/v);
+
+  const native = await runDoctor({
+    project: '/p',
+    probes: probes({
+      registrations: () => ({ claude: false, codex: false }),
+      userConfig: () => ['[mcp_servers.agentmesh]', 'command = "node"', 'args = ["malt/src/cli.ts", "mcp"]'].join('\n'),
+    }),
+  });
+  assert.doesNotMatch(status(native, 'mcp').fix ?? '', /docker|mcp remove/v);
 });

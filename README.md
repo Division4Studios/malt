@@ -113,12 +113,12 @@ cd malt
 npm ci --ignore-scripts
 npm run build:web
 node src/cli.ts doctor --project /absolute/path/to/your/project
-node src/cli.ts ui --with-broker --project /absolute/path/to/your/project --port 4318
+node src/cli.ts attach --project /absolute/path/to/your/project
 ```
 
 On Windows, quote absolute paths, for example `--project "C:\work\your-project"`.
 
-`doctor` reports each check as **PASS**, **FAIL** or **FIX-IT** with a fix line, and changes nothing. `ui --with-broker` starts the broker and the console in one process and prints a pairing code. Open `http://127.0.0.1:4318/`, enter the code, and the **Get started** guide opens. Run `npm run build:web` again after every pull.
+`doctor` reports each check as **PASS**, **FAIL** or **FIX-IT** with a fix line, and changes nothing. `attach` creates `.malt/`, registers MALT as the `agentmesh` MCP server for Claude Code and Codex sessions in that project, and starts the project's broker and console in the background. It prints the console URL and a pairing code. Open the URL, enter the code, and the **Get started** guide opens. A Claude Code or Codex session opened in the project later starts the runtime again if it stopped. Run `npm run build:web` again after every pull.
 
 ### Start with Docker
 

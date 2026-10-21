@@ -14,6 +14,8 @@ export const COMMANDS = [
   'ui',
   ...FACTORY_COMMANDS,
   'init',
+  'attach',
+  'stop',
   'start',
   'mcp',
   'status',
