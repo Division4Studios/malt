@@ -1,6 +1,6 @@
 # CLI reference
 
-Every command runs from a MALT checkout as `node src/cli.ts <command> [options]`. The package also declares `malt` and `agentmesh` bin names, which work once you link the checkout with `npm link`. `node src/cli.ts --help` prints a summary.
+Every command runs from a MALT checkout as `node src/cli.ts <command> [options]`. The package also declares `malt` and `agentmesh` bin names, which work once you link the checkout with `npm link`. `node src/cli.ts --help` lists every command.
 
 Most commands print one JSON document to stdout. Diagnostics always go to stderr (see [logging](logging-and-troubleshooting.md)). On an error, the command prints `CODE: message` to stderr and exits with status 1.
 
@@ -67,43 +67,44 @@ The supervisor also starts bridges for its managed assignments with internal run
 
 Factory commands address the home project or `--workspace PATH` and call the operation in brackets with the project token, so they act as the operator. File inputs use the same JSON as the [API reference](api.md#managed-factory-controls).
 
-| Command                                  | Operation                    | Input                                                                     |
-| ---------------------------------------- | ---------------------------- | ------------------------------------------------------------------------- |
-| `factory-setup --file FILE`              | `factory_setup`              | Factory settings                                                          |
-| `factory-start`                          | `factory_start`              | none                                                                      |
-| `factory-pause`                          | `factory_pause`              | none                                                                      |
-| `factory-status`                         | `factory_status`             | none; prints the whole ledger as JSON                                     |
-| `factory-request --body TEXT`            | `factory_request`            | The objective text                                                        |
-| `factory-instruct --file FILE`           | `factory_instruct`           | Role instruction or coordinated scope change                              |
-| `factory-retry --file FILE`              | `factory_retry`              | `{taskId}` or `{featureId}`                                               |
-| `factory-queue --file FILE`              | `factory_queue`              | Full objective order and optional focus                                   |
-| `factory-reorder-objective --file FILE`  | `factory_reorder_objective`  | One objective move                                                        |
-| `factory-triage --file FILE`             | `factory_triage`             | One blocker decision                                                      |
-| `factory-recover --file FILE`            | `factory_recover`            | One objective recovery                                                    |
-| `factory-cancel-job --file FILE`         | `factory_cancel_job`         | `{jobId}`                                                                 |
-| `factory-capacity --file FILE`           | `factory_capacity`           | Verified quota evidence                                                   |
-| `factory-local --file FILE`              | `factory_local`              | Local issue and pull request action                                       |
-| `factory-manager --body TEXT`            | `factory_manager`            | Sends `TEXT` to the delivery manager                                      |
-| `factory-manager --file FILE`            | `factory_manager`            | `{"action": "start" \| "stop" \| "status" \| "history" \| "answer", ...}` |
-| `factory-skill-decide --file FILE`       | `factory_skill_decide`       | Approve or reject one reviewed skill revision                             |
-| `factory-export-maintenance --file FILE` | `factory_export_maintenance` | Export an approved skill to a MALT source repository                      |
-| `factory-reconcile-github [--apply]`     | `factory_reconcile_github`   | Dry run by default; `--apply` applies the proposals                       |
-| `factory-worktrees-adopt`                | `factory_worktrees_adopt`    | none; the factory must be paused                                          |
+| Command                                  | Operation                    | Input                                                                                                    |
+| ---------------------------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `factory-setup --file FILE`              | `factory_setup`              | Factory settings                                                                                         |
+| `factory-start`                          | `factory_start`              | none                                                                                                     |
+| `factory-pause`                          | `factory_pause`              | none                                                                                                     |
+| `factory-status`                         | `factory_status`             | none; prints the whole ledger as JSON                                                                    |
+| `factory-request --body TEXT`            | `factory_request`            | The objective text                                                                                       |
+| `factory-instruct --file FILE`           | `factory_instruct`           | Role instruction or coordinated scope change                                                             |
+| `factory-retry --file FILE`              | `factory_retry`              | `{taskId}` or `{featureId}`                                                                              |
+| `factory-queue --file FILE`              | `factory_queue`              | Full objective order and optional focus                                                                  |
+| `factory-reorder-objective --file FILE`  | `factory_reorder_objective`  | One objective move                                                                                       |
+| `factory-triage --file FILE`             | `factory_triage`             | One blocker decision                                                                                     |
+| `factory-recover --file FILE`            | `factory_recover`            | One objective recovery                                                                                   |
+| `factory-cancel-job --file FILE`         | `factory_cancel_job`         | `{"jobId": "UUID"}`: cancel a live supervisor-owned job                                                  |
+| `factory-capacity --file FILE`           | `factory_capacity`           | `{provider, usedPercent, resetAt, source}`: record observed provider quota                               |
+| `factory-local --file FILE`              | `factory_local`              | Local issue and pull request action                                                                      |
+| `factory-manager --body TEXT`            | `factory_manager`            | Sends `TEXT` to the delivery manager                                                                     |
+| `factory-manager --file FILE`            | `factory_manager`            | `{"action": "start" \                                                                                    | "stop" \ | "status" \ | "history" \ | "answer", ...}` |
+| `factory-skill-decide --file FILE`       | `factory_skill_decide`       | Approve or reject one reviewed skill revision                                                            |
+| `factory-export-maintenance --file FILE` | `factory_export_maintenance` | `{"requestId": "UUID", "workspace": "PATH"}`: queue an approved skill proposal in a MALT source checkout |
+| `factory-reconcile-github [--apply]`     | `factory_reconcile_github`   | Dry run by default; `--apply` applies the proposals                                                      |
+| `factory-worktrees-adopt`                | `factory_worktrees_adopt`    | none; the factory must be paused                                                                         |
+| `factory-prune [--apply]`                | `factory_prune`              | Dry run by default; `--apply` removes orphans while paused                                               |
 
-`factory-cancel-job`, `factory-capacity` and `factory-export-maintenance` work but are not listed in `--help`.
+For `factory-capacity`, `provider` is `codex`, `claude` or `copilot`, `usedPercent` is 0 to 100, `resetAt` is a future time in epoch milliseconds, and `source` says where the reading came from. A reset time in the past fails with `INVALID_INPUT`.
 
 ## Connect and govern connectors
 
-| Command                           | Operation                  | Input                                                                            |
-| --------------------------------- | -------------------------- | -------------------------------------------------------------------------------- |
-| `github-connect --file FILE`      | `github_connect`           | `{repository, owner?, projectNumber?, statusFieldName?, createProject?, title?}` |
-| `github-section-save --file FILE` | `github_section_save`      | `{tracker?, jiraTracker?, source?}`: save one connection section from discovery  |
-| `jira-discover --file FILE`       | `jira_discover`            | `{site, projectKey, email, tokenVariable}`: read-only Jira Cloud discovery       |
-| `github-verify`                   | `github_verify`            | none; verifies each saved section read-only                                      |
-| `capability-status`               | `capability_policy_status` | none                                                                             |
-| `capability-set --file FILE`      | `capability_policy_set`    | `{capability, policy: {mode, roles}}`                                            |
-| `mcp-binding-status`              | `mcp_binding_status`       | none                                                                             |
-| `mcp-binding-propose --file FILE` | `mcp_binding_propose`      | `{binding}`                                                                      |
-| `mcp-binding-approve --file FILE` | `mcp_binding_approve`      | `{name, hash}`                                                                   |
+| Command                           | Operation                  | Input                                                                                   |
+| --------------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `github-connect --file FILE`      | `github_connect`           | `{repository, owner?, projectNumber?, statusFieldName?, createProject?, title?}`        |
+| `github-section-save --file FILE` | `github_section_save`      | `{tracker?, jiraTracker?, source?}`: save the tracker and/or source section, unverified |
+| `jira-discover --file FILE`       | `jira_discover`            | `{site, projectKey, email, tokenVariable}`: read-only Jira Cloud discovery              |
+| `github-verify`                   | `github_verify`            | none; verifies each saved section read-only                                             |
+| `capability-status`               | `capability_policy_status` | none                                                                                    |
+| `capability-set --file FILE`      | `capability_policy_set`    | `{capability, policy: {mode, roles}}`                                                   |
+| `mcp-binding-status`              | `mcp_binding_status`       | none                                                                                    |
+| `mcp-binding-propose --file FILE` | `mcp_binding_propose`      | `{binding}`                                                                             |
+| `mcp-binding-approve --file FILE` | `mcp_binding_approve`      | `{name, hash}`                                                                          |
 
-`github-section-save` and `github-verify` work but are not listed in `--help`. See [Connector capability policy](api.md#connector-capability-policy).
+See [Connection records](connection-records.md) for saving and verifying sections, and [Connector capability policy](api.md#connector-capability-policy).

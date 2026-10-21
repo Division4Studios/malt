@@ -280,7 +280,7 @@ Long assignments pass checkpoints. Productive work is extended automatically whe
 - **Continue 30 min** or **Continue 60 min** runs the step once more from the preserved worktree, bounded by those minutes and without the automatic extension gate. The CLI and MCP accept 5 to 240 minutes.
 - **Wait** returns the step to the normal retry rules.
 
-The decision is fenced to the attempt, its head and its stage, so a stale click can never extend a replacement attempt. The operation is `factory_checkpoint_decide`. A running delivery's **Liveness** fact shows the last progress signal, the time to the next checkpoint and how often it was extended. See [assignment liveness and retries](software-factory.md#assignment-liveness-and-retries).
+The decision is fenced to the attempt, its head and its stage, so a stale click can never extend a replacement attempt. The operation is `factory_checkpoint_decide`. A running delivery's **Elapsed** fact shows how long the attempt has run. Its **Liveness** fact shows the last progress signal, the time to the next checkpoint and how often it was extended, or the stop reason while a checkpoint stops it. **Quota** shows the provider's verified headroom and when it was read, or **quota unknown** (a stale reading counts as unknown). Once an attempt has stopped at a checkpoint, **Last stop** shows the recorded reason, such as `stalled 16 min` or `hard ceiling`, and whether your decision is pending. Sessions shows the same reason on the attempt instead of a plain `interrupted`, and the delivery manager offers the same decision buttons. See [assignment liveness and retries](software-factory.md#assignment-liveness-and-retries).
 
 ### Approval gates
 
@@ -305,13 +305,13 @@ Changing the project default never changes work already filed. A workflow step m
 
 **Board → Board** places each delivery by what it needs next:
 
-| Column      | Holds                                          |
-| ----------- | ---------------------------------------------- |
-| Planning    | Objectives being split into deliveries         |
-| Ready       | Deliveries waiting for a free developer        |
-| In progress | Being built, reviewed, merged or verified      |
-| Needs you   | Waiting on your approval or a blocker decision |
-| Done        | Merged and verified on main                    |
+| Column      | Holds                                                                                                                                                 |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Planning    | Objectives being split into deliveries                                                                                                                |
+| Ready       | Deliveries waiting for a free developer                                                                                                               |
+| In progress | Being built, reviewed, merged or verified                                                                                                             |
+| Needs you   | Deliveries and planning objectives with an open [Inbox](#inbox) item: an approval, a blocker, an agent question, a checkpoint decision or a spend cap |
+| Done        | Merged and verified on main                                                                                                                           |
 
 Cards show the objective, the workflow, held state, dependency waits, the pull request and definition-of-done progress. Filter by title or `#issue` and by workflow; **Show done** lists finished cards. **Hold shown** and **Resume shown** hold or resume every delivery the filters show (a held delivery starts no new attempt), and **Archive finished** archives finished cards, which **Archived** lets you restore. Select a card to open its delivery page.
 
@@ -323,7 +323,7 @@ Cards show the objective, the workflow, held state, dependency waits, the pull r
 
 A delivery's page shows its pipeline step by step, findings, rulings and source:
 
-- **Facts:** phase, workflow, developer, attempts, head, base, pull request, what is running now and its **Liveness**, retry state, what it is waiting on, and the blocker or last error. **Customized** summarizes step overrides; **Brief revalidation** shows **Confirmed** or **Needs revising** when `briefRevalidation` is on (retry to implement the brief unchanged, or instruct the lead to replan).
+- **Facts:** phase, workflow, developer, attempts, head, base, pull request, what is running now with its **Elapsed** time, **Liveness** and **Quota**, the **Last stop** reason, retry state, what it is waiting on, and the blocker or last error. **Customized** summarizes step overrides; **Brief revalidation** shows **Confirmed** or **Needs revising** when `briefRevalidation` is on (retry to implement the brief unchanged, or instruct the lead to replan).
 - **Pipeline:** each step with its state, blind review and approval-gate markers, preferred provider and latest result.
 - **Findings** and **Rulings on findings** from the independent reviews.
 - **Repair rounds:** CI repair and merge-conflict repair rounds ([how repairs work](software-factory.md#repairs)).
@@ -416,6 +416,8 @@ Edits collect in a draft that survives live updates. **Save organization** sends
 
 **Workflow → Pull requests** is the review surface for the local delivery hub, the GitHub-free mode set with `"delivery": "local"`. **Issues** shows local issues by column (Backlog to Done, plus Blocked), with **New feature**, **Add delivery** and **Mark Ready**. **Pull requests** shows each pull request's checks, discussion (**Comment**) and diff. **Sync my checkout** brings merged work into your working copy. With GitHub delivery the page says **Local delivery is off**.
 
+With local delivery, a delivery's pull request link on the Board or its delivery page opens this page with that pull request selected.
+
 ![GitHub delivery, the local hub and Codex Cloud tasks side by side](images/diagrams/delivery-modes.svg)
 
 See [Local delivery, Copilot and cloud sessions](local-delivery.md) for setup and behaviour.
@@ -426,7 +428,7 @@ See [Local delivery, Copilot and cloud sessions](local-delivery.md) for setup an
 
 ![Attempts list and an attempt transcript](images/screenshots/sessions.png)
 
-**Sessions → Attempts & transcripts** lists every bounded attempt with filters for role, kind, provider and state, and a search box. Each attempt shows its model, tokens (input, cache read, cache write, output, reasoning), cost source, turns, API time, tool calls and liveness. **Open transcript** shows what the attempt read, ran and changed as a tree of tool calls with results and exit codes, and the files it touched. Long text is truncated for display; the full text stays in the attempt log.
+**Sessions → Attempts & transcripts** lists every bounded attempt with filters for role, kind, provider and state, and a search box. Each attempt shows its model, tokens (input, cache read, cache write, output, reasoning), cost source, turns, API time, tool calls and liveness. An attempt that a checkpoint stopped shows its recorded stop reason in the row, marked **awaiting your decision** while a checkpoint decision is pending. **Open transcript** shows what the attempt read, ran and changed as a tree of tool calls with results and exit codes, and the files it touched. Long text is truncated for display; the full text stays in the attempt log.
 
 ### Workers & terminals
 
@@ -479,7 +481,7 @@ Each capped scope shows a meter toward its cap. A reached cap stops new attempts
 
 **Project → Setup & capacity** (page heading **Project setup**) has four cards:
 
-1. **GitHub Project** (delivery source): the connected repository, Project and workflow field, with **Configure connection** and **Open connected Project ↗**.
+1. **GitHub Project** (delivery source): the connected repository, Project and workflow field, with **Configure connection** and **Open connected Project ↗**. With local delivery this card is **Local delivery** instead: the protected hub's remote and base branch, the number of local pull requests and issues, and **Open pull requests**.
 2. **Factory & validation** (execution policy): **Edit factory configuration** and **Edit model and effort policy**.
 3. **Codex + Claude** (subscription sessions): reminders about where providers are authenticated.
 4. **Durable, local, recoverable** (project memory): the `.malt` path.
@@ -520,14 +522,14 @@ Without an explicit model policy, set `providers.codex.models` or `providers.cla
 
 - **Appearance**: **System**, **Light** or **Dark**, remembered in this browser and kept in step with the side rail's **Theme** button.
 - **Language**: **System**, **English** or **简体中文** (Simplified Chinese), remembered in this browser. See [Language](#language).
-- **Provider health**: for Claude Code and Codex, whether each is enabled, its executable, the preflight result (presence, version, login) with any fix, observed subscription windows, a cooldown in force, the dispatch gate and the latest failed attempt. **Check providers now** reruns the preflight and spends no inference. Copilot is not listed here yet.
+- **Provider health**: for Claude Code, Codex and the GitHub Copilot CLI, whether each is enabled, its executable, the preflight result (presence, version, login) with any fix, observed subscription windows, a cooldown in force, the dispatch gate and the latest failed attempt. **Check providers now** reruns the preflight and spends no inference.
 - **Delivery checks**: **Recheck a dependent delivery's brief after its predecessors merge** (`briefRevalidation`, off by default). It saves the full factory policy, so it is read-only until the factory is set up and while it runs.
 - **Build**: the console's MALT source revision, Node.js runtime and platform, the broker's source (or **not answering**) and the installed offline-shell revision.
 - **Project settings**: shortcuts to **Factory & validation**, **GitHub connection**, **Model & effort policy**, **Team & organization**, **Workflow library** and **Get started guide**.
 
 #### Language
 
-The console is translated into Simplified Chinese except the scratch terminal controls, which are English only. **System** follows the browser's preferred languages: any Chinese preference selects Simplified Chinese, anything else English. Switching translates every open view in place without a reload, and dates and numbers follow the chosen language. Text written by agents or the broker, such as summaries, findings, blocker reasons and objective text, is shown as written, and broker error messages stay in English.
+The whole console is translated into Simplified Chinese, including the scratch terminal controls. **System** follows the browser's preferred languages: any Chinese preference selects Simplified Chinese, anything else English. Switching translates every open view in place without a reload, and dates and numbers follow the chosen language. Text written by agents or the broker, such as summaries, findings, blocker reasons, objective text and terminal output, is shown as written, and broker error messages stay in English.
 
 ### Recommendations
 
@@ -537,7 +539,7 @@ The console is translated into Simplified Chinese except the scratch terminal co
 
 Opening a proposal records a read receipt for that exact revision and shows its revision, tickets, survivor, transferred acceptance and dependencies, affected assignments, a **Before** and **After** preview and the evidence. While it awaits you, enter a **Rationale (required)** and choose **Approve** or **Reject**. Repeated clicks send one request; a failed request keeps your rationale; a proposal that changed since you opened it asks you to **Refresh** instead.
 
-An approval is executed by the supervisor without a model turn, through its durable effect journal. For duplicates and consolidations it re-reads the issues (any change makes the record **Stale**), then posts marked comments and closes retired tickets as not planned, handing their local dependents to the survivor. An approved guidance suggestion becomes an inactive skill candidate that still needs lead review and your approval under **Learning & skills**. Rejection keeps the tickets separate. Decisions require the console to own its broker (`ui --with-broker` or Docker). See [Review ticket recommendations](project-management-decisions.md) for the full lifecycle.
+An approval is executed by the supervisor without a model turn, through its durable effect journal. For duplicates and consolidations it re-reads the issues (any change makes the record **Stale**), then posts marked comments and closes retired tickets as not planned, handing their local dependents to the survivor. An approved guidance suggestion becomes an inactive skill candidate that still needs lead review and your approval under **Learning & skills**. Rejection keeps the tickets separate. Approving **Related tickets** changes no ticket; an objective that intake parked on that proposal then proceeds. A failed duplicate, consolidation or guidance suggestion shows **Retry**, which checks the proposal again and repeats only the effects not done yet. Decisions require the console to own its broker (`ui --with-broker` or Docker). See [Review ticket recommendations](project-management-decisions.md) for the full lifecycle.
 
 ### Learning & skills
 
@@ -595,17 +597,15 @@ Change a mode or role list and **Save** that row (`capability_policy_set`). An u
 
 ![Get started guide with checklist steps](images/screenshots/get-started.png)
 
-**Project → Get started** is a checklist from an empty project to the first role at work. It opens by itself when a project is first shown in a console session without factory setup, a connection or any objective, unless you choose **Hide guide**, which hides it for that project in this browser. Each step opens the same dialog you use later:
+**Project → Get started** is a checklist from an empty project to the first role at work. It opens by itself when a project is first shown in a console session without factory setup, a delivery target (a GitHub connection or the local hub) or any objective, unless you choose **Hide guide**, which hides it for that project in this browser. Each step opens the same dialog you use later:
 
 1. **Check this machine** runs the `doctor` checks inside the broker (Node.js, Git, provider logins, GitHub CLI, writable `.malt`) and lists each as pass, fail or fix-it with its fix.
-2. **Connect the GitHub repository and Project** opens the connection dialog.
+2. **Connect the GitHub repository and Project** opens the connection dialog. With local delivery this step is **Deliver through the local hub**, already done, and its button **Open pull requests** opens **Workflow → Pull requests**.
 3. **Choose providers, checks and model policy** opens factory setup and the model policy.
 4. **Pick how objectives are delivered** opens the workflow library and names the default workflow.
 5. **Submit a first objective** opens the objective editor.
 6. **Start the factory** starts dispatch.
 7. **See the first role start** follows the newest objective. It names the role, stage and provider once an attempt starts, or the exact reason none can: factory not set up, factory paused, the objective blocked, a model-policy blocker, the admission gate (job cap, provider cap, cooldown, CPU or memory) or no eligible provider. If nothing is reported and no role has started for two minutes, it points at **Why work is running or parked**.
-
-Known quirk: with local delivery (`"delivery": "local"`) there is no GitHub connection, so step 2 stays at **Next**, and the guide opens again on each console load until you choose **Hide guide**. The guide checks only the GitHub connection.
 
 ## Private state and Git
 

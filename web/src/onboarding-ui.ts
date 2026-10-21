@@ -2,20 +2,26 @@
  * First-run onboarding under Project ("Get started"): a numbered checklist
  * from machine checks to the first role starting. Each step opens the
  * console's existing dialog for it (GitHub connection, factory setup, model
- * policy, objective editor) or the workflow library, so there is one way to
- * configure anything. The root is stable; updates keep focus and scroll.
+ * policy, objective editor), the workflow library or, on local delivery, the
+ * local pull requests, so there is one way to configure anything. The root
+ * is stable; updates keep focus and scroll.
  *
  * @file
  */
 import { button, focusedKey, restoreFocus, tag } from './console-dom.js';
 import { asData } from './console-model.js';
 import { phrase, t, translated } from './i18n.js';
-import { onboardingSteps, readPreflight } from './onboarding-model.js';
+import { isLocalDelivery, onboardingSteps, readPreflight } from './onboarding-model.js';
 import { element } from './worker-ui.js';
 
-import type { Data } from './api.js';
 import type { ConsoleViewHandle } from './console-dom.js';
-import type { OnboardingStep, OnboardingStepId, PreflightView, StepProgress } from './onboarding-model.js';
+import type {
+  OnboardingSnapshot,
+  OnboardingStep,
+  OnboardingStepId,
+  PreflightView,
+  StepProgress,
+} from './onboarding-model.js';
 
 /** Callbacks supplied by the console shell. */
 export interface OnboardingHooks {
@@ -25,6 +31,8 @@ export interface OnboardingHooks {
   readonly preflight: () => Promise<unknown>;
   /** Open the GitHub connection dialog. */
   readonly connect: () => void;
+  /** Open Workflow → Pull requests, the local hub's deliveries. */
+  readonly pulls: () => void;
   /** Open factory setup (providers, checks, limits). */
   readonly factory: () => void;
   /** Open the model and effort policy dialog. */
@@ -77,7 +85,7 @@ class OnboardingView implements OnboardingHandle {
   /** Shell callbacks. */
   private readonly hooks: OnboardingHooks;
   /** Latest snapshot fields. */
-  private current: { factory: Data; github: Data } = { factory: {}, github: {} };
+  private current: OnboardingSnapshot = { factory: {}, github: {}, local: null };
   /** Preflight result per project. */
   private readonly preflights = new Map<string, PreflightView>();
   /** Preflight failure text per project. */
@@ -102,7 +110,11 @@ class OnboardingView implements OnboardingHandle {
    */
   public update(snapshot: unknown): void {
     const value = asData(snapshot) ?? {};
-    this.current = { factory: asData(value['factory']) ?? {}, github: asData(value['github']) ?? {} };
+    this.current = {
+      factory: asData(value['factory']) ?? {},
+      github: asData(value['github']) ?? {},
+      local: asData(value['local']),
+    };
     this.render();
   }
 
@@ -244,7 +256,13 @@ class OnboardingView implements OnboardingHandle {
           }),
         ];
       },
-      connect: () => [make(t('Connect GitHub'), this.hooks.connect)],
+      connect: () => {
+        // On local delivery the hub is already the target; its pull requests are where deliveries appear.
+        const isLocal = isLocalDelivery(this.current);
+        return [
+          make(t(isLocal ? 'Open pull requests' : 'Connect GitHub'), isLocal ? this.hooks.pulls : this.hooks.connect),
+        ];
+      },
       factory: () => [make(t('Configure factory'), this.hooks.factory), make(policyLabel, this.hooks.policy)],
       workflow: () => [make(t('Open workflow library'), this.hooks.workflows)],
       objective: () => [make(t('New objective'), this.hooks.objective)],

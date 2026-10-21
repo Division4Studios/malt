@@ -79,6 +79,8 @@ export interface Actions {
     expectedRevision: number,
     shouldLimitToExisting?: boolean,
   ) => void;
+  /** Open Workflow → Pull requests, where the local hub's deliveries are reviewed. */
+  readonly openPulls: () => void;
   /** Edit validated project configuration or GitHub connection. */
   readonly setup: (isConnection: boolean) => void;
   /** Edit exact-revision account-local model choices through the same backend. */
@@ -637,14 +639,13 @@ export function learningView(state: Snapshot, actions: Actions): HTMLElement {
 }
 
 /**
- * Project setup operates real validated backend configuration, not local-only settings.
+ * The delivery-source card of a project that delivers through GitHub.
  *
  * @param state - Actual setup readiness.
  * @param actions - Explicit server controls.
- * @returns Setup cards.
+ * @returns GitHub Project card.
  */
-export function setupView(state: Snapshot, actions: Actions): HTMLElement {
-  const grid = element('div', 'setup-steps');
+function githubCard(state: Snapshot, actions: Actions): HTMLElement {
   const connection = child(state.github, 'connection');
   const project = child(connection, 'project');
   const workflowField = firstText(text(child(connection, 'statusField'), 'name'), t('not selected'));
@@ -674,6 +675,55 @@ export function setupView(state: Snapshot, actions: Actions): HTMLElement {
       'button secondary',
     ),
   );
+  return github;
+}
+
+/**
+ * The delivery-source card of a project that delivers through the protected local hub.
+ *
+ * @param local - The broker's hub remote, base branch, issues and pull requests.
+ * @param actions - Explicit server controls.
+ * @returns Card with the hub, its counts and a way to its pull requests.
+ */
+function localDeliveryCard(local: Data, actions: Actions): HTMLElement {
+  const card = element('section', 'setup-card');
+  const hub = { remote: text(local, 'remote'), base: text(local, 'base') };
+  const counts = { pulls: records(local['pulls']).length, issues: records(local['issues']).length };
+  card.append(
+    element('div', 'eyebrow', t('01 / DELIVERY SOURCE')),
+    element('h2', '', t('Local delivery')),
+    pill('ready'),
+    element(
+      'p',
+      'subtle',
+      t(
+        'Issues, pull requests and merges stay in the protected hub {remote}/{base} on this machine; no GitHub Project is needed.',
+        hub,
+      ),
+    ),
+    element(
+      'p',
+      'subtle',
+      t(
+        '{pulls, plural, one {# pull request} other {# pull requests}} · {issues, plural, one {# issue} other {# issues}}',
+        counts,
+      ),
+    ),
+    button(t('Open pull requests'), actions.openPulls, 'button secondary'),
+  );
+  return card;
+}
+
+/**
+ * Project setup operates real validated backend configuration, not local-only settings.
+ *
+ * @param state - Actual setup readiness.
+ * @param actions - Explicit server controls.
+ * @returns Setup cards.
+ */
+export function setupView(state: Snapshot, actions: Actions): HTMLElement {
+  const grid = element('div', 'setup-steps');
+  const github = state.local === null ? githubCard(state, actions) : localDeliveryCard(state.local, actions);
   const factory = element('section', 'setup-card');
   factory.append(
     element('div', 'eyebrow', t('02 / EXECUTION POLICY')),

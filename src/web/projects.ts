@@ -77,6 +77,8 @@ const TERMINAL_HISTORY = 100;
 const automationRecordsSchema = z.array(z.record(z.unknown()));
 /** Secret metadata and audit entries as opaque records; values are never part of them. */
 const secretRecordsSchema = z.array(z.record(z.unknown()));
+/** Mission's report and peer-message previews as opaque records; the browser validates each one it shows. */
+const handoffRecordsSchema = z.array(z.record(z.unknown()));
 /** Broker address local scripts POST webhook triggers to. */
 const triggerEndpointSchema = z.object({ url: z.string(), team: z.string().nullable() });
 /** One identity's unread backlog. */
@@ -88,6 +90,8 @@ const factoryViewSchema = dashboardSchema.extend({
   pendingEffects: z.array(effectSchema),
   skillRequests: z.array(skillRequestSchema),
   conversations: z.array(conversationSchema).default([]),
+  /** Older brokers omit the feed; the browser then says it is unavailable. */
+  handoffs: handoffRecordsSchema.optional(),
   workflow: z.record(z.unknown()).default({}),
   objectiveQueue: objectiveQueueSchema.optional(),
   processUsage: z.array(ownedUsageSchema).default([]),
@@ -128,6 +132,7 @@ export const controlSchema = z
       'factory_queue',
       'factory_triage',
       'factory_recover',
+      'factory_recommendation_retry',
       'factory_reorder_objective',
       'factory_workflow_save',
       'factory_workflow_default',

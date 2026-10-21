@@ -44,15 +44,19 @@ declare module '*/web/dist/console-model.js' {
     readonly workflow: { readonly id: string; readonly name: string };
     /** Steps. */
     readonly steps: readonly Step[];
-    /** Live attempt and its checkpoint liveness. */
+    /** Live attempt, its checkpoint liveness and its provider's quota. */
     readonly running: {
       readonly jobId: string;
       readonly role: string;
       readonly step: string | null;
+      readonly startedAt: number;
       readonly liveness: Liveness | null;
+      readonly quota: Quota | null;
     } | null;
     /** Retry backoff of the latest failed step. */
     readonly retry: Retry | null;
+    /** Recorded checkpoint stop of the latest attempt. */
+    readonly stop: Stop | null;
     /** Current head. */
     readonly head: string | null;
     /** Pull request link. */
@@ -162,6 +166,14 @@ declare module '*/web/dist/console-model.js' {
   export function shortSha(sha: string | null): string;
 
   /**
+   * The local hub pull request a delivery's pull-request address names.
+   *
+   * @param url - Recorded pull-request address.
+   * @returns Its number for a `malt-local://pulls/<number>` address, otherwise null.
+   */
+  export function localPullNumber(url: string): number | null;
+
+  /**
    * Bound an error to its leading lines.
    *
    * @param message - Full text.
@@ -207,7 +219,7 @@ declare module '*/web/dist/console-model.js' {
 
   /** A running attempt's liveness. */
   export interface Liveness {
-    /** `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling`. */
+    /** `progressing`, `idle`, `awaiting_input`, or `stalled`, `ceiling` or `held` while stopping. */
     readonly state: string;
     /** Newest meaningful signal. */
     readonly lastSignal: string | null;
@@ -219,6 +231,30 @@ declare module '*/web/dist/console-model.js' {
     readonly nextCheckpointAt: number;
     /** Extensions granted. */
     readonly extensions: number;
+    /** Why a checkpoint is stopping it. */
+    readonly stopReason: string | null;
+  }
+
+  /** The quota reading the extension gate trusts. */
+  export interface Quota {
+    /** `current`, `stale` or `unknown`. */
+    readonly freshness: 'current' | 'stale' | 'unknown';
+    /** Headroom, only for a current reading. */
+    readonly headroomPercent: number | null;
+    /** Oldest observation. */
+    readonly observedAt: number | null;
+  }
+
+  /** Why the latest attempt stopped at a checkpoint. */
+  export interface Stop {
+    /** Stopped attempt. */
+    readonly jobId: string;
+    /** Recorded reason. */
+    readonly reason: string;
+    /** Stop time. */
+    readonly at: number;
+    /** Whether the operator's decision is pending. */
+    readonly isAwaitingDecision: boolean;
   }
 
   /** A failed step's retry backoff. */

@@ -142,7 +142,7 @@ Select **Project → Setup & capacity** to see the repository, delivery source, 
 | `cache/`                              | Disposable data such as validation temporary files.                         |
 | `README.md`                           | A generated overview of the team and its state.                             |
 
-All of `.malt/` is private. Setup appends `.malt/` to your `.gitignore` and puts a final `*` rule in `.malt/.gitignore`. Git ignores cannot untrack files you already committed: run `git ls-files -- .malt` and remove any tracked file deliberately. The factory refuses to dispatch or publish while `.malt` is in the Git index.
+All of `.malt/` is private. `init`, and every later configuration load, makes sure your `.gitignore` excludes `.malt/` and the legacy `.mlt/`, and that `.malt/.gitignore` ends with a `*` rule. An equivalent rule you already have counts: `.malt`, `/.malt` or `/.malt/`, with trailing spaces or Windows (CRLF) line endings. Setup appends only the rules that are missing or that a later `!` rule negates, using the file's own line endings. Git ignores cannot untrack files you already committed: run `git ls-files -- .malt` and remove any tracked file deliberately. The factory refuses to dispatch or publish while `.malt` is in the Git index.
 
 ### The managed `AGENTS.md` and `CLAUDE.md` block
 
@@ -652,6 +652,5 @@ For logs, verbose diagnostics and coordination errors, see [Logging and troubles
 - Fresh-machine runs on clean installs are open (#258). There is no published release yet (#260).
 - There is no worktree prune command yet (#411); clean up with Git as described above.
 - A Jira Cloud tracker can be checked, saved and verified on **Project → Connections**, but the factory does not deliver through Jira yet (#265).
-- With local delivery, the **Get started** step **Connect the GitHub repository and Project** stays at **Next**; skip it.
 
 See [current capabilities](current-status.md) for the full map.

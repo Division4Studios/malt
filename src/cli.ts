@@ -29,12 +29,14 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { COMMANDS } from './cli-commands.ts';
 import { AgentClient, openTeamConfig, rpc } from './client.ts';
 import { STATE_DIRECTORY_NAME, loadConfig, readJsonFile, saveBrokerDiscovery } from './config.ts';
-import { FACTORY_COMMANDS, isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
+import { isFactoryCommand, runFactoryCommand } from './factory-cli.ts';
 import { log } from './log.ts';
 import { MeshError } from './protocol.ts';
 
+import type { Command } from './cli-commands.ts';
 import type { MeshConfig } from './config.ts';
 /** Default loopback operator port. */
 const CONSOLE_PORT = 4318;
@@ -56,6 +58,8 @@ Usage: node src/cli.ts <command> [options]
   status                       Compact team overview
   dashboard                    Full-screen live team, deliveries, activity and capacity
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
+  github-section-save --file FILE  Save tracker and/or source sections unverified: {"tracker":{...},"source":{...}}
+  github-verify                Verify the saved tracker and source sections with read-only GitHub discovery
   jira-discover --file FILE    Read-only Jira Cloud discovery: {"site","projectKey","email","tokenVariable"}
   capability-status            Show connector capability policies, support and history
   capability-set --file FILE   Change one connector capability policy (human only)
@@ -66,6 +70,9 @@ Usage: node src/cli.ts <command> [options]
   factory-start               Start autonomous work on the connected target project
   factory-pause               Stop managed processes and pause new dispatch
   factory-status              Inspect factory ledger as JSON
+  factory-cancel-job --file FILE  Cancel a live supervisor-owned job: {"jobId":"UUID"}
+  factory-capacity --file FILE Record observed provider quota (resetAt: future epoch ms):
+                               {"provider":"codex"|"claude"|"copilot","usedPercent":0-100,"resetAt":MS,"source":TEXT}
   factory-request --body TEXT  Queue an objective for product owner and lead
   factory-recover --file FILE  Recover a blocked objective with an explicit decision
   factory-triage --file FILE   Decide an exact delivery blocker
@@ -74,11 +81,14 @@ Usage: node src/cli.ts <command> [options]
   factory-reorder-objective --file FILE Move an unfinished objective using a saved revision
   factory-instruct --file FILE Send durable role instructions / coordinated scope changes
   factory-skill-decide --file FILE Approve or reject an independently reviewed skill revision
+  factory-export-maintenance --file FILE Queue an approved skill proposal in a MALT source checkout:
+                               {"requestId":"UUID","workspace":"PATH"}
   factory-manager --body TEXT  Message the persistent delivery manager
   factory-manager --file FILE  Manager action: {"action":"start"|"stop"|"status"|"history"|"answer",...}
   factory-local --file FILE    Local issues and pull requests: {"action":"summary"|"pull"|"sync",...}
   factory-reconcile-github [--apply] Propose (or apply) unpaid adoption of closed GitHub issues
   factory-worktrees-adopt      Hand .malt/worktrees to this host or container (paused)
+  factory-prune [--apply]      Report (or, paused, remove) orphaned worktrees and snapshots
   agents                       List registered agents and presence
   events                       Read the durable coordination event log
   teams                        List the workspace teams of this broker
@@ -107,30 +117,6 @@ Docker: docker compose up -d --build
         docker compose exec broker node src/cli.ts status --project /data
         docker compose down
 `;
-
-/** Every command the CLI accepts. */
-const COMMANDS = [
-  'doctor',
-  'backup',
-  'restore',
-  'pairing-code',
-  'ui',
-  ...FACTORY_COMMANDS,
-  'init',
-  'start',
-  'mcp',
-  'status',
-  'agents',
-  'events',
-  'teams',
-  'lead',
-  'message',
-  'messages',
-  'ack',
-] as const;
-
-/** A CLI command. */
-type Command = (typeof COMMANDS)[number];
 
 /** A command that reads or controls one team. */
 type TeamCommand = Exclude<
@@ -177,7 +163,7 @@ interface CliOptions {
   readonly limit?: string | undefined;
   /** `--all`: include acknowledged messages. */
   readonly all?: boolean | undefined;
-  /** `--apply`: apply proposed GitHub reconciliation decisions instead of a dry run. */
+  /** `--apply`: apply proposed GitHub reconciliation decisions, or remove pruned worktrees, instead of a dry run. */
   readonly apply?: boolean | undefined;
   /** `--json`: print one machine-readable document (doctor). */
   readonly json?: boolean | undefined;

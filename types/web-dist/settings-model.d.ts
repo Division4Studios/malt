@@ -9,7 +9,7 @@ declare module '*/web/dist/settings-model.js' {
   /** One provider's health. */
   interface ProviderHealth {
     /** Provider family. */
-    readonly provider: 'claude' | 'codex';
+    readonly provider: 'claude' | 'codex' | 'copilot';
     /** Display name. */
     readonly name: string;
     /** Whether the saved policy enables it; null before setup. */

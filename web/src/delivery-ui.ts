@@ -11,7 +11,7 @@ import { child, data } from './api.js';
 import { ApprovalDialog } from './approval-dialog.js';
 import { targetFromStep } from './approval-model.js';
 import { lifecycleControl, mergeGateControl } from './board-model.js';
-import { button, emptyState, externalLink, focusedKey, restoreFocus, stateBadge, tag } from './console-dom.js';
+import { button, emptyState, focusedKey, pullRequestLink, restoreFocus, stateBadge, tag } from './console-dom.js';
 import {
   EMPTY_CONSOLE,
   findingSeverity,
@@ -24,6 +24,7 @@ import {
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
 import { keepLiteral, phrase, t, translated } from './i18n.js';
+import { elapsedText, quotaText, stopText } from './liveness-text.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -43,6 +44,8 @@ export interface DeliveryHooks {
   readonly openSessions: (filter: { taskId: string }) => void;
   /** Selected project id, for reading the delivery's diff. */
   readonly project: () => string;
+  /** Open one local hub pull request in Workflow → Pull requests. */
+  readonly openPull?: (pull: number) => void;
 }
 
 /** Focus key shared by the delivery heading and the empty state, so focus survives the switch. */
@@ -59,7 +62,12 @@ const CLOCK_MS = 1000;
  */
 function clockedFacts(delivery: Delivery, now: number): ReadonlyMap<string, string> {
   const facts = new Map<string, string>();
-  const liveness = delivery.running?.liveness ?? null;
+  const { running } = delivery;
+  if (running !== null) {
+    facts.set('elapsed', elapsedText(running.startedAt, now));
+    facts.set('quota', quotaText(running.quota, now));
+  }
+  const liveness = running?.liveness ?? null;
   if (liveness !== null) {
     facts.set('liveness', livenessText(liveness, now));
   }
@@ -123,13 +131,42 @@ function customizedFact(facts: HTMLDListElement, delivery: Delivery): void {
   fact(facts, t('Brief revalidation'), verdict.summary === '' ? label : `${label}: ${verdict.summary}`);
 }
 
+/** Clocked liveness facts in display order, with their terms. */
+const LIVENESS_FACTS = [
+  ['elapsed', phrase('Elapsed')],
+  ['liveness', phrase('Liveness')],
+  ['quota', phrase('Quota')],
+  ['retry', phrase('Retry')],
+] as const;
+
+/**
+ * Describe the running attempt's elapsed time, liveness and quota, or why the
+ * latest attempt stopped and when it retries.
+ *
+ * @param facts - Header facts.
+ * @param delivery - Delivery shown.
+ */
+function livenessFacts(facts: HTMLDListElement, delivery: Delivery): void {
+  const timed = clockedFacts(delivery, Date.now());
+  for (const [name, term] of LIVENESS_FACTS) {
+    const value = timed.get(name);
+    if (value !== undefined) {
+      fact(facts, t(term), clocked(name, value));
+    }
+  }
+  if (delivery.stop !== null) {
+    fact(facts, t('Last stop'), stopText(delivery.stop));
+  }
+}
+
 /**
  * Build the delivery header.
  *
  * @param delivery - Delivery shown.
+ * @param openPull - Opens a local hub pull request, when the shell can.
  * @returns Header element.
  */
-function header(delivery: Delivery): HTMLElement {
+function header(delivery: Delivery, openPull: DeliveryHooks['openPull']): HTMLElement {
   const node = element('header', 'delivery-header');
   const heading = element('h2', 'delivery-title', `#${String(delivery.issue)} ${delivery.title}`);
   heading.tabIndex = -1;
@@ -141,17 +178,13 @@ function header(delivery: Delivery): HTMLElement {
   fact(facts, t('Attempts'), String(delivery.attempts));
   fact(facts, t('Head'), shortSha(delivery.head));
   fact(facts, t('Base'), shortSha(delivery.base));
-  fact(facts, t('Pull request'), delivery.prUrl === null ? '—' : externalLink(delivery.prUrl, t('Open pull request')));
+  fact(
+    facts,
+    t('Pull request'),
+    delivery.prUrl === null ? '—' : pullRequestLink(delivery.prUrl, t('Open pull request'), openPull),
+  );
   fact(facts, t('Running now'), runningText(delivery) ?? t('Nothing'));
-  const timed = clockedFacts(delivery, Date.now());
-  const liveness = timed.get('liveness');
-  if (liveness !== undefined) {
-    fact(facts, t('Liveness'), clocked('liveness', liveness));
-  }
-  const retry = timed.get('retry');
-  if (retry !== undefined) {
-    fact(facts, t('Retry'), clocked('retry', retry));
-  }
+  livenessFacts(facts, delivery);
   if (delivery.held !== null) {
     fact(
       facts,
@@ -337,6 +370,8 @@ class DeliveryView {
   private factory: Data = {};
   /** Operator control path. */
   private readonly control: ControlSender;
+  /** Opens a local hub pull request, when the shell can. */
+  private readonly openPull: DeliveryHooks['openPull'];
   /** Re-rendered content. */
   private readonly body = element('div', 'delivery-body');
   /** Changes section; stable, so loaded files survive snapshot pushes. */
@@ -374,6 +409,7 @@ class DeliveryView {
       },
     });
     this.control = hooks.control;
+    this.openPull = hooks.openPull;
     this.diff = new DeliveryDiff(hooks.project);
     this.lifecycle = button(t('Hold'), {
       cssClass: 'button secondary',
@@ -499,7 +535,7 @@ class DeliveryView {
       layers.append(layer);
     }
     pipeline.append(title, layers);
-    const top = header(delivery);
+    const top = header(delivery, this.openPull);
     const repairs = repairsSection(delivery, this.expanded);
     this.diff.show(delivery.taskId, delivery.head, delivery.base);
     this.body.replaceChildren(top, pipeline, ...(repairs === null ? [] : [repairs]), this.diff.element);

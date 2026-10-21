@@ -18,6 +18,7 @@ const SHELL = [
   '/pulls-ui.js',
   '/pulls-controller.js',
   '/manager-ui.js',
+  '/liveness-text.js',
   '/manager-controller.js',
   '/pwa.js',
   '/brand-ui.js',

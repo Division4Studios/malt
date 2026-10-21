@@ -9,6 +9,7 @@ import { z } from 'zod/v3';
 import { readIntakeMetadata, saveIntakeMetadata } from '../src/factory/intake-corpus.ts';
 import { queueObjective } from '../src/factory/objectives.ts';
 import { retainProvisionedIssues } from '../src/factory/provisioning-identity.ts';
+import { decideRecommendation } from '../src/factory/recommendation-decisions.ts';
 import { inspectObjective, isIntakeParked, reconcileIntake } from '../src/factory/recommendation-intake.ts';
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
@@ -241,4 +242,63 @@ await test('intake queues once across restart, suppresses unchanged rejection an
     'Independent incoming origins cannot alternate superseding revisions.',
   );
   assert.equal(parallel.items.filter((item) => item.state === 'awaiting_human').length, 2);
+});
+
+await test('approving the related intake recommendation releases its parked objective', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const store = new Store(mesh);
+  const github = new ProjectGitHub(mesh);
+  const remote = new GitHubDelivery(mesh, github);
+  const behavior = 'Session cookie expires immediately after login redirect and users loop back to sign in page.';
+  const observed = { ...(await readObservation(7)), body: behavior };
+  remote.issueRepositoryId = () => observed.repositoryId;
+  const factory = new FactoryService(
+    mesh,
+    store,
+    { github, learning: new ProjectLearning(mesh) },
+    { home: mesh.root, remote },
+  );
+  defer(async () => {
+    await factory.close();
+    store.close();
+  });
+  factory.repository.configure(
+    factoryConfigSchema.parse({
+      testCommands: [{ file: process.execPath }],
+      endToEndCommands: [{ file: process.execPath }],
+    }),
+  );
+  const context = factory.configured();
+  const queued = queueObjective(context.repository, { objective: behavior });
+  const feature = context.repository.features().find((item) => item.id === queued.featureId);
+  assert.ok(feature !== undefined);
+  const corpus = {
+    repositoryId: observed.repositoryId,
+    items: [observed],
+    complete: true,
+    cursor: null,
+    checkedAt: Date.now(),
+  };
+  inspectObjective(context, feature, corpus, []);
+  assert.equal(isIntakeParked(context, feature), true);
+  const [card] = pageSchema.parse(context.repository.recommendations.inspect({ kind: 'list' })).items;
+  assert.ok(card !== undefined);
+  assert.equal(card.state, 'awaiting_human');
+  const decision = await decideRecommendation(context.repository, readObservation, {
+    operationId: randomUUID(),
+    id: card.id,
+    revision: card.revision,
+    decision: 'approve',
+    rationale: 'Overlap reviewed; plan this objective with it in mind.',
+  });
+  assert.equal(decision.outcome, 'approved');
+  assert.equal(
+    isIntakeParked(context, feature),
+    false,
+    'Nothing executes a related approval, so it is the disposition.',
+  );
+  inspectObjective(context, feature, { ...corpus, checkedAt: Date.now() }, []);
+  assert.equal(isIntakeParked(context, feature), false, 'Unchanged re-inspection keeps the approval.');
+  assert.equal(context.repository.recommendations.get(card.id)?.state, 'approved');
 });

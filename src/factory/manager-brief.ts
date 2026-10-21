@@ -4,7 +4,8 @@
  * a tool and its context restore; the console renders the same structure. It
  * is computed from the durable ledger on demand and never invents state:
  * output growth is reported as activity, not progress, and only a structured
- * checkpoint counts as progress evidence.
+ * checkpoint or the supervisor's recorded liveness counts as progress
+ * evidence. Quota is the reading the extension gate trusts, or `unknown`.
  *
  * @file
  */
@@ -15,9 +16,14 @@ import { z } from 'zod/v3';
 
 import { selectOne } from '../database.ts';
 
+import { checkpointItems } from './checkpoint-view.ts';
+import { quotaView } from './extension-gate.ts';
+import { livenessView, stopView } from './liveness-view.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { triageStatus } from './triage.ts';
 
+import type { QuotaView } from './extension-gate.ts';
+import type { LivenessView, StopView } from './liveness-view.ts';
 import type { ManagerDecision } from './manager-ledger.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask } from './schema.ts';
@@ -54,8 +60,12 @@ export interface BriefJob {
   readonly progressAt: number | null;
   /** Latest output write, reported as activity only. */
   readonly activityAt: number | null;
-  /** Neither progress nor activity within the stall window. */
+  /** No progress within the stall window: recorded liveness when present, otherwise checkpoints and output. */
   readonly isPossiblyStalled: boolean;
+  /** The supervisor's recorded checkpoint liveness, or null before the first record. */
+  readonly liveness: LivenessView | null;
+  /** The provider's quota as the extension gate sees it. */
+  readonly quota: QuotaView;
 }
 
 /** One delivery in the brief. */
@@ -86,20 +96,62 @@ export interface BriefDelivery {
   readonly nextAction: string;
   /** Recorded blocker. */
   readonly error: string | null;
+  /** Why its latest attempt stopped at a checkpoint, while none runs. */
+  readonly lastStop: StopView | null;
 }
 
 /** One decision only a human can make. */
 export interface BriefDecision {
   /** Decision family. */
-  readonly kind: 'blocked_delivery' | 'triage' | 'blocked_objective' | 'skill' | 'manager';
+  readonly kind: 'blocked_delivery' | 'triage' | 'blocked_objective' | 'skill' | 'checkpoint' | 'manager';
   /** Identity used to act on it. */
   readonly id: string;
   /** Short title. */
   readonly title: string;
   /** Exact evidence. */
   readonly detail: string;
-  /** Console control that resolves it. */
+  /** Where and how it is resolved, in the console's navigation labels; for a manager question, its answers. */
   readonly resolveWith: string;
+  /** Console view that resolves it, as `web/src/navigation.ts` names views. */
+  readonly resolveView: string;
+  /** For a checkpoint, the delivery head its decision is fenced to. */
+  readonly head?: string | null;
+}
+
+/** Where the console resolves one decision family. */
+export interface DecisionRoute {
+  /** Console view id. */
+  readonly view: string;
+  /** Path to that view in the console's own navigation labels. */
+  readonly location: string;
+  /** The control there that resolves it. */
+  readonly control: string;
+}
+
+/** Where each operator decision is resolved; every location is a real console navigation path. */
+export const DECISION_ROUTES: Readonly<Record<Exclude<BriefDecision['kind'], 'manager'>, DecisionRoute>> = {
+  blocked_delivery: {
+    view: 'inbox',
+    location: 'Inbox',
+    control: 'Investigate… to ask the lead, send it to its owner, request fresh QA or keep it waiting',
+  },
+  triage: { view: 'overview', location: 'Mission → Overview', control: "the delivery's card under Clear the path." },
+  blocked_objective: { view: 'inbox', location: 'Inbox', control: 'Recover…' },
+  checkpoint: { view: 'inbox', location: 'Inbox', control: 'Continue 30 min, Continue 60 min or Wait' },
+  skill: { view: 'learning', location: 'Project → Learning & skills', control: 'approve or reject the revision' },
+};
+/** Console view where the manager's own questions are answered. */
+export const MANAGER_VIEW = 'manager';
+
+/**
+ * Where a decision is resolved, as the brief states it.
+ *
+ * @param kind - Decision family.
+ * @returns Route text and view.
+ */
+function routeOf(kind: keyof typeof DECISION_ROUTES): Pick<BriefDecision, 'resolveView' | 'resolveWith'> {
+  const route = DECISION_ROUTES[kind];
+  return { resolveWith: `${route.location}: ${route.control}`, resolveView: route.view };
 }
 
 /** Complete mission brief. */
@@ -171,7 +223,13 @@ function activityAt(job: FactoryJob): number | null {
 function briefJob(repository: FactoryRepository, job: FactoryJob, now: number): BriefJob {
   const progress = progressAt(repository, job.id);
   const activity = activityAt(job);
-  const latest = Math.max(progress ?? 0, activity ?? 0, job.startedAt);
+  const liveness = livenessView(job);
+  // The supervisor's own record is the judgement; output growth alone is not progress.
+  const latest =
+    liveness === null
+      ? Math.max(progress ?? 0, activity ?? 0, job.startedAt)
+      : Math.max(liveness.lastProgressAt, progress ?? 0);
+  const settings = repository.config();
   return {
     role: job.role,
     kind: job.kind,
@@ -183,6 +241,11 @@ function briefJob(repository: FactoryRepository, job: FactoryJob, now: number): 
     progressAt: progress,
     activityAt: activity,
     isPossiblyStalled: now - latest > STALL_MS,
+    liveness,
+    quota:
+      settings === null
+        ? { freshness: 'unknown', headroomPercent: null, observedAt: null }
+        : quotaView(repository.capacity(job.provider, settings, false), now),
   };
 }
 
@@ -228,6 +291,26 @@ export function nextAction(
 }
 
 /**
+ * Settled attempts waiting for the operator to continue them or let them wait.
+ *
+ * @param repository - Project ledger.
+ * @returns One decision per pending checkpoint, with its evidence.
+ */
+function checkpointDecisions(repository: FactoryRepository): BriefDecision[] {
+  // The same items the Inbox lists, so both name the attempt, its evidence and its fenced head alike.
+  return checkpointItems(repository.jobs(), repository.tasks()).map((item): BriefDecision => {
+    return {
+      kind: 'checkpoint',
+      id: item.requestId ?? item.id,
+      title: item.title,
+      detail: `${item.detail} The worktree is kept.`,
+      ...routeOf('checkpoint'),
+      head: item.head,
+    };
+  });
+}
+
+/**
  * Collect every decision waiting on the operator.
  *
  * @param repository - Project ledger.
@@ -244,7 +327,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: task.id,
         title: `#${String(task.issue)} ${task.title}`,
         detail: task.error ?? 'Blocked without a recorded reason.',
-        resolveWith: 'Deliveries → blocked card: retry, investigate, repair or approve',
+        ...routeOf('blocked_delivery'),
       };
     });
   const triage = triageStatus(repository)
@@ -255,7 +338,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: record.id,
         title: `Triage ${record.action}`,
         detail: record.summary,
-        resolveWith: 'Deliveries → triage decision',
+        ...routeOf('triage'),
       };
     });
   const objectives = repository
@@ -267,7 +350,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: feature.id,
         title: clip(feature.objective),
         detail: feature.error ?? 'Blocked without a recorded reason.',
-        resolveWith: 'Mission → objective recovery',
+        ...routeOf('blocked_objective'),
       };
     });
   const skills = repository
@@ -279,7 +362,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
         id: request.id,
         title: `Skill ${request.name}`,
         detail: 'Lead-reviewed revision awaiting your exact approval or rejection.',
-        resolveWith: 'Project → Learning & skills',
+        ...routeOf('skill'),
       };
     });
   const questions = managerDecisions.map((decision): BriefDecision => {
@@ -290,9 +373,10 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
       title: decision.question,
       detail: decision.evidence,
       resolveWith: options === '' ? 'Answer in the manager' : `Answer: ${options}`,
+      resolveView: MANAGER_VIEW,
     };
   });
-  return [...blocked, ...triage, ...objectives, ...skills, ...questions];
+  return [...checkpointDecisions(repository), ...blocked, ...triage, ...objectives, ...skills, ...questions];
 }
 
 /**
@@ -310,7 +394,8 @@ export function missionBrief(
 ): MissionBrief {
   const settings = repository.config();
   const tasks = repository.tasks().filter((task) => task.scopeReplacement === undefined);
-  const running = repository.jobs().filter((job) => job.state === 'running');
+  const jobs = repository.jobs();
+  const running = jobs.filter((job) => job.state === 'running');
   const deliveries = tasks
     .filter((task) => task.phase !== 'done')
     .map((task): BriefDelivery => {
@@ -329,6 +414,7 @@ export function missionBrief(
         attempts: task.attempts,
         nextAction: nextAction(task, job, { tasks, now }),
         error: task.error,
+        lastStop: job === null ? stopView(task, jobs) : null,
       };
     });
   return {
@@ -356,6 +442,68 @@ export function missionBrief(
 }
 
 /**
+ * Whole minutes for brief text.
+ *
+ * @param ms - Duration.
+ * @returns Text such as `7 min`.
+ */
+function wholeMinutes(ms: number): string {
+  return `${String(Math.max(0, Math.round(ms / MINUTE_MS)))} min`;
+}
+
+/**
+ * The quota reading as brief text.
+ *
+ * @param quota - Quota evidence.
+ * @param now - Brief time.
+ * @returns Text such as `quota headroom 60% (read 2 min ago)`, `quota stale` or `quota unknown`.
+ */
+function quotaLine(quota: QuotaView, now: number): string {
+  if (quota.headroomPercent === null) {
+    return `quota ${quota.freshness}`;
+  }
+  const age = quota.observedAt === null ? '' : ` (read ${wholeMinutes(now - quota.observedAt)} ago)`;
+  return `quota headroom ${String(Math.round(quota.headroomPercent))}%${age}`;
+}
+
+/**
+ * Liveness and quota evidence for one running assignment, as brief text.
+ *
+ * @param job - Running assignment.
+ * @param now - Brief time.
+ * @returns One sentence of recorded liveness and the quota reading.
+ */
+function livenessLine(job: BriefJob, now: number): string {
+  const { liveness } = job;
+  const quota = quotaLine(job.quota, now);
+  if (liveness === null) {
+    return ` Liveness not recorded yet; ${quota}.`;
+  }
+  const signal =
+    liveness.lastSignal === null
+      ? 'no progress yet'
+      : `${liveness.lastSignal} ${wholeMinutes(now - liveness.lastProgressAt)} ago`;
+  const waiting = liveness.awaiting === null ? '' : `, awaiting ${liveness.awaiting}`;
+  const checkpoint = `next checkpoint in ${wholeMinutes(liveness.nextCheckpointAt - now)}`;
+  return ` Liveness: ${liveness.state.replace('_', ' ')}, ${signal}${waiting}, ${checkpoint}, extended ${String(liveness.extensions)}×; ${quota}.`;
+}
+
+/**
+ * The latest checkpoint stop as brief text.
+ *
+ * @param stop - Recorded stop, if any.
+ * @returns Sentence naming the stop reason and any pending decision, or empty.
+ */
+function stopLine(stop: StopView | null): string {
+  if (stop === null) {
+    return '';
+  }
+  return stop.isAwaitingDecision
+    ? ` Last attempt stopped: ${stop.reason}; awaiting the operator's continue-or-wait decision.`
+    : ` Last attempt stopped: ${stop.reason}.`;
+}
+
+/**
  * Render a brief as compact text for the manager's context.
  *
  * @param brief - Mission brief.
@@ -373,7 +521,8 @@ export function briefText(brief: MissionBrief): string {
         .join(', ');
       const stalled = delivery.job?.isPossiblyStalled === true ? ' POSSIBLY STALLED.' : '';
       const location = where === '' ? '' : ` (${where})`;
-      return `- #${String(delivery.issue)} ${delivery.title} [${delivery.stage}]${location}: ${delivery.nextAction}${stalled}`;
+      const evidence = delivery.job === null ? '' : livenessLine(delivery.job, brief.generatedAt);
+      return `- #${String(delivery.issue)} ${delivery.title} [${delivery.stage}]${location}: ${delivery.nextAction}${evidence}${stalled}${stopLine(delivery.lastStop)}`;
     }),
     `Decisions waiting on the operator (${String(brief.decisions.length)}):`,
     ...brief.decisions.map((decision) => `- ${decision.kind}: ${decision.title}: ${decision.detail}`),

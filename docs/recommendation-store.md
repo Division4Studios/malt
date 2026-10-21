@@ -19,17 +19,19 @@
 
 Transitions apply to one revision. Each requires the current revision and the expected current state, inside a SQLite transaction, so a concurrent change refuses the transition without mutating anything.
 
-| From                             | Allowed next states                           | Who or what moves it                                                                    |
-| -------------------------------- | --------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `proposed`                       | `awaiting_human`, `stale`                     | Submission or intake queues it for review.                                              |
-| `awaiting_human`                 | `approved`, `rejected`, `stale`               | The human decision, after a freshness re-read.                                          |
-| `approved`                       | `applying`, `stale`                           | The supervisor, after re-reading the observed issues and objectives.                    |
-| `applying`                       | `completed`, `reconciling`, `stale`, `failed` | The supervisor, as effects are confirmed, become ambiguous or fail.                     |
-| `reconciling`                    | `completed`, `applying`, `failed`             | The supervisor, after resolving an ambiguous remote result.                             |
-| `failed`                         | `approved`, `applying`                        | An operator retry: revalidate from `approved`, or re-queue the same idempotent effects. |
-| `rejected`, `stale`, `completed` | none                                          | Terminal. A stale or rejected proposal can only be replaced by new content.             |
+| From                             | Allowed next states                           | Who or what moves it                                                                        |
+| -------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `proposed`                       | `awaiting_human`, `stale`                     | Submission or intake queues it for review.                                                  |
+| `awaiting_human`                 | `approved`, `rejected`, `stale`               | The human decision, after a freshness re-read.                                              |
+| `approved`                       | `applying`, `stale`                           | The supervisor, after re-reading the observed issues and objectives.                        |
+| `applying`                       | `completed`, `reconciling`, `stale`, `failed` | The supervisor, as effects are confirmed, become ambiguous or fail.                         |
+| `reconciling`                    | `completed`, `applying`, `failed`             | The supervisor, after resolving an ambiguous remote result.                                 |
+| `failed`                         | `approved`, `applying`                        | An operator **Retry**: revalidate from `approved`, or re-queue the same idempotent effects. |
+| `rejected`, `stale`, `completed` | none                                          | Terminal. A stale or rejected proposal can only be replaced by new content.                 |
 
-Only `duplicate`, `consolidate` and `guidance_suggestion` records are advanced past `approved` by the supervisor. Approved `related` and `scope_change` records stay `approved`; they record the decision and notify the affected roles.
+Only `duplicate`, `consolidate` and `guidance_suggestion` records are advanced past `approved` by the supervisor. Approved `related` and `scope_change` records stay `approved`; they record the decision and notify the affected roles. An approved `related` record also releases the objective that intake parked on it.
+
+A `failed` record is retryable only when the supervisor executes its kind: a `duplicate` or `consolidate` with a survivor and more than one ticket, or a `guidance_suggestion`. The detail read reports this as `retryable`, and the console shows **Retry** only then; `factory_recommendation_retry` refuses any other record with `FACTORY_GATED`.
 
 ## Audit, unread state and limits
 

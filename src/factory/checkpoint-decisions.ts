@@ -71,8 +71,11 @@ export function askForDecision(repository: FactoryRepository, job: FactoryJob, l
     consumedBy: null,
   };
   repository.saveJob({ ...current, liveness, checkpoint });
+  const task = job.taskId === null ? undefined : repository.tasks().find((candidate) => candidate.id === job.taskId);
   repository.store.event('FACTORY_CHECKPOINT_DECISION', null, {
     jobId: job.id,
+    role: job.role,
+    issue: task?.issue ?? null,
     taskId: job.taskId,
     featureId: job.featureId,
     step: job.step,

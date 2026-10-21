@@ -25,8 +25,6 @@ export const FACTORY_COMMANDS = [
   'mcp-binding-status',
   'mcp-binding-propose',
   'mcp-binding-approve',
-  'mcp-binding-propose',
-  'mcp-binding-approve',
   'factory-setup',
   'factory-start',
   'factory-pause',
@@ -44,6 +42,7 @@ export const FACTORY_COMMANDS = [
   'factory-manager',
   'factory-reconcile-github',
   'factory-worktrees-adopt',
+  'factory-prune',
 ] as const;
 /** A factory console command. */
 export type FactoryCommand = (typeof FACTORY_COMMANDS)[number];
@@ -77,9 +76,10 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-manager': 'factory_manager',
   'factory-reconcile-github': 'factory_reconcile_github',
   'factory-worktrees-adopt': 'factory_worktrees_adopt',
+  'factory-prune': 'factory_prune',
 };
-/** Commands requiring structured input. */
-const FILE_COMMANDS: ReadonlySet<string> = new Set([
+/** Commands requiring structured input; `--help` shows `--file FILE` for each. */
+export const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-export-maintenance',
   'factory-skill-decide',
   'github-connect',
@@ -156,6 +156,7 @@ const FLAG_INPUTS: Partial<Record<FactoryCommand, (options: CommandOptions) => u
     return { objective: options.body };
   },
   'factory-reconcile-github': (options) => ({ apply: options.apply === true }),
+  'factory-prune': (options) => ({ apply: options.apply === true }),
 };
 
 /**

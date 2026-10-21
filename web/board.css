@@ -63,6 +63,16 @@
 .console-link {
   font: 11px var(--font-terminal);
 }
+/* A local pull request opens inside the console, so it is a button styled like the external links. */
+.console-link.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cyan);
+}
+.console-link.link-button:hover {
+  text-decoration: underline;
+}
 .console-empty {
   padding: 18px;
   border: 1px dashed var(--line);
@@ -900,8 +910,10 @@ select {
 }
 
 /* ---------- navigation badge ---------- */
-/* Outranks the rail's `.nav span` icon rule, which also hides icons on phones. */
-.nav .nav-count {
+/* Outranks the rail's `.nav span` icon rules, which hide icons on phones and on an active
+   item would tint the count the same amber as its background. */
+.nav .nav-count,
+.nav.active .nav-count {
   display: inline-block;
   width: auto;
   margin-left: 4px;

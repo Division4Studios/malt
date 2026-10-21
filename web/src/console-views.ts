@@ -80,6 +80,8 @@ export interface ConsoleViewHooks {
   readonly recover: (featureId: string) => void;
   /** Open a skill proposal for review. */
   readonly skill: (requestId: string) => void;
+  /** Open one local hub pull request in Workflow → Pull requests. */
+  readonly openPull: (pull: number) => void;
   /** Re-render the shell, after a language change. */
   readonly rerender: () => void;
 }
@@ -144,6 +146,7 @@ export class ConsoleViews {
         this.sessions.focusDelivery(taskId, this.deliveryLabel(taskId));
         hooks.select('sessions');
       },
+      openPull: hooks.openPull,
     });
     this.workflows = createWorkflowsView({ control: hooks.control, project: hooks.project });
     this.notifier = new InboxNotifier((project) => {
@@ -173,7 +176,7 @@ export class ConsoleViews {
           },
         }),
       ],
-      ['board', createBoardView({ openDelivery, openObjective, control: hooks.control })],
+      ['board', createBoardView({ openDelivery, openObjective, control: hooks.control, openPull: hooks.openPull })],
       ['automations', createAutomationsView({ control: hooks.control })],
       ['roles', createRolesView({ control: hooks.control, project: hooks.project })],
       ['secrets', createSecretsView({ control: hooks.control })],

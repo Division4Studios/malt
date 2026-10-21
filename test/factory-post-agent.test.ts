@@ -13,8 +13,10 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { publishDelivery, PostAgentStepError } from '../src/factory/post-agent.ts';
-import { EmptyPublicationError } from '../src/factory/publication-size.ts';
+import { EmptyPublicationError, PublicationSizeError } from '../src/factory/publication-size.ts';
 import { classifyAttempt } from '../src/factory/retry-policy.ts';
+import { factoryConfigSchema } from '../src/factory/schema.ts';
+import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { MeshError } from '../src/protocol.ts';
 
 import { fixture, rejection } from './delivery-fixture.ts';
@@ -69,6 +71,24 @@ await test('an empty publication names the publication step and its reason in fa
   assert.equal(nothing.step, 'publish');
   assert.ok(nothing.cause instanceof EmptyPublicationError);
   assert.equal(failureRecord(untouched)['reason'], 'nothing_to_commit');
+});
+
+await test('an oversized publication records over_limit in failure.json and keeps its size gate', async (t) => {
+  const f = await fixture(t);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- Fixture writes only inside its owned worktree.
+  await writeFile(path.join(f.directory, 'shared.txt'), 'changed\nand\nextended\n');
+  const settings = factoryConfigSchema.parse({
+    testCommands: [{ file: process.execPath, args: ['-e', ''] }],
+    endToEndCommands: [{ file: process.execPath, args: ['-e', ''] }],
+    maxDiffLines: 1,
+  });
+  const limited = { ...f, workspaces: new WorkspaceManager(f.mesh, settings) };
+  const oversized = await rejection(publish(limited));
+  assert.ok(oversized instanceof PublicationSizeError, 'the size gate keeps its own handling');
+  const record = failureRecord(f);
+  assert.equal(record['reason'], 'over_limit');
+  assert.equal(record['step'], 'publish');
+  assert.equal(record['error'], 'PublicationSizeError');
 });
 
 await test('a failed validation step is recorded in failure.json and named in the error, redacted', async (t) => {

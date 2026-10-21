@@ -10,7 +10,7 @@
  */
 import { BoardActions } from './board-actions.js';
 import { COLUMN_COPY, DEFAULT_PREFS, groupBoard, parsePrefs, tabTarget, workflowChoices } from './board-model.js';
-import { button, externalLink, focusedKey, restoreFocus, stepStripNode, tag } from './console-dom.js';
+import { button, focusedKey, pullRequestLink, restoreFocus, stepStripNode, tag } from './console-dom.js';
 import { COLUMNS, EMPTY_CONSOLE, STATE_LABELS, excerpt, readConsole, runningText } from './console-model.js';
 import { t } from './i18n.js';
 import { element } from './worker-ui.js';
@@ -28,6 +28,8 @@ export interface BoardHooks {
   readonly openObjective?: (featureId: string) => void;
   /** Operator control path; bulk hold, resume and archive appear only with it. */
   readonly control?: ControlSender;
+  /** Open one local hub pull request in Workflow → Pull requests. */
+  readonly openPull?: (pull: number) => void;
 }
 
 /** Browser storage key for the saved tab and filters. */
@@ -146,7 +148,7 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
     badges.append(tag(`${String(delivery.attempts)} attempt${delivery.attempts === 1 ? '' : 's'}`));
   }
   if (delivery.prUrl !== null) {
-    badges.append(externalLink(delivery.prUrl, t('Pull request')));
+    badges.append(pullRequestLink(delivery.prUrl, t('Pull request'), hooks.openPull));
   }
   if (badges.childElementCount > 0) {
     card.append(badges);
