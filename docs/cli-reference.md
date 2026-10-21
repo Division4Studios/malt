@@ -95,15 +95,16 @@ For `factory-capacity`, `provider` is `codex`, `claude` or `copilot`, `usedPerce
 
 ## Connect and govern connectors
 
-| Command                           | Operation                  | Input                                                                            |
-| --------------------------------- | -------------------------- | -------------------------------------------------------------------------------- |
-| `github-connect --file FILE`      | `github_connect`           | `{repository, owner?, projectNumber?, statusFieldName?, createProject?, title?}` |
-| `github-section-save --file FILE` | `github_section_save`      | `{tracker?, source?}`: save the tracker and/or source section, unverified        |
-| `github-verify`                   | `github_verify`            | none; verifies each saved section read-only                                      |
-| `capability-status`               | `capability_policy_status` | none                                                                             |
-| `capability-set --file FILE`      | `capability_policy_set`    | `{capability, policy: {mode, roles}}`                                            |
-| `mcp-binding-status`              | `mcp_binding_status`       | none                                                                             |
-| `mcp-binding-propose --file FILE` | `mcp_binding_propose`      | `{binding}`                                                                      |
-| `mcp-binding-approve --file FILE` | `mcp_binding_approve`      | `{name, hash}`                                                                   |
+| Command                           | Operation                  | Input                                                                                   |
+| --------------------------------- | -------------------------- | --------------------------------------------------------------------------------------- |
+| `github-connect --file FILE`      | `github_connect`           | `{repository, owner?, projectNumber?, statusFieldName?, createProject?, title?}`        |
+| `github-section-save --file FILE` | `github_section_save`      | `{tracker?, jiraTracker?, source?}`: save the tracker and/or source section, unverified |
+| `jira-discover --file FILE`       | `jira_discover`            | `{site, projectKey, email, tokenVariable}`: read-only Jira Cloud discovery              |
+| `github-verify`                   | `github_verify`            | none; verifies each saved section read-only                                             |
+| `capability-status`               | `capability_policy_status` | none                                                                                    |
+| `capability-set --file FILE`      | `capability_policy_set`    | `{capability, policy: {mode, roles}}`                                                   |
+| `mcp-binding-status`              | `mcp_binding_status`       | none                                                                                    |
+| `mcp-binding-propose --file FILE` | `mcp_binding_propose`      | `{binding}`                                                                             |
+| `mcp-binding-approve --file FILE` | `mcp_binding_approve`      | `{name, hash}`                                                                          |
 
 See [Connection records](connection-records.md) for saving and verifying sections, and [Connector capability policy](api.md#connector-capability-policy).

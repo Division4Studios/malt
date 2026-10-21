@@ -60,6 +60,7 @@ Usage: node src/cli.ts <command> [options]
   github-connect --file FILE   Verify target GitHub Project connection (JSON input)
   github-section-save --file FILE  Save tracker and/or source sections unverified: {"tracker":{...},"source":{...}}
   github-verify                Verify the saved tracker and source sections with read-only GitHub discovery
+  jira-discover --file FILE    Read-only Jira Cloud discovery: {"site","projectKey","email","tokenVariable"}
   capability-status            Show connector capability policies, support and history
   capability-set --file FILE   Change one connector capability policy (human only)
   mcp-binding-status           Show connector MCP bindings, their hashes and approval

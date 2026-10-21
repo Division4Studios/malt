@@ -4,13 +4,14 @@
  * dialogs survive every snapshot push; the shell only asks for an element.
  * Telemetry views (sessions, costs) and capabilities read their own routes on a slower cadence;
  * console views (Inbox, Board, objectives, automations, delivery, workflows,
- * roles, secrets) read each pushed snapshot.
+ * roles, secrets, connections) read each pushed snapshot.
  *
  * @file
  */
 import { createAutomationsView } from './automations-ui.js';
 import { createBoardView } from './board-ui.js';
 import { createCapabilityView } from './capability-ui.js';
+import { createConnectionView } from './connection-ui.js';
 import { inboxCount, readConsole } from './console-model.js';
 import { createCostsView } from './costs-ui.js';
 import { createDeliveryView } from './delivery-ui.js';
@@ -50,6 +51,7 @@ const PUSHED_VIEW_NAMES = [
   'workflows',
   'roles',
   'secrets',
+  'connections',
 ] as const;
 /** Snapshot-pushed view names, for membership checks. */
 const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
@@ -58,7 +60,7 @@ const PUSHED_VIEWS: ReadonlySet<string> = new Set(PUSHED_VIEW_NAMES);
  * Whether an owned view reads pushed snapshots.
  *
  * @param view - Owned route.
- * @returns True for Inbox, Board, objectives, automations, delivery, workflows, roles and secrets.
+ * @returns True for Inbox, Board, objectives, automations, delivery, workflows, roles, secrets and connections.
  */
 const isPushed = (view: OwnedView): view is PushedView => PUSHED_VIEWS.has(view);
 
@@ -178,6 +180,7 @@ export class ConsoleViews {
       ['automations', createAutomationsView({ control: hooks.control })],
       ['roles', createRolesView({ control: hooks.control, project: hooks.project })],
       ['secrets', createSecretsView({ control: hooks.control })],
+      ['connections', createConnectionView({ project: hooks.project, control: hooks.control, select: hooks.select })],
       ['delivery', this.delivery],
       ['objective', this.goals],
       ['workflows', this.workflows],
@@ -221,6 +224,7 @@ export class ConsoleViews {
       workflows: this.builder('workflows'),
       roles: this.builder('roles'),
       secrets: this.builder('secrets'),
+      connections: this.builder('connections'),
     };
   }
 

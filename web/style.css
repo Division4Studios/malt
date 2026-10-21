@@ -895,6 +895,81 @@ h3 {
   padding-left: 20px;
   overflow-wrap: anywhere;
 }
+.connection-view {
+  display: grid;
+  gap: 16px;
+}
+.connection-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.connection-section h2,
+.connection-section h3,
+.connection-section h4,
+.connection-section p {
+  margin: 0;
+}
+.connection-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.connection-errors {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--amber);
+}
+.connection-providers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.connection-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.connection-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.connection-field select {
+  max-width: 100%;
+  padding: 10px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+.connection-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+.connection-findings {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: var(--raised);
+  border-radius: 8px;
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
 .settings-theme {
   display: flex;
   flex-wrap: wrap;

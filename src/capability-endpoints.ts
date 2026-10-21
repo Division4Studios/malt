@@ -12,11 +12,13 @@ import { z } from 'zod/v3';
 import { CAPABILITIES } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile } from './config.ts';
 import { capabilityState, parseConnection } from './connector.ts';
+import { currentJiraMode, jiraAccessSummary } from './jira/modes.ts';
 import { MeshError, parseInput } from './protocol.ts';
 
 import type { Capability, CapabilityPolicyChange, CapabilityPolicyStore } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
 import type { CapabilityName, CapabilityState, Capabilities } from './connector.ts';
+import type { JiraMode, JiraWriteSummary } from './jira/modes.ts';
 import type { CapabilityOperation, OperationInput } from './protocol.ts';
 import type { PresentedCredentials, Store } from './store.ts';
 import type { Waiters } from './waiters.ts';
@@ -95,7 +97,8 @@ function trackerDescriptor(config: MeshConfig): { provider: string; capabilities
 }
 
 /**
- * Report every capability's mode, roles and provider support, plus recent history.
+ * Report every capability's mode, roles and provider support, recent history,
+ * and the Jira mode with what MALT reads from and may change in Jira.
  *
  * @param policy - Selected project's policy store.
  * @param config - Matching project configuration.
@@ -110,6 +113,7 @@ export function capabilityStatus(
   capabilities: CapabilityView[];
   history: CapabilityPolicyChange[];
   historyTruncated: boolean;
+  jira: { mode: JiraMode | 'custom'; roles: string[]; reads: readonly string[]; writes: JiraWriteSummary[] };
 } {
   const descriptor = trackerDescriptor(config);
   const capabilities = CAPABILITIES.map((capability) => {
@@ -134,6 +138,8 @@ export function capabilityStatus(
     capabilities,
     history: history.slice(-HISTORY_LIMIT),
     historyTruncated: history.length > HISTORY_LIMIT,
+    // What MALT would read from and change in Jira under these policies, shown before Jira writes are enabled.
+    jira: { ...currentJiraMode(policy), ...jiraAccessSummary(policy) },
   };
 }
 

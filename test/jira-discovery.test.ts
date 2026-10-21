@@ -28,6 +28,14 @@ interface Answer {
   readonly headers?: Readonly<Record<string, string>>;
 }
 
+/** Create fields every fixture issue type has: MALT fills the required ones, and the reporter has a default. */
+const CREATE_FIELDS = [
+  { fieldId: 'summary', name: 'Summary', required: true, hasDefaultValue: false },
+  { fieldId: 'issuetype', name: 'Issue Type', required: true, hasDefaultValue: false },
+  { fieldId: 'reporter', name: 'Reporter', required: true, hasDefaultValue: true },
+  { fieldId: 'priority', name: 'Priority', required: false, hasDefaultValue: true },
+];
+
 /**
  * A healthy Cloud site where the account holds every permission.
  *
@@ -60,6 +68,8 @@ function healthy(): Map<string, Answer> {
         },
       },
     ],
+    ['/rest/api/3/issue/createmeta/PROJ/issuetypes/1', { status: 200, body: { fields: CREATE_FIELDS } }],
+    ['/rest/api/3/issue/createmeta/PROJ/issuetypes/2', { status: 200, body: { values: CREATE_FIELDS } }],
   ]);
 }
 
@@ -120,6 +130,15 @@ await test('a healthy Cloud project is verified, with capabilities derived from 
   assert.deepEqual(result.caller, { accountId: 'acc-1', displayName: 'MALT robot' });
   assert.deepEqual(result.project, { id: '10000', key: 'PROJ', name: 'Project', url: `${SITE}/browse/PROJ` });
   assert.equal(result.issueTypes.length, 2);
+  assert.deepEqual(result.fields[0], {
+    issueTypeId: '1',
+    issueTypeName: 'Story',
+    required: [
+      { id: 'summary', name: 'Summary', isFilled: true },
+      { id: 'issuetype', name: 'Issue Type', isFilled: true },
+    ],
+  });
+  assert.equal(result.fields.length, 2, 'older sites answering with values are read too');
   assert.equal(result.verifiedAt, now.toISOString());
   assert.deepEqual(result.missing, []);
   assert.deepEqual(result.capabilities, {
@@ -165,6 +184,55 @@ await test('missing permissions degrade the connection and name the Jira admin a
   assert.match(result.missing[0]?.action ?? '', /Create Issues/v);
   assert.equal(result.capabilities.issue_create, 'unsupported');
   assert.equal(result.verifiedAt, null);
+});
+
+await test('a required field MALT cannot fill degrades the connection and names the field', async () => {
+  const routes = healthy();
+  routes.set('/rest/api/3/issue/createmeta/PROJ/issuetypes/1', {
+    status: 200,
+    body: {
+      fields: [...CREATE_FIELDS, { fieldId: 'customfield_10050', name: 'Customer', required: true }],
+    },
+  });
+  const fixture = transport(routes);
+  const result = await discoverJira({ site: SITE, projectKey: 'PROJ', credential, fetch: fixture.fetch });
+  assert.equal(result.state, 'degraded');
+  assert.deepEqual(result.missing, [], 'the permissions are all held');
+  assert.equal(result.problems.length, 1);
+  assert.equal(result.problems[0]?.scope, 'fields');
+  assert.match(result.problems[0].message, /Story requires "Customer" \(customfield_10050\)/v);
+  const meta = fixture.calls.find(({ url }) => url.pathname.endsWith('/issuetypes/1'));
+  assert.equal(meta?.url.searchParams.get('maxResults'), '200');
+  const unreadable = healthy();
+  unreadable.delete('/rest/api/3/issue/createmeta/PROJ/issuetypes/2');
+  const partial = await discoverJira({
+    site: SITE,
+    projectKey: 'PROJ',
+    credential,
+    fetch: transport(unreadable).fetch,
+  });
+  assert.equal(partial.state, 'degraded');
+  assert.equal(partial.problems[0]?.scope, 'fields');
+});
+
+await test('without Create Issues no create fields are read', async () => {
+  const routes = healthy();
+  routes.set('/rest/api/3/mypermissions', {
+    status: 200,
+    body: {
+      permissions: {
+        ...Object.fromEntries(JIRA_PERMISSION_NAMES.map((name) => [name, { havePermission: true }])),
+        CREATE_ISSUES: { havePermission: false },
+      },
+    },
+  });
+  const fixture = transport(routes);
+  const result = await discoverJira({ site: SITE, projectKey: 'PROJ', credential, fetch: fixture.fetch });
+  assert.deepEqual(result.fields, []);
+  assert.equal(
+    fixture.calls.some(({ url }) => url.pathname.includes('/createmeta/')),
+    false,
+  );
 });
 
 await test('a rejected or unauthorized credential reports external setup required, never connected', async () => {

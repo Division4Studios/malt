@@ -99,7 +99,7 @@ The delivery manager is one persistent session per project, launched with the sa
 
 Scratch terminals reserve the same admission pool, build an allowlisted provider launch in a separate worktree and stream redacted output from a bounded in-memory ring. Terminal operations are absent from MCP and ordinary RPC. See [Interactive terminals](interactive-terminals.md).
 
-Connector support is partly shipped. GitHub discovery, credential handles, the capability policy (enforced in the GitHub integration), verified connection sections, gated labels, milestones, views, fields, Project creation and reviewed MCP tool bindings are in place. A console panel with separate work-tracker and source-control sections is not done yet (#84). A Jira Cloud library exists in `src/jira/`, but it is not wired into connection verification, the console or the factory, so Jira is not yet available.
+Connector support is partly shipped. GitHub discovery, credential handles, the capability policy (enforced in the GitHub integration), verified connection sections, gated labels, milestones, views, fields, Project creation and reviewed MCP tool bindings are in place, and **Project → Connections** shows the work tracker and source control as separate sections. A Jira Cloud project can be discovered, saved and verified as the tracker (`src/jira/connection.ts`), but the factory still delivers only through GitHub or the local hub: the Jira intake, breakdown, transition and traceability library is not wired into the supervisor yet (#331–#335).
 
 ## Source tour
 
@@ -168,13 +168,13 @@ The browser app is in `web/src/`. `navigation.ts` lists the console sections, an
 
 ### 5. Connectors and learning
 
-| Module                                                  | Responsibility                                                                           |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `src/connector.ts`, `connection-*.ts`, `credentials.ts` | Connection records, per-section save and verification, credential handles                |
-| `src/capability-policy.ts`, `capability-endpoints.ts`   | The capability policy store and its read and human edit                                  |
-| `src/connector-bindings.ts`                             | Reviewed, role-scoped MCP tool bindings                                                  |
-| `src/github.ts`, `github-*.ts`                          | GitHub Projects, discovery, issues, labels, milestones, views and fields through `gh`    |
-| `src/learning.ts`, `guidance.ts`                        | Lessons, pinned research, skill candidates and the managed `AGENTS.md`/`CLAUDE.md` block |
-| `src/jira/`                                             | Jira Cloud discovery, modes, creation and transitions. Not wired into MALT yet.          |
+| Module                                                  | Responsibility                                                                            |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `src/connector.ts`, `connection-*.ts`, `credentials.ts` | Connection records, per-section save and verification, credential handles                 |
+| `src/capability-policy.ts`, `capability-endpoints.ts`   | The capability policy store and its read and human edit                                   |
+| `src/connector-bindings.ts`                             | Reviewed, role-scoped MCP tool bindings                                                   |
+| `src/github.ts`, `github-*.ts`                          | GitHub Projects, discovery, issues, labels, milestones, views and fields through `gh`     |
+| `src/learning.ts`, `guidance.ts`                        | Lessons, pinned research, skill candidates and the managed `AGENTS.md`/`CLAUDE.md` block  |
+| `src/jira/`                                             | Jira Cloud discovery and tracker verification; modes, creation and transitions for later. |
 
 Inline comments explain the ordering and failure rules that matter: authorization, state transitions, migrations, cancellation and waiting.

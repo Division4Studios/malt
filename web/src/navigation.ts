@@ -13,7 +13,7 @@ const GROUPS = {
   workflow: ['workflow', 'team', 'workflows', 'roles', 'pulls'],
   workers: ['sessions', 'workers'],
   costs: ['costs'],
-  project: ['setup', 'settings', 'recommendations', 'learning', 'secrets', 'capabilities', 'onboarding'],
+  project: ['setup', 'connections', 'settings', 'recommendations', 'learning', 'secrets', 'capabilities', 'onboarding'],
 };
 
 /**
@@ -64,6 +64,7 @@ export type View =
   | 'roles'
   | 'secrets'
   | 'capabilities'
+  | 'connections'
   | 'delivery'
   | 'objective'
   | 'workflows'
@@ -142,6 +143,10 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
     phrase('What each seat is: its instructions, provider, model, skills, tools and local MCP servers.'),
   ],
   secrets: [phrase('Secrets.'), phrase('Local encrypted keys and tokens, granted to the role types that need them.')],
+  connections: [
+    phrase('Connections.'),
+    phrase('The work tracker and source control, each discovered, saved and verified on its own.'),
+  ],
   capabilities: [
     phrase('Capabilities.'),
     phrase('What humans and approved roles may do through connectors, beside what the provider supports.'),
@@ -183,6 +188,7 @@ const VIEW_LABELS: Readonly<Partial<Record<View, string>>> = translated({
   sessions: phrase('Attempts & transcripts'),
   workers: phrase('Workers & terminals'),
   setup: phrase('Setup & capacity'),
+  connections: phrase('Connections'),
   settings: phrase('Settings'),
   recommendations: phrase('Recommendations'),
   learning: phrase('Learning & skills'),

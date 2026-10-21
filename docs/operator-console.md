@@ -101,15 +101,15 @@ Install, launch and a real offline and update cycle in an installed window have 
 
 The side rail lists seven sections. Selecting one shows its pages in a row under the page heading. The header holds the project picker (with **＋** to open another project folder), **Start factory** or **Pause factory**, and **＋ New objective**.
 
-| Section  | Pages                                                                                              | Use it to                                                        |
-| -------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| Mission  | Overview, Manager, Activity                                                                        | See the whole mission, clear blockers, talk to the manager       |
-| Inbox    | Inbox                                                                                              | Answer every decision waiting on you                             |
-| Board    | Board, Objectives, Schedules & triggers, Pipeline list (and each delivery's own page)              | Follow deliveries and objectives; automate objectives            |
-| Workflow | Live map, Team & organization, Workflow library, Roles, Pull requests                              | Shape how work flows and who does it; review local pull requests |
-| Sessions | Attempts & transcripts, Workers & terminals                                                        | Inspect what each attempt did; instruct roles; open a terminal   |
-| Costs    | Costs                                                                                              | See spend and set spend caps and prices                          |
-| Project  | Setup & capacity, Settings, Recommendations, Learning & skills, Secrets, Capabilities, Get started | Connect the repository and change project policy                 |
+| Section  | Pages                                                                                                           | Use it to                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Mission  | Overview, Manager, Activity                                                                                     | See the whole mission, clear blockers, talk to the manager       |
+| Inbox    | Inbox                                                                                                           | Answer every decision waiting on you                             |
+| Board    | Board, Objectives, Schedules & triggers, Pipeline list (and each delivery's own page)                           | Follow deliveries and objectives; automate objectives            |
+| Workflow | Live map, Team & organization, Workflow library, Roles, Pull requests                                           | Shape how work flows and who does it; review local pull requests |
+| Sessions | Attempts & transcripts, Workers & terminals                                                                     | Inspect what each attempt did; instruct roles; open a terminal   |
+| Costs    | Costs                                                                                                           | See spend and set spend caps and prices                          |
+| Project  | Setup & capacity, Connections, Settings, Recommendations, Learning & skills, Secrets, Capabilities, Get started | Connect the tracker and repository and change project policy     |
 
 The **Inbox** entry shows how many decisions need you; the **Project** entry shows pending and unread recommendations.
 
@@ -490,7 +490,7 @@ Each capped scope shows a meter toward its cap. A reached cap stops new attempts
 
 **Configure connection** opens **Connect GitHub Project**, prefilled from the saved repository, Project URL and workflow status field. Paste an existing user or organization Project URL; the form derives its owner and number. The backend verifies the repository, Project access and the workflow field's options. Reconnecting keeps the selected field. A renamed repository may keep its older remote URL only when GitHub's repository node IDs agree.
 
-Every factory ticket is attached to the connected Project (`requireProjectAttachment: true`). The connection form itself does not configure labels, milestones, saved views or fields; the GitHub connector operations for those, and connection verification by section, are described in [Project connectors](project-connectors.md). Connector permissions are edited under [Capabilities](#capabilities). A console panel with separate Work tracker and Source control sections ([#84](https://github.com/Division4Studios/malt/issues/84)) is not built yet, and Jira is not yet available in the console or the factory.
+Every factory ticket is attached to the connected Project (`requireProjectAttachment: true`). The connection form itself does not configure labels, milestones, saved views or fields; the GitHub connector operations for those, and connection verification by section, are described in [Project connectors](project-connectors.md). Connector permissions are edited under [Capabilities](#capabilities). To choose the tracker and the repository from discovery, save each on its own and verify them, use [Connections](#connections); this form stays as the quick path for an existing GitHub Project.
 
 #### Configure the factory
 
@@ -564,6 +564,18 @@ Approval writes `.malt/skills/<name>/<revision>/SKILL.md` and the manifest, then
 **Project → Secrets** holds API keys and tokens that role types need, such as a test payment key. **New secret** asks for an environment variable name, the value and the role types that receive it. **Rotate** replaces the value, **Grants** changes who receives it and **Delete** removes it after a confirmation. The **Audit trail** records each change without values.
 
 Values are write-only. They are sealed with AES-256-GCM under a random key in `.malt/factory/vault.key` (owner-only on macOS and Linux; on Windows it relies on `.malt` being private to your account) and bound to their name. The console shows a keyed fingerprint that changes on rotation, never the value. Granted secrets reach only the provider processes of granted role types, as environment variables, and are redacted from logs, transcripts, failure records and check output. Attempts already running keep the value they started with. Back up `vault.key` with the project if you need the secrets after a restore.
+
+### Connections
+
+**Project → Connections** shows the **Work tracker** and **Source control** as two separate sections. Each shows its saved selection, its state (**Not saved**, **Saved, not yet verified**, **Verified**, **Degraded**, **Verification failed** or **Needs setup outside MALT**), when it was last checked, whether its credential is available, a link, and the error of each failed step.
+
+Choices come from discovery, never from typed names:
+
+- **GitHub Projects.** **Discover Projects** lists the owner's open Projects (choose another **Project owner** from the signed-in account and the repository owners). Choose a **GitHub Project**, then its **Workflow status field**, and **Save work tracker**.
+- **Jira Cloud.** Enter the **Jira Cloud site**, **Project key**, **Account email** and the **Token environment variable**: the name of the variable that holds the API token in the environment of the process running MALT. The token itself is never typed or shown in the console. **Check Jira project** runs read-only discovery and shows what Jira reported: the account, the project, each missing permission with the Jira admin action that grants it, and any other problem. Below it, **What MALT reads and may change in Jira** lists what MALT always reads and each Jira write with its current policy, so you see it before enabling anything on [Capabilities](#capabilities). **Save work tracker** saves the site and project Jira confirmed. The factory does not deliver through Jira yet.
+- **Source control.** With GitHub delivery, **Discover repositories** lists the repositories the `gh` session can reach; choose one and **Save source control**. With local delivery, the section shows the local delivery hub (base branch, remote, issue and pull request counts), and the GitHub repository stays available for switching back. Delivery itself is chosen in the factory configuration under **Setup & capacity**.
+
+A first save needs both sections, so either **Save both sections** button sends the tracker and the repository together. Later saves change one section and keep the other. A saved section is never shown as connected until **Verify connection** checks it again (`github_verify`). Saving needs `project-connect`. See [project connectors](project-connectors.md).
 
 ### Capabilities
 
@@ -640,7 +652,7 @@ MALT is pre-1.0. This section states what has been verified and what has not.
 - The delivery manager has been run live with Claude; live Codex manager turns and long missions have not. See [delivery manager verification](delivery-manager.md#verification).
 - Scratch terminal startup was inspected with real Claude Code and Codex TUIs, but no full model turn. See [executed support evidence](interactive-terminals.md#executed-support-evidence).
 - Subscription quota is shown only as reported; no absolute allowance is known.
-- The connector console with separate Work tracker and Source control sections ([#84](https://github.com/Division4Studios/malt/issues/84)) is not built, and Jira is not wired into the console or the factory.
+- A Jira Cloud tracker can be checked, saved and verified on **Connections**, but the factory does not deliver through Jira yet ([#265](https://github.com/Division4Studios/malt/issues/265)).
 - Release packaging and the v1.0.0 tag ([#260](https://github.com/Division4Studios/malt/issues/260)) and a worktree prune command ([#411](https://github.com/Division4Studios/malt/issues/411)) are open.
 
 The [capability map](current-status.md) lists each boundary in detail.

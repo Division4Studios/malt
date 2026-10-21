@@ -224,7 +224,9 @@ export async function createView(
       'Views cannot be created here: GitHub does not offer createProjectV2View.',
     );
   }
-  return runIntent(path.join(context.directory, 'intents', 'views'), input.requestId, input, {
+  // The intent names its Project, so a retry after the workspace switched Projects is refused.
+  const intent = { ...input, projectId: context.projectId };
+  return runIntent(path.join(context.directory, 'intents', 'views'), input.requestId, intent, {
     reconcile: async () => {
       const views = await readViews(context, support);
       const found = views.find((view) => view.name === input.name);

@@ -169,22 +169,28 @@ export async function manageView(context: ViewContext, input: ChangeInput): Prom
   if (!hasIntent(directory, input.requestId)) {
     assertTarget(await currentViews(context, via), input);
   }
-  return runIntent(directory, input.requestId, input, {
-    reconcile: async () => observed(await currentViews(context, via), input),
-    perform: async () => {
-      const target = assertTarget(await currentViews(context, via), input);
-      await perform(context, via, input, target);
-      const confirmed = observed(await currentViews(context, via), input);
-      if (confirmed === undefined) {
-        throw new MeshError(
-          'GITHUB_UNAVAILABLE',
-          'GitHub does not show the view change yet; retry the same requestId.',
-        );
-      }
-      return confirmed;
+  // The intent names its Project, so a retry after the workspace switched Projects is refused.
+  return runIntent(
+    directory,
+    input.requestId,
+    { ...input, projectId: context.projectId },
+    {
+      reconcile: async () => observed(await currentViews(context, via), input),
+      perform: async () => {
+        const target = assertTarget(await currentViews(context, via), input);
+        await perform(context, via, input, target);
+        const confirmed = observed(await currentViews(context, via), input);
+        if (confirmed === undefined) {
+          throw new MeshError(
+            'GITHUB_UNAVAILABLE',
+            'GitHub does not show the view change yet; retry the same requestId.',
+          );
+        }
+        return confirmed;
+      },
+      result: resultSchema,
     },
-    result: resultSchema,
-  });
+  );
 }
 
 /**

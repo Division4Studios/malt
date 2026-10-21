@@ -31,6 +31,7 @@ import {
 } from './github-project-create.ts';
 import { isResourceOperation, resourceOperation } from './github-resources.ts';
 import { githubRunner } from './github-runner.ts';
+import { discoverJiraConnection } from './jira/connection.ts';
 import { MeshError, parseInput } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
@@ -42,6 +43,7 @@ import type { IssueReader } from './github-issues.ts';
 import type { IssueJournal } from './github-journal.ts';
 import type { ResourceContext } from './github-resources.ts';
 import type { GitHubRunner } from './github-runner.ts';
+import type { JiraFetch } from './jira/client.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
 /** Factory workflow options in the dedicated MALT Status field. */
@@ -67,6 +69,12 @@ const subIssuesSchema = z.array(z.array(subIssueSchema));
 
 export { githubRunner, type GitHubRunner } from './github-runner.ts';
 
+/** Credential presence sources, plus a Jira transport tests can inject. */
+export interface ConnectorProbes extends PresenceProbe {
+  /** Jira transport for a Jira tracker; the global fetch when absent. */
+  readonly jiraFetch?: JiraFetch;
+}
+
 /** Per-project GitHub coordination with serialized mutations. */
 export class ProjectGitHub {
   /** Project configuration and local paths. */
@@ -80,7 +88,7 @@ export class ProjectGitHub {
   /** The project's capability policy; mutations fail closed without one. */
   private readonly policy: CapabilityGate;
   /** Checks whether each section's credential is available, without reading it. */
-  private readonly presence: PresenceProbe;
+  private readonly presence: ConnectorProbes;
 
   /**
    * Prepare project-specific integration without making network calls.
@@ -88,13 +96,13 @@ export class ProjectGitHub {
    * @param config - The target workspace, not the broker's home project.
    * @param runner - Optional test adapter.
    * @param policy - This same project's capability policy; the broker supplies it.
-   * @param presence - Credential presence probe; a fixture runner implies an unverified gh session.
+   * @param presence - Credential presence probe and, for tests, a Jira transport; a fixture runner implies an unverified gh session.
    */
   public constructor(
     config: MeshConfig,
     runner?: GitHubRunner,
     policy: CapabilityGate = UNBOUND_GATE,
-    presence?: PresenceProbe,
+    presence?: ConnectorProbes,
   ) {
     this.config = config;
     this.runner = runner ?? githubRunner(config.root);
@@ -168,6 +176,9 @@ export class ProjectGitHub {
       case 'github_discover': {
         return discoverGitHub(this.runner, parseInput(operation, input));
       }
+      case 'jira_discover': {
+        return discoverJiraConnection(parseInput(operation, input), this.presence.environment, this.presence.jiraFetch);
+      }
       case 'github_connect': {
         return this.connect(parseInput(operation, input));
       }
@@ -198,7 +209,8 @@ export class ProjectGitHub {
       workspace: this.config.workspace ?? this.config.root,
       connected: connectionV2 !== null && isConnected(connectionV2),
       verification: connectionV2 === null ? null : sectionStates(connectionV2),
-      connection: saved?.legacy ?? null,
+      // The flat view names a GitHub Project; a Jira tracker has none.
+      connection: saved?.v2.tracker.provider === 'github-projects' ? saved.legacy : null,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
@@ -250,7 +262,10 @@ export class ProjectGitHub {
    * @throws {MeshError} GITHUB_NOT_CONNECTED before anything is saved.
    */
   private async verify(): Promise<unknown> {
-    const verified = await verifyConnection(this.runner, this.savedConnection().v2, DELIVERY_STATUSES);
+    const verified = await verifyConnection(this.runner, this.savedConnection().v2, DELIVERY_STATUSES, {
+      environment: this.presence.environment,
+      ...(this.presence.jiraFetch !== undefined && { jiraFetch: this.presence.jiraFetch }),
+    });
     writeAtomic(
       path.join(this.directory, 'connection.json'),
       `${JSON.stringify(verified, null, 2)}
@@ -284,6 +299,13 @@ export class ProjectGitHub {
    */
   private connection(): LegacyConnection {
     const saved = this.savedConnection();
+    // A Jira tracker's shared fields are Jira's, so they must never be read as a GitHub Project.
+    if (saved.v2.tracker.provider !== 'github-projects') {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'The work tracker is a Jira project, so GitHub Project and issue operations are off. The factory does not deliver through a Jira tracker yet.',
+      );
+    }
     // A section saved but not yet verified may name the wrong repository or Project; never act on it.
     if (!isConnected(saved.v2)) {
       throw new MeshError(
