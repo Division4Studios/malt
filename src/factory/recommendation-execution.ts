@@ -17,7 +17,12 @@ import { MeshError } from '../protocol.ts';
 import { applyTransfer, planTransfer } from './recommendation-graph.ts';
 import { advanceGuidance } from './recommendation-guidance.ts';
 import { areObjectivesCurrent } from './recommendation-objectives.ts';
-import { recommendationRetrySchema } from './recommendation-read-schema.ts';
+import {
+  isExecutable,
+  isRetryable,
+  isTicketOperation,
+  recommendationRetrySchema,
+} from './recommendation-read-schema.ts';
 
 import type { ObservedIssue } from '../github-issues.ts';
 import type { ProjectLearning } from '../learning.ts';
@@ -25,8 +30,6 @@ import type { DeliveryRemote } from './remote.ts';
 import type { FactoryRepository } from './repository.ts';
 import type { FactoryEffect, Recommendation } from './schema.ts';
 
-/** Recommendation kinds that change remote tickets. */
-const EXECUTED_KINDS: ReadonlySet<string> = new Set(['duplicate', 'consolidate']);
 /** Attempts one effect may fail before its record settles as failed. */
 const MAX_EFFECT_ATTEMPTS = 5;
 /** Errors that retrying cannot fix without operator action. */
@@ -48,26 +51,6 @@ export interface ExecutionContext {
   readonly remote: Pick<DeliveryRemote, 'observedIssue'>;
   /** Project learning service, for guidance suggestions; they wait without it. */
   readonly learning?: Pick<ProjectLearning, 'execute' | 'recordLesson' | 'skillLibrary'>;
-}
-
-/**
- * Whether a record is a remote ticket operation this executor applies.
- *
- * @param record - Current recommendation revision.
- * @returns True for duplicates and consolidations with a survivor.
- */
-function isTicketOperation(record: Recommendation): boolean {
-  return EXECUTED_KINDS.has(record.body.kind) && record.body.survivor !== null && record.body.tickets.length > 1;
-}
-
-/**
- * Whether the executor advances a record: ticket operations and guidance suggestions.
- *
- * @param record - Current recommendation revision.
- * @returns True for records with an executable approved outcome.
- */
-function isExecutable(record: Recommendation): boolean {
-  return isTicketOperation(record) || record.body.kind === 'guidance_suggestion';
 }
 
 /**
@@ -346,7 +329,7 @@ export async function retryRecommendation(context: ExecutionContext, input: unkn
   const { repository } = context;
   const request = recommendationRetrySchema.parse(input);
   const record = repository.recommendations.get(request.id);
-  if (record?.revision !== request.revision || record.state !== 'failed' || !isExecutable(record)) {
+  if (record?.revision !== request.revision || !isRetryable(record)) {
     throw new MeshError('FACTORY_GATED', 'Only a failed recommendation can be retried at its revision.');
   }
   const fence = { id: record.id, revision: record.revision, state: 'failed' as const };

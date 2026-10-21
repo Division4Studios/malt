@@ -19,7 +19,7 @@ import { objectiveObservation } from './recommendation-objectives.ts';
 import type { FactoryContext } from './context.ts';
 import type { DetectionRecord, OperationSnapshot } from './duplicate-detection.ts';
 import type { IntakeCorpus } from './intake-corpus.ts';
-import type { Feature, RecommendationBody } from './schema.ts';
+import type { Feature, Recommendation, RecommendationBody } from './schema.ts';
 /** Bounded fair objective inspection batch. */
 const BATCH_MAX = 20;
 /** Bounded internal behavioral excerpt. */
@@ -178,7 +178,7 @@ export function inspectObjective(
     outcome: recommendation === null ? noMatchOutcome : 'awaiting_human',
     reason: isReused
       ? 'Resume the existing native operation identity.'
-      : 'Inspect the related recommendation; rejection or completed disposition releases this objective.',
+      : 'Inspect the related recommendation; approval, rejection or completed disposition releases this objective.',
   });
 }
 
@@ -210,7 +210,19 @@ export function isIntakeParked(context: FactoryContext, feature: Feature): boole
     return !['ready', 'reuse'].includes(entry.outcome);
   }
   const record = context.repository.recommendations.get(entry.recommendation.id);
-  return record?.revision !== entry.recommendation.revision || !['rejected', 'completed'].includes(record.state);
+  return record?.revision !== entry.recommendation.revision || !isDisposed(record);
+}
+
+/**
+ * A human disposition that lets the parked objective proceed.
+ *
+ * @param record - Exact current recommendation revision.
+ * @returns Whether it was rejected, completed, or approved as an inert `related` intent that nothing executes.
+ */
+function isDisposed(record: Recommendation): boolean {
+  return (
+    ['rejected', 'completed'].includes(record.state) || (record.state === 'approved' && record.body.kind === 'related')
+  );
 }
 
 /**
@@ -280,7 +292,7 @@ function updateIntakeObjective(context: FactoryContext, id: string, evidence: In
   if (isIntakeParked(context, current)) {
     error = reason;
     if (entry !== null && entry.recommendation !== null) {
-      error = `Project intake: human disposition needed for recommendation ${entry.recommendation.id}. Inspect its exact revision through the recommendation API. Rejection or completed disposition releases only this objective.`;
+      error = `Project intake: human disposition needed for recommendation ${entry.recommendation.id}. Inspect its exact revision through the recommendation API. Approval, rejection or completed disposition releases only this objective.`;
     }
   }
   if (current.error !== error) {

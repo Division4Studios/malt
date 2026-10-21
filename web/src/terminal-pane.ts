@@ -1,5 +1,6 @@
 /** @file One real scratch terminal view; read-only replay and explicit lifecycle controls. */
 import { request, scoped } from './api.ts';
+import { keepLiteral, t } from './i18n.js';
 import { terminalView } from './terminal-contract.ts';
 import { TerminalInput } from './terminal-input.ts';
 import { TerminalParser } from './terminal-parser.ts';
@@ -90,11 +91,11 @@ export class TerminalPane {
   /** Explicit replay/mutation uncertainty feedback. */
   private readonly warning = element('p', 'notice');
   /** Native lifecycle controls. */
-  private readonly closeButton = element('button', 'button secondary', 'Close session');
+  private readonly closeButton = element('button', 'button secondary', t('Close session'));
   /** View-only read reconnection. */
-  private readonly reconnectButton = element('button', 'button secondary', 'Reconnect output');
+  private readonly reconnectButton = element('button', 'button secondary', t('Reconnect output'));
   /** Settled panes can be retired without hiding a live process. */
-  private readonly paneRemoval = element('button', 'button secondary', 'Remove pane');
+  private readonly paneRemoval = element('button', 'button secondary', t('Remove pane'));
   /** Explicit plain-text view of bounded primary history. */
   private readonly history = element('pre', 'log terminal-history');
   /** Open history tracks the same current bounded model as the live display. */
@@ -128,7 +129,7 @@ export class TerminalPane {
         await this.paint(signal);
       },
     });
-    this.root.setAttribute('aria-label', `${this.current.provider} scratch terminal`);
+    this.root.setAttribute('aria-label', t('{provider} scratch terminal', { provider: this.current.provider }));
     const heading = element('header', 'panel-heading');
     heading.append(
       element('h3', '', `${this.current.provider.toUpperCase()} / ${this.current.id.slice(0, ID_LABEL_LENGTH)}`),
@@ -152,20 +153,22 @@ export class TerminalPane {
       this.dispose();
       this.options.remove();
     });
+    // Native CLI output is recorded content; a language change must never rewrite it.
+    keepLiteral(this.display);
     this.display.tabIndex = 0;
     this.display.setAttribute('role', 'region');
-    this.display.setAttribute('aria-label', `${this.current.provider} terminal output`);
+    this.display.setAttribute('aria-label', t('{provider} terminal output', { provider: this.current.provider }));
     this.warning.hidden = true;
     this.status.setAttribute('role', 'status');
     this.warning.setAttribute('role', 'alert');
     const details = this.historyDetails;
-    details.append(element('summary', '', 'Recent scrollback (memory only)'), this.history);
+    details.append(element('summary', '', t('Recent scrollback (memory only)')), this.history);
     details.addEventListener('toggle', () => {
       if (details.open) {
         this.showHistory();
       }
     });
-    const location = element('p', 'subtle terminal-location', this.current.worktree);
+    const location = keepLiteral(element('p', 'subtle terminal-location', this.current.worktree));
     this.root.append(
       heading,
       tools,
@@ -244,10 +247,12 @@ export class TerminalPane {
     this.reconnectButton.disabled = !this.options.isReady() || this.isBusy;
     this.paneRemoval.disabled = ACTIVE.has(this.current.state) || this.isBusy;
     const reason = this.current.reason === '' ? '' : ` · ${this.current.reason}`;
-    const processState = this.isReplayUnavailable ? `Recorded ${this.current.state}` : this.current.state;
+    const processState = this.isReplayUnavailable
+      ? t('Recorded {state}', { state: this.current.state })
+      : this.current.state;
     const status = this.isBusy
-      ? 'Closing requested. Waiting for owned process cleanup…'
-      : `${processState} · output ${this.phase}${reason}`;
+      ? t('Closing requested. Waiting for owned process cleanup…')
+      : `${t('{state} · output {phase}', { state: processState, phase: this.phase })}${reason}`;
     if (this.status.textContent !== status) {
       this.status.textContent = status;
     }
@@ -307,7 +312,9 @@ export class TerminalPane {
     this.updateControls();
     if (page.unavailable) {
       this.showWarning(
-        'Replay is unavailable after a backend restart or retention limit. Retained metadata does not verify a live native process. Input stays disabled.',
+        t(
+          'Replay is unavailable after a backend restart or retention limit. Retained metadata does not verify a live native process. Input stays disabled.',
+        ),
       );
     }
     for (const chunk of page.output) {
@@ -315,7 +322,7 @@ export class TerminalPane {
       if (chunk.type === 'truncated') {
         this.parser = new TerminalParser();
         this.screen.reset();
-        this.showWarning('Earlier output was evicted. Display reset; request a CLI redraw if needed.');
+        this.showWarning(t('Earlier output was evicted. Display reset; request a CLI redraw if needed.'));
       } else {
         // eslint-disable-next-line no-await-in-loop -- Apply and yield one bounded text slice at a time.
         await this.applyText(chunk.text, signal);
@@ -370,7 +377,7 @@ export class TerminalPane {
     const rows = this.screen.grid.history.slice(-HISTORY_ROWS);
     this.history.textContent =
       rows.length === 0
-        ? 'No retained scrollback.'
+        ? t('No retained scrollback.')
         : rows.map((row) => row.map((cell) => cell.text).join('')).join('\n');
   }
 
@@ -390,7 +397,7 @@ export class TerminalPane {
       );
       this.options.changed(this.current);
     } catch {
-      this.showWarning('Close was not confirmed. Inspect or refresh sessions before deciding whether to try again.');
+      this.showWarning(t('Close was not confirmed. Inspect or refresh sessions before deciding whether to try again.'));
     } finally {
       this.isBusy = false;
       this.updateControls();

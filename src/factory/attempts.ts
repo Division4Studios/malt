@@ -206,6 +206,7 @@ function attemptRow(job: FactoryJob, context: AttemptContext, metrics: AttemptRo
             stopReason: job.liveness.stopReason,
           },
     failureClass: job.failureClass ?? null,
+    checkpoint: job.checkpoint?.state ?? null,
   };
 }
 

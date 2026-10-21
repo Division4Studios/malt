@@ -49,7 +49,7 @@ Everything below is merged on `main` and covered by automated tests. Inference a
 - **Liveness checkpoints.** Productive assignments are extended, stalled ones stop, and a hard ceiling bounds them all. Extensions require verified quota headroom and no machine pressure. Otherwise the Inbox asks you to continue or wait.
 - **Preflight and diagnostics.** A zero-model preflight runs before every paid attempt, a baseline of main's own test results reaches every assignment, and a failure after a successful agent turn is recorded exactly in `failure.json`.
 - **Two delivery modes.** Deliver through GitHub issues, pull requests and Projects, or through a protected local hub that needs no hosted service. Developer work can optionally run as Codex Cloud tasks with local review.
-- **Recovery.** External merges are adopted, reviewed PRs are refreshed onto an advanced main, `factory-reconcile-github` reconciles the ledger with GitHub without paid jobs, and one host or container owns the worktrees at a time (`factory-worktrees-adopt`).
+- **Recovery.** External merges are adopted, reviewed PRs are refreshed onto an advanced main, `factory-reconcile-github` reconciles the ledger with GitHub without paid jobs, one host or container owns the worktrees at a time (`factory-worktrees-adopt`), and `factory-prune` safely removes orphaned worktrees and snapshots.
 
 ### Console
 

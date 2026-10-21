@@ -652,6 +652,8 @@ export const factorySchemas = {
   ...managerOperationSchemas,
   factory_reconcile_github: reconcileGitHubSchema,
   factory_worktrees_adopt: z.object({}).strict(),
+  /** A dry run unless `apply` is true. */
+  factory_prune: z.object({ apply: z.boolean().default(false) }).strict(),
 };
 /** An exposed factory operation. */
 export type FactoryOperation = keyof typeof factorySchemas;
@@ -700,4 +702,5 @@ export const FACTORY_OPERATIONS = [
   ...MANAGER_FACTORY_OPERATIONS,
   'factory_reconcile_github',
   'factory_worktrees_adopt',
+  'factory_prune',
 ] as const;

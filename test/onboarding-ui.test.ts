@@ -178,6 +178,36 @@ await test('provider health joins saved policy, preflight, capacity, gates and t
   assert.ok(unchecked.every((row) => row.isEnabled === null && row.cli.status === 'unchecked'));
 });
 
+await test('provider health lists every provider the broker checks, Copilot included', () => {
+  const projection = factory({
+    settings: { providers: { copilot: { enabled: true, executable: 'gh-copilot' } } },
+    jobs: [{ provider: 'copilot', state: 'failed', finishedAt: NOW - 5, summary: 'login expired' }],
+  });
+  const preflight = readPreflight({
+    ok: false,
+    checks: [
+      {
+        id: 'copilot',
+        label: 'GitHub Copilot CLI',
+        status: 'fix-it',
+        detail: 'not signed in',
+        fix: 'copilot, then /login',
+      },
+    ],
+  });
+  const rows = providerHealth(projection, preflight, NOW);
+  assert.deepEqual(
+    rows.map((row) => row.provider),
+    ['claude', 'codex', 'copilot'],
+  );
+  const copilot = rows.find((row) => row.provider === 'copilot');
+  assert.equal(copilot?.name, 'GitHub Copilot CLI');
+  assert.equal(copilot.isEnabled, true);
+  assert.equal(copilot.executable, 'gh-copilot');
+  assert.equal(copilot.cli.fix, 'copilot, then /login');
+  assert.equal(copilot.lastFailure?.summary, 'login expired');
+});
+
 await test('build rows report versions and the installed shell revision, or say they are unknown', () => {
   const rows = new Map(
     buildRows({ malt: '0.1.0', broker: '0.1.0', node: '24.15.0', platform: 'win32' }, [

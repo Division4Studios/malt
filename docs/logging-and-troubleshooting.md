@@ -98,13 +98,13 @@ Open the delivery on the **Board**, then its attempt in **Sessions → Attempts 
 
 The handoff reason names the supervisor step, for example "The agent finished, but the supervisor's validation step failed: …". `failure.json` records:
 
-| Field              | Meaning                                                                                                                                      |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `step`             | `commit`, `refresh`, `validate` or `publish`                                                                                                 |
-| `agentOutcome`     | Always `success`: these records exist only after the agent succeeded                                                                         |
-| `error`, `message` | The error class and its redacted message (at most 2,000 characters)                                                                          |
-| `reason`           | `nothing_to_commit`, `already_merged` or `empty_diff` when nothing was published                                                             |
-| `command`          | For a failed command: its family and subcommand (such as `git push`), exit code or timeout, and the last 4,000 characters of redacted stderr |
+| Field              | Meaning                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `step`             | `commit`, `refresh`, `validate` or `publish`                                                                                                                                    |
+| `agentOutcome`     | Always `success`: these records exist only after the agent succeeded                                                                                                            |
+| `error`, `message` | The error class and its redacted message (at most 2,000 characters)                                                                                                             |
+| `reason`           | `nothing_to_commit`, `already_merged` or `empty_diff` when nothing was published; `over_limit` (with `step: "publish"`) when the delivery exceeded the publication size ceiling |
+| `command`          | For a failed command: its family and subcommand (such as `git push`), exit code or timeout, and the last 4,000 characters of redacted stderr                                    |
 
 Credentials are redacted before the file is written. Fix the cause (a failing check, a push rejected by the remote, a missing tool), then retry the delivery. See [When the supervisor's own step fails](software-factory.md#when-the-supervisors-own-step-fails).
 
@@ -154,6 +154,10 @@ The message reads ".malt/worktrees belongs to the host (win32) at … but this s
 3. In the environment taking over, pause the factory and run `node src/cli.ts factory-worktrees-adopt --project <path>`.
 
 Adoption refuses while worktrees created by the other environment remain, and it refuses while the factory is running. See [Worktree ownership](software-factory.md#worktree-ownership).
+
+### Old worktrees and snapshots pile up under .malt/worktrees
+
+Run `node src/cli.ts factory-prune --project <path>` for a dry run. Each entry names its owner and why it is kept or removable. Pause the factory, then repeat with `--apply`. Uncommitted work is archived to `refs/malt/archive/prune/<id>` before removal, and branches are never deleted. An entry kept with "Removal failed" shows the Git error. Fix the cause, for example a `.malt` that is a real folder instead of a link, and run prune again. See [Prune worktrees and snapshots](software-factory.md#prune-worktrees-and-snapshots).
 
 ### A delivery waits in Merging
 

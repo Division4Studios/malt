@@ -108,7 +108,7 @@ Why it is shaped this way:
 Two different size rules apply to deliveries:
 
 - **Planning target.** The team lead's planning prompt and the bundled `factory-product` skill aim for 1–500 changed lines per delivery, including tests and documentation. This is guidance for how the lead splits work, not an enforced limit.
-- **Publication ceiling.** `maxDiffLines` (default 500 changed lines) and `maxFiles` (default 20 files) are configurable factory settings. A validated delivery over either value parks with the reason `over_limit` instead of publishing. Split the scope, or approve a size exception (**Approve this size exception**) for that exact head and base; new edits or an advancing main invalidate it.
+- **Publication ceiling.** `maxDiffLines` (default 500 changed lines) and `maxFiles` (default 20 files) are configurable factory settings. A validated delivery over either value parks with the reason `over_limit` instead of publishing, and its `failure.json` records `step: "publish"` with `reason: "over_limit"`. Split the scope, or approve a size exception (**Approve this size exception**) for that exact head and base; new edits or an advancing main invalidate it.
 
 These apply to deliveries the factory publishes in your project. MALT's own repository has no pull request size limit.
 
@@ -288,6 +288,18 @@ To switch environments:
 4. Run `factory-worktrees-adopt` there.
 
 Adoption refuses while worktrees created by the other environment remain. The previous owner is kept in the record.
+
+## Prune worktrees and snapshots
+
+Deliveries, review snapshots, main baselines and scratch terminals each get an owned worktree under `.malt/worktrees`. MALT removes them when their work ends. An interrupted job, a crash or a deleted folder can leave some behind. To clean up:
+
+1. Run `node src/cli.ts factory-prune --project <path>`. This dry run lists every worktree Git registers, every folder under `.malt/worktrees` and every ownership-ledger entry. Each one shows its owner and why it is kept or removable.
+2. Pause the factory.
+3. Run `factory-prune --apply`.
+
+Prune keeps a worktree while an unfinished delivery, a running attempt, an open terminal or a running baseline uses it. Removable means Git reports it prunable, or nothing live uses it. Uncommitted changes, and a detached commit that no branch or ref holds, are archived to `refs/malt/archive/prune/<id>` first, with the staged index as a second parent, so no work is discarded. Removal unlinks the `.malt` link without following it, removes the folder and runs `git worktree prune`. Branches are never deleted.
+
+Prune never touches the primary checkout, worktrees outside `.malt/worktrees`, folders the ledger does not list, locked worktrees, or worktrees another environment created. It also refuses to remove anything while another environment owns `.malt/worktrees`. See [the API reference](api.md#prune-worktrees-and-snapshots).
 
 ## Scope changes and obsolete work
 

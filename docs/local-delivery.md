@@ -34,7 +34,7 @@ node src/cli.ts factory-setup --project "C:\work\app" --file policy.json
 
 Setup creates `.malt/local/hub.git`, pushes your current base branch into it, registers it as the Git remote named by `remote` (here `malt-hub`) and installs a receive hook that rejects every push to the base branch. Set `remote` explicitly: the default is `origin`, which usually already points at a hosted repository. If the named remote already points elsewhere, setup fails and nothing is saved. Repeating setup reuses the existing hub, and re-applying the policy restores a missing or modified hook. The factory refuses to deliver while the hub or its base branch is missing, or, with `requireBranchProtection` (the default), while the hook is missing.
 
-Existing projects keep `"delivery": "github"` until you change it. The console's starting template for a new project proposes local delivery. Local mode needs no GitHub connection; the console's **Get started** step **Connect the GitHub repository and Project** stays at **Next** and can be skipped.
+Existing projects keep `"delivery": "github"` until you change it. The console's starting template for a new project proposes local delivery. Local mode needs no GitHub connection. In the console, the **Get started** step **Deliver through the local hub** is already done, and **Project → Setup & capacity** shows a **Local delivery** card instead of the GitHub Project card.
 
 ## How a local delivery flows
 
@@ -74,6 +74,8 @@ The console's **Workflow → Pull requests** view shows:
 - pull requests (open first) with checks, discussion and a line-numbered, collapsible diff;
 - the issue board grouped by workflow column;
 - **New feature**, **Add delivery** (created Ready, so the factory imports it), **Mark Ready**, **Comment** and **Sync my checkout**.
+
+A delivery's pull request link on the **Board** or its delivery page opens this view with that pull request selected.
 
 The same operations are available to the CLI (`factory-local --file`) and to the designated lead session through the `mesh_factory_local` MCP tool:
 

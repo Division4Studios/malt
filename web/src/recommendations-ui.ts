@@ -4,7 +4,7 @@
  * the keyboard alone opens them; opening an unread row records it as read.
  * Polling an unchanged page leaves the DOM and focus alone. An opened row
  * loads its full detail, where a proposal awaiting a human decision can be
- * approved or rejected. All external text is set as text.
+ * approved or rejected, and a failed one retried. All external text is set as text.
  *
  * @file
  */
@@ -41,6 +41,8 @@ export interface RecommendationsHooks {
   readonly detail: (id: string) => Promise<unknown>;
   /** Send one exact decision. */
   readonly decide: DecisionHooks['decide'];
+  /** Retry one failed revision; without it no Retry control is shown. */
+  readonly retry?: DecisionHooks['retry'];
   /** Fresh operation identity; defaults to `crypto.randomUUID`. */
   readonly identity?: () => string;
 }
@@ -109,6 +111,7 @@ class RecommendationsView implements RecommendationsHandle {
     this.element.setAttribute('aria-label', t('Recommendations'));
     this.decision = new RecommendationDecision({
       decide: hooks.decide,
+      ...(hooks.retry !== undefined && { retry: hooks.retry }),
       ...(hooks.identity !== undefined && { identity: hooks.identity }),
       redraw: () => {
         this.version += 1;

@@ -126,6 +126,7 @@ const owned = new ConsoleViews({
   skill: () => {
     go('learning');
   },
+  openPull,
   rerender: render,
 });
 /** Durable event sequence deduplication for the currently selected project. */
@@ -227,6 +228,9 @@ const actions: Actions = {
   },
   queue: (order, focusedFeatureId, expectedRevision, shouldLimitToExisting) => {
     void control('factory_queue', { order, focusedFeatureId, expectedRevision, existingOnly: shouldLimitToExisting });
+  },
+  openPulls: () => {
+    openPull(null);
   },
   setup: (isConnection) => {
     const dialog = setupDialog(
@@ -547,6 +551,18 @@ function investigate(taskId: string): void {
   const task = records(state.current?.factory['tasks']).find((candidate) => text(candidate, 'id') === taskId);
   if (task !== undefined) {
     actions.triage(task, 'investigate');
+  }
+}
+
+/**
+ * Open Workflow → Pull requests, with one local pull request selected when named.
+ *
+ * @param pull - Pull-request number, or `null` for the list.
+ */
+function openPull(pull: number | null): void {
+  go('pulls');
+  if (pull !== null) {
+    pulls.actions.select(pull);
   }
 }
 

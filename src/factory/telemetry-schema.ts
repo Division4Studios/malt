@@ -8,7 +8,7 @@
  */
 import { z } from 'zod/v3';
 
-import { FAILURE_CLASSES, LIVENESS_STATES } from './liveness-schema.ts';
+import { FAILURE_CLASSES, LIVENESS_STATES, checkpointSchema } from './liveness-schema.ts';
 import { FACTORY_ROLES, JOB_KINDS, PROVIDERS } from './seats.ts';
 import { spendStatusSchema } from './spend-schema.ts';
 
@@ -291,6 +291,8 @@ export const attemptRowSchema = z
       .nullable(),
     /** Why a finished attempt did not succeed. */
     failureClass: z.enum(FAILURE_CLASSES).nullable(),
+    /** The operator decision a checkpoint stop asked for; absent from older brokers. */
+    checkpoint: checkpointSchema.shape.state.nullable().default(null),
   })
   .strict();
 /** One attempt listing row. */

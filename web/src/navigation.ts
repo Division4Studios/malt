@@ -155,3 +155,51 @@ export const HEADINGS: Record<View, readonly [string, string]> = translated({
  * @returns Whether the value names a local view.
  */
 export const isView = (value: string): value is View => Object.hasOwn(HEADINGS, value);
+
+/** Rail labels per group, exactly as the console shell shows them. */
+const GROUP_LABELS: Readonly<Record<string, string>> = translated({
+  mission: phrase('Mission'),
+  inbox: phrase('Inbox'),
+  board: phrase('Board'),
+  workflow: phrase('Workflow'),
+  workers: phrase('Sessions'),
+  costs: phrase('Costs'),
+  project: phrase('Project'),
+});
+/** Section labels per view; one-view groups and opened details have none. */
+const VIEW_LABELS: Readonly<Partial<Record<View, string>>> = translated({
+  overview: phrase('Overview'),
+  manager: phrase('Manager'),
+  activity: phrase('Activity'),
+  workflow: phrase('Live map'),
+  team: phrase('Team & organization'),
+  workflows: phrase('Workflow library'),
+  roles: phrase('Roles'),
+  pulls: phrase('Pull requests'),
+  board: phrase('Board'),
+  objective: phrase('Objectives'),
+  automations: phrase('Schedules & triggers'),
+  deliveries: phrase('Pipeline list'),
+  sessions: phrase('Attempts & transcripts'),
+  workers: phrase('Workers & terminals'),
+  setup: phrase('Setup & capacity'),
+  settings: phrase('Settings'),
+  recommendations: phrase('Recommendations'),
+  learning: phrase('Learning & skills'),
+  secrets: phrase('Secrets'),
+  capabilities: phrase('Capabilities'),
+  onboarding: phrase('Get started'),
+});
+
+/**
+ * Where a view sits in the navigation, in the current language.
+ *
+ * @param view - Console view.
+ * @returns `Group → Section`, or the group alone when the section has no label of its own.
+ */
+export function viewPath(view: View): string {
+  const [group = ''] = Object.entries(GROUPS).find(([, views]) => views.includes(view)) ?? [];
+  const groupLabel = GROUP_LABELS[group] ?? '';
+  const section = VIEW_LABELS[view];
+  return section === undefined || section === groupLabel ? groupLabel : `${groupLabel} → ${section}`;
+}

@@ -10,7 +10,8 @@
 
 import { checkpointItems } from './checkpoint-view.ts';
 import { AUTO_ARCHIVE_MS, isArchived } from './delivery-controls.ts';
-import { livenessView, retryView } from './liveness-view.ts';
+import { quotaView } from './extension-gate.ts';
+import { livenessView, retryView, stopView } from './liveness-view.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import {
   approvalSource,
@@ -31,7 +32,8 @@ import { customizationView, objectiveCustomizationView } from './step-override-v
 import { stepLayers } from './workflows.ts';
 
 import type { AnsweredItem, InboxItem } from './console-inbox-types.ts';
-import type { LivenessView, RetryView } from './liveness-view.ts';
+import type { QuotaView } from './extension-gate.ts';
+import type { LivenessView, RetryView, StopView } from './liveness-view.ts';
 import type { DoneItem } from './objective-goal-schema.ts';
 import type { Question } from './question-schema.ts';
 import type { FactoryRepository } from './repository.ts';
@@ -103,6 +105,22 @@ export interface StepView {
   readonly result: StepResultView | null;
 }
 
+/** A delivery's running attempt. */
+export interface RunningView {
+  /** Attempt id. */
+  readonly jobId: string;
+  /** Role slot. */
+  readonly role: string;
+  /** Workflow step. */
+  readonly step: string | null;
+  /** Start time, for elapsed time. */
+  readonly startedAt: number;
+  /** Checkpoint liveness, or null before the first record. */
+  readonly liveness: LivenessView | null;
+  /** Its provider's quota as the extension gate sees it; null while unconfigured. */
+  readonly quota: QuotaView | null;
+}
+
 /** A delivery card and its pipeline. */
 export interface DeliveryView {
   /** Delivery id. */
@@ -121,15 +139,12 @@ export interface DeliveryView {
   readonly workflow: { readonly id: string; readonly name: string };
   /** Steps in workflow order. */
   readonly steps: readonly StepView[];
-  /** Live attempt, if one is running, with its checkpoint liveness. */
-  readonly running: {
-    readonly jobId: string;
-    readonly role: string;
-    readonly step: string | null;
-    readonly liveness: LivenessView | null;
-  } | null;
+  /** Live attempt, if one is running, with its checkpoint liveness and provider quota. */
+  readonly running: RunningView | null;
   /** Retry backoff of its latest failed step, while it delays that step. */
   readonly retry: RetryView | null;
+  /** Recorded checkpoint stop of its latest attempt while none runs. */
+  readonly stop: StopView | null;
   /** Current head. */
   readonly head: string | null;
   /** Current base. */
@@ -340,18 +355,40 @@ function deliveryState(
 }
 
 /**
+ * Whether an open Inbox item waits on a delivery or a planning objective. The
+ * Board's Needs you column reads the same items as the Inbox, so an approval,
+ * blocker, agent question, checkpoint decision or spend cap shows in both.
+ *
+ * @param open - Open Inbox items.
+ * @param scope - A delivery, or an objective's own planning (`taskId` null).
+ * @param scope.taskId - Delivery id, or null for the objective itself.
+ * @param scope.featureId - Objective id, when the scope is an objective.
+ * @returns True when the human has something to decide for it.
+ */
+export function isAwaitingHuman(
+  open: readonly InboxItem[],
+  scope: { readonly taskId: string | null; readonly featureId: string | null },
+): boolean {
+  return open.some((item) => {
+    return scope.taskId === null
+      ? item.taskId === null && item.featureId !== null && item.featureId === scope.featureId
+      : item.taskId === scope.taskId;
+  });
+}
+
+/**
  * The board column for a delivery.
  *
  * @param task - Delivery to place.
- * @param waiting - How many of its steps wait on a human decision.
+ * @param isWaiting - Whether an open Inbox item waits on it.
  * @param running - Its live attempt, if any.
  * @returns The column the delivery card belongs in.
  */
-function deliveryColumn(task: FactoryTask, waiting: number, running: FactoryJob | undefined): Column {
+function deliveryColumn(task: FactoryTask, isWaiting: boolean, running: FactoryJob | undefined): Column {
   if (task.phase === 'done') {
     return 'done';
   }
-  if (waiting > 0 || task.phase === 'blocked') {
+  if (isWaiting) {
     return 'needs_you';
   }
   return running === undefined && task.phase === 'ready' ? 'ready' : 'in_progress';
@@ -378,6 +415,24 @@ function stepShape(step: WorkflowStep, layers: ReadonlyMap<string, number>): Omi
 }
 
 /**
+ * Describe a running attempt.
+ *
+ * @param job - Running attempt.
+ * @param quota - Its provider's quota evidence.
+ * @returns Identity, start, liveness and quota.
+ */
+function runningView(job: FactoryJob, quota: QuotaView | null): RunningView {
+  return {
+    jobId: job.id,
+    role: job.role,
+    step: job.step,
+    startedAt: job.startedAt,
+    liveness: livenessView(job),
+    quota,
+  };
+}
+
+/**
  * Project one delivery.
  *
  * @param task - Delivery to describe.
@@ -385,9 +440,11 @@ function stepShape(step: WorkflowStep, layers: ReadonlyMap<string, number>): Omi
  * @param context.tasks - Every delivery, for dependency issue numbers.
  * @param context.features - Objectives, for deliveries without a frozen workflow.
  * @param context.live - Running attempts.
- * @param context.jobs - Every attempt, for retry backoff.
+ * @param context.jobs - Every attempt, for retry backoff and the latest stop.
  * @param context.timing - Current time and reconcile interval.
+ * @param context.quota - Quota evidence for a running attempt's provider.
  * @param context.attempted - Steps any attempt ran, for the override editor.
+ * @param context.open - Open Inbox items, which place the card in Needs you.
  * @returns Card and pipeline.
  */
 function deliveryView(
@@ -398,7 +455,9 @@ function deliveryView(
     live: readonly FactoryJob[];
     jobs: readonly FactoryJob[];
     timing: { now: number; reconcileMs: number };
+    quota: (job: FactoryJob) => QuotaView | null;
     attempted: ReadonlySet<string>;
+    open: readonly InboxItem[];
   },
 ): DeliveryView {
   const workflow = taskWorkflow(task, context.features);
@@ -424,14 +483,12 @@ function deliveryView(
     title: task.title,
     featureId: task.featureId,
     phase: task.phase,
-    column: deliveryColumn(task, waiting.size, running),
+    column: deliveryColumn(task, isAwaitingHuman(context.open, { taskId: task.id, featureId: null }), running),
     workflow: { id: workflow.id, name: workflow.name },
     steps,
-    running:
-      running === undefined
-        ? null
-        : { jobId: running.id, role: running.role, step: running.step, liveness: livenessView(running) },
+    running: running === undefined ? null : runningView(running, context.quota(running)),
     retry: running === undefined ? retryView(task, context.jobs, context.timing) : null,
+    stop: running === undefined && task.phase !== 'done' ? stopView(task, context.jobs) : null,
     head: task.head,
     base: task.base,
     prUrl: task.prUrl,
@@ -492,14 +549,20 @@ function planningState(
  * @param feature - Objective to describe.
  * @param tasks - Deliveries, for provisioning progress.
  * @param live - Running attempts.
+ * @param open - Open Inbox items, which place the card in Needs you.
  * @returns Card and planning pipeline.
  */
-function objectiveView(feature: Feature, tasks: readonly FactoryTask[], live: readonly FactoryJob[]): ObjectiveView {
+function objectiveView(
+  feature: Feature,
+  tasks: readonly FactoryTask[],
+  live: readonly FactoryJob[],
+  open: readonly InboxItem[],
+): ObjectiveView {
   const workflow = featureWorkflow(feature);
   const layers = stepLayers(workflow.planning);
   const running = live.find((job) => job.taskId === null && job.featureId === feature.id);
   const children = tasks.filter((task) => task.featureId === feature.id);
-  const isWaiting = feature.phase === 'blocked' || planningApprovals(feature, workflow).length > 0;
+  const isWaiting = isAwaitingHuman(open, { taskId: null, featureId: feature.id });
   const stateOf = (step: WorkflowStep): StepState => planningState(feature, workflow, step, running);
   return {
     featureId: feature.id,
@@ -839,7 +902,11 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const jobs = repository.jobs();
   const live = jobs.filter((job) => job.state === 'running');
   const now = repository.store.now();
-  const timing = { now, reconcileMs: repository.config()?.reconcileMs ?? RECONCILE_FALLBACK_MS };
+  const settings = repository.config();
+  const timing = { now, reconcileMs: settings?.reconcileMs ?? RECONCILE_FALLBACK_MS };
+  // Read-only: observing a provider's quota never initializes its accounting.
+  const quota = (job: FactoryJob): QuotaView | null =>
+    settings === null ? null : quotaView(repository.capacity(job.provider, settings, false), now);
   const attempted = attemptedSteps(repository);
   const archived = tasks
     .filter((task) => isArchived(task, now))
@@ -853,9 +920,12 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
   const shown = [...tasks.filter((task) => task.phase !== 'done'), ...done];
   const current = features.filter((feature) => feature.scopeReplacement === undefined);
   const planning = current.filter((feature) => PLANNING_PHASES.has(feature.phase));
+  const open = openItems(repository, tasks, features);
   return {
-    deliveries: shown.map((task) => deliveryView(task, { tasks, features, live, jobs, timing, attempted })),
-    objectives: planning.map((feature) => objectiveView(feature, tasks, live)),
+    deliveries: shown.map((task) =>
+      deliveryView(task, { tasks, features, live, jobs, timing, quota, attempted, open }),
+    ),
+    objectives: planning.map((feature) => objectiveView(feature, tasks, live, open)),
     goals: [
       ...current.filter((feature) => feature.phase === 'done').slice(-DONE_GOALS),
       ...current.filter((feature) => feature.phase !== 'done'),
@@ -867,6 +937,6 @@ export function consoleView(repository: FactoryRepository): ConsoleView {
         .toReversed()
         .map((task) => ({ taskId: task.id, issue: task.issue, title: task.title })),
     },
-    inbox: { open: openItems(repository, tasks, features), answered: answeredItems(repository, tasks, features) },
+    inbox: { open, answered: answeredItems(repository, tasks, features) },
   };
 }

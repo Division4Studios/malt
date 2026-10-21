@@ -1,5 +1,6 @@
 /** @file Stable operator terminal workspace, separate from snapshot-rendered worker logs. */
 import { request, scoped } from './api.ts';
+import { t } from './i18n.js';
 import { terminalView, terminalViews } from './terminal-contract.ts';
 import { TerminalPane } from './terminal-pane.ts';
 import { element } from './worker-ui.ts';
@@ -22,19 +23,19 @@ export class TerminalWorkspace {
   /** Operator selection callback; snapshots do not recreate terminal views. */
   private readonly changed: () => void;
   /** Explicit native mode buttons precede either logs or terminal panes. */
-  private readonly logs = element('button', 'button secondary', 'Worker logs & handoffs');
+  private readonly logs = element('button', 'button secondary', t('Worker logs & handoffs'));
   /** Terminal mode has separate execution authority and lifecycle. */
-  private readonly terminals = element('button', 'button secondary', 'Scratch terminals');
+  private readonly terminals = element('button', 'button secondary', t('Scratch terminals'));
   /** Fixed provider choices, never executable names or shell arguments. */
   private readonly provider = element('select');
   /** Explicit operator launch. */
-  private readonly startButton = element('button', 'button primary', 'Start scratch terminal');
+  private readonly startButton = element('button', 'button primary', t('Start scratch terminal'));
   /** Read-only metadata reconciliation. */
-  private readonly refreshButton = element('button', 'button secondary', 'Refresh sessions');
+  private readonly refreshButton = element('button', 'button secondary', t('Refresh sessions'));
   /** Existing metadata is never reconstructed from simulated worker activity. */
   private readonly sessions = element('select');
   /** Explicitly inspect an existing session without restarting it. */
-  private readonly inspectButton = element('button', 'button secondary', 'Open session output');
+  private readonly inspectButton = element('button', 'button secondary', t('Open session output'));
   /** Native terminal subview. */
   private readonly body = element('section', 'terminal-workspace');
   /** Stable pane mount outside dashboard replacement. */
@@ -70,7 +71,7 @@ export class TerminalWorkspace {
     this.root = root;
     this.changed = changed;
     const navigation = element('nav', 'toolbar terminal-navigation');
-    navigation.setAttribute('aria-label', 'Worker workspace mode');
+    navigation.setAttribute('aria-label', t('Worker workspace mode'));
     for (const button of [this.logs, this.terminals, this.startButton, this.refreshButton, this.inspectButton]) {
       button.type = 'button';
     }
@@ -86,8 +87,8 @@ export class TerminalWorkspace {
       option.value = name;
       this.provider.append(option);
     }
-    this.provider.setAttribute('aria-label', 'Scratch terminal provider');
-    this.sessions.setAttribute('aria-label', 'Existing scratch terminal session');
+    this.provider.setAttribute('aria-label', t('Scratch terminal provider'));
+    this.sessions.setAttribute('aria-label', t('Existing scratch terminal session'));
     const controls = element('div', 'toolbar');
     controls.append(this.provider, this.startButton, this.refreshButton, this.sessions, this.inspectButton);
     this.startButton.addEventListener('click', () => {
@@ -103,11 +104,13 @@ export class TerminalWorkspace {
       }
     });
     this.body.append(
-      element('h2', '', 'Operator scratch terminals'),
+      element('h2', '', t('Operator scratch terminals')),
       element(
         'p',
         'subtle',
-        'Real native CLI sessions in separate scratch worktrees. These are distinct from managed worker logs, durable conversations, instructions, and delivery evidence. Hidden views stop reading; native sessions retain backend idle and lifetime limits.',
+        t(
+          'Real native CLI sessions in separate scratch worktrees. These are distinct from managed worker logs, durable conversations, instructions, and delivery evidence. Hidden views stop reading; native sessions retain backend idle and lifetime limits.',
+        ),
       ),
       controls,
       this.status,
@@ -232,7 +235,9 @@ export class TerminalWorkspace {
       this.renderSessions();
     } catch {
       if (this.ownsScope(generation)) {
-        this.status.textContent = 'Session refresh failed. Reconnect to the local console; no start request was sent.';
+        this.status.textContent = t(
+          'Session refresh failed. Reconnect to the local console; no start request was sent.',
+        );
       }
     } finally {
       if (this.listing === identity) {
@@ -272,7 +277,7 @@ export class TerminalWorkspace {
     const { generation } = this;
     const { project } = this;
     this.isStarting = true;
-    this.status.textContent = 'Starting an owned scratch terminal…';
+    this.status.textContent = t('Starting an owned scratch terminal…');
     this.update();
     try {
       const session = terminalView(
@@ -287,11 +292,18 @@ export class TerminalWorkspace {
       this.metadata = [session, ...this.metadata.filter((entry) => entry.id !== session.id)].slice(0, MAX_SESSIONS);
       this.renderSessions();
       this.sessions.value = session.id;
-      this.status.textContent = 'Session created. Current native process and connection state are shown in its pane.';
+      this.status.textContent = t(
+        'Session created. Current native process and connection state are shown in its pane.',
+      );
       this.open(session);
     } catch (error) {
       if (this.ownsScope(generation)) {
-        this.status.textContent = `${error instanceof Error ? error.message : 'Start was not confirmed.'} Refresh sessions before retrying; requests are never replayed automatically.`;
+        this.status.textContent = t(
+          '{reason} Refresh sessions before retrying; requests are never replayed automatically.',
+          {
+            reason: error instanceof Error ? error.message : t('Start was not confirmed.'),
+          },
+        );
       }
     } finally {
       this.isStarting = false;
@@ -309,7 +321,7 @@ export class TerminalWorkspace {
       return;
     }
     if (this.panes.size >= MAX_PANES) {
-      this.status.textContent = 'Two panes are open. Close and remove a settled pane before opening another.';
+      this.status.textContent = t('Two panes are open. Close and remove a settled pane before opening another.');
       return;
     }
     const { project } = this;
