@@ -47,6 +47,7 @@ import { policySetupBlocker } from './policy-blockers.ts';
 import { isPolicyContextVerified } from './policy-routing.ts';
 import { runProcess } from './processes.ts';
 import { recordProgress } from './progress.ts';
+import { pruneWorktrees } from './prune.ts';
 import { askQuestion, isAwaitingAnswer, didAskOperator } from './questions.ts';
 import { QuotaObserver } from './quota.ts';
 import { isIntakeParked, reconcileIntake } from './recommendation-intake.ts';
@@ -355,6 +356,7 @@ export class FactoryService {
       factory_step_overrides: () => changeStepOverrides(this.repository, input),
       factory_triage: async () => triageControl(this.repository, () => this.configured(), parsed, actorId),
       factory_reconcile_github: async () => reconcileGitHub(this.configured(), parsed),
+      factory_prune: async () => pruneWorktrees(this.configured(), parsed),
       factory_read_source: async () => readSource(this.configured(), parsed, actorId),
       factory_export_maintenance: async () => {
         return exportMaintenance(
