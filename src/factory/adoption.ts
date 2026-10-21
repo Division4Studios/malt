@@ -19,8 +19,8 @@ import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { TriageDecision } from './triage.ts';
 
-/** GitHub close reasons that never represent a delivery. */
-const UNDELIVERED: ReadonlySet<string> = new Set(['not_planned', 'duplicate']);
+/** Close reasons that never represent a delivery; a Jira `reassigned` issue is still open for its new owner. */
+const UNDELIVERED: ReadonlySet<string> = new Set(['not_planned', 'duplicate', 'reassigned']);
 
 /** One proposed operator decision file. */
 interface Proposal {
