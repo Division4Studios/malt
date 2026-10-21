@@ -12,13 +12,13 @@ This keeps two rules intact: agents never close or merge tickets on their own ju
 
 Each recommendation has one of these kinds:
 
-| Kind                  | Meaning                                                    | What approval does                                                       |
-| --------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `duplicate`           | Tickets describe the same work; one survives.              | Comments on every ticket and closes the others as not planned.           |
-| `consolidate`         | Tickets merge into one survivor with transferred criteria. | Same as `duplicate`, with the transferred acceptance and dependencies.   |
-| `related`             | Tickets overlap but are distinct.                          | Records the decision and notifies the affected roles. No ticket changes. |
-| `scope_change`        | A change to an objective's scope.                          | Records the decision and notifies the affected roles. No ticket changes. |
-| `guidance_suggestion` | Reusable guidance for future work.                         | Proposes an inactive skill candidate (see below).                        |
+| Kind                  | Meaning                                                    | What approval does                                                                                           |
+| --------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `duplicate`           | Tickets describe the same work; one survives.              | Comments on every ticket and closes the others as not planned.                                               |
+| `consolidate`         | Tickets merge into one survivor with transferred criteria. | Same as `duplicate`, with the transferred acceptance and dependencies.                                       |
+| `related`             | Tickets overlap but are distinct.                          | Records the decision and notifies the affected roles. No ticket changes. An objective parked on it proceeds. |
+| `scope_change`        | A change to an objective's scope.                          | Records the decision and notifies the affected roles. No ticket changes.                                     |
+| `guidance_suggestion` | Reusable guidance for future work.                         | Proposes an inactive skill candidate (see below).                                                            |
 
 ## Review and decide
 
@@ -42,7 +42,7 @@ Reading a recommendation in the console marks that revision read. A read receipt
 
 ### Release a parked objective
 
-An objective parked by the intake check resumes when its `related` recommendation is **rejected** (it proceeds as independent work) or **completed**. Approving a `related` recommendation records your agreement that the work overlaps but runs no effects, so the objective stays parked until it is resolved another way, for example by recovering or replacing its scope.
+An objective parked by the intake check resumes when you decide its `related` recommendation, either way, or when the recommendation is **completed**. Approving records your agreement that the work overlaps and changes no tickets; rejecting says the objective is independent work. In both cases only that objective is released, and only for the exact revision you decided.
 
 ## What approval executes
 
@@ -55,7 +55,7 @@ Approved `duplicate` and `consolidate` recommendations are executed by the unpai
 
 Local deliveries move with the tickets. Every delivery that depended on a retired ticket's delivery now depends on the survivor's delivery. Retired deliveries are held, never deleted: their worktrees, branches, uncommitted edits, attempts and history stay as they were, and a running attempt finishes normally. The transfer is refused, with nothing changed, if the recorded deliveries no longer match, a retired delivery is already merging or merged, a dependent has no local survivor, or the change would create a cycle.
 
-If GitHub refuses an effect for permissions (401 or 403), or an effect fails five times, the recommendation becomes **Failed** and its remaining effects stop. The operator-only `factory_recommendation_retry` operation re-reads the tickets no effect has touched yet and re-queues the same idempotent effects, so tickets already changed are not changed twice. The console has no retry button yet.
+If GitHub refuses an effect for permissions (401 or 403), or an effect fails five times, the recommendation becomes **Failed** and its remaining effects stop. To retry, open the recommendation in the **Failed** lane and choose **Retry**. The button appears only when the broker would accept the retry: a failed duplicate, consolidation or guidance suggestion at its current revision. A duplicate or consolidation re-reads the tickets no effect has touched yet, refuses if one changed, and re-queues the same idempotent effects, so tickets already changed are not changed twice. A guidance suggestion returns to **Approved** and is checked again in full. The console sends the operator-only `factory_recommendation_retry` operation through `/api/control`.
 
 The comments and closures are made through the delivery adapter, which is not capability-checked yet. See [enforcement](capability-policy.md#enforcement).
 

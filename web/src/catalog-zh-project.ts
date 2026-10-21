@@ -167,6 +167,14 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Connected to {repository}.': '已连接到 {repository}。',
   'Choose the repository and the GitHub Project its deliveries appear in.':
     '选择仓库以及其交付项所在的 GitHub Project。',
+  'Deliver through the local hub': '通过本地仓库中心交付',
+  'Issues, pull requests and merges stay in the protected hub {remote}/{base} on this machine; no GitHub Project is needed.':
+    '议题、拉取请求和合并保留在本机受保护的仓库中心 {remote}/{base}；无需 GitHub Project。',
+  'Open pull requests': '打开拉取请求列表',
+  'Local delivery': '本地交付',
+  '{pulls, plural, one {# pull request} other {# pull requests}} · {issues, plural, one {# issue} other {# issues}}':
+    '{pulls} 个拉取请求 · {issues} 个议题',
+  'Local pull request #{pull} in {location}': '{location}中的本地拉取请求 #{pull}',
   'Choose providers, checks and model policy': '选择提供方、检查和模型策略',
   'Factory configured; model policy {policy}.': '工厂已配置；模型策略{policy}。',
   'Enable Claude Code and/or Codex, set the project’s test commands and resource limits, then review the model policy.':
@@ -243,6 +251,7 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Delete secret': '删除机密',
   'Claude Code': 'Claude Code',
   Codex: 'Codex',
+  'GitHub Copilot CLI': 'GitHub Copilot CLI',
   'Not checked yet. Run the provider checks.': '尚未检查。请运行提供方检查。',
   'Subscription: {usage}': '订阅：{usage}',
   '{window}: {usage} · resets {resets}': '{window}：{usage} · {resets} 重置',
@@ -355,4 +364,10 @@ export const ZH_PROJECT: Readonly<Record<string, string>> = {
   'Transferred dependencies': '转移的依赖',
   'Affected assignments': '受影响的任务',
   'The recommendation could not be read.': '无法读取该建议。',
+  'Execution failed. Retry checks the proposal again and repeats only what is not done yet.':
+    '执行失败。重试会再次检查该提议，只重做尚未完成的部分。',
+  'Sending retry…': '正在提交重试…',
+  'Retry queued.': '已加入重试。',
+  'The retry could not be sent.': '无法提交重试。',
+  'Not retried: {reason}': '未重试：{reason}',
 };

@@ -135,6 +135,25 @@ await test('private state exclusions preserve user rules, override negations and
   }
 });
 
+await test('existing equivalent private state exclusions are never duplicated', (t) => {
+  const config = createProject(createCleanup(t));
+  const rootIgnore = path.join(config.root, '.gitignore');
+  for (const [existing, expected] of [
+    ['.mlt/\n.malt\n', '.mlt/\n.malt\n'],
+    ['/.mlt/\n/.malt/\nnode_modules/\n', '/.mlt/\n/.malt/\nnode_modules/\n'],
+    ['.mlt/  \n.malt/  \n', '.mlt/  \n.malt/  \n'],
+    ['.mlt/\r\n.malt/\r\ndist/\r\n', '.mlt/\r\n.malt/\r\ndist/\r\n'],
+    ['.malt/\r\n', '.malt/\r\n.mlt/\r\n'],
+    ['.mlt/\n.malt/\n!.malt/\n', '.mlt/\n.malt/\n!.malt/\n.mlt/\n.malt/\n'],
+  ] as const) {
+    writeFileSync(rootIgnore, existing);
+    loadConfig(config.root);
+    assert.equal(readFileSync(rootIgnore, 'utf8'), expected, JSON.stringify(existing));
+    loadConfig(config.root);
+    assert.equal(readFileSync(rootIgnore, 'utf8'), expected, 'Reopening stays idempotent.');
+  }
+});
+
 await test('workspace databases and identities live in the actual project, including the home workspace', async (t) => {
   const defer = createCleanup(t);
   const home = createProject(defer);

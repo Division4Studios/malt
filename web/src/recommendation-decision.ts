@@ -1,5 +1,6 @@
 /**
- * Approve or reject one exact recommendation revision from its detail:
+ * Approve or reject one exact recommendation revision from its detail, or
+ * retry one whose execution failed, where the broker would accept that:
  * the complete decision context, a required rationale, one operation
  * identity reused by every retry of the same decision, controls disabled
  * while a request is in flight, a refresh prompt for a stale revision, and
@@ -30,6 +31,8 @@ export interface DecisionHooks {
     decision: 'approve' | 'reject';
     rationale: string;
   }) => Promise<unknown>;
+  /** Retry one failed revision; the control appears only with it. */
+  readonly retry?: (input: { id: string; revision: string }) => Promise<unknown>;
   /** Redraw the open detail with the panel's new state. */
   readonly redraw: () => void;
   /** Re-read the list and the open detail after a decision or a stale answer. */
@@ -102,6 +105,10 @@ export class RecommendationDecision {
     if (detail.state === 'awaiting_human') {
       panel.append(this.controls(detail));
     }
+    const { retry } = this.hooks;
+    if (retry !== undefined && detail.isRetryable) {
+      panel.append(this.retryControl(detail, retry));
+    }
     panel.append(live);
     return panel;
   }
@@ -137,6 +144,61 @@ export class RecommendationDecision {
       form.append(control);
     }
     return form;
+  }
+
+  /**
+   * The Retry button for a failed revision the broker would retry.
+   *
+   * @param detail - Open failed recommendation.
+   * @param retry - Sends the retry to the broker.
+   * @returns Explanation and button, disabled while a request is in flight.
+   */
+  private retryControl(detail: RecommendationDetail, retry: NonNullable<DecisionHooks['retry']>): HTMLElement {
+    const form = element('div', 'recommendation-controls');
+    form.append(
+      element(
+        'p',
+        'subtle',
+        t('Execution failed. Retry checks the proposal again and repeats only what is not done yet.'),
+      ),
+    );
+    const control = button(t('Retry'), {
+      cssClass: 'primary',
+      key: `retry:${detail.id}`,
+      action: () => {
+        void this.sendRetry(detail, retry);
+      },
+    });
+    control.disabled = this.draft?.isBusy === true;
+    form.append(control);
+    return form;
+  }
+
+  /**
+   * Retry one failed revision; repeated clicks while it is in flight send nothing.
+   *
+   * @param detail - Open failed recommendation.
+   * @param retry - Sends the retry to the broker.
+   */
+  private async sendRetry(detail: RecommendationDetail, retry: NonNullable<DecisionHooks['retry']>): Promise<void> {
+    const { draft } = this;
+    if (draft === null || draft.isBusy) {
+      return;
+    }
+    draft.isBusy = true;
+    this.announce(draft, t('Sending retry…'));
+    try {
+      await retry({ id: detail.id, revision: detail.revision });
+      draft.isBusy = false;
+      this.announce(draft, t('Retry queued.'));
+      if (draft === this.draft) {
+        this.hooks.reload();
+      }
+    } catch (error) {
+      draft.isBusy = false;
+      const reason = error instanceof Error ? error.message : t('The retry could not be sent.');
+      this.announce(draft, t('Not retried: {reason}', { reason: reason.slice(0, ERROR_MAX) }));
+    }
   }
 
   /**

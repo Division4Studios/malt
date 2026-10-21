@@ -83,7 +83,7 @@ export interface FailureRecord {
   readonly error: string;
   /** Redacted, bounded message. */
   readonly message: string;
-  /** Typed publication reason, when publication found nothing to publish. */
+  /** Typed publication reason, when publication found nothing to publish or exceeded the size limit. */
   readonly reason: string | null;
   /** Failed command, when a Git or other supervisor command failed. */
   readonly command: CommandFailureError['command'] | null;
@@ -110,7 +110,7 @@ export function failureRecord(job: FactoryJob, step: PostAgentStep, error: unkno
     step,
     error: Error.isError(error) ? error.name : typeof error,
     message: (Error.isError(error) ? error.message : String(error)).slice(0, MESSAGE_MAX),
-    reason: error instanceof EmptyPublicationError ? error.reason : null,
+    reason: error instanceof EmptyPublicationError || error instanceof PublicationSizeError ? error.reason : null,
     command: error instanceof CommandFailureError ? error.command : null,
   };
 }
@@ -139,7 +139,8 @@ function knownSecrets(mesh: MeshConfig): string[] {
 
 /**
  * Publish a code-writing step's work, recording which supervisor step failed.
- * Merge conflicts and the size gate keep their own handling and pass through.
+ * Merge conflicts and the size gate keep their own handling and pass through;
+ * the size gate is still recorded, with reason `over_limit`.
  *
  * @param context - Project Git services and configuration.
  * @param context.workspaces - Owned worktrees.
@@ -174,10 +175,13 @@ export async function publishDelivery(
       },
     );
   } catch (error) {
-    if (error instanceof MergeConflictError || error instanceof PublicationSizeError || scope.signal.aborted) {
+    if (error instanceof MergeConflictError || scope.signal.aborted) {
       throw error;
     }
     writeFailureRecord(context.mesh, scope.job, failureRecord(scope.job, step, error, context.now()));
+    if (error instanceof PublicationSizeError) {
+      throw error;
+    }
     throw new PostAgentStepError(step, error, knownSecrets(context.mesh));
   }
 }

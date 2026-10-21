@@ -118,15 +118,20 @@ export interface Delivery {
   readonly workflow: WorkflowIdentity;
   /** Steps in workflow order. */
   readonly steps: readonly Step[];
-  /** Live attempt and its checkpoint liveness. */
+  /** Live attempt, its checkpoint liveness and its provider's quota. */
   readonly running: {
     readonly jobId: string;
     readonly role: string;
     readonly step: string | null;
+    /** Start time; 0 from an older broker. */
+    readonly startedAt: number;
     readonly liveness: Liveness | null;
+    readonly quota: Quota | null;
   } | null;
   /** Retry backoff of the latest failed step, while it delays that step. */
   readonly retry: Retry | null;
+  /** Recorded checkpoint stop of the latest attempt, while none runs. */
+  readonly stop: Stop | null;
   /** Current head commit. */
   readonly head: string | null;
   /** Current base commit. */
@@ -157,7 +162,7 @@ export interface Delivery {
 
 /** What a running attempt is doing, from its latest progress sample. */
 export interface Liveness {
-  /** `progressing`, `idle`, `awaiting_input`, `stalled` or `ceiling`. */
+  /** `progressing`, `idle`, `awaiting_input`, or `stalled`, `ceiling` or `held` while a checkpoint stops it. */
   readonly state: string;
   /** Newest meaningful signal. */
   readonly lastSignal: string | null;
@@ -169,6 +174,30 @@ export interface Liveness {
   readonly nextCheckpointAt: number;
   /** Extensions granted so far. */
   readonly extensions: number;
+  /** Why a checkpoint is stopping it, while it stops. */
+  readonly stopReason: string | null;
+}
+
+/** The subscription quota reading the extension gate trusts, or why there is none. */
+export interface Quota {
+  /** `current`, `stale` or `unknown`. */
+  readonly freshness: 'current' | 'stale' | 'unknown';
+  /** Headroom in percentage points, only for a current reading. */
+  readonly headroomPercent: number | null;
+  /** Oldest observation the reading rests on. */
+  readonly observedAt: number | null;
+}
+
+/** Why the latest attempt stopped at a checkpoint. */
+export interface Stop {
+  /** The stopped attempt. */
+  readonly jobId: string;
+  /** Recorded reason, such as `stalled 16 min` or `hard ceiling`. */
+  readonly reason: string;
+  /** When it stopped. */
+  readonly at: number;
+  /** Whether it waits for the operator's continue-or-wait decision. */
+  readonly isAwaitingDecision: boolean;
 }
 
 /** A failed step waiting to retry, or out of retries. */
@@ -464,7 +493,47 @@ function parseRunning(value: unknown): Delivery['running'] {
         jobId: text(record, 'jobId'),
         role: text(record, 'role'),
         step: nullableText(record, 'step'),
+        startedAt: number(record, 'startedAt'),
         liveness: parseLiveness(record['liveness']),
+        quota: parseQuota(record['quota']),
+      };
+}
+
+/**
+ * Validate a quota reading; anything unrecognized reads as unknown, never as headroom.
+ *
+ * @param value - Untrusted quota record.
+ * @returns Quota, or `null` when absent.
+ */
+export function parseQuota(value: unknown): Quota | null {
+  const record = asData(value);
+  if (record === null) {
+    return null;
+  }
+  const { freshness, headroomPercent, observedAt } = record;
+  const observed = typeof observedAt === 'number' && Number.isFinite(observedAt) ? observedAt : null;
+  if (freshness === 'current' && typeof headroomPercent === 'number' && Number.isFinite(headroomPercent)) {
+    return { freshness, headroomPercent, observedAt: observed };
+  }
+  return { freshness: freshness === 'stale' ? 'stale' : 'unknown', headroomPercent: null, observedAt: observed };
+}
+
+/**
+ * Validate a recorded checkpoint stop.
+ *
+ * @param value - Untrusted stop record.
+ * @returns Stop, or `null` without a reason.
+ */
+export function parseStop(value: unknown): Stop | null {
+  const record = asData(value);
+  const reason = record === null ? '' : text(record, 'reason');
+  return record === null || reason === ''
+    ? null
+    : {
+        jobId: text(record, 'jobId'),
+        reason,
+        at: number(record, 'at'),
+        isAwaitingDecision: record['isAwaitingDecision'] === true,
       };
 }
 
@@ -474,7 +543,7 @@ function parseRunning(value: unknown): Delivery['running'] {
  * @param value - Untrusted liveness record.
  * @returns Liveness, or `null`.
  */
-function parseLiveness(value: unknown): Liveness | null {
+export function parseLiveness(value: unknown): Liveness | null {
   const record = asData(value);
   return record === null
     ? null
@@ -485,6 +554,7 @@ function parseLiveness(value: unknown): Liveness | null {
         awaiting: nullableText(record, 'awaiting'),
         nextCheckpointAt: number(record, 'nextCheckpointAt'),
         extensions: number(record, 'extensions'),
+        stopReason: nullableText(record, 'stopReason'),
       };
 }
 
@@ -530,6 +600,7 @@ function parseDelivery(record: Data): Delivery | null {
     steps: parseSteps(record['steps']),
     running: parseRunning(record['running']),
     retry: parseRetry(record['retry']),
+    stop: parseStop(record['stop']),
     head: nullableText(record, 'head'),
     base: nullableText(record, 'base'),
     prUrl: nullableText(record, 'prUrl'),
@@ -751,6 +822,20 @@ export function shortSha(sha: string | null): string {
   return sha === null ? '—' : sha.slice(0, SHORT_SHA);
 }
 
+/** Address the broker records for a pull request in the protected local hub. */
+const LOCAL_PULL = /^malt-local:\/\/pulls\/(?<pull>[1-9]\d{0,8})$/v;
+
+/**
+ * The local hub pull request a delivery's pull-request address names.
+ *
+ * @param url - Recorded pull-request address.
+ * @returns Its number for a `malt-local://pulls/<number>` address, otherwise `null`.
+ */
+export function localPullNumber(url: string): number | null {
+  const pull = LOCAL_PULL.exec(url)?.groups?.['pull'];
+  return pull === undefined ? null : Number(pull);
+}
+
 /**
  * Bound an error to its leading lines.
  *
@@ -844,6 +929,13 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
   cancelled: phrase('was interrupted'),
 });
 
+/** Plain words for the states in which a checkpoint is stopping an attempt. */
+const STOPPING_LABELS: Readonly<Record<string, string>> = translated({
+  stalled: phrase('Stalled'),
+  ceiling: phrase('At the hard ceiling'),
+  held: phrase('Held at a checkpoint'),
+});
+
 /**
  * Describe a running attempt's liveness.
  *
@@ -852,6 +944,10 @@ const FAILURE_LABELS: Readonly<Record<string, string>> = translated({
  * @returns Text such as `Progressing · tool Bash 2m 10s ago · next checkpoint in 8m 00s`.
  */
 export function livenessText(liveness: Liveness, now: number): string {
+  const stopping = STOPPING_LABELS[liveness.state];
+  if (stopping !== undefined) {
+    return t('{state} · stopping: {reason}', { state: stopping, reason: liveness.stopReason ?? liveness.state });
+  }
   const checkpoint = t('next checkpoint in {wait}', {
     wait: formatDuration(Math.max(0, liveness.nextCheckpointAt - now)),
   });

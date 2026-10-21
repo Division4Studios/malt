@@ -1,5 +1,6 @@
 /** @file Explicit focus-scoped native keyboard and geometry controls. */
 import { scoped } from './api.ts';
+import { phrase, t } from './i18n.js';
 import { terminalView } from './terminal-contract.ts';
 import { terminalKey, terminalPaste } from './terminal-keys.ts';
 import { TerminalWrites } from './terminal-writes.ts';
@@ -10,6 +11,8 @@ import type { TerminalScreen } from './terminal-screen.ts';
 
 /** Bounded geometry/traffic deadlines; no resize loop can keep the CLI alive. */
 const LIMIT = { columns: 500, rows: 200, debounce: 200, deadline: 10_000, cell: 8, line: 18 } as const;
+/** Pane height choices and their labels. */
+const HEIGHT_LABELS = { compact: phrase('Compact'), standard: phrase('Standard'), tall: phrase('Tall') } as const;
 
 /**
  * Read computed CSS pixels, including fractional zoom-dependent padding.
@@ -44,19 +47,19 @@ export class TerminalInput {
   /** Native accessible controls, separate from the terminal output region. */
   public readonly root = element('div', 'terminal-input-controls');
   /** Explicitly opt into or release native keystrokes. */
-  private readonly capture = element('button', 'button secondary', 'Capture keyboard');
+  private readonly capture = element('button', 'button secondary', t('Capture keyboard'));
   /** Native editable input permits composition and mobile keyboards. */
   private readonly keyboard = element('textarea', 'terminal-keyboard');
   /** Tab remains a browser focus key; completion has an explicit native control. */
-  private readonly tab = element('button', 'button secondary', 'Send Tab');
+  private readonly tab = element('button', 'button secondary', t('Send Tab'));
   /** Escape always releases capture; CLI escape remains an explicit native control. */
-  private readonly escape = element('button', 'button secondary', 'Send Escape');
+  private readonly escape = element('button', 'button secondary', t('Send Escape'));
   /** Explicit geometry controls support keyboard-only resizing. */
   private readonly columns = element('input');
   /** Explicit native rows. */
   private readonly rows = element('input');
   /** Native geometry write, never automatically retried after uncertainty. */
-  private readonly resizeButton = element('button', 'button secondary', 'Apply size');
+  private readonly resizeButton = element('button', 'button secondary', t('Apply size'));
   /** Automatic geometry is opt-in; merely reading output sends no controls. */
   private readonly fit = element('input');
   /** Height selection works without a pointer drag. */
@@ -99,8 +102,8 @@ export class TerminalInput {
     this.keyboard.spellcheck = false;
     this.keyboard.autocomplete = 'off';
     this.keyboard.setAttribute('autocapitalize', 'off');
-    this.keyboard.setAttribute('aria-label', 'Captured terminal keyboard input');
-    this.keyboard.placeholder = 'Capture keyboard to send native input. Escape releases; Tab moves focus.';
+    this.keyboard.setAttribute('aria-label', t('Captured terminal keyboard input'));
+    this.keyboard.placeholder = t('Capture keyboard to send native input. Escape releases; Tab moves focus.');
     this.capture.addEventListener('pointerdown', (event) => {
       if (this.isCaptured) {
         event.preventDefault();
@@ -152,7 +155,9 @@ export class TerminalInput {
       element(
         'p',
         'subtle',
-        'Input goes directly to this scratch CLI. It is not a durable worker instruction and is never saved or replayed.',
+        t(
+          'Input goes directly to this scratch CLI. It is not a durable worker instruction and is never saved or replayed.',
+        ),
       ),
       this.geometry(),
     );
@@ -168,7 +173,7 @@ export class TerminalInput {
       this.lifetime = new AbortController();
     }
     this.capture.disabled = !isReady;
-    this.capture.textContent = this.isCaptured ? 'Release keyboard' : 'Capture keyboard';
+    this.capture.textContent = t(this.isCaptured ? 'Release keyboard' : 'Capture keyboard');
     this.capture.setAttribute('aria-pressed', String(this.isCaptured));
     this.keyboard.disabled = !isReady || !this.isCaptured;
     this.tab.disabled = !isReady;
@@ -231,7 +236,9 @@ export class TerminalInput {
         this.writes = null;
         this.release();
         this.options.warn(
-          'Input was not confirmed. Unsent keys were discarded. Inspect the CLI before capturing again; nothing was retried.',
+          t(
+            'Input was not confirmed. Unsent keys were discarded. Inspect the CLI before capturing again; nothing was retried.',
+          ),
         );
         this.update();
       },
@@ -289,7 +296,7 @@ export class TerminalInput {
       this.enqueue(terminalPaste(text, this.options.screen.isBracketedPaste));
     } catch {
       this.options.warn(
-        'Paste exceeds the raw clipboard or 16 KiB native input limit. Split it into smaller explicit pastes.',
+        t('Paste exceeds the raw clipboard or 16 KiB native input limit. Split it into smaller explicit pastes.'),
       );
     }
   }
@@ -303,7 +310,7 @@ export class TerminalInput {
     try {
       this.writes?.append(text);
     } catch {
-      this.options.warn('Terminal input queue is full. This input was not queued; wait before trying again.');
+      this.options.warn(t('Terminal input queue is full. This input was not queued; wait before trying again.'));
     }
   }
 
@@ -320,8 +327,8 @@ export class TerminalInput {
   /** Prepare keyboard-reachable native dimensions and opt-in fit controls. */
   private buildGeometry(): void {
     for (const [field, value, maximum, name] of [
-      [this.columns, this.options.screen.grid.columns, LIMIT.columns, 'Terminal columns'],
-      [this.rows, this.options.screen.grid.rows, LIMIT.rows, 'Terminal rows'],
+      [this.columns, this.options.screen.grid.columns, LIMIT.columns, t('Terminal columns')],
+      [this.rows, this.options.screen.grid.rows, LIMIT.rows, t('Terminal rows')],
     ] as const) {
       field.type = 'number';
       field.min = '1';
@@ -339,9 +346,9 @@ export class TerminalInput {
     this.resizeButton.addEventListener('click', () => {
       void this.resize();
     });
-    this.height.setAttribute('aria-label', 'Terminal pane height');
-    for (const value of ['compact', 'standard', 'tall']) {
-      const option = element('option', '', value);
+    this.height.setAttribute('aria-label', t('Terminal pane height'));
+    for (const value of ['compact', 'standard', 'tall'] as const) {
+      const option = element('option', '', t(HEIGHT_LABELS[value]));
       option.value = value;
       this.height.append(option);
     }
@@ -361,7 +368,7 @@ export class TerminalInput {
    */
   private geometry(): HTMLElement {
     const toolbar = element('div', 'toolbar terminal-geometry');
-    const fit = element('label', '', 'Fit to pane');
+    const fit = element('label', '', t('Fit to pane'));
     fit.prepend(this.fit);
     toolbar.append(this.columns, this.rows, this.resizeButton, fit, this.height);
     return toolbar;
@@ -426,7 +433,9 @@ export class TerminalInput {
         this.fit.checked = false;
         this.observer.disconnect();
         this.isObserving = false;
-        this.options.warn('Resize was not confirmed. Auto fit is disabled; inspect the native size before retrying.');
+        this.options.warn(
+          t('Resize was not confirmed. Auto fit is disabled; inspect the native size before retrying.'),
+        );
       }
     } finally {
       this.isResizing = false;

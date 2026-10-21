@@ -9,7 +9,7 @@ declare module '*/web/dist/recommendations-ui.js' {
   /**
    * Create the Recommendations pane.
    *
-   * @param hooks - Routes the pane uses: the page, read receipts, one detail and one decision.
+   * @param hooks - Routes the pane uses: the page, read receipts, one detail, one decision and an optional retry.
    * @returns The pane's stable root, its refresh and its project reset.
    */
   export function createRecommendationsView(hooks: {
@@ -17,6 +17,7 @@ declare module '*/web/dist/recommendations-ui.js' {
     readonly markRead: (id: string, revision: string) => Promise<unknown>;
     readonly detail: (id: string) => Promise<unknown>;
     readonly decide: (input: Record<string, unknown>) => Promise<unknown>;
+    readonly retry?: (input: { id: string; revision: string }) => Promise<unknown>;
     readonly identity?: () => string;
   }): {
     readonly element: unknown;

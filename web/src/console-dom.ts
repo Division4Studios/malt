@@ -1,13 +1,14 @@
 /**
  * Small DOM builders shared by the Inbox, Board and delivery views: keyed
  * focus preservation across re-renders, relative-time stamps, state badges,
- * step strips and safe external links. Untrusted text is always set through
- * `textContent`; nothing here parses HTML.
+ * step strips, safe external links and local pull-request links. Untrusted
+ * text is always set through `textContent`; nothing here parses HTML.
  *
  * @file
  */
-import { STATE_LABELS, relativeAge, stepStrip } from './console-model.js';
+import { STATE_LABELS, localPullNumber, relativeAge, stepStrip } from './console-model.js';
 import { formatDateTime, t } from './i18n.js';
+import { viewPath } from './navigation.js';
 import { element } from './worker-ui.js';
 
 import type { Step, StepState } from './console-model.js';
@@ -174,6 +175,35 @@ export function externalLink(url: string, label: string): HTMLElement {
   link.rel = 'noopener noreferrer';
   link.append(element('span', 'sr-only', t(' (opens in a new tab)')));
   return link;
+}
+
+/**
+ * Link a delivery's pull request. One in the protected local hub opens it in
+ * Workflow → Pull requests; any other address is an external link.
+ *
+ * @param url - Recorded pull-request address.
+ * @param label - Visible text.
+ * @param openPull - Opens one local pull request, when the view can navigate.
+ * @returns In-console button, external link, or plain text.
+ */
+export function pullRequestLink(url: string, label: string, openPull?: (pull: number) => void): HTMLElement {
+  const pull = localPullNumber(url);
+  if (pull === null) {
+    return externalLink(url, label);
+  }
+  const where = t('Local pull request #{pull} in {location}', { pull: String(pull), location: viewPath('pulls') });
+  if (openPull === undefined) {
+    return element('span', 'subtle', where);
+  }
+  const node = button(label, {
+    cssClass: 'console-link link-button',
+    key: `pull:${String(pull)}`,
+    action: () => {
+      openPull(pull);
+    },
+  });
+  node.title = where;
+  return node;
 }
 
 /**

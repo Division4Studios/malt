@@ -24,8 +24,6 @@ export const FACTORY_COMMANDS = [
   'mcp-binding-status',
   'mcp-binding-propose',
   'mcp-binding-approve',
-  'mcp-binding-propose',
-  'mcp-binding-approve',
   'factory-setup',
   'factory-start',
   'factory-pause',
@@ -78,8 +76,8 @@ const OPERATIONS: Readonly<Partial<Record<FactoryCommand, Operation>>> = {
   'factory-worktrees-adopt': 'factory_worktrees_adopt',
   'factory-prune': 'factory_prune',
 };
-/** Commands requiring structured input. */
-const FILE_COMMANDS: ReadonlySet<string> = new Set([
+/** Commands requiring structured input; `--help` shows `--file FILE` for each. */
+export const FILE_COMMANDS: ReadonlySet<string> = new Set([
   'factory-export-maintenance',
   'factory-skill-decide',
   'github-connect',

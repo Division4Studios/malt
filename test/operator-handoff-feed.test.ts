@@ -7,14 +7,18 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test } from 'node:test';
 
+import { z } from 'zod/v3';
+
+import { startBroker } from '../src/broker.ts';
 import { run } from '../src/database.ts';
 import { handoffFeed } from '../src/factory/handoff-feed.ts';
 import { handoffSchema } from '../src/factory/handoffs.ts';
 import { FactoryRepository } from '../src/factory/repository.ts';
 import { factoryConfigSchema, jobSchema, taskSchema } from '../src/factory/schema.ts';
 import { Store } from '../src/store.ts';
+import { ProjectGateway } from '../src/web/projects.ts';
 
-import { createCleanup, createProject } from './helpers.ts';
+import { brokerUrl, createCleanup, createProject } from './helpers.ts';
 
 import type { MeshConfig } from '../src/config.ts';
 import type { TestContext } from 'node:test';
@@ -24,6 +28,12 @@ const settings = factoryConfigSchema.parse({
   testCommands: [{ file: process.execPath }],
   endToEndCommands: [{ file: process.execPath }],
 });
+/** Feed entries as opaque browser records. */
+const feedRecordsSchema = z.array(z.record(z.unknown()));
+/** The console snapshot's feed, as the browser receives it. */
+const snapshotFeedSchema = z.object({ factory: z.object({ handoffs: feedRecordsSchema.optional() }) });
+/** The recorded source job of one manager report. */
+const assignmentSchema = z.object({ jobId: z.string() });
 
 /**
  * Create a real isolated SQLite ledger and peer identities.
@@ -64,44 +74,56 @@ function fixture(t: TestContext): {
     provider: 'fixture',
     runtime: 'test',
   }).id;
-  const report = (summary: string, taskId: string | null = null): string => {
-    const job = jobSchema.parse({
-      id: randomUUID(),
-      token: randomUUID(),
-      role: 'qa-1',
-      provider: 'codex',
-      kind: 'review',
-      taskId,
-      featureId: null,
-      head: null,
-      base: null,
-      state: 'running',
-      startedAt: clock.now,
-      expiresAt: clock.now + 60_000,
-      finishedAt: null,
-      reservation: 0,
-      usageTokens: null,
-      pid: null,
-      summary: null,
-      artifact: 'unused',
-      routing: {
-        tier: 'standard',
-        model: null,
-        reason: 'Fixture routing',
-        skillNames: [],
-        organization: { revision: 'fixture', type: 'general', label: 'QA', instructions: '', reportsTo: 'team-lead' },
-      },
-    });
-    assert.equal(repository.claim(job, settings), true);
-    assert.equal(
-      repository.finishJob(job, 0, 'succeeded', { result: { outcome: 'changes_requested', summary, findings: [] } }),
-      true,
-    );
-    return job.id;
-  };
+  const report = (summary: string, taskId: string | null = null): string =>
+    recordReport(repository, clock.now, summary, taskId);
   const message = (body: string): ReturnType<Store['send']> =>
     store.transaction(() => store.send(sender, recipient, { body }));
   return { mesh, clock, store, repository, report, message };
+}
+
+/**
+ * Finish one QA review whose structured result becomes a durable manager report.
+ *
+ * @param repository - Configured project ledger.
+ * @param now - Fixture clock reading.
+ * @param summary - Reported summary.
+ * @param taskId - Optional delivery task.
+ * @returns Source job identity.
+ */
+function recordReport(repository: FactoryRepository, now: number, summary: string, taskId: string | null): string {
+  const job = jobSchema.parse({
+    id: randomUUID(),
+    token: randomUUID(),
+    role: 'qa-1',
+    provider: 'codex',
+    kind: 'review',
+    taskId,
+    featureId: null,
+    head: null,
+    base: null,
+    state: 'running',
+    startedAt: now,
+    expiresAt: now + 60_000,
+    finishedAt: null,
+    reservation: 0,
+    usageTokens: null,
+    pid: null,
+    summary: null,
+    artifact: 'unused',
+    routing: {
+      tier: 'standard',
+      model: null,
+      reason: 'Fixture routing',
+      skillNames: [],
+      organization: { revision: 'fixture', type: 'general', label: 'QA', instructions: '', reportsTo: 'team-lead' },
+    },
+  });
+  assert.equal(repository.claim(job, settings), true);
+  assert.equal(
+    repository.finishJob(job, 0, 'succeeded', { result: { outcome: 'changes_requested', summary, findings: [] } }),
+    true,
+  );
+  return job.id;
 }
 
 await test('explicit manager provenance and peer conversations are distinct, stable and side-effect free', (t) => {
@@ -277,4 +299,21 @@ await test('projection bounds Unicode text and every newly exposed name or conte
   assert.ok(peer !== undefined);
   assert.equal(peer.body.length, 3999);
   assert.equal(peer.body.isWellFormed(), true);
+});
+
+await test('the console gateway snapshot carries the feed Mission renders', async (t) => {
+  const defer = createCleanup(t);
+  const mesh = createProject(defer);
+  const broker = await startBroker(mesh, { port: 0 });
+  defer(async () => broker.close());
+  const repository = new FactoryRepository(broker.store);
+  repository.configure(settings);
+  const jobId = recordReport(repository, Date.now(), 'Gateway-visible report.', null);
+  const gateway = new ProjectGateway({ ...mesh, url: brokerUrl(broker.port) });
+  const view = snapshotFeedSchema.parse(await gateway.snapshot('home'));
+  const [entry] = view.factory.handoffs ?? [];
+  assert.ok(entry !== undefined, 'The browser must receive the broker feed, not a stripped snapshot.');
+  assert.equal(entry['kind'], 'manager_report');
+  assert.equal(entry['summary'], 'Gateway-visible report.');
+  assert.equal(assignmentSchema.parse(entry['assignment']).jobId, jobId);
 });

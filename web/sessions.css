@@ -77,6 +77,11 @@
   font-family: var(--font-terminal);
   color: var(--muted);
 }
+/* The recorded checkpoint stop reason, in place of a generic `interrupted`; wraps on small screens. */
+.attempt-outcome {
+  color: var(--amber);
+  overflow-wrap: anywhere;
+}
 .status-dot {
   width: 8px;
   height: 8px;

@@ -98,13 +98,13 @@ Open the delivery on the **Board**, then its attempt in **Sessions → Attempts 
 
 The handoff reason names the supervisor step, for example "The agent finished, but the supervisor's validation step failed: …". `failure.json` records:
 
-| Field              | Meaning                                                                                                                                      |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `step`             | `commit`, `refresh`, `validate` or `publish`                                                                                                 |
-| `agentOutcome`     | Always `success`: these records exist only after the agent succeeded                                                                         |
-| `error`, `message` | The error class and its redacted message (at most 2,000 characters)                                                                          |
-| `reason`           | `nothing_to_commit`, `already_merged` or `empty_diff` when nothing was published                                                             |
-| `command`          | For a failed command: its family and subcommand (such as `git push`), exit code or timeout, and the last 4,000 characters of redacted stderr |
+| Field              | Meaning                                                                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `step`             | `commit`, `refresh`, `validate` or `publish`                                                                                                                                    |
+| `agentOutcome`     | Always `success`: these records exist only after the agent succeeded                                                                                                            |
+| `error`, `message` | The error class and its redacted message (at most 2,000 characters)                                                                                                             |
+| `reason`           | `nothing_to_commit`, `already_merged` or `empty_diff` when nothing was published; `over_limit` (with `step: "publish"`) when the delivery exceeded the publication size ceiling |
+| `command`          | For a failed command: its family and subcommand (such as `git push`), exit code or timeout, and the last 4,000 characters of redacted stderr                                    |
 
 Credentials are redacted before the file is written. Fix the cause (a failing check, a push rejected by the remote, a missing tool), then retry the delivery. See [When the supervisor's own step fails](software-factory.md#when-the-supervisors-own-step-fails).
 

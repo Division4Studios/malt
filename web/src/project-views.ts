@@ -80,6 +80,7 @@ export class ProjectViews {
       connect: () => {
         hooks.setup(true);
       },
+      pulls: open('pulls'),
       factory: () => {
         hooks.setup(false);
       },
@@ -129,6 +130,8 @@ export class ProjectViews {
       detail: async (id) =>
         await request(`${scoped(hooks.project(), '/api/recommendation')}&id=${encodeURIComponent(id)}`),
       decide: async (input) => await request(scoped(hooks.project(), '/api/recommendation/decide'), input),
+      retry: async (input) =>
+        await request(scoped(hooks.project(), '/api/control'), { operation: 'factory_recommendation_retry', input }),
     });
     // Recommendations redraw their own labels: proposal text must never pass through catalog translation.
     onLocaleChange(
