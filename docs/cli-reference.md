@@ -84,11 +84,12 @@ Factory commands address the home project or `--workspace PATH` and call the ope
 | `factory-capacity --file FILE`           | `factory_capacity`           | `{provider, usedPercent, resetAt, source}`: record observed provider quota                               |
 | `factory-local --file FILE`              | `factory_local`              | Local issue and pull request action                                                                      |
 | `factory-manager --body TEXT`            | `factory_manager`            | Sends `TEXT` to the delivery manager                                                                     |
-| `factory-manager --file FILE`            | `factory_manager`            | `{"action": "start" \| "stop" \| "status" \| "history" \| "answer", ...}`                                |
+| `factory-manager --file FILE`            | `factory_manager`            | `{"action": "start" \                                                                                    | "stop" \ | "status" \ | "history" \ | "answer", ...}` |
 | `factory-skill-decide --file FILE`       | `factory_skill_decide`       | Approve or reject one reviewed skill revision                                                            |
 | `factory-export-maintenance --file FILE` | `factory_export_maintenance` | `{"requestId": "UUID", "workspace": "PATH"}`: queue an approved skill proposal in a MALT source checkout |
 | `factory-reconcile-github [--apply]`     | `factory_reconcile_github`   | Dry run by default; `--apply` applies the proposals                                                      |
 | `factory-worktrees-adopt`                | `factory_worktrees_adopt`    | none; the factory must be paused                                                                         |
+| `factory-prune [--apply]`                | `factory_prune`              | Dry run by default; `--apply` removes orphans while paused                                               |
 
 For `factory-capacity`, `provider` is `codex`, `claude` or `copilot`, `usedPercent` is 0 to 100, `resetAt` is a future time in epoch milliseconds, and `source` says where the reading came from. A reset time in the past fails with `INVALID_INPUT`.
 

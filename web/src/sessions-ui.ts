@@ -8,6 +8,7 @@
  */
 import { child, data, number, records, request, scoped, text } from './api.js';
 import { formatTime, locale, t } from './i18n.js';
+import { attemptOutcome } from './liveness-text.js';
 import {
   ATTEMPT_KINDS,
   browserTimeZone,
@@ -410,8 +411,13 @@ class SessionsView {
     toggle.dataset['attempt'] = id;
     toggle.setAttribute('aria-expanded', String(isOpen));
     toggle.setAttribute('aria-controls', `attempt-${id}`);
-    toggle.append(element('span', `status-dot ${state}`), element('span', 'sr-only', `${state}:`));
+    // A checkpoint stop shows its recorded reason, not the generic `interrupted`.
+    const outcome = attemptOutcome(row);
+    toggle.append(element('span', `status-dot ${state}`), element('span', 'sr-only', `${outcome}:`));
     toggle.append(...rowFields(row).map((field) => element('span', 'attempt-field', field)));
+    if (outcome !== state) {
+      toggle.append(element('span', 'attempt-outcome', outcome));
+    }
     toggle.addEventListener('click', () => {
       if (this.expanded.has(id)) {
         this.expanded.delete(id);

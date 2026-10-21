@@ -217,6 +217,16 @@ export async function refreshBaseline(context: FactoryContext): Promise<void> {
 }
 
 /**
+ * Whether a main baseline is being measured now, so its snapshot is in use.
+ *
+ * @param store - Selected project's SQLite owner.
+ * @returns True while a measurement runs.
+ */
+export function isBaselineMeasuring(store: Store): boolean {
+  return inFlight.has(store);
+}
+
+/**
  * Stop a running baseline measurement and wait for its commands and checkout to be cleaned up, so the supervisor
  * can pause or release its lease and the broker can close the database.
  *

@@ -24,6 +24,7 @@ import {
 } from './console-model.js';
 import { DeliveryDiff } from './diff-ui.js';
 import { keepLiteral, phrase, t, translated } from './i18n.js';
+import { elapsedText, quotaText, stopText } from './liveness-text.js';
 import { overrideSummary, profileNames, seatNames } from './step-override-model.js';
 import { StepOverrideDialog } from './step-override-ui.js';
 import { element } from './worker-ui.js';
@@ -61,7 +62,12 @@ const CLOCK_MS = 1000;
  */
 function clockedFacts(delivery: Delivery, now: number): ReadonlyMap<string, string> {
   const facts = new Map<string, string>();
-  const liveness = delivery.running?.liveness ?? null;
+  const { running } = delivery;
+  if (running !== null) {
+    facts.set('elapsed', elapsedText(running.startedAt, now));
+    facts.set('quota', quotaText(running.quota, now));
+  }
+  const liveness = running?.liveness ?? null;
   if (liveness !== null) {
     facts.set('liveness', livenessText(liveness, now));
   }
@@ -125,6 +131,34 @@ function customizedFact(facts: HTMLDListElement, delivery: Delivery): void {
   fact(facts, t('Brief revalidation'), verdict.summary === '' ? label : `${label}: ${verdict.summary}`);
 }
 
+/** Clocked liveness facts in display order, with their terms. */
+const LIVENESS_FACTS = [
+  ['elapsed', phrase('Elapsed')],
+  ['liveness', phrase('Liveness')],
+  ['quota', phrase('Quota')],
+  ['retry', phrase('Retry')],
+] as const;
+
+/**
+ * Describe the running attempt's elapsed time, liveness and quota, or why the
+ * latest attempt stopped and when it retries.
+ *
+ * @param facts - Header facts.
+ * @param delivery - Delivery shown.
+ */
+function livenessFacts(facts: HTMLDListElement, delivery: Delivery): void {
+  const timed = clockedFacts(delivery, Date.now());
+  for (const [name, term] of LIVENESS_FACTS) {
+    const value = timed.get(name);
+    if (value !== undefined) {
+      fact(facts, t(term), clocked(name, value));
+    }
+  }
+  if (delivery.stop !== null) {
+    fact(facts, t('Last stop'), stopText(delivery.stop));
+  }
+}
+
 /**
  * Build the delivery header.
  *
@@ -150,15 +184,7 @@ function header(delivery: Delivery, openPull: DeliveryHooks['openPull']): HTMLEl
     delivery.prUrl === null ? '—' : pullRequestLink(delivery.prUrl, t('Open pull request'), openPull),
   );
   fact(facts, t('Running now'), runningText(delivery) ?? t('Nothing'));
-  const timed = clockedFacts(delivery, Date.now());
-  const liveness = timed.get('liveness');
-  if (liveness !== undefined) {
-    fact(facts, t('Liveness'), clocked('liveness', liveness));
-  }
-  const retry = timed.get('retry');
-  if (retry !== undefined) {
-    fact(facts, t('Retry'), clocked('retry', retry));
-  }
+  livenessFacts(facts, delivery);
   if (delivery.held !== null) {
     fact(
       facts,

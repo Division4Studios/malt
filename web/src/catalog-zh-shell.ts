@@ -433,6 +433,7 @@ export const ZH_SHELL: Readonly<Record<string, string>> = {
   'checkpoint {ago}': '检查点 {ago}',
   'output {ago}': '输出 {ago}',
   'possibly stalled': '可能已停滞',
+  'Last attempt stopped: {stop}.': '上次尝试已停止：{stop}。',
   'no evidence yet': '暂无证据',
   '{done} done': '已完成 {done}',
   'No open deliveries. Tell the manager what you want built.': '没有进行中的交付项。告诉管理员你想构建什么。',
