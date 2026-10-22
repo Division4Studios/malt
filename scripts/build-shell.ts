@@ -110,6 +110,8 @@ const FILES = [
   'dist/capability-ui.js',
   'dist/discovery-model.js',
   'dist/jira-model.js',
+  'dist/jira-workflow-model.js',
+  'dist/jira-workflow-ui.js',
   'dist/connection-model.js',
   'dist/connection-ui.js',
   'dist/step-override-model.js',

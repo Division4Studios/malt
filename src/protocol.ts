@@ -486,6 +486,7 @@ export const GITHUB_OPERATIONS = [
   'github_view_manage',
   'github_discover',
   'jira_discover',
+  'jira_workflow_save',
   'github_connect',
   'github_sync',
   'github_create_issue',
@@ -686,7 +687,7 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_triage:
     'Designated lead/operator only: acknowledge or investigate an exact blocked revision, route owner repair or fresh QA, wait for a decision, explicitly authorize verification of a confirmed external merge, or (operator only) adopt an external merge commit for merged-main verification or adopt a closed issue as done without a job. Never creates approvals.',
   factory_enqueue:
-    'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request.',
+    'Use an MALT Ready atomic issue on the connected board for automatic import; product objectives should use factory_request. Name the issue and its parent by tracker key: a GitHub issue number (12 or "#12") or a Jira key ("PROJ-12").',
   factory_capacity:
     'Designated lead only: record measured subscription utilization with explicit source and future reset time; never guess quota.',
   factory_local:
@@ -694,7 +695,7 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
   factory_manager:
     'Human operator only: control the persistent delivery manager. Actions: status; start; stop; send with text; answer with decisionId and text; history with after/limit. Messages are queued and delivered when the manager is free; nothing is resent automatically after a failure.',
   factory_brief:
-    'Read the mission brief: objectives, open deliveries with stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag and next action, and every decision waiting on the operator. Start from this before steering work.',
+    'Read the mission brief: objectives, open deliveries by tracker key (#12 on GitHub, PROJ-12 in Jira) with stage, owner, branch, worktree, model, process, checkpoint progress, activity, stall flag and next action, and every decision waiting on the operator. Start from this before steering work.',
   factory_manager_ask:
     'Delivery manager only: ask the operator to make a decision that only a human can make. Give the exact question, a few options and the evidence. The answer arrives as a message. Never decide on the operator’s behalf.',
   factory_reconcile_github:
@@ -804,6 +805,8 @@ export const toolDescriptions: Readonly<Record<ToolOperation, string>> = {
     "Read-only setup discovery for THIS workspace: the authenticated GitHub login, accessible repositories, the owner's Projects v2, a Project's single-select fields and read-only capability probes. Nothing is created, changed or saved; each failure names its step.",
   jira_discover:
     "Read-only Jira Cloud setup discovery for THIS workspace: whether the site is Jira Cloud, the account, the project, its issue types and workflow statuses, and the account's project permissions, with each missing permission and the Jira admin action that grants it. The API token is read from the named environment variable and never returned or saved. Nothing in Jira is created or changed.",
+  jira_workflow_save:
+    "Human operator or approved lead: set THIS workspace's Jira workflow for the factory: jql, the intake filter whose matching issues become objectives (null turns intake off), and/or stages, each MALT stage mapped to a Jira status ID and name (an unmapped stage leaves the Jira status alone). The filter is run once against the Jira search API and the reply previews what intake would file; each status must exist in the project's workflows. Nothing in Jira changes. Needs the project-connect capability.",
   github_connect:
     "For the team lead: verify this workspace's repository and GitHub Project access, then save the connection inside its .malt. Supply projectNumber to reuse a project, or explicitly createProject=true to create one. Set up an MALT Status field without replacing existing project fields.",
   github_sync:

@@ -17,6 +17,14 @@ import { reconcileDependencies } from './dependencies.ts';
 import { chooseMergePath, readProtection } from './merge-path.ts';
 import { deliveryOperationIdentity, readProvisioningOperations } from './provisioning-identity.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
+import {
+  formatTrackerKey,
+  githubIssueNumber,
+  githubKey,
+  issueLabel,
+  parentLabel,
+  pullRequestTitle,
+} from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { IssueCorpusPage, ObservedIssue } from '../github-issues.ts';
@@ -25,6 +33,7 @@ import type { CheckLog, CheckState } from './ci-logs.ts';
 import type { OperationSnapshot } from './duplicate-detection.ts';
 import type { DeliveryPlanIssue, ReadyIssue } from './scheduler.ts';
 import type { FactoryConfig, FactoryEffect, FactoryTask, Feature } from './schema.ts';
+import type { TrackerKey } from './tracker-key.ts';
 /** Named issue title limit bound. */
 const ISSUE_TITLE_LIMIT = 200;
 /** Bound GitHub's machine-readable close reason separately from issue prose. */
@@ -45,6 +54,18 @@ const repositoryIdentitySchema = z.object({ id: z.string().min(1), nameWithOwner
 const connectionSchema = z.object({
   connected: z.literal(true),
   connection: remoteConnectionSchema,
+});
+
+/**
+ * The verified source repository, from the flat view when the tracker is a
+ * GitHub Project or from the source section when it is another tracker.
+ */
+const repositorySchema = z.object({ repository: z.string() });
+/** The verified source, in either view of the saved connection. */
+const sourceSchema = z.object({
+  connected: z.literal(true),
+  connection: repositorySchema.nullish(),
+  connectionV2: z.object({ source: repositorySchema }).nullish(),
 });
 /** Public issue comment fields used for operation reconciliation. */
 const commentSchema = z.object({ body: z.string() });
@@ -114,7 +135,35 @@ export interface IssueState {
   /** GitHub close reason such as completed or not_planned; null while open or unspecified. */
   readonly stateReason: string | null;
 }
-/** Injectable external delivery boundary, including fixture GitHub merges. */
+
+/** One tracker issue a configured intake filter offers as a new objective. */
+export interface IntakeCandidate {
+  /** Numeric ledger handle: the tracker issue's stable ID. */
+  readonly issue: number;
+  /** Tracker the stable ID is unique within, such as `jira:<site>`. */
+  readonly tracker: string;
+  /** Typed key, such as `PROJ-12`. */
+  readonly key: TrackerKey;
+  /** Objective text: the key and summary, then the description. */
+  readonly objective: string;
+}
+
+/** A tracker issue the ledger already files work under: an objective's parent or a delivery. */
+export interface FiledIssue {
+  /** Numeric ledger handle. */
+  readonly issue: number;
+  /** Tracker the handle belongs to; absent on records filed before trackers were recorded. */
+  readonly tracker: string | undefined;
+  /** Whether the work is still live; finished work of another tracker never suppresses intake. */
+  readonly isLive: boolean;
+}
+
+/**
+ * Injectable external delivery boundary, including fixture GitHub merges.
+ * Tracker issues are addressed by typed key; pull requests, which live in the
+ * source repository, by number. A remote refuses a key of a tracker it does
+ * not serve.
+ */
 export interface DeliveryRemote {
   /** Current verified saved source identity, read without a native subprocess. */
   readonly issueRepositoryId?: () => string;
@@ -123,7 +172,7 @@ export interface DeliveryRemote {
   /** Bounded selected-repository observations; absent fixture capability is never complete coverage. */
   readonly issueCorpus?: (input: unknown) => Promise<IssueCorpusPage>;
   /** Current issue identity/content revision for exact reviewed decisions. */
-  readonly observedIssue?: (number: number) => Promise<ObservedIssue>;
+  readonly observedIssue?: (key: TrackerKey) => Promise<ObservedIssue>;
   /** Verify connection and remote repository identity before dispatch. */
   readonly verify: (origin: string) => Promise<void>;
   /** Create/resume the feature and each atomic child. */
@@ -143,10 +192,17 @@ export interface DeliveryRemote {
   readonly effect: (effect: FactoryEffect) => Promise<void>;
   /** Refresh externally visible MALT deliveries for reconciliation. */
   readonly readyIssues: () => Promise<ReadyIssue[]>;
+
+  /**
+   * Issues the tracker's configured intake filter offers as new objectives,
+   * leaving out those already filed on this tracker, deliveries included;
+   * absent for trackers without intake.
+   */
+  readonly intake?: (filed: readonly FiledIssue[]) => Promise<readonly IntakeCandidate[]>;
   /** Read one delivery issue's open/closed state without mutating it. */
-  readonly issueState: (issue: number) => Promise<IssueState>;
+  readonly issueState: (key: TrackerKey) => Promise<IssueState>;
   /** Confirm every native child is closed before cleaning the parent ticket. */
-  readonly parentComplete: (parent: number, children: readonly number[]) => Promise<boolean>;
+  readonly parentComplete: (parent: TrackerKey, children: readonly TrackerKey[]) => Promise<boolean>;
   /** Read raw logs of failed checks; absent remotes repair from check names alone. */
   readonly checkLogs?: (checks: readonly CheckState[]) => Promise<CheckLog[]>;
 }
@@ -189,7 +245,7 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns One raw log per check, `null` when unavailable. Callers redact before persisting.
    */
   public async checkLogs(checks: readonly CheckState[]): Promise<CheckLog[]> {
-    const { repository } = await this.connection();
+    const repository = await this.sourceRepository();
     const logs: CheckLog[] = [];
     for (const check of checks.slice(0, MAX_LOGGED_CHECKS)) {
       const job = actionsJobId(check.url);
@@ -233,11 +289,11 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Refresh one native issue revision before a later human-approved action.
    *
-   * @param number - Repository-local issue number.
+   * @param key - Typed key of an issue in the connected repository.
    * @returns Current bounded observation.
    */
-  public async observedIssue(number: number): Promise<ObservedIssue> {
-    return await this.github.issues().get(number);
+  public async observedIssue(key: TrackerKey): Promise<ObservedIssue> {
+    return await this.github.issues().get(githubIssue(key));
   }
 
   /**
@@ -248,20 +304,24 @@ export class GitHubDelivery implements DeliveryRemote {
    */
   public async verify(origin: string): Promise<void> {
     const connection = await this.connection();
-    const normalized = origin
-      .replace(/^git@github\.com:/v, 'https://github.com/')
-      .replace(/\.git$/v, '')
-      .replace(/\/$/v, '')
-      .toLowerCase();
-    if (normalized !== `https://github.com/${connection.repository}`.toLowerCase()) {
-      await verifyRepositoryIdentity(this.runner, normalized, connection.repository);
-    }
+    await this.verifyOrigin(origin, connection.repository);
     await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_connect', {
       repository: connection.repository,
       owner: connection.owner,
       projectNumber: connection.project.number,
       ...(connection.statusField !== undefined && { statusFieldName: connection.statusField.name }),
     });
+  }
+
+  /**
+   * Check only the source: the Git remote is the verified source repository.
+   * A delivery remote whose tracker is not a GitHub Project uses this.
+   *
+   * @param origin - Native repository remote URL.
+   * @throws {MeshError} When the source is unverified or the remote names another repository.
+   */
+  public async verifySource(origin: string): Promise<void> {
+    await this.verifyOrigin(origin, await this.sourceRepository());
   }
 
   /**
@@ -336,7 +396,7 @@ export class GitHubDelivery implements DeliveryRemote {
     if (record.branch === null) {
       throw new MeshError('FACTORY_GATED', 'Publish the owned branch before creating its PR.');
     }
-    const connection = await this.connection();
+    const repository = await this.sourceRepository();
     const existing = z
       .array(prIdentitySchema)
       .parse(
@@ -344,7 +404,7 @@ export class GitHubDelivery implements DeliveryRemote {
           'pr',
           'list',
           '--repo',
-          connection.repository,
+          repository,
           '--head',
           record.branch,
           '--state',
@@ -360,12 +420,12 @@ export class GitHubDelivery implements DeliveryRemote {
     }
     const criteria = record.acceptanceCriteria.map((criterion) => `- [ ] ${criterion}`).join('\n');
     const created = z.object({ number: z.number(), html_url: z.string().url() }).parse(
-      await this.runner(['api', `repos/${connection.repository}/pulls`, '--input', '-'], {
-        title: record.title,
+      await this.runner(['api', `repos/${repository}/pulls`, '--input', '-'], {
+        title: pullRequestTitle(record),
         head: record.branch,
         base: config.baseBranch,
         draft: false,
-        body: `Delivery for #${String(record.issue)}; parent #${String(record.parentIssue)}.\n\n${record.description}\n\nAcceptance criteria:\n${criteria}\n\n<!-- mlt-record:${record.id} -->\n\nMALT closes this issue only after independent reviews, merge and merged-main verification.`,
+        body: `Delivery for ${issueLabel(record)}; parent ${parentLabel(record)}.\n\n${record.description}\n\nAcceptance criteria:\n${criteria}\n\n<!-- mlt-record:${record.id} -->\n\nMALT closes this issue only after independent reviews, merge and merged-main verification.`,
       }),
     );
     return { number: created.number, url: created.html_url };
@@ -378,14 +438,14 @@ export class GitHubDelivery implements DeliveryRemote {
    * @returns Validated GitHub PR state.
    */
   public async inspect(number: number): Promise<PullRequest> {
-    const connection = await this.connection();
+    const repository = await this.sourceRepository();
     return prSchema.parse(
       await this.runner([
         'pr',
         'view',
         String(number),
         '--repo',
-        connection.repository,
+        repository,
         '--json',
         'number,url,headRefOid,baseRefOid,baseRefName,isDraft,state,mergeStateStatus,mergeCommit,statusCheckRollup,reviewDecision,autoMergeRequest',
       ]),
@@ -409,7 +469,7 @@ export class GitHubDelivery implements DeliveryRemote {
     if (!hasApprovals(record) || !hasFinalApproval(record)) {
       throw new MeshError('FACTORY_GATED', 'Current independent QA and final integration approvals are required.');
     }
-    const connection = await this.connection();
+    const repository = await this.sourceRepository();
     const current = await this.inspect(record.pr);
     if (current.state === 'MERGED' && current.headRefOid === record.head && current.mergeCommit !== null) {
       return current.mergeCommit.oid;
@@ -422,9 +482,9 @@ export class GitHubDelivery implements DeliveryRemote {
       throw new MeshError('FACTORY_GATED', blocker);
     }
     if (config.requireBranchProtection) {
-      await this.assertProtected(connection.repository, config.baseBranch);
+      await this.assertProtected(repository, config.baseBranch);
     }
-    return await this.followMergePath(current, record.head, connection.repository, config.baseBranch);
+    return await this.followMergePath(current, record.head, repository, config.baseBranch);
   }
 
   /**
@@ -433,8 +493,8 @@ export class GitHubDelivery implements DeliveryRemote {
    * @param pr - PR number.
    */
   public async disarm(pr: number): Promise<void> {
-    const connection = await this.connection();
-    await this.runner(['pr', 'merge', String(pr), '--repo', connection.repository, '--disable-auto']);
+    const repository = await this.sourceRepository();
+    await this.runner(['pr', 'merge', String(pr), '--repo', repository, '--disable-auto']);
   }
 
   /**
@@ -444,7 +504,6 @@ export class GitHubDelivery implements DeliveryRemote {
    */
   public async effect(effect: FactoryEffect): Promise<void> {
     const record = effect;
-    const connection = await this.connection();
     if (record.kind === 'status') {
       await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_set_status', {
         issue: record.issue,
@@ -463,15 +522,17 @@ export class GitHubDelivery implements DeliveryRemote {
           'Superseded PR merged or changed head; preserve it and reconcile its actual source.',
         );
       }
+      const repository = await this.sourceRepository();
       await this.runner(
-        ['api', `repos/${connection.repository}/pulls/${String(record.issue)}`, '--method', 'PATCH', '--input', '-'],
+        ['api', `repos/${repository}/pulls/${String(record.issue)}`, '--method', 'PATCH', '--input', '-'],
         { state: 'closed' },
       );
       return;
     }
-    const endpoint = `repos/${connection.repository}/issues/${String(record.issue)}`;
+    // Issue and pull request comments share the source repository's issues endpoint.
+    const endpoint = `repos/${await this.sourceRepository()}/issues/${String(record.issue)}`;
     if (record.kind === 'close' || record.kind === 'close_not_planned') {
-      const current = await this.issueState(record.issue);
+      const current = await this.issueState(githubKey(record.issue));
       if (current.state === 'closed') {
         return;
       }
@@ -553,14 +614,12 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Read only the state of one delivery issue in the connected repository.
    *
-   * @param issue - Repository-local issue number.
+   * @param key - Typed key of an issue in the connected repository.
    * @returns Open/closed state and GitHub close reason.
-   * @throws {MeshError} For a PR number, an invalid number or another repository.
+   * @throws {MeshError} For a PR number, an invalid number, another tracker's key or another repository.
    */
-  public async issueState(issue: number): Promise<IssueState> {
-    if (!Number.isSafeInteger(issue) || issue <= 0) {
-      throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
-    }
+  public async issueState(key: TrackerKey): Promise<IssueState> {
+    const issue = githubIssue(key);
     const { repository } = await this.connection();
     const parsed = issueStateSchema.parse(await this.runner(['api', `repos/${repository}/issues/${String(issue)}`]));
     if (parsed.pull_request !== undefined) {
@@ -582,23 +641,25 @@ export class GitHubDelivery implements DeliveryRemote {
   /**
    * Prevent closing a feature with unresolved native children outside our ledger.
    *
-   * @param parent - Feature issue number.
-   * @param children - Local verified child issue numbers.
+   * @param parent - Feature issue key.
+   * @param children - Local verified child issue keys.
    * @returns Whether all actual native children are closed and expected children exist.
    */
-  public async parentComplete(parent: number, children: readonly number[]): Promise<boolean> {
+  public async parentComplete(parent: TrackerKey, children: readonly TrackerKey[]): Promise<boolean> {
+    const parentNumber = githubIssue(parent);
+    const expected = children.map((child) => githubIssue(child));
     const connection = await this.connection();
     const pages = nativeChildPagesSchema.parse(
       await this.runner([
         'api',
-        `repos/${connection.repository}/issues/${String(parent)}/sub_issues?per_page=100`,
+        `repos/${connection.repository}/issues/${String(parentNumber)}/sub_issues?per_page=100`,
         '--paginate',
         '--slurp',
       ]),
     );
     const actual = pages.flat();
     return (
-      children.every((number) => actual.some((child) => child.number === number)) &&
+      expected.every((number) => actual.some((child) => child.number === number)) &&
       actual.every((child) => child.state === 'closed')
     );
   }
@@ -667,11 +728,71 @@ export class GitHubDelivery implements DeliveryRemote {
     if (!status.success) {
       throw new MeshError(
         'GITHUB_NOT_CONNECTED',
-        'GitHub delivery needs a verified GitHub repository and GitHub Project. A Jira tracker is not delivered through yet.',
+        'GitHub delivery needs a verified GitHub repository and GitHub Project. A Jira tracker delivers through the Jira delivery remote instead.',
       );
     }
     return status.data.connection;
   }
+
+  /**
+   * Require a verified source repository, whatever the tracker is.
+   *
+   * @returns `owner/name` of the verified source repository.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED until both saved sections are verified.
+   */
+  private async sourceRepository(): Promise<string> {
+    const status = sourceSchema.safeParse(await this.github.execute(SUPERVISOR_PRINCIPAL, 'github_status', {}));
+    const repository = status.success
+      ? (status.data.connection?.repository ?? status.data.connectionV2?.source.repository)
+      : undefined;
+    if (repository === undefined) {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'GitHub delivery needs a verified GitHub repository. Verify the connection (mesh_github_verify) first.',
+      );
+    }
+    return repository;
+  }
+
+  /**
+   * Require the Git remote to be the given repository, or a verified alias of it.
+   *
+   * @param origin - Native repository remote URL.
+   * @param repository - Saved `owner/name`.
+   * @throws {MeshError} When the remote names another repository.
+   */
+  private async verifyOrigin(origin: string, repository: string): Promise<void> {
+    const normalized = origin
+      .replace(/^git@github\.com:/v, 'https://github.com/')
+      .replace(/\.git$/v, '')
+      .replace(/\/$/v, '')
+      .toLowerCase();
+    if (normalized !== `https://github.com/${repository}`.toLowerCase()) {
+      await verifyRepositoryIdentity(this.runner, normalized, repository);
+    }
+  }
+}
+
+/**
+ * The issue number of a key a numbered tracker serves: GitHub, or local
+ * delivery, which numbers its issues the same way.
+ *
+ * @param key - Typed tracker key.
+ * @returns Positive issue number.
+ * @throws {MeshError} INVALID_INPUT for another tracker's key or a number that is not a positive integer.
+ */
+export function githubIssue(key: TrackerKey): number {
+  const issue = githubIssueNumber(key);
+  if (issue === null) {
+    throw new MeshError(
+      'INVALID_INPUT',
+      `${formatTrackerKey(key)} is a ${key.provider} key; this delivery remote addresses numbered issues only.`,
+    );
+  }
+  if (!Number.isSafeInteger(issue) || issue <= 0) {
+    throw new MeshError('INVALID_INPUT', 'An issue number must be a positive integer.');
+  }
+  return issue;
 }
 
 /**

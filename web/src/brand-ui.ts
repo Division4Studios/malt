@@ -4,7 +4,7 @@
  *
  * @file
  */
-import { records, text, child, number, hasFlag } from './api.js';
+import { records, text, child, number, hasFlag, issueLabel } from './api.js';
 import { formatDateTime, t } from './i18n.js';
 import { focusDescription } from './recovery-ui.js';
 import { element } from './worker-ui.js';
@@ -213,7 +213,7 @@ export function dispatchSummary(factory: Data): string[] {
   );
   for (const task of blocked) {
     const blocker = readableBlocker(text(task, 'error'));
-    messages.push(t('Issue #{issue} blocked: {blocker}', { issue: number(task, 'issue'), blocker }));
+    messages.push(t('Issue {issue} blocked: {blocker}', { issue: issueLabel(task), blocker }));
   }
   return messages;
 }
@@ -259,9 +259,9 @@ export function dispatchPanel(factory: Data): HTMLElement {
       continue;
     }
     const details = element('details', 'blocker-details');
-    const issue = String(number(task, 'issue'));
+    const issue = issueLabel(task);
     details.append(
-      element('summary', '', t('Technical details for issue #{issue}', { issue })),
+      element('summary', '', t('Technical details for issue {issue}', { issue })),
       element('pre', '', text(task, 'error')),
     );
     panel.append(details);

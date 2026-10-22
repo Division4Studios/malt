@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 
 import { areObjectivesCurrent } from './recommendation-objectives.ts';
 import { recommendationAddress } from './recommendation-read-schema.ts';
+import { githubKey } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { ObservedIssue } from '../github-issues.ts';
@@ -57,7 +58,7 @@ async function* issueObservations(
   issues: RecommendationBody['observedIssues'],
 ): AsyncGenerator<ObservedIssue> {
   for (const observed of issues) {
-    yield readIssue(observed.issue);
+    yield readIssue(githubKey(observed.issue));
   }
 }
 

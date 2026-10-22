@@ -134,7 +134,7 @@ function seed(
  * @returns Context with a native issue reader.
  */
 function contextFor(repository: FactoryRepository, tickets: Tickets): ExecutionContext {
-  return { repository, remote: { observedIssue: async (number) => tickets.observe(number) } };
+  return { repository, remote: { observedIssue: async (key) => tickets.observe(Number(key.key)) } };
 }
 
 /**
@@ -235,7 +235,8 @@ await test('a failed issue read is isolated to its record: missing issues go sta
   const context: ExecutionContext = {
     repository,
     remote: {
-      observedIssue: async (number) => {
+      observedIssue: async (key) => {
+        const number = Number(key.key);
         if (number === 4) {
           throw new MeshError('NOT_FOUND', 'The selected issue is missing or inaccessible.');
         }

@@ -124,7 +124,8 @@ await test('a Jira tracker saves beside a GitHub source, unverified, with only a
   });
   assert.deepEqual(first.tracker.credential, { kind: 'env', name: 'JIRA_API_TOKEN' });
   assert.equal(first.tracker.owner, 'example');
-  assert.equal(first.tracker.projectNumber, 10_000);
+  assert.equal(first.tracker.projectNumber, undefined, 'a Jira project has no GitHub Project number');
+  assert.equal(first.tracker.projectId, '10000');
   assert.equal(first.tracker.url, 'https://example.atlassian.net/browse/PROJ');
   assert.deepEqual(sectionStates(first), { tracker: 'saved', source: 'saved' });
   assert.equal(isConnected(first), false);
@@ -134,6 +135,20 @@ await test('a Jira tracker saves beside a GitHub source, unverified, with only a
   const switched = savedSections(first, { tracker }, NOW);
   assert.equal(switched.tracker.provider, 'github-projects');
   assert.equal(switched.tracker.jira, undefined);
+});
+
+await test('only a GitHub tracker carries a Project number; older Jira sections still load without one being read', () => {
+  const jira = savedSections(null, { jiraTracker, source }, NOW);
+  assert.equal(parseConnection(structuredClone(jira)).legacy, null, 'a Jira tracker has no GitHub Project view');
+  const older = { ...jira, tracker: { ...jira.tracker, projectNumber: 10_000 } };
+  const loaded = parseConnection(structuredClone(older));
+  assert.equal(loaded.v2.tracker.provider, 'jira');
+  assert.equal(loaded.legacy, null, 'the number an older save kept is never read as a Project');
+  const github = savedSections(null, { tracker, source }, NOW);
+  assert.equal(parseConnection(structuredClone(github)).legacy?.project.number, github.tracker.projectNumber);
+  const { projectNumber, ...unnumbered } = github.tracker;
+  assert.ok(projectNumber !== undefined);
+  assert.throws(() => parseConnection({ ...github, tracker: unnumbered }), { code: 'INVALID_INPUT' });
 });
 
 await test('a Jira tracker needs a Cloud site and cannot be saved together with a GitHub tracker', () => {

@@ -26,6 +26,7 @@ import {
 import { publishDelivery } from './post-agent.ts';
 import { PublicationSizeError } from './publication-size.ts';
 import { recordConflict } from './repairs.ts';
+import { issueLabel } from './tracker-key.ts';
 import { STEP_OUTPUT_VERSION } from './workflow-schema.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -206,7 +207,7 @@ function holdForSize(context: FactoryContext, task: FactoryTask, error: Publicat
       ...(isMeasured && { publicationGate: error.measured }),
     };
   });
-  context.repository.notify(`Delivery #${String(task.issue)} needs a decision: ${error.message}`);
+  context.repository.notify(`Delivery ${issueLabel(task)} needs a decision: ${error.message}`);
 }
 
 /**
@@ -283,5 +284,5 @@ function completeRegression(
  */
 function blockForOperator(context: FactoryContext, task: FactoryTask, reason: string): void {
   context.repository.editTask(task.id, (current) => ({ ...current, phase: 'blocked', error: reason }));
-  context.repository.notify(`Delivery #${String(task.issue)} needs a decision: ${reason}`);
+  context.repository.notify(`Delivery ${issueLabel(task)} needs a decision: ${reason}`);
 }

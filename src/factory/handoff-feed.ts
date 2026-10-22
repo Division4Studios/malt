@@ -57,6 +57,8 @@ export interface OperatorHandoff {
     readonly jobId: string | null;
     readonly taskId: string | null;
     readonly issue: number | null;
+    /** Tracker key as shown, when the report recorded one. */
+    readonly label: string | null;
     readonly featureId: string | null;
     readonly title: string | null;
     readonly kind: string | null;
@@ -148,6 +150,7 @@ function reportAssignment(
     jobId: safe.text(row.jobId),
     taskId: safe.optional(row.sourceJobId === row.jobId ? row.jobTaskId : row.taskId),
     issue: report?.context.issue ?? null,
+    label: safe.optional(report?.context.label ?? null),
     featureId: safe.optional(report?.context.featureId ?? null),
     title: safe.optional(title?.text ?? null),
     kind: safe.optional(report?.kind ?? null),
@@ -221,6 +224,7 @@ export function handoffFeed(store: Store, mesh: MeshConfig): OperatorHandoff[] {
         jobId: null,
         taskId: safe.optional(message.task_id),
         issue: null,
+        label: null,
         featureId: null,
         title: null,
         kind: null,

@@ -6,6 +6,8 @@
  */
 import { z } from 'zod/v3';
 
+import { issueLabel } from './tracker-key.ts';
+
 import type { ExecutedJob } from './context.ts';
 import type { FailureClass } from './liveness-schema.ts';
 import type { Feature, FactoryJob, FactoryTask } from './schema.ts';
@@ -51,6 +53,8 @@ export const handoffSchema = z.object({
   context: z.object({
     taskId: z.string().nullable(),
     issue: z.number().nullable(),
+    /** Tracker key as shown, `#12` or `PROJ-12`; absent on handoffs recorded before typed keys. */
+    label: z.string().max(HANDOFF_CONTEXT_MAX).optional(),
     title: boundedSchema.nullable(),
     featureId: z.string().nullable(),
     objective: boundedSchema.nullable(),
@@ -173,12 +177,23 @@ export function buildHandoff(input: {
     context: {
       taskId: job.taskId,
       issue: task?.issue ?? null,
+      ...(task !== null && { label: issueLabel(task) }),
       title: bound(task?.title, HANDOFF_CONTEXT_MAX),
       featureId: job.featureId,
       objective: bound(feature?.objective, HANDOFF_CONTEXT_MAX),
     },
     reason: bound(evidence.reason, HANDOFF_SUMMARY_MAX),
   });
+}
+
+/**
+ * The delivery a handoff names, as people see it.
+ *
+ * @param context - Recorded assignment context.
+ * @returns Its tracker key, the issue number of a handoff recorded before typed keys, or an explicit unknown.
+ */
+function contextIssue(context: Handoff['context']): string {
+  return context.issue === null ? 'issue unavailable' : (context.label ?? `#${String(context.issue)}`);
 }
 
 /**
@@ -191,8 +206,7 @@ export function handoffBody(handoff: Handoff): string {
   const { context } = handoff;
   const purpose: string[] = [];
   if (context.issue !== null || context.title !== null) {
-    const issue = context.issue === null ? 'issue unavailable' : `#${String(context.issue)}`;
-    purpose.push(`delivery ${issue} "${context.title?.text ?? 'title unavailable'}"`);
+    purpose.push(`delivery ${contextIssue(context)} "${context.title?.text ?? 'title unavailable'}"`);
   }
   if (context.objective !== null) {
     purpose.push(`objective "${context.objective.text}"`);

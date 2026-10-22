@@ -37,6 +37,7 @@ import {
 } from './schema.ts';
 import { CODE_JOB_KINDS } from './seats.ts';
 import { TerminalSessions } from './terminal-sessions.ts';
+import { issueLabel } from './tracker-key.ts';
 import { expandWorkKeys } from './work-keys.ts';
 
 import type { Store } from '../store.ts';
@@ -467,12 +468,13 @@ export class FactoryRepository {
       this.store.event('FACTORY_TASK_UPDATED', null, {
         taskId: id,
         issue: task.issue,
+        label: issueLabel(task),
         phase: task.phase,
         head: task.head,
       });
       if (previous.phase !== task.phase) {
         this.notifyInside(
-          `Issue #${String(task.issue)}: ${task.phase}. ${task.error ?? task.feedback.at(-1) ?? task.title}`,
+          `Issue ${issueLabel(task)}: ${task.phase}. ${task.error ?? task.feedback.at(-1) ?? task.title}`,
         );
       }
       return task;
@@ -496,6 +498,7 @@ export class FactoryRepository {
       this.store.event('FACTORY_TASK_UPDATED', null, {
         taskId: id,
         issue: task.issue,
+        label: issueLabel(task),
         phase: task.phase,
         head: task.head,
       });

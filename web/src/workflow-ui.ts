@@ -4,7 +4,7 @@
  *
  * @file
  */
-import { child, records, text, number, firstText } from './api.js';
+import { child, records, text, number, firstText, issueLabel } from './api.js';
 import { t } from './i18n.js';
 import { element } from './worker-ui.js';
 
@@ -215,14 +215,15 @@ function selectNode(point: Point, detail: HTMLElement, inspect: (role: string) =
     element('h3', '', text(node, 'label')),
     element('p', '', `${text(node, 'kind')} · ${text(node, 'state')}`),
   );
-  const issue = number(node, 'issue');
+  const hasIssue = number(node, 'issue') > 0;
+  const issue = firstText(text(node, 'deliveryLabel'), `#${String(number(node, 'issue'))}`);
   const stage = text(node, 'stage');
   detail.append(
     element(
       'p',
       'subtle',
-      issue > 0
-        ? t('Associated issue #{issue} · current stage {stage}', { issue, stage })
+      hasIssue
+        ? t('Associated issue {issue} · current stage {stage}', { issue, stage })
         : t('No delivery currently associated with this role.'),
     ),
   );
@@ -363,10 +364,10 @@ function scopePanel(state: Snapshot): HTMLElement {
   const repository = text(child(state.github, 'connection'), 'repository');
   for (const scope of scopes) {
     const card = element('article', 'scope-signal');
-    const issue = number(scope, 'issue');
-    const title = element('a', '', `#${String(issue)} · ${text(scope, 'title')}`);
-    if (repository !== '') {
-      title.href = `https://github.com/${repository}/issues/${String(issue)}`;
+    const label = issueLabel(scope);
+    const title = element('a', '', `${label} · ${text(scope, 'title')}`);
+    if (repository !== '' && label.startsWith('#')) {
+      title.href = `https://github.com/${repository}/issues/${String(number(scope, 'issue'))}`;
       title.target = '_blank';
       title.rel = 'noopener noreferrer';
     }

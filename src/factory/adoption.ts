@@ -11,6 +11,7 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { recoverObjective } from './recovery.ts';
 import { factorySchemas } from './schema.ts';
+import { formatTrackerKey, issueKey, issueLabel, objectiveParentKey } from './tracker-key.ts';
 import { decideTriage, decisionById } from './triage.ts';
 
 import type { FactoryContext } from './context.ts';
@@ -18,8 +19,8 @@ import type { FactoryRepository } from './repository.ts';
 import type { FactoryJob, FactoryTask, Feature } from './schema.ts';
 import type { TriageDecision } from './triage.ts';
 
-/** GitHub close reasons that never represent a delivery. */
-const UNDELIVERED: ReadonlySet<string> = new Set(['not_planned', 'duplicate']);
+/** Close reasons that never represent a delivery; a Jira `reassigned` issue is still open for its new owner. */
+const UNDELIVERED: ReadonlySet<string> = new Set(['not_planned', 'duplicate', 'reassigned']);
 
 /** One proposed operator decision file. */
 interface Proposal {
@@ -125,12 +126,9 @@ export async function adoptDeliveredIssue(
   if (value.mergeCommit !== undefined && task.merge !== null && task.merge !== value.mergeCommit) {
     throw new MeshError('FACTORY_GATED', `This delivery already records merge ${task.merge}.`);
   }
-  const issue = await context.remote.issueState(task.issue);
+  const issue = await context.remote.issueState(issueKey(task));
   if (issue.state !== 'closed') {
-    throw new MeshError(
-      'FACTORY_GATED',
-      `Issue #${String(task.issue)} is still open on GitHub; adopt only closed issues.`,
-    );
+    throw new MeshError('FACTORY_GATED', `Issue ${issueLabel(task)} is still open; adopt only closed issues.`);
   }
   const reason = issue.stateReason ?? 'completed';
   const isDelivered = !UNDELIVERED.has(reason);
@@ -166,16 +164,16 @@ export async function retireObjective(
   }
   const value = factorySchemas.factory_recover.parse(input);
   const feature = context.repository.features().find((item) => item.id === value.featureId);
-  const parent = feature?.parentIssue ?? null;
+  const parent = feature === undefined ? null : objectiveParentKey(feature);
   if (parent === null || feature?.updatedAt !== value.expectedUpdatedAt) {
     // Replays an exact receipt, or rejects the stale or parentless request without GitHub I/O.
     return recoverObjective(context.repository, value);
   }
   const issue = await context.remote.issueState(parent);
   if (issue.state !== 'closed') {
-    throw new MeshError('FACTORY_GATED', `Parent issue #${String(parent)} is still open on GitHub.`);
+    throw new MeshError('FACTORY_GATED', `Parent issue ${formatTrackerKey(parent)} is still open.`);
   }
-  return recoverObjective(context.repository, value, parent);
+  return recoverObjective(context.repository, value, feature.parentIssue);
 }
 
 /**
@@ -227,7 +225,7 @@ export async function recoverControl(
  * @throws {MeshError} When the closure contradicts a recorded merge.
  */
 async function taskProposal(context: FactoryContext, task: FactoryTask): Promise<Proposal | null> {
-  const issue = await context.remote.issueState(task.issue);
+  const issue = await context.remote.issueState(issueKey(task));
   if (issue.state !== 'closed') {
     return null;
   }
@@ -251,7 +249,7 @@ async function taskProposal(context: FactoryContext, task: FactoryTask): Promise
       taskId: task.id,
       expectedVersion: task.version,
       action: 'adopt_delivered',
-      note: `GitHub reconciliation: issue #${String(task.issue)} is closed as ${reason}.${evidence}`,
+      note: `GitHub reconciliation: issue ${issueLabel(task)} is closed as ${reason}.${evidence}`,
       ...(merge !== null && merge !== task.merge && { mergeCommit: merge }),
     },
   };
@@ -286,7 +284,11 @@ async function featureProposal(
   ) {
     return null;
   }
-  const issue = await context.remote.issueState(feature.parentIssue);
+  const parent = objectiveParentKey(feature);
+  if (parent === null) {
+    return null;
+  }
+  const issue = await context.remote.issueState(parent);
   if (issue.state !== 'closed') {
     return null;
   }
@@ -300,7 +302,7 @@ async function featureProposal(
       featureId: feature.id,
       expectedUpdatedAt: feature.updatedAt,
       action: 'retire',
-      note: `GitHub reconciliation: parent issue #${String(feature.parentIssue)} is closed as ${reason}.`,
+      note: `GitHub reconciliation: parent issue ${formatTrackerKey(parent)} is closed as ${reason}.`,
     },
   };
 }

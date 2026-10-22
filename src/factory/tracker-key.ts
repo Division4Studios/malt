@@ -8,10 +8,7 @@
  */
 import { z } from 'zod/v3';
 
-import { selectOne } from '../database.ts';
 import { jiraIssueKeySchema } from '../jira/client.ts';
-
-import type { Store } from '../store.ts';
 
 /** Trackers that can hold a work item. */
 export const TRACKER_KEY_PROVIDERS = ['github', 'jira'] as const;
@@ -28,6 +25,33 @@ export const trackerKeySchema = z.discriminatedUnion('provider', [
 ]);
 /** A provider-typed work key. */
 export type TrackerKey = z.output<typeof trackerKeySchema>;
+
+/**
+ * An issue as an operator or model names it in a tool call: a GitHub or local
+ * issue number (`12` or `"#12"`) or a Jira key (`"PROJ-12"`).
+ */
+export const issueReferenceSchema = z.union([
+  z.number().int().positive(),
+  z
+    .string()
+    .trim()
+    .regex(/^(?:#?[1-9]\d{0,17}|[A-Z][\dA-Z_]{1,99}-[1-9]\d{0,17})$/v),
+]);
+/** An issue as a tool call names it. */
+export type IssueReference = z.output<typeof issueReferenceSchema>;
+
+/**
+ * The display key an issue reference names, comparable with {@link issueLabel}.
+ *
+ * @param reference - Number, `#12` or `PROJ-12`.
+ * @returns `#12` or `PROJ-12`.
+ */
+export function referenceLabel(reference: IssueReference): string {
+  if (typeof reference === 'number') {
+    return `#${String(reference)}`;
+  }
+  return /^\d/v.test(reference) ? `#${reference}` : reference;
+}
 
 /**
  * The key of a GitHub issue.
@@ -85,6 +109,21 @@ export function branchKey(key: TrackerKey): string {
 }
 
 /**
+ * A delivery's pull request title. Jira's development panel links pull
+ * requests by the issue key in their title or branch, so a Jira delivery's
+ * title starts with its key; GitHub links its own issues, so a GitHub title
+ * is the delivery title unchanged.
+ *
+ * @param record - Delivery with its title and keys.
+ * @param record.title - What the delivery delivers, as its issue names it.
+ * @returns `PROJ-12 Export API` for Jira, the title alone otherwise.
+ */
+export function pullRequestTitle(record: KeyedIssue & { readonly title: string }): string {
+  const key = issueKey(record);
+  return key.provider === 'github' ? record.title : `${key.key} ${record.title}`;
+}
+
+/**
  * Split a key into the parts it sorts by.
  *
  * @param key - Typed key.
@@ -116,22 +155,73 @@ export function compareTrackerKeys(left: TrackerKey, right: TrackerKey): number 
   return byProject === 0 ? leftNumber - rightNumber : byProject;
 }
 
-/** One `factory_task_keys` row. */
-const keyRowSchema = z.object({ tracker_provider: z.string(), external_key: z.string() });
+/** A ledger record's issue: the numeric handle every ledger row keeps, and the typed key a non-GitHub tracker wrote. */
+export interface KeyedIssue {
+  /** Numeric ledger handle: the GitHub or local issue number, or a Jira issue's stable numeric ID. */
+  readonly issue: number;
+  /** Typed key; absent on GitHub and local records, whose key is their issue number. */
+  readonly trackerKey?: TrackerKey | undefined;
+}
+/** A ledger record's parent issue, keyed the same way. */
+export interface KeyedParent {
+  /** Numeric ledger handle of the parent issue. */
+  readonly parentIssue: number;
+  /** Typed parent key; absent on GitHub and local records. */
+  readonly parentKey?: TrackerKey | undefined;
+}
 
 /**
- * A delivery's typed key from the additive side table the ledger already keeps.
+ * The typed key of a delivery or imported issue. Records saved before typed
+ * keys, and every GitHub or local record, derive it from their issue number.
  *
- * @param store - Selected project's SQLite owner.
- * @param taskId - Delivery identifier.
- * @returns Typed key, or `null` for an unknown delivery or an unrecognised row.
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Typed key.
  */
-export function taskTrackerKey(store: Store, taskId: string): TrackerKey | null {
-  const row = selectOne(
-    store.db,
-    keyRowSchema,
-    'SELECT tracker_provider, external_key FROM factory_task_keys WHERE task_id=?',
-    taskId,
-  );
-  return row === undefined ? null : parseTrackerKey(row.tracker_provider, row.external_key);
+export function issueKey(record: KeyedIssue): TrackerKey {
+  return record.trackerKey ?? githubKey(record.issue);
+}
+
+/**
+ * The typed key of a record's parent issue.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Typed parent key.
+ */
+export function parentKey(record: KeyedParent): TrackerKey {
+  return record.parentKey ?? githubKey(record.parentIssue);
+}
+
+/**
+ * How a record's issue is shown to people: `#123` or `PROJ-123`.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Display text.
+ */
+export function issueLabel(record: KeyedIssue): string {
+  return formatTrackerKey(issueKey(record));
+}
+
+/**
+ * How a record's parent issue is shown to people.
+ *
+ * @param record - Delivery, Ready issue or provisioned mapping.
+ * @returns Display text.
+ */
+export function parentLabel(record: KeyedParent): string {
+  return formatTrackerKey(parentKey(record));
+}
+
+/**
+ * The typed key of an objective's parent issue.
+ *
+ * @param feature - Objective, possibly not yet provisioned.
+ * @param feature.parentIssue - Parent handle, null before provisioning.
+ * @param feature.parentKey - Typed parent key, absent for GitHub and local parents.
+ * @returns Typed parent key, or `null` before the parent exists.
+ */
+export function objectiveParentKey(feature: {
+  readonly parentIssue: number | null;
+  readonly parentKey?: TrackerKey | undefined;
+}): TrackerKey | null {
+  return feature.parentIssue === null ? null : (feature.parentKey ?? githubKey(feature.parentIssue));
 }

@@ -26,7 +26,7 @@ Every capability starts `disabled`, apart from the initialization grants describ
 | `relationships`         | Native parent/child links and dependencies                                                          |
 | `membership`            | Adding an issue to the Project                                                                      |
 | `transition`            | Moving an issue's Status                                                                            |
-| `comment`               | Commenting on Jira issues (the Jira library only; the factory makes no Jira writes yet)             |
+| `comment`               | Commenting on Jira issues: progress, pull request links and merged-main evidence                    |
 | `label-use`             | Applying existing labels                                                                            |
 | `label-manage`          | Creating, editing and deleting labels                                                               |
 | `milestone-use`         | Assigning existing milestones                                                                       |
@@ -88,7 +88,7 @@ Principals come from authenticated context:
 | `github_status`, `github_sync`, `github_verify`, `github_discover` | none                                                                                       |
 | `github_labels`, `github_milestones`                               | none                                                                                       |
 | `github_connect`                                                   | `project-connect`, plus `project-create` with `createProject`                              |
-| `github_section_save`                                              | `project-connect`                                                                          |
+| `github_section_save`, `jira_workflow_save`                        | `project-connect`                                                                          |
 | `github_create_issue`                                              | `issue-create`, `membership` and `transition` (Backlog), plus `relationships` for a parent |
 | `github_set_status`                                                | `transition` and `membership` (it attaches the issue if needed)                            |
 | `github_label_apply` / `github_label_manage`                       | `label-use` / `label-manage`                                                               |
@@ -113,7 +113,7 @@ Every entry point supplies its principal from its transport:
 
 ### Jira
 
-The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The factory makes no Jira writes yet; see [Connect Jira Cloud](project-connectors.md#connect-jira-cloud). `capability_policy_status` also reports `jira`: the current Jira mode (`read-only`, `comment-only`, `full` or `custom`), what MALT always reads, and each Jira write with its current policy. **Project → Connections** shows it beside a Jira tracker before any write is enabled. Turning a Jira denial into one durable blocker comes with the factory's Jira writes (#330).
+The Jira library in `src/jira/writes.ts` calls `authorize` with the same principal rules before any request to the Jira site, so a denial makes no call. The factory's Jira remote asks before its first request too: provisioning asks for `issue-create` and `relationships` before it reads the project's issue types, and a stage move asks for `transition` before it reads the issue. It acts as `{ kind: 'supervisor', role: 'team-lead' }`, so a Jira mode whose writes are human-only (no roles) denies the factory; grant the writes to `team-lead`. A denial parks its scope as one durable blocker, as described in [Denials in the factory](#denials-in-the-factory), and changing the Jira mode on **Capabilities** resumes it. See [Deliver through Jira](project-connectors.md#deliver-through-jira). `capability_policy_status` also reports `jira`: the current Jira mode (`read-only`, `comment-only`, `full` or `custom`), what MALT always reads, and each Jira write with its current policy. **Project → Connections** shows it beside a Jira tracker before any write is enabled.
 
 | Mutation                 | Capabilities                       |
 | ------------------------ | ---------------------------------- |
@@ -128,7 +128,7 @@ Labels set while creating an issue also need `label-use`.
 
 ## Denials in the factory
 
-A `CAPABILITY_DENIED` from the supervisor's outbox, its pre-assignment tracking gate or objective provisioning parks the owning scope once, with no retry loop:
+A `CAPABILITY_DENIED` from the supervisor's outbox, its pre-assignment tracking gate or objective provisioning parks the owning scope once, with no retry loop. This holds for GitHub and Jira alike:
 
 - The denied effect is held, never retried, under its identity. A delivery or an objective moves to `blocked` with one blocker that names the capability, its mode and the human action. The interrupted phase is remembered as `capabilityBlock`.
 - No assignment is admitted for the parked scope, and no paid blocker investigation is queued, because the cause and the remedy are already known. Unrelated work keeps dispatching.

@@ -3,6 +3,7 @@ import { setImmediate } from 'node:timers/promises';
 
 import { observedIssueSchema } from '../../src/github-issues.ts';
 
+import type { TrackerKey } from '../../src/factory/tracker-key.ts';
 import type { ObservedIssue } from '../../src/github-issues.ts';
 
 /**
@@ -34,12 +35,12 @@ const observation = (number: number): ObservedIssue => {
 /**
  * Yield like a real remote boundary so concurrent decisions can interleave.
  *
- * @param number - Requested fixture issue.
+ * @param issue - Requested fixture issue: its typed key, as the remote boundary passes it, or its number.
  * @returns Complete read-only observation after an asynchronous turn.
  */
-export async function readObservation(number: number): Promise<ObservedIssue> {
+export async function readObservation(issue: TrackerKey | number): Promise<ObservedIssue> {
   await setImmediate();
-  return observation(number);
+  return observation(typeof issue === 'number' ? issue : Number(issue.key));
 }
 
 /** Two referenced issues and a concrete before/after human review preview. */

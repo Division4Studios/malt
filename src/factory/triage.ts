@@ -13,6 +13,7 @@ import { MeshError } from '../protocol.ts';
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
 import { approvePublicationSize } from './publication-size.ts';
 import { factorySchemas } from './schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { FactoryRepository } from './repository.ts';
 import type { AgentResult, FactoryJob, FactoryTask } from './schema.ts';
@@ -334,7 +335,7 @@ function adoptMerge(repository: FactoryRepository, input: Input): void {
  */
 function adoptDelivered(repository: FactoryRepository, input: Input, evidence: DeliveredEvidence): FactoryTask {
   const task = repository.task(input.taskId);
-  const issue = `issue #${String(task.issue)}`;
+  const issue = `issue ${issueLabel(task)}`;
   const merge =
     evidence.merge === null
       ? ' with no recorded merge'

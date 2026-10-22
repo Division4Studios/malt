@@ -121,7 +121,7 @@ function errorLine(error: string | null): HTMLElement[] {
 function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLElement {
   const card = element('article', 'kanban-card');
   card.dataset['type'] = 'delivery';
-  const title = `#${String(delivery.issue)} ${delivery.title}`;
+  const title = `${delivery.label} ${delivery.title}`;
   card.append(
     cardHeading(title, key, () => {
       hooks.openDelivery(delivery.taskId);
@@ -143,7 +143,7 @@ function deliveryCard(delivery: Delivery, key: string, hooks: BoardHooks): HTMLE
       tag(delivery.held.reason === '' ? t('Held') : t('Held: {reason}', { reason: delivery.held.reason }), 'tag-held'),
     );
   }
-  badges.append(...delivery.waitingOn.map((issue) => tag(t('Waiting on #{issue}', { issue }), 'tag-waiting')));
+  badges.append(...delivery.waitingOn.map((issue) => tag(t('Waiting on {issue}', { issue }), 'tag-waiting')));
   if (delivery.attempts > 0) {
     badges.append(tag(`${String(delivery.attempts)} attempt${delivery.attempts === 1 ? '' : 's'}`));
   }

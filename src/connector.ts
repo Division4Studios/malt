@@ -33,6 +33,18 @@ export const CAPABILITY_NAMES = [
 /** Work tracker providers. */
 export const TRACKER_PROVIDERS = ['github-projects', 'jira'] as const;
 
+/** MALT delivery stages, as a tracker's workflow (the MALT Status field, or a mapped Jira status) shows them. */
+export const DELIVERY_STATUSES = [
+  'Backlog',
+  'Ready',
+  'Development',
+  'QA / Review',
+  'Merge Ready',
+  'Final Verification',
+  'Done',
+  'Blocked',
+] as const;
+
 /** Capability name to state; absent entries are unverified. */
 export const capabilitiesSchema = z.record(z.enum(CAPABILITY_NAMES), z.enum(CAPABILITY_STATES));
 
@@ -54,6 +66,37 @@ export const workflowFieldSchema = z.object({
   options: z.array(optionSchema).optional(),
 });
 
+/** Longest JQL intake filter kept. */
+export const JQL_MAX = 2000;
+/** Longest Jira status ID or name kept in a stage mapping. */
+const STATUS_TEXT_MAX = 255;
+/** The Jira status a MALT stage moves an issue to. */
+export const stageTargetSchema = z
+  .object({
+    statusId: z.string().min(1).max(STATUS_TEXT_MAX),
+    statusName: z.string().min(1).max(STATUS_TEXT_MAX),
+  })
+  .strict();
+
+/**
+ * What a human chose for the factory's Jira workflow: the JQL filter whose
+ * matches become objectives, and the Jira status each MALT stage moves an
+ * issue to.
+ */
+export const jiraWorkflowSchema = z
+  .object({
+    /** Intake filter; absent while intake is off. */
+    intake: z
+      .object({ jql: z.string().trim().min(1).max(JQL_MAX) })
+      .strict()
+      .optional(),
+    /** MALT stage to Jira status; an unmapped stage leaves the Jira status alone. */
+    stages: z.record(z.enum(DELIVERY_STATUSES), stageTargetSchema).optional(),
+  })
+  .strict();
+/** The factory's Jira workflow settings. */
+export type JiraWorkflow = z.output<typeof jiraWorkflowSchema>;
+
 /** Where a Jira tracker lives; the token itself is only ever named by the section's credential handle. */
 export const jiraTrackerSchema = z
   .object({
@@ -63,33 +106,42 @@ export const jiraTrackerSchema = z
     projectKey: z.string().regex(/^[A-Z][\dA-Z_]{1,99}$/v),
     /** Atlassian account email the API token belongs to. */
     email: z.string().email(),
+    /** Intake filter and stage mapping, set with `jira_workflow_save`. */
+    workflow: jiraWorkflowSchema.optional(),
   })
   .strict();
 
 /**
- * Work tracker section; `projectId` is the provider's stable identifier. A
- * Jira tracker fills the shared fields from Jira: `owner` is the site name,
- * `projectId` and `projectNumber` the numeric project ID, `url` the project's
- * browse page and `workflowField` Jira's own Status field; `jira` holds the
- * site, project key and account email.
+ * Work tracker section; `projectId` is the provider's stable identifier and
+ * `projectNumber` a GitHub Project's number, which only a GitHub tracker has.
+ * A Jira tracker fills the shared fields from Jira: `owner` is the site name,
+ * `projectId` the project ID, `url` the project's browse page and
+ * `workflowField` Jira's own Status field; `jira` holds the site, project key
+ * and account email. Jira sections saved before this kept the project ID in
+ * `projectNumber` as well; it still parses and is never read.
  */
-export const trackerSchema = z.object({
-  provider: z.enum(TRACKER_PROVIDERS),
-  owner: z.string().regex(/^[\w\-]+$/v),
-  projectId: z.string().min(1),
-  projectNumber: z.number().int().positive(),
-  url: z.string().url(),
-  workflowField: workflowFieldSchema,
-  capabilities: capabilitiesSchema,
-  /** Where this section's credential lives; absent on records saved before handles. */
-  credential: credentialHandleSchema.optional(),
-  /** Jira site, project key and account, for a Jira tracker only. */
-  jira: jiraTrackerSchema.optional(),
-  /** Latest verification; absent on records saved by a verified connect or before states existed. */
-  verification: verificationSchema.optional(),
-  savedAt: z.string().datetime(),
-  verifiedAt: z.string().datetime().nullable().default(null),
-});
+export const trackerSchema = z
+  .object({
+    provider: z.enum(TRACKER_PROVIDERS),
+    owner: z.string().regex(/^[\w\-]+$/v),
+    projectId: z.string().min(1),
+    projectNumber: z.number().int().positive().optional(),
+    url: z.string().url(),
+    workflowField: workflowFieldSchema,
+    capabilities: capabilitiesSchema,
+    /** Where this section's credential lives; absent on records saved before handles. */
+    credential: credentialHandleSchema.optional(),
+    /** Jira site, project key and account, for a Jira tracker only. */
+    jira: jiraTrackerSchema.optional(),
+    /** Latest verification; absent on records saved by a verified connect or before states existed. */
+    verification: verificationSchema.optional(),
+    savedAt: z.string().datetime(),
+    verifiedAt: z.string().datetime().nullable().default(null),
+  })
+  .refine((tracker) => tracker.provider !== 'github-projects' || tracker.projectNumber !== undefined, {
+    message: 'A GitHub Projects tracker needs its Project number.',
+    path: ['projectNumber'],
+  });
 
 /** Source control section; the node ID survives repository renames. */
 export const sourceSchema = z.object({
@@ -159,8 +211,8 @@ export type LegacyConnection = z.output<typeof legacyConnectionSchema>;
 
 /** A saved record in either on-disk version, resolved to both views. */
 export interface SavedConnection {
-  /** Flat view used by existing callers. */
-  legacy: LegacyConnection;
+  /** Flat view used by existing callers; null for a tracker that is not a GitHub Project. */
+  legacy: LegacyConnection | null;
   /** Separated tracker and source view. */
   v2: ConnectionV2;
 }
@@ -202,10 +254,13 @@ function upgradeConnection(legacy: LegacyConnection): ConnectionV2 {
  * Project a version 2 record onto the flat shape existing callers consume.
  *
  * @param record - Validated version 2 record.
- * @returns Legacy-shaped connection.
+ * @returns Legacy-shaped connection, or null when the tracker is not a GitHub Project.
  */
-export function flattenConnection(record: ConnectionV2): LegacyConnection {
+export function flattenConnection(record: ConnectionV2): LegacyConnection | null {
   const { tracker, source } = record;
+  if (tracker.provider !== 'github-projects' || tracker.projectNumber === undefined) {
+    return null;
+  }
   return {
     version: 1,
     repository: source.repository,

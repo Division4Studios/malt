@@ -15,6 +15,7 @@ import {
 } from './intake-corpus.ts';
 import { deliveryOperationIdentity, provisionedIssues } from './provisioning-identity.ts';
 import { objectiveObservation } from './recommendation-objectives.ts';
+import { recommendationBodySchema } from './schema.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { DetectionRecord, OperationSnapshot } from './duplicate-detection.ts';
@@ -156,17 +157,7 @@ export function inspectObjective(
           'Preserve all existing tickets, source, acceptance and ownership. A human disposition is required; no duplicate is closed automatically.',
       },
     };
-    let record = repository.recommendations.propose(body);
-    if (record.state === 'proposed') {
-      record = repository.recommendations.transition({
-        id: record.id,
-        revision: record.revision,
-        state: 'proposed',
-        next: 'awaiting_human',
-        reason: 'Unpaid intake found overlap; no ticket mutation authorized.',
-      });
-    }
-    recommendation = { id: record.id, revision: record.revision };
+    recommendation = heldDisposition(context, key, body) ?? queue(context, body);
   }
   const noMatchOutcome = isReused ? 'reuse' : 'ready';
   save(repository, key, {
@@ -180,6 +171,60 @@ export function inspectObjective(
       ? 'Resume the existing native operation identity.'
       : 'Inspect the related recommendation; approval, rejection or completed disposition releases this objective.',
   });
+}
+
+/**
+ * Keep a human disposition while only the objective's own scope moved on.
+ * Planning records the objective's plans, which changes its observed revision;
+ * that is progress, not new overlap evidence, so it must not re-ask the human
+ * or strand an approved objective. Any other change still needs a new decision.
+ *
+ * @param context - Selected project ledger.
+ * @param key - The objective's inspection checkpoint.
+ * @param body - Proposal this inspection would make.
+ * @returns The recommendation the last inspection recorded, or null when a new revision is needed.
+ */
+function heldDisposition(
+  context: FactoryContext,
+  key: string,
+  body: RecommendationBody,
+): { id: string; revision: string } | null {
+  const held = inspectionSchema.nullable().parse(metadata(context.repository, key))?.recommendation ?? null;
+  if (held === null) {
+    return null;
+  }
+  const record = context.repository.recommendations.get(held.id);
+  if (record?.revision !== held.revision || !isDisposed(record)) {
+    return null;
+  }
+  const evidence = (value: RecommendationBody): string => {
+    const parsed = recommendationBodySchema.parse(value);
+    const others = parsed.observedObjectives?.filter((item) => item.id !== parsed.originObjective);
+    return JSON.stringify({ ...parsed, observedObjectives: others });
+  };
+  return evidence(record.body) === evidence(body) ? held : null;
+}
+
+/**
+ * Record or replay an intake proposal and queue it for a human.
+ *
+ * @param context - Selected project ledger.
+ * @param body - Evidence-backed `related` proposal.
+ * @returns Its current identity and revision.
+ */
+function queue(context: FactoryContext, body: RecommendationBody): { id: string; revision: string } {
+  const { recommendations } = context.repository;
+  let record = recommendations.propose(body);
+  if (record.state === 'proposed') {
+    record = recommendations.transition({
+      id: record.id,
+      revision: record.revision,
+      state: 'proposed',
+      next: 'awaiting_human',
+      reason: 'Unpaid intake found overlap; no ticket mutation authorized.',
+    });
+  }
+  return { id: record.id, revision: record.revision };
 }
 
 /**

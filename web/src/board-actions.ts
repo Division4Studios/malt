@@ -97,7 +97,7 @@ export class BoardActions {
             void this.control('factory_archive', { taskIds: [entry.taskId], archive: false });
           },
         });
-        item.append(element('span', '', `#${String(entry.issue)} ${entry.title}`), restore);
+        item.append(element('span', '', `${entry.label} ${entry.title}`), restore);
         return item;
       }),
     );

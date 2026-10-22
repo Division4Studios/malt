@@ -133,10 +133,10 @@ function buttonNamed(root: FakeElement, label: string): FakeElement {
  *
  * @param root - View root.
  * @param label - Text of the label wrapping the control.
- * @param tag - `select` or `input`.
+ * @param tag - `select`, `input` or `textarea`.
  * @returns The control inside that label.
  */
-function control(root: FakeElement, label: string, tag: 'select' | 'input'): FakeElement {
+function control(root: FakeElement, label: string, tag: 'select' | 'input' | 'textarea'): FakeElement {
   const wrapper = root
     .querySelectorAll('label')
     .find((node) => node.children.some((part) => part.tagName === 'SPAN' && part.textContent === label));
@@ -346,7 +346,7 @@ await test('Jira is checked against its site, shows what is missing and the admi
   assert.ok(jira !== undefined);
   Reflect.set(jira, 'checked', true);
   fire(jira, 'change');
-  assert.match(root.textContent, /The factory does not deliver through Jira yet/v);
+  assert.match(root.textContent, /Branches, pull requests and merges stay in source control\./v);
   for (const [label, value] of [
     ['Jira Cloud site', 'https://example.atlassian.net'],
     ['Project key', 'PROJ'],
@@ -394,6 +394,105 @@ await test('Jira is checked against its site, shows what is missing and the admi
   });
   assert.equal(root.textContent.includes(SECRET), false);
   assert.deepEqual(written, []);
+});
+
+/** A saved, verified Jira tracker with an intake filter, one mapped stage and a last intake read. */
+const SAVED_JIRA = {
+  local: null,
+  github: {
+    credentials: { tracker: 'present', source: 'present' },
+    jiraIntake: {
+      checkedAt: '2026-10-20T12:00:00.000Z',
+      offered: ['PROJ-1'],
+      skipped: [{ key: 'PROJ-2', reason: 'done' }],
+      isTruncated: false,
+      retryAfterSeconds: null,
+      error: null,
+    },
+    connectionV2: {
+      version: 2,
+      tracker: {
+        provider: 'jira',
+        owner: 'example',
+        projectId: '10000',
+        url: 'https://example.atlassian.net/browse/PROJ',
+        workflowField: {
+          id: 'status',
+          name: 'Status',
+          options: [
+            { id: '10', name: 'To Do' },
+            { id: '11', name: 'In Progress' },
+            { id: '13', name: 'Done' },
+          ],
+        },
+        credential: { kind: 'env', name: 'JIRA_API_TOKEN' },
+        jira: {
+          site: 'https://example.atlassian.net',
+          projectKey: 'PROJ',
+          email: 'robot@example.com',
+          workflow: {
+            intake: { jql: 'project = PROJ' },
+            stages: { Done: { statusId: '13', statusName: 'Done' } },
+          },
+        },
+        verification: { state: 'verified', checkedAt: '2026-10-17T00:00:00.000Z', errors: [] },
+      },
+      source: {
+        provider: 'github',
+        repository: 'example/app',
+        verification: { state: 'verified', checkedAt: '2026-10-17T00:00:00.000Z', errors: [] },
+      },
+    },
+  },
+};
+
+await test('a saved Jira tracker sets its intake filter and stage mapping, previews intake and shows the last read', async (t) => {
+  const { root, update, sent } = mount(t, {
+    jira_workflow_save: {
+      intakePreview: { queue: ['PROJ-3'], skipped: [{ key: 'PROJ-4', reason: 'reassigned' }], isTruncated: true },
+    },
+  });
+  update(SAVED_JIRA);
+  const text = root.textContent;
+  assert.match(text, /Factory workflow in Jira/v);
+  assert.match(text, /Filed as objectives: PROJ-1\./v);
+  assert.match(text, /PROJ-2 skipped: done in Jira/v);
+  const filter = control(root, 'Intake filter (JQL)', 'textarea');
+  assert.equal(Reflect.get(filter, 'value'), 'project = PROJ');
+  assert.equal(Reflect.get(control(root, 'Done', 'select'), 'value'), '13', 'the saved mapping is shown');
+  Reflect.set(filter, 'value', 'project = PROJ AND labels = malt');
+  fire(filter, 'input');
+  choose(control(root, 'Development', 'select'), '11');
+  fire(buttonNamed(root, 'Save intake and stages'), 'click');
+  await settle();
+  assert.deepEqual(sent, [
+    {
+      operation: 'jira_workflow_save',
+      input: {
+        jql: 'project = PROJ AND labels = malt',
+        stages: {
+          Development: { statusId: '11', statusName: 'In Progress' },
+          Done: { statusId: '13', statusName: 'Done' },
+        },
+      },
+    },
+  ]);
+  const after = root.textContent;
+  assert.match(after, /Intake would file PROJ-3\./v);
+  assert.match(after, /PROJ-4 skipped: assigned to someone else/v);
+  assert.match(after, /More issues match than the preview read\./v);
+});
+
+await test('an empty intake filter turns intake off', async (t) => {
+  const { root, update, sent } = mount(t);
+  update(SAVED_JIRA);
+  const filter = control(root, 'Intake filter (JQL)', 'textarea');
+  Reflect.set(filter, 'value', '  ');
+  fire(filter, 'input');
+  choose(control(root, 'Done', 'select'), '');
+  fire(buttonNamed(root, 'Save intake and stages'), 'click');
+  await settle();
+  assert.deepEqual(sent, [{ operation: 'jira_workflow_save', input: { jql: null, stages: {} } }]);
 });
 
 await test('an invalid Jira form is explained without being sent', (t) => {

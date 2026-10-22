@@ -3,7 +3,7 @@
  *
  * @file
  */
-import { child, firstText, numericText, number, records, text, hasFlag } from './api.js';
+import { child, firstText, issueLabel, numericText, number, records, text, hasFlag } from './api.js';
 import { overviewMetrics, objectiveQueue } from './brand-ui.js';
 import { capacityView } from './capacity-view.js';
 import { definitionProgress } from './goal-ui.js';
@@ -184,12 +184,14 @@ function link(url: string, title: string): HTMLElement {
  * Resolve a scoped native issue link from the selected repository.
  *
  * @param state - Project snapshot.
- * @param issue - Native issue number.
- * @returns GitHub reference, absent without a connection.
+ * @param task - Delivery record.
+ * @returns GitHub reference, absent without a connection or for another tracker's key.
  */
-function issueUrl(state: Snapshot, issue: number): string {
+function issueUrl(state: Snapshot, task: Data): string {
   const repository = text(child(state.github, 'connection'), 'repository');
-  return repository === '' ? '' : `https://github.com/${repository}/issues/${String(issue)}`;
+  return repository === '' || !issueLabel(task).startsWith('#')
+    ? ''
+    : `https://github.com/${repository}/issues/${String(number(task, 'issue'))}`;
 }
 
 /**
@@ -259,7 +261,7 @@ function roleCard(state: Snapshot, role: string, actions: Actions): HTMLElement 
   );
   node.append(
     issue > 0
-      ? link(issueUrl(state, issue), `#${String(issue)} ${text(task, 'title')}`)
+      ? link(issueUrl(state, task), `${issueLabel(task)} ${text(task, 'title')}`)
       : element('p', '', parkedScope),
   );
   const footer = element('div', 'role-footer');
@@ -417,13 +419,12 @@ export function deliveryView(state: Snapshot, actions: Actions): HTMLElement {
 function ticket(state: Snapshot, task: Data, actions: Actions): HTMLElement {
   const node = element('article', 'ticket');
   const phase = text(task, 'phase');
-  const issue = number(task, 'issue');
   // The raw seat routes instructions; only the label is translated.
   const developer = text(task, 'developer');
   const owner = firstText(developer, t('unassigned'));
   const attempts = numericText(task, 'attempts');
   node.append(
-    link(issueUrl(state, issue), `#${String(issue)} · parent #${numericText(task, 'parentIssue')}`),
+    link(issueUrl(state, task), `${issueLabel(task)} · parent ${issueLabel(task, 'parentIssue')}`),
     element('h3', '', text(task, 'title')),
     pill(phase),
     element('p', '', t('Owner: {owner} · attempts {attempts}', { owner, attempts })),

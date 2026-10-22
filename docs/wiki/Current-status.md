@@ -23,6 +23,6 @@ Tracked on [milestone 1](https://github.com/Division4Studios/malt/milestone/1):
 - a worktree prune command (#411);
 - CodeQL alert #3 (#245).
 
-Not yet available: factory delivery through a Jira tracker. A Jira Cloud project can be discovered, saved and verified as the tracker on **Project → Connections**, but intake, breakdown and transitions are not wired in (#331–#335). Live Copilot assignments and live Codex Cloud tasks have not been run.
+A Jira Cloud project can be the factory's work tracker, with GitHub or the local hub as source control: its intake filter files objectives, plans become sub-tasks, stages move along a human mapping set on **Project → Connections**, and evidence is commented on the issues. Work is named by tracker key, such as `PROJ-12`. It has not yet been proven against a live Jira site (#336). Live Copilot assignments and live Codex Cloud tasks have not been run.
 
 Merging source does not upgrade a running broker. Restart it deliberately; see [Operations](Operations). The [issue audit of 2026-10-15](Issue-audit-2026-10-15) is a historical snapshot.

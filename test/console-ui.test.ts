@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { issueLabel } from '../web/dist/api.js';
 import { approvalInput, isPending, targetFromItem, targetFromStep } from '../web/dist/approval-model.js';
 import {
   bulkTargets,
@@ -87,7 +88,7 @@ function snapshotFixture(): Record<string, unknown> {
             base: null,
             prUrl: 'https://github.com/o/r/pull/3',
             developer: 'developer-1',
-            waitingOn: [7, 'x'],
+            waitingOn: [7, 'PROJ-3', null, ''],
             attempts: 2,
             error: null,
             updatedAt: 1000,
@@ -171,7 +172,8 @@ void test('the console projection is read defensively from untrusted snapshot da
   const [first] = model.deliveries;
   assert.ok(first !== undefined);
   assert.equal(first.title, 'Add <b>login</b>', 'markup stays plain text for textContent rendering');
-  assert.deepEqual(first.waitingOn, [7]);
+  assert.deepEqual(first.waitingOn, ['#7', 'PROJ-3'], 'keys pass through; numbers from an older service gain a #');
+  assert.equal(first.label, '#12', 'a card without a label shows its issue number');
   assert.equal(model.open.length, 2, 'unknown decision kinds are skipped');
   assert.equal(model.answered.length, 1);
   assert.equal(inboxCount(snapshotFixture()), 2);
@@ -361,12 +363,28 @@ await test('lifecycle controls hold, resume and archive exactly the deliveries s
         deliveries: [
           { taskId: TASK, issue: 1, title: 'x', column: 'ready', phase: 'ready', held: { at: 2, reason: 'r' } },
         ],
-        archived: { total: 3, recent: [{ taskId: DONE_TASK, issue: 9, title: 'Old' }, { issue: 2 }] },
+        archived: {
+          total: 3,
+          recent: [{ taskId: DONE_TASK, issue: 9, label: 'PROJ-9', title: 'Old' }, { issue: 2 }],
+        },
       },
     },
   });
   assert.deepEqual(held.deliveries[0]?.held, { at: 2, reason: 'r' });
-  assert.deepEqual(held.archived, { total: 3, recent: [{ taskId: DONE_TASK, issue: 9, title: 'Old' }] });
+  assert.deepEqual(held.archived, {
+    total: 3,
+    recent: [{ taskId: DONE_TASK, issue: 9, label: 'PROJ-9', title: 'Old' }],
+  });
+});
+
+void test('records show their tracker key: the view label, a typed Jira key, or the GitHub number', () => {
+  assert.equal(issueLabel({ issue: 12, label: 'PROJ-12' }), 'PROJ-12');
+  const jira = { issue: 10_042, parentIssue: 10_040, trackerKey: { provider: 'jira', key: 'PROJ-12' } };
+  assert.equal(issueLabel(jira), 'PROJ-12', 'a raw ledger task shows its typed key, never its numeric handle');
+  assert.equal(issueLabel({ ...jira, parentKey: { provider: 'jira', key: 'PROJ-10' } }, 'parentIssue'), 'PROJ-10');
+  assert.equal(issueLabel({ issue: 4, parentIssue: 1 }), '#4', 'GitHub and saved records keep #N');
+  assert.equal(issueLabel({ issue: 4, parentIssue: 1 }, 'parentIssue'), '#1');
+  assert.equal(issueLabel({ issue: 4, trackerKey: { provider: 'jira', key: 7 } }), '#4', 'a malformed key is ignored');
 });
 
 void test('answered decisions without a stable id are skipped', () => {

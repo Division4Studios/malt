@@ -10,6 +10,7 @@ import { MeshError } from '../protocol.ts';
 import { initializeRecommendationNotices, recordRecommendationNotices } from './recommendation-notices.ts';
 import {
   RECOMMENDATION_DETAIL_MAX,
+  isExecutable,
   isRetryable,
   recommendationDetailInput,
   recommendationListInput,
@@ -41,6 +42,15 @@ const SUMMARY_MAX = 1000;
 const AUDIT_MAX = 25;
 /** One list card exposes bounded evidence with full detail available separately. */
 const EVIDENCE_MAX = 3;
+
+/**
+ * Records still waiting on a human or the supervisor. An approved record the
+ * supervisor never executes (see `isExecutable`) is settled, not pending.
+ */
+const PENDING_SQL = `json_extract(r.data,'$.state') IN ('proposed','awaiting_human','applying','reconciling')
+  OR (json_extract(r.data,'$.state')='approved' AND (json_extract(r.data,'$.body.kind')='guidance_suggestion'
+  OR (json_extract(r.data,'$.body.kind') IN ('duplicate','consolidate') AND json_extract(r.data,'$.body.survivor') IS NOT NULL
+  AND json_array_length(r.data,'$.body.tickets')>1)))`;
 /** Aggregated current-project counters never include historical superseded revisions. */
 const countsSchema = z.object({
   total: z.number().int().nonnegative(),
@@ -148,7 +158,7 @@ export class RecommendationLedger {
       selectOne(
         this.store.db,
         countsSchema,
-        `SELECT count(*) AS total, COALESCE(sum(json_extract(r.data,'$.unread')=1),0) AS unread, COALESCE(sum(json_extract(r.data,'$.state') IN ('proposed','awaiting_human','approved','applying','reconciling')),0) AS pending, COALESCE(sum(json_extract(r.data,'$.state')='awaiting_human'),0) AS awaitingHuman FROM factory_recommendations c JOIN factory_recommendation_revisions r ON r.project=c.project AND r.id=c.id AND r.revision=c.revision WHERE c.project=?`,
+        `SELECT count(*) AS total, COALESCE(sum(json_extract(r.data,'$.unread')=1),0) AS unread, COALESCE(sum(${PENDING_SQL}),0) AS pending, COALESCE(sum(json_extract(r.data,'$.state')='awaiting_human'),0) AS awaitingHuman FROM factory_recommendations c JOIN factory_recommendation_revisions r ON r.project=c.project AND r.id=c.id AND r.revision=c.revision WHERE c.project=?`,
         this.project,
       ),
     );
@@ -222,7 +232,9 @@ export class RecommendationLedger {
         return replay;
       }
       const current = this.get(id);
-      if (current !== null && !REPLACEABLE.has(current.state)) {
+      // An approved record the supervisor never executes is a settled disposition, like a rejection.
+      const isSettled = current?.state === 'approved' && !isExecutable(current);
+      if (!isSettled && current !== null && !REPLACEABLE.has(current.state)) {
         throw new MeshError('FACTORY_GATED', 'A decided or executing recommendation cannot be replaced.');
       }
       if (current !== null && (current.state === 'proposed' || current.state === 'awaiting_human')) {

@@ -8,6 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { evidenceText } from '../jira/traceability.ts';
 import { MeshError } from '../protocol.ts';
 
 import { OPERATOR_ADOPTED } from './adoption-schema.ts';
@@ -15,9 +16,8 @@ import { closeAdopted } from './adoption.ts';
 import { hasParkedPRUpdate } from './blocked-pr.ts';
 import { isCapabilityDenied, parkEffect, parkFeature, resumeCapabilityBlocks } from './capability-blocks.ts';
 import { hasFailedCheck } from './ci-logs.ts';
-import { deliveryTask } from './delivery-task.ts';
+import { deliveryTask, parentFeature } from './delivery-task.ts';
 import { didAdoptExternalMerge } from './external-merge.ts';
-import { objectiveGates } from './gate-controls.ts';
 import { didRefreshOntoMain } from './main-refresh.ts';
 import { definitionProgress, isDefinitionMet } from './objective-goals.ts';
 import { logObjective } from './objective-log.ts';
@@ -31,10 +31,14 @@ import { blockExhausted } from './retry-exhaustion.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
 import { recoverSupersededMerge } from './superseded-merge.ts';
 import { reconcileSuperseded } from './supersession.ts';
+import { formatTrackerKey, issueKey, issueLabel, parentKey } from './tracker-key.ts';
+import { fileTrackerObjectives } from './tracker-work.ts';
 
 import type { FactoryContext } from './context.ts';
 import type { PullRequest } from './remote.ts';
+import type { DeliveryPlanIssue } from './scheduler.ts';
 import type { FactoryTask, Feature } from './schema.ts';
+import type { KeyedIssue, KeyedParent } from './tracker-key.ts';
 
 /** Commit id characters shown in progress log entries. */
 const SHORT_SHA = 12;
@@ -50,6 +54,19 @@ function shortSha(sha: string): string {
 }
 
 export { deliveryTask } from './delivery-task.ts';
+
+/**
+ * Whether two records name the same tracker issue. The numeric handle alone
+ * is not enough: a GitHub issue number and a Jira issue ID can coincide, so
+ * the tracker must match too. A renamed Jira key keeps its ID and still matches.
+ *
+ * @param left - Ledger delivery or remote mapping.
+ * @param right - Another.
+ * @returns True for the same handle on the same tracker.
+ */
+function isSameIssue(left: KeyedIssue, right: KeyedIssue): boolean {
+  return left.issue === right.issue && issueKey(left).provider === issueKey(right).provider;
+}
 
 /**
  * Provision reviewed plans and resume partial native issue creation.
@@ -93,27 +110,10 @@ async function provision(context: FactoryContext): Promise<void> {
 async function importReady(context: FactoryContext): Promise<void> {
   const ready = await context.remote.readyIssues();
   for (const issue of ready) {
-    if (context.repository.tasks().some((task) => task.issue === issue.issue)) {
+    if (context.repository.tasks().some((task) => isSameIssue(task, issue))) {
       continue;
     }
-    let feature = context.repository.features().find((candidate) => candidate.parentIssue === issue.parentIssue);
-    if (feature === undefined) {
-      const now = context.repository.store.now();
-      feature = {
-        id: randomUUID(),
-        objective: `Existing feature #${String(issue.parentIssue)}`,
-        phase: 'active',
-        productPlan: null,
-        plan: null,
-        parentIssue: issue.parentIssue,
-        error: null,
-        createdAt: now,
-        updatedAt: now,
-        approvals: [],
-        gates: objectiveGates(context.repository),
-      };
-      context.repository.saveFeature(feature);
-    }
+    const feature = parentFeature(context.repository, issue);
     if (feature.scopeReplacement === undefined) {
       context.repository.addTask(deliveryTask(context, issue, feature.id));
     }
@@ -170,6 +170,18 @@ async function publish(context: FactoryContext, task: FactoryTask): Promise<void
       error: current.version === task.version && current.scopeReplacement === undefined ? null : current.error,
     };
   });
+  // A GitHub issue links its pull requests itself; a Jira issue learns of one from this comment.
+  if (issueKey(task).provider === 'jira' && task.head !== null) {
+    context.repository.enqueueEffect({
+      id: `${task.id}:pr:${String(pr.number)}:comment`,
+      kind: 'comment',
+      issue: task.issue,
+      value: evidenceText({ kind: 'pull_request', url: pr.url, head: task.head }),
+      attempts: 0,
+      retryAt: 0,
+      error: null,
+    });
+  }
 }
 
 /**
@@ -289,7 +301,7 @@ async function serializeMerge(context: FactoryContext, task: FactoryTask, pr: Pu
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(merge)}; verifying on main.`,
+    body: `${issueLabel(record)} ${record.title} merged as ${shortSha(merge)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged PR #${String(record.pr)} at ${merge}. Refresh main in every remaining developer worktree before submission. Final merged-main testing is next.`,
@@ -328,18 +340,18 @@ async function closeVerified(context: FactoryContext, task: FactoryTask): Promis
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} verified on main ${shortSha(base)} and done.`,
+    body: `${issueLabel(record)} ${record.title} verified on main ${shortSha(base)} and done.`,
   });
   await context.learning.execute(
     'learning_record',
     {
-      summary: `Issue #${String(record.issue)} delivered`,
+      summary: `Issue ${issueLabel(record)} delivered`,
       cause: record.verifiedMain.summary,
       prevention: 'Retain successful acceptance checks and head-specific reviews for similar deliveries.',
       evidence: [
         `Merged main ${base}`,
         `Final attempt ${record.verifiedMain.jobId}`,
-        record.prUrl ?? `Issue #${String(record.issue)}`,
+        record.prUrl ?? `Issue ${issueLabel(record)}`,
       ],
       outcome: 'success',
       ticket: record.issue,
@@ -389,7 +401,7 @@ async function completionEffects(context: FactoryContext, task: FactoryTask): Pr
       error: notes.startsWith('Preserved') ? notes : null,
     };
   });
-  context.repository.notify(`Issue #${String(task.issue)} delivered. ${notes}`);
+  context.repository.notify(`Issue ${issueLabel(task)} delivered. ${notes}`);
 }
 
 /**
@@ -446,8 +458,8 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       parent === null ||
       // eslint-disable-next-line no-await-in-loop -- Confirm each feature's actual native children before committing its independent closure intent.
       !(await context.remote.parentComplete(
-        parent,
-        tasks.map((task) => task.issue),
+        parentKey({ parentIssue: parent, parentKey: feature.parentKey }),
+        tasks.map((task) => issueKey(task)),
       ))
     ) {
       continue;
@@ -495,7 +507,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
       body: `Objective complete: every delivery verified and closed${criteria}.`,
     });
     context.repository.notify(
-      `Feature #${String(parent)} is delivered: all atomic child issues were independently reviewed, merged, verified on main and closed.`,
+      `Feature ${formatTrackerKey(parentKey({ parentIssue: parent, parentKey: feature.parentKey }))} is delivered: all atomic child issues were independently reviewed, merged, verified on main and closed.`,
     );
   }
 }
@@ -508,6 +520,7 @@ export async function closeParents(context: FactoryContext): Promise<void> {
 export async function reconcile(context: FactoryContext): Promise<void> {
   resumeCapabilityBlocks(context.repository);
   await importReady(context);
+  await fileTrackerObjectives(context);
   await provision(context);
   // Consolidations park retired deliveries before any delivery stage, so a retired PR cannot merge this pass.
   await advanceRecommendations(context);
@@ -557,7 +570,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
   const existing = context.repository.tasks();
   const ids = new Map(
     mappings.map((mapping): readonly [string, string] => {
-      const id = existing.find((candidate) => candidate.issue === mapping.issue)?.id ?? randomUUID();
+      const id = existing.find((candidate) => isSameIssue(candidate, mapping))?.id ?? randomUUID();
       return [mapping.key, id];
     }),
   );
@@ -566,14 +579,10 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
     if (scope === undefined) {
       throw new MeshError('INVALID_INPUT', 'The issue mapping no longer matches the reviewed plan.');
     }
-    if (existing.some((candidate) => candidate.issue === mapping.issue)) {
+    if (existing.some((candidate) => isSameIssue(candidate, mapping))) {
       continue;
     }
-    const task = deliveryTask(
-      context,
-      { ...scope, issue: mapping.issue, parentIssue: mapping.parentIssue },
-      feature.id,
-    );
+    const task = deliveryTask(context, { ...scope, ...mappingIdentity(mapping) }, feature.id);
     context.repository.addTask({
       ...task,
       id: ids.get(mapping.key) ?? task.id,
@@ -593,7 +602,7 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
   context.repository.saveFeature({
     ...current,
     phase: 'active',
-    parentIssue: mappings[0]?.parentIssue ?? null,
+    ...parentIdentity(mappings[0]),
     error: null,
     updatedAt: context.repository.store.now(),
   });
@@ -610,19 +619,18 @@ async function provisionFeature(context: FactoryContext, feature: Feature): Prom
 function retainSupersededMappings(
   context: FactoryContext,
   feature: Feature,
-  mappings: readonly { key: string; issue: number; parentIssue: number }[],
+  mappings: readonly DeliveryPlanIssue[],
 ): void {
   context.repository.store.transaction(() => {
     for (const mapping of mappings) {
-      if (context.repository.tasks().some((candidate) => candidate.issue === mapping.issue)) {
+      if (context.repository.tasks().some((candidate) => isSameIssue(candidate, mapping))) {
         continue;
       }
       const scope = feature.plan?.deliveries.find((entry) => entry.key === mapping.key);
       const task = deliveryTask(
         context,
         {
-          issue: mapping.issue,
-          parentIssue: mapping.parentIssue,
+          ...mappingIdentity(mapping),
           title: scope?.title ?? 'Superseded remote scope',
           description: scope?.description ?? feature.objective,
           acceptanceCriteria: scope?.acceptanceCriteria ?? ['Superseded; do not implement.'],
@@ -636,8 +644,40 @@ function retainSupersededMappings(
         error: feature.error,
       });
     }
-    context.repository.saveFeature({ ...feature, parentIssue: mappings[0]?.parentIssue ?? feature.parentIssue });
+    const parent = mappings[0];
+    context.repository.saveFeature(parent === undefined ? feature : { ...feature, ...parentIdentity(parent) });
   });
+}
+
+/**
+ * A provisioned mapping's issue identity, keeping a non-GitHub tracker's typed keys.
+ *
+ * @param mapping - Confirmed remote creation receipt.
+ * @returns Numeric handles and any typed keys.
+ */
+function mappingIdentity(mapping: DeliveryPlanIssue): KeyedIssue & KeyedParent {
+  return {
+    issue: mapping.issue,
+    parentIssue: mapping.parentIssue,
+    ...(mapping.trackerKey !== undefined && { trackerKey: mapping.trackerKey }),
+    ...(mapping.parentKey !== undefined && { parentKey: mapping.parentKey }),
+  };
+}
+
+/**
+ * The parent issue identity a provisioned objective records.
+ *
+ * @param mapping - First confirmed creation receipt, if any.
+ * @returns Parent handle and any typed parent key and tracker.
+ */
+function parentIdentity(
+  mapping: DeliveryPlanIssue | undefined,
+): Pick<Feature, 'parentIssue' | 'parentKey' | 'parentTracker'> {
+  return {
+    parentIssue: mapping?.parentIssue ?? null,
+    ...(mapping?.parentKey !== undefined && { parentKey: mapping.parentKey }),
+    ...(mapping?.parentTracker !== undefined && { parentTracker: mapping.parentTracker }),
+  };
 }
 
 /**
@@ -728,7 +768,7 @@ async function recoverMerge(context: FactoryContext, task: FactoryTask, pr: Pull
   logObjective(context.repository.store, record.featureId, {
     kind: 'delivery',
     actor: 'supervisor',
-    body: `#${String(record.issue)} ${record.title} merged as ${shortSha(pr.mergeCommit.oid)}; verifying on main.`,
+    body: `${issueLabel(record)} ${record.title} merged as ${shortSha(pr.mergeCommit.oid)}; verifying on main.`,
   });
   context.repository.notify(
     `Merged #${String(record.pr)} into ${context.settings.baseBranch}. Every developer must refresh main before its next submission.`,

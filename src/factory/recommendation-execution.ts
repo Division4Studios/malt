@@ -23,6 +23,7 @@ import {
   isTicketOperation,
   recommendationRetrySchema,
 } from './recommendation-read-schema.ts';
+import { githubKey } from './tracker-key.ts';
 
 import type { ObservedIssue } from '../github-issues.ts';
 import type { ProjectLearning } from '../learning.ts';
@@ -114,7 +115,7 @@ async function readOne(
   number: number,
 ): Promise<ObservedIssue | 'missing' | 'unavailable'> {
   try {
-    return await read(number);
+    return await read(githubKey(number));
   } catch (error) {
     return error instanceof MeshError && MISSING_ISSUE.has(error.code) ? 'missing' : 'unavailable';
   }

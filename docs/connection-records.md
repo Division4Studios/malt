@@ -13,7 +13,9 @@ Each section has its own verification result, credential handle and capability d
 
 Version 1 records are read and normalized in memory without being rewritten. The next successful connection saves version 2. `github_status` keeps the legacy connection fields and adds the version 2 view, and the generated project README reads both versions.
 
-A Jira tracker fills the shared fields from Jira: `owner` is the site name, `projectId` and `projectNumber` the numeric project ID, `url` the project's browse page and `workflowField` Jira's own Status field, whose options are the project's workflow statuses once verified. A `jira` block keeps the `site`, `projectKey` and account `email`, and the credential handle names the token's environment variable. The factory does not deliver through a Jira tracker yet; see [Connect Jira Cloud](project-connectors.md#connect-jira-cloud).
+`projectNumber` is a GitHub Project's number and only a GitHub tracker has one. A Jira tracker fills the shared fields from Jira: `owner` is the site name, `projectId` the numeric project ID, `url` the project's browse page and `workflowField` Jira's own Status field, whose options are the project's workflow statuses once verified. A `jira` block keeps the `site`, `projectKey` and account `email`, and the credential handle names the token's environment variable. Its optional `workflow` holds what a human chose with `jira_workflow_save`: `intake.jql`, the filter whose matches become objectives, and `stages`, each MALT stage mapped to a Jira `{statusId, statusName}`. Saving the same site and project again keeps `workflow`; another project starts without it. See [Deliver through Jira](project-connectors.md#deliver-through-jira).
+
+The factory keeps its other Jira state beside the connection, in `.malt/jira/`: `operations/` journals each issue creation by request ID, `comments/` each posted comment, `intake.json` the last intake read, and `assignees.json` the account Jira assigned each sub-task MALT created.
 
 ## Issue journals and repository renames
 

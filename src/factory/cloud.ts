@@ -23,10 +23,12 @@ import { writeAtomic } from '../summary.ts';
 
 import { command } from './commands.ts';
 import { runAgent } from './providers.ts';
+import { issueLabel, trackerKeySchema } from './tracker-key.ts';
 
 import type { ProcessRunner } from './processes.ts';
 import type { AgentCompletion, AgentRequest, AgentRunner } from './providers.ts';
 import type { AgentResult, FactoryConfig } from './schema.ts';
+import type { TrackerKey } from './tracker-key.ts';
 
 /** Cloud task identifier printed by the native CLI. */
 const TASK_PATTERN = /\btask_[a-z]_[\da-f]{16,64}\b/v;
@@ -72,8 +74,10 @@ interface Submission {
 export interface Ticket {
   /** Factory task identity. */
   readonly id: string;
-  /** Issue number. */
+  /** Numeric ledger handle of its tracker issue. */
   readonly issue: number;
+  /** Typed tracker key, when the delivery has one other than its issue number. */
+  readonly trackerKey?: TrackerKey;
   /** Delivery title. */
   readonly title: string;
   /** Scope and boundaries. */
@@ -165,9 +169,11 @@ function ticket(artifact: string): Ticket | null {
   ) {
     return null;
   }
+  const key = trackerKeySchema.safeParse(task['trackerKey']);
   return {
     id: task['id'],
     issue: task['issue'],
+    ...(key.success && { trackerKey: key.data }),
     title: task['title'],
     description: task['description'],
     acceptanceCriteria: strings(task['acceptanceCriteria']),
@@ -184,7 +190,7 @@ function ticket(artifact: string): Ticket | null {
  */
 export function cloudPrompt(delivery: Ticket, standards: readonly string[]): string {
   const lines = [
-    `Implement delivery #${String(delivery.issue)}: ${delivery.title}`,
+    `Implement delivery ${issueLabel(delivery)}: ${delivery.title}`,
     '',
     delivery.description,
     '',

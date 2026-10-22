@@ -20,6 +20,7 @@ import { checkpointItems } from './checkpoint-view.ts';
 import { quotaView } from './extension-gate.ts';
 import { livenessView, stopView } from './liveness-view.ts';
 import { hasApprovals, hasFinalApproval } from './scheduler.ts';
+import { issueLabel } from './tracker-key.ts';
 import { triageStatus } from './triage.ts';
 
 import type { QuotaView } from './extension-gate.ts';
@@ -72,8 +73,10 @@ export interface BriefJob {
 export interface BriefDelivery {
   /** Task identity. */
   readonly taskId: string;
-  /** Issue number. */
+  /** Numeric ledger handle of its tracker issue. */
   readonly issue: number;
+  /** Tracker key as people see it: `#12` on GitHub, `PROJ-12` in Jira. */
+  readonly label: string;
   /** Title. */
   readonly title: string;
   /** Pipeline stage. */
@@ -272,7 +275,7 @@ export function nextAction(
   const waitingOn = task.dependencies
     .map((id) => tasks.find((candidate) => candidate.id === id))
     .filter((dependency) => dependency !== undefined && dependency.phase !== 'done')
-    .map((dependency) => `#${String(dependency?.issue)}`);
+    .map((dependency) => (dependency === undefined ? '' : issueLabel(dependency)));
   const actions: Record<FactoryTask['phase'], string> = {
     ready: waitingOn.length > 0 ? `Waiting for ${waitingOn.join(', ')} to finish.` : 'Waiting for a developer slot.',
     development: 'Waiting to dispatch the developer.',
@@ -325,7 +328,7 @@ function decisions(repository: FactoryRepository, managerDecisions: readonly Man
       return {
         kind: 'blocked_delivery',
         id: task.id,
-        title: `#${String(task.issue)} ${task.title}`,
+        title: `${issueLabel(task)} ${task.title}`,
         detail: task.error ?? 'Blocked without a recorded reason.',
         ...routeOf('blocked_delivery'),
       };
@@ -403,6 +406,7 @@ export function missionBrief(
       return {
         taskId: task.id,
         issue: task.issue,
+        label: issueLabel(task),
         title: task.title,
         stage: task.phase,
         developer: task.developer,
@@ -522,7 +526,7 @@ export function briefText(brief: MissionBrief): string {
       const stalled = delivery.job?.isPossiblyStalled === true ? ' POSSIBLY STALLED.' : '';
       const location = where === '' ? '' : ` (${where})`;
       const evidence = delivery.job === null ? '' : livenessLine(delivery.job, brief.generatedAt);
-      return `- #${String(delivery.issue)} ${delivery.title} [${delivery.stage}]${location}: ${delivery.nextAction}${evidence}${stalled}${stopLine(delivery.lastStop)}`;
+      return `- ${delivery.label} ${delivery.title} [${delivery.stage}]${location}: ${delivery.nextAction}${evidence}${stalled}${stopLine(delivery.lastStop)}`;
     }),
     `Decisions waiting on the operator (${String(brief.decisions.length)}):`,
     ...brief.decisions.map((decision) => `- ${decision.kind}: ${decision.title}: ${decision.detail}`),

@@ -8,6 +8,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { z } from 'zod/v3';
 
 import { FACTORY_ROLES, capacitySchema, featureSchema, publicJobSchema, taskSchema } from './factory/schema.ts';
+import { issueLabel, parentLabel } from './factory/tracker-key.ts';
 /** Named pane gap bound. */
 const PANE_GAP = 3;
 /** Named min terminal height bound. */
@@ -298,7 +299,7 @@ function teamView(state: DashboardState, selection: ViewSelection): ReturnType<t
   const selected = roles[selection.row];
   const job = selected?.job;
   const task = state.tasks.find((candidate) => candidate.id === job?.taskId);
-  const delivery = task === undefined ? 'planning / research' : `#${String(task.issue)} ${task.title}`;
+  const delivery = task === undefined ? 'planning / research' : `${issueLabel(task)} ${task.title}`;
   return {
     rows: roles,
     detail: [
@@ -327,7 +328,7 @@ function deliveryView(state: DashboardState, selection: ViewSelection): ReturnTy
   return {
     rows: tasks.map((item) => {
       return {
-        label: `#${String(item.issue)} ${item.phase.padEnd(PHASE_COLUMNS)} ${item.title}`,
+        label: `${issueLabel(item)} ${item.phase.padEnd(PHASE_COLUMNS)} ${item.title}`,
         state: item.phase,
       };
     }),
@@ -336,7 +337,7 @@ function deliveryView(state: DashboardState, selection: ViewSelection): ReturnTy
         ? ['No deliveries yet.', 'Product owner and lead prepare atomic tickets first.']
         : [
             task.title,
-            `Issue #${String(task.issue)} · parent #${String(task.parentIssue)}`,
+            `Issue ${issueLabel(task)} · parent ${parentLabel(task)}`,
             `Stage: ${task.phase} · owner: ${task.developer ?? 'unassigned'}`,
             `Attempts: ${String(task.attempts)}`,
             `PR: ${task.prUrl ?? 'not published'}`,

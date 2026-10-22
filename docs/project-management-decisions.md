@@ -22,7 +22,7 @@ Each recommendation has one of these kinds:
 
 ## Review and decide
 
-Open **Project → Recommendations**. The **Project** navigation button shows a count when recommendations are pending or unread.
+Open **Project → Recommendations**. The **Project** navigation button shows a count when recommendations are pending or unread. Pending means waiting for you or for the supervisor; an approved `related` or `scope_change` recommendation is settled and no longer counts as pending.
 
 ![Project → Recommendations: lanes by state, and a proposal's detail with tickets, survivor, evidence, before and after preview, a rationale field and Approve and Reject buttons](images/screenshots/recommendations.png)
 
@@ -44,6 +44,8 @@ Reading a recommendation in the console marks that revision read. A read receipt
 
 An objective parked by the intake check resumes when you decide its `related` recommendation, either way, or when the recommendation is **completed**. Approving records your agreement that the work overlaps and changes no tickets; rejecting says the objective is independent work. In both cases only that objective is released, and only for the exact revision you decided.
 
+Your decision holds while the objective moves through its own planning: the plans it records are not new overlap evidence, so you are not asked again. If a named ticket or another overlapping objective changes, or the project is connected to a different repository, intake records a new revision and parks the objective until you decide that one. This applies whether you approved or rejected the earlier revision, which stays in the history as you decided it.
+
 ## What approval executes
 
 Approved `duplicate` and `consolidate` recommendations are executed by the unpaid supervisor on its next reconcile:
@@ -55,7 +57,7 @@ Approved `duplicate` and `consolidate` recommendations are executed by the unpai
 
 Local deliveries move with the tickets. Every delivery that depended on a retired ticket's delivery now depends on the survivor's delivery. Retired deliveries are held, never deleted: their worktrees, branches, uncommitted edits, attempts and history stay as they were, and a running attempt finishes normally. The transfer is refused, with nothing changed, if the recorded deliveries no longer match, a retired delivery is already merging or merged, a dependent has no local survivor, or the change would create a cycle.
 
-If GitHub refuses an effect for permissions (401 or 403), or an effect fails five times, the recommendation becomes **Failed** and its remaining effects stop. To retry, open the recommendation in the **Failed** lane and choose **Retry**. The button appears only when the broker would accept the retry: a failed duplicate, consolidation or guidance suggestion at its current revision. A duplicate or consolidation re-reads the tickets no effect has touched yet, refuses if one changed, and re-queues the same idempotent effects, so tickets already changed are not changed twice. A guidance suggestion returns to **Approved** and is checked again in full. The console sends the operator-only `factory_recommendation_retry` operation through `/api/control`.
+If an effect fails five times, or the adapter reports a permission error (401 or 403), the recommendation becomes **Failed** and its remaining effects stop. The GitHub CLI reports a refused request, including a missing permission, as a general failure, so in practice a missing permission fails the recommendation after five attempts, each at least 30 seconds apart. To retry, open the recommendation in the **Failed** lane and choose **Retry**. The button appears only when the broker would accept the retry: a failed duplicate, consolidation or guidance suggestion at its current revision. A duplicate or consolidation re-reads the tickets no effect has touched yet, refuses if one changed, and re-queues the same idempotent effects, so tickets already changed are not changed twice. A guidance suggestion returns to **Approved** and is checked again in full. The console sends the operator-only `factory_recommendation_retry` operation through `/api/control`.
 
 The comments and closures are made through the delivery adapter, which is not capability-checked yet. See [enforcement](capability-policy.md#enforcement).
 
@@ -82,8 +84,12 @@ The detector only classifies. Recording, deciding and executing are the steps de
 
 A one-off ticket consolidation is not a skill override. Reusable guidance goes through a separate candidate with evidence, provenance and an exact content hash. An independent lead review and your explicit approval of that exact revision come before activation in `.malt/skills/`. Prior revisions and adoption history are kept, and unknown or conflicting local changes are never overwritten.
 
+## How it is tested
+
+`test/recommendation-loopback.test.ts` runs the whole flow through the real broker, paired console and Recommendations pane, with a fixture GitHub behind the delivery adapter's `gh` calls and no model or provider CLI. Intake parks an overlapping objective and a product owner submits a consolidation; you approve both in the pane; the supervisor moves the local deliveries and posts the comments and the closure. The broker and console restart after every stage, a lost GitHub response is recovered, and each ticket ends with exactly one comment and the retired ticket with one closure. The same run checks that no model turn or process starts while a decision is pending and that unrelated deliveries and objectives stay schedulable.
+
+`test/recommendation-loopback-cases.test.ts` covers the other cases: ambiguous overlap, a ticket changed before the decision or before execution, rejection and re-intake suppression, a related approval whose ticket changes later, a switched repository, unauthorized agents, and a missing permission retried from the pane. Repeated clicks, hostile text and keyboard operation are checked in the pane.
+
 ## Not done yet
 
-- A loopback end-to-end proof of the whole flow against fixture GitHub operations, and reconciled documentation, is open as [#64](https://github.com/Division4Studios/malt/issues/64) under [#50](https://github.com/Division4Studios/malt/issues/50).
-- A console control for retrying a failed recommendation.
 - Live consolidation needs a concrete approved proposal. Do not close real tickets to manufacture a demonstration.

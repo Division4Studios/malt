@@ -5,6 +5,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { trackerIdentity } from '../github.ts';
 import { MeshError } from '../protocol.ts';
 
 import { brokerAdmission as LOCAL_JOBS } from './admission.ts';
@@ -74,6 +75,7 @@ import { factoryStatus, preflight } from './status.ts';
 import { changeStepOverrides } from './step-override-controls.ts';
 import { recoverTerminalMetadata } from './terminal-ownership.ts';
 import { TerminalService } from './terminals.ts';
+import { assertTrackerSwitch } from './tracker-work.ts';
 import * as triage from './triage.ts';
 import { workflowHandlers } from './workflow-controls.ts';
 import { WorkspaceManager } from './workspaces.ts';
@@ -113,6 +115,18 @@ export interface FactoryOptions {
   /** Fixture manager provider and clock; never exposed to browser or MCP callers. */
   readonly manager?: Omit<ConstructorParameters<typeof ManagerService>[2], 'home'>;
 }
+
+/**
+ * The saved work tracker, as far as choosing a delivery remote goes.
+ *
+ * @param github - The project's connection.
+ * @returns Its identity, or empty before one is saved.
+ */
+function savedTracker(github: ProjectGitHub): string {
+  const section = github.trackerSection();
+  return section === null ? '' : trackerIdentity(section);
+}
+
 /** Sole lease-owning supervisor for one target project. */
 export class FactoryService {
   /** Public durable ledger for inspection and operator commands. */
@@ -141,6 +155,8 @@ export class FactoryService {
   private readonly sampler: ResourceSampler;
   /** Validated execution context, absent before setup. */
   private context: FactoryContext | null = null;
+  /** The saved work tracker the context's delivery remote was chosen for. */
+  private contextTracker: string | null = null;
   /** Unpaid timer. */
   private timer: NodeJS.Timeout | null = null;
   /** Prevent overlapping external reconciliation. */
@@ -172,6 +188,10 @@ export class FactoryService {
   ) {
     this.mesh = mesh;
     this.github = integrations.github;
+    // Live deliveries keep their tracker: another tracker's issues could reuse their numeric handles.
+    this.github.fenceTrackerChange((change) => {
+      assertTrackerSwitch(this.repository, change);
+    });
     this.learning = integrations.learning;
     this.options = options;
     this.repository = new FactoryRepository(store);
@@ -191,8 +211,14 @@ export class FactoryService {
    * @throws {MeshError} When the selected factory has not been configured.
    */
   public configured(): FactoryContext {
-    if (this.context !== null) {
+    const tracker = this.options.remote === undefined ? savedTracker(this.github) : null;
+    // A switched work tracker needs another delivery remote; the fence keeps live work off the switch.
+    if (this.context !== null && tracker === this.contextTracker) {
       return this.context;
+    }
+    if (this.context !== null) {
+      // The new tracker's delivery remote is verified before it reconciles or dispatches anything.
+      this.connected = false;
     }
     const settings = this.repository.config();
     if (settings === null) {
@@ -212,6 +238,7 @@ export class FactoryService {
       processes,
       agent: this.options.agent ?? defaultAgent(processes),
     };
+    this.contextTracker = tracker;
     return this.context;
   }
 

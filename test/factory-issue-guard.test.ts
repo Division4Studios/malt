@@ -110,7 +110,8 @@ async function build(t: TestContext): Promise<Fixture> {
     merge: offline,
     effect: async () => delay(0),
     parentComplete: async () => delay(0, false),
-    issueState: async (issue) => {
+    issueState: async (key) => {
+      const issue = Number(key.key);
       reads.push(issue);
       return behavior.read(issue);
     },

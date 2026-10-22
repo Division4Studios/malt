@@ -14,7 +14,7 @@ import { inspectObjective, isIntakeParked, reconcileIntake } from '../src/factor
 import { deliveryTask } from '../src/factory/reconcile.ts';
 import { GitHubDelivery } from '../src/factory/remote.ts';
 import { jobIntents } from '../src/factory/scheduler.ts';
-import { factoryConfigSchema, jobSchema } from '../src/factory/schema.ts';
+import { factoryConfigSchema, jobSchema, resultSchema } from '../src/factory/schema.ts';
 import { FactoryService } from '../src/factory/service.ts';
 import { ProjectGitHub } from '../src/github.ts';
 import { ProjectLearning } from '../src/learning.ts';
@@ -301,4 +301,20 @@ await test('approving the related intake recommendation releases its parked obje
   inspectObjective(context, feature, { ...corpus, checkedAt: Date.now() }, []);
   assert.equal(isIntakeParked(context, feature), false, 'Unchanged re-inspection keeps the approval.');
   assert.equal(context.repository.recommendations.get(card.id)?.state, 'approved');
+  const productPlan = resultSchema.parse({ outcome: 'success', summary: 'Specified.', findings: [], deliveries: [] });
+  const planned = { ...feature, phase: 'refining' as const, productPlan, updatedAt: Date.now() };
+  context.repository.saveFeature(planned);
+  assert.equal(isIntakeParked(context, planned), true, 'Its own plan changes the observed scope.');
+  inspectObjective(context, planned, { ...corpus, checkedAt: Date.now() }, []);
+  assert.equal(isIntakeParked(context, planned), false, 'Planning is not new overlap evidence.');
+  assert.equal(context.repository.recommendations.get(card.id)?.revision, card.revision);
+  const changed = { ...corpus, checkedAt: Date.now(), items: [{ ...observed, revision: 'b'.repeat(64) }] };
+  inspectObjective(context, planned, changed, []);
+  assert.equal(
+    context.repository.recommendations.get(card.id)?.state,
+    'awaiting_human',
+    'A changed ticket asks again.',
+  );
+  assert.equal(context.repository.recommendations.get(card.id, card.revision)?.state, 'approved');
+  assert.equal(isIntakeParked(context, planned), true);
 });

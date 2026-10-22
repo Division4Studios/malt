@@ -5,7 +5,7 @@
  *
  * @file
  */
-import { data, firstText, number, records, text } from './api.js';
+import { data, firstText, issueLabel, number, records, text } from './api.js';
 import { parseStop } from './console-model.js';
 import { formatTime, phrase, t } from './i18n.js';
 import { briefProgress, stopText } from './liveness-text.js';
@@ -277,7 +277,7 @@ function deliveryRow(delivery: Data, now: number): HTMLTableRowElement {
   const row = element('tr', job?.['isPossiblyStalled'] === true ? 'mission-stalled' : '');
   const branch = [text(delivery, 'branch'), text(delivery, 'head').slice(0, SHORT)].filter((part) => part !== '');
   const location = firstText(branch.join(' @ '), '—');
-  const title = `#${String(number(delivery, 'issue'))} ${text(delivery, 'title')}`;
+  const title = `${issueLabel(delivery)} ${text(delivery, 'title')}`;
   row.append(
     element('td', '', title),
     element('td', '', text(delivery, 'stage').replaceAll('_', ' ')),

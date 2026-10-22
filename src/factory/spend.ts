@@ -23,6 +23,7 @@ import { OBJECTIVE_MAX, attemptContext, objectiveOf } from './attempts.ts';
 import { readPrices } from './price-table.ts';
 import { jobSchema } from './schema.ts';
 import { spendCapsInputSchema, spendCapsSchema } from './spend-schema.ts';
+import { issueLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { Store } from '../store.ts';
@@ -529,7 +530,7 @@ export function spendStatus(repository: FactoryRepository): SpendStatus {
   });
   const deliveries = tasks.flatMap((task) => {
     const cap = capFor(caps.deliveries, caps.deliveryDefault, task.id);
-    const label = `#${String(task.issue)} ${task.title}`;
+    const label = `${issueLabel(task)} ${task.title}`;
     const totals = spent.byTask.get(task.id) ?? NOTHING;
     if (cap === null) {
       choices.push({ scope: 'delivery', id: task.id, label });

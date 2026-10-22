@@ -31,6 +31,7 @@ import { Store } from '../src/store.ts';
 
 import { createCleanup, createProject } from './helpers.ts';
 
+import type { TrackerKey } from '../src/factory/tracker-key.ts';
 import type { TestContext } from 'node:test';
 
 /** Validated fixture policy; no provider is launched. */
@@ -601,8 +602,9 @@ function mockEvidence(
 ): { contained: string[][]; reads: number[] } {
   const contained: string[][] = [];
   const reads: number[] = [];
-  t.mock.method(context.remote, 'issueState', async (issue: number) => {
+  t.mock.method(context.remote, 'issueState', async (key: TrackerKey) => {
     await delay(0);
+    const issue = Number(key.key);
     reads.push(issue);
     const reason = states[issue];
     return reason === undefined ? { state: 'open', stateReason: null } : { state: 'closed', stateReason: reason };
@@ -676,6 +678,23 @@ await test('adopt_delivered records not-planned closures as done without deliver
   assert.match(done.verifiedMain?.summary ?? '', /^Closed without delivery: issue #1 was closed as not_planned/v);
   assert.ok(done.feedback.at(-1)?.includes('Nothing was merged') === true);
   assert.equal(done.verifiedMain?.undelivered, true);
+});
+
+await test('adopt_delivered never records a reassigned Jira issue as delivered', async (t) => {
+  const context = fixture(t);
+  const { repository } = context;
+  const task = repository.tasks()[0];
+  assert.ok(task !== undefined);
+  mockEvidence(t, context, { 1: 'reassigned' });
+  const base = { taskId: task.id, expectedVersion: task.version, action: 'adopt_delivered', note: 'Handed over.' };
+  await assert.rejects(adoptDeliveredIssue(context, { ...base, requestId: randomUUID(), mergeCommit: adopted }, null), {
+    code: 'FACTORY_GATED',
+  });
+  await adoptDeliveredIssue(context, { ...base, requestId: randomUUID() }, null);
+  const done = repository.task(task.id);
+  assert.equal(done.merge, null);
+  assert.equal(done.verifiedMain?.undelivered, true, 'A reassignment stops MALT work without claiming delivery.');
+  assert.match(done.verifiedMain.summary, /^Closed without delivery: issue #1 was closed as reassigned/v);
 });
 
 await test('a parent whose child closed without delivery is never closed as completed', async (t) => {

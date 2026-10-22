@@ -21,6 +21,7 @@ import { command } from './commands.ts';
 import { assertDeliveryHistory, recordDeliveryCommit } from './delivery-history.ts';
 import { MergeConflictError } from './merge-conflict.ts';
 import { assertPublicationSize, emptyPublicationReason, EmptyPublicationError } from './publication-size.ts';
+import { branchKey, issueKey, issueLabel } from './tracker-key.ts';
 
 import type { MeshConfig } from '../config.ts';
 import type { FactoryConfig, FactoryTask } from './schema.ts';
@@ -115,12 +116,12 @@ const SUBJECTS: Readonly<Record<string, string>> = { adjudicate: 'Fix review fin
  * @returns `-m` arguments for `git commit`.
  */
 export function commitMessage(task: FactoryTask, provenance: CommitProvenance | null): string[] {
-  const subject = `${SUBJECTS[provenance?.kind ?? ''] ?? 'Deliver'} #${String(task.issue)}: ${task.title}`;
+  const subject = `${SUBJECTS[provenance?.kind ?? ''] ?? 'Deliver'} ${issueLabel(task)}: ${task.title}`;
   if (provenance === null) {
     return ['-m', subject];
   }
   const trailers = [
-    `X-MALT-Delivery: #${String(task.issue)}`,
+    `X-MALT-Delivery: ${issueLabel(task)}`,
     `X-MALT-Step: ${provenance.step}`,
     `X-MALT-Role: ${provenance.role}`,
     `X-MALT-Attempt: ${provenance.jobId}`,
@@ -141,7 +142,7 @@ export function mergeMessage(task: FactoryTask, provenance: CommitProvenance | n
     return [];
   }
   const trailers = commitMessage(task, provenance).at(-1) ?? '';
-  return ['-m', `Refresh #${String(task.issue)} onto main: ${task.title}`, '-m', trailers];
+  return ['-m', `Refresh ${issueLabel(task)} onto main: ${task.title}`, '-m', trailers];
 }
 
 /** Project-local worktree manager using shell-free Git commands. */
@@ -349,8 +350,9 @@ export class WorkspaceManager {
   public async developer(task: FactoryTask): Promise<{ directory: string; branch: string; base: string }> {
     this.assertDeliveryTask(task);
     const base = await this.base();
+    // `malt/issue-12-…` for GitHub, unchanged; `malt/PROJ-12-…` for Jira, whose development panel links the key.
     const branch =
-      task.branch ?? `malt/issue-${String(task.issue)}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
+      task.branch ?? `malt/${branchKey(issueKey(task))}-${task.id.slice(0, BRANCH_ID_LENGTH)}-${String(task.version)}`;
     const directory = task.worktree ?? (await this.create(`${task.id}-dev-${String(task.version)}`, base, branch));
     this.assertOwnedPath(directory);
     const snapshot = await this.snapshot(directory);

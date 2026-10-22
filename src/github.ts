@@ -16,7 +16,13 @@ import { UNBOUND_GATE, githubCapabilities } from './capability-policy.ts';
 import { hasErrorCode, readJsonFile, writeIfAbsent } from './config.ts';
 import { savedSections } from './connection-sections.ts';
 import { isConnected, sectionStates, verifyConnection } from './connection-verify.ts';
-import { connectionV2Schema, flattenConnection, parseConnection, unverifiedCapabilities } from './connector.ts';
+import {
+  DELIVERY_STATUSES,
+  connectionV2Schema,
+  flattenConnection,
+  parseConnection,
+  unverifiedCapabilities,
+} from './connector.ts';
 import { cachedProbe, connectionCredentials, ghAuthProbe } from './credentials.ts';
 import { cachedBoard, readBoard } from './github-board.ts';
 import { discoverGitHub } from './github-discovery.ts';
@@ -31,32 +37,24 @@ import {
 } from './github-project-create.ts';
 import { isResourceOperation, resourceOperation } from './github-resources.ts';
 import { githubRunner } from './github-runner.ts';
-import { discoverJiraConnection } from './jira/connection.ts';
+import { discoverJiraConnection, jiraTrackerTransport, savedJiraTracker } from './jira/connection.ts';
+import { applyJiraWorkflow, readIntakeRecord } from './jira/workflow.ts';
 import { MeshError, parseInput } from './protocol.ts';
 import { timestamp, writeAtomic } from './summary.ts';
 
 import type { CapabilityGate, CapabilityPrincipal } from './capability-policy.ts';
 import type { MeshConfig } from './config.ts';
-import type { LegacyConnection, SavedConnection } from './connector.ts';
+import type { LegacyConnection, SavedConnection, TrackerConnection } from './connector.ts';
 import type { PresenceProbe } from './credentials.ts';
 import type { IssueReader } from './github-issues.ts';
 import type { IssueJournal } from './github-journal.ts';
 import type { ResourceContext } from './github-resources.ts';
 import type { GitHubRunner } from './github-runner.ts';
-import type { JiraFetch } from './jira/client.ts';
+import type { JiraFetch, JiraTransport } from './jira/client.ts';
+import type { SavedJiraTracker } from './jira/connection.ts';
 import type { GitHubOperation, OperationInput } from './protocol.ts';
 
-/** Factory workflow options in the dedicated MALT Status field. */
-export const DELIVERY_STATUSES = [
-  'Backlog',
-  'Ready',
-  'Development',
-  'QA / Review',
-  'Merge Ready',
-  'Final Verification',
-  'Done',
-  'Blocked',
-] as const;
+export { DELIVERY_STATUSES } from './connector.ts';
 
 /** A stable GitHub ID returned by a Project mutation. */
 const itemSchema = z.object({ id: z.string() });
@@ -75,6 +73,36 @@ export interface ConnectorProbes extends PresenceProbe {
   readonly jiraFetch?: JiraFetch;
 }
 
+/** A verified Jira tracker, ready for the factory's Jira delivery remote. */
+export interface JiraTrackerAccess {
+  /** Site, project, account, token variable and workflow settings. */
+  readonly tracker: SavedJiraTracker;
+  /** Redacting transport to the one configured site. */
+  readonly transport: JiraTransport;
+  /** The project's capability decisions, asked before every Jira write. */
+  readonly gate: Pick<CapabilityGate, 'authorize'>;
+}
+
+/**
+ * Refuses a change of the saved work tracker, for example while deliveries
+ * tracked by the current one are still live. Trackers are named as
+ * `github-projects:<owner>` or `jira:<site>:<project key>`.
+ */
+export type TrackerFence = (change: { readonly from: string; readonly to: string }) => void;
+
+/**
+ * The tracker a section names, as far as issue identities go: its provider and
+ * project. Issues of different trackers must never share numeric ledger handles.
+ *
+ * @param tracker - Saved or proposed tracker section.
+ * @returns Comparable identity.
+ */
+export function trackerIdentity(tracker: TrackerConnection): string {
+  return tracker.provider === 'jira'
+    ? `jira:${tracker.jira?.site ?? ''}:${tracker.jira?.projectKey ?? ''}`
+    : `github-projects:${tracker.owner}`;
+}
+
 /** Per-project GitHub coordination with serialized mutations. */
 export class ProjectGitHub {
   /** Project configuration and local paths. */
@@ -89,6 +117,8 @@ export class ProjectGitHub {
   private readonly policy: CapabilityGate;
   /** Checks whether each section's credential is available, without reading it. */
   private readonly presence: ConnectorProbes;
+  /** Refuses a tracker switch the factory cannot follow; none until the factory registers one. */
+  private trackerFence: TrackerFence | null = null;
 
   /**
    * Prepare project-specific integration without making network calls.
@@ -121,6 +151,56 @@ export class ProjectGitHub {
    */
   public readonly issues = (): IssueReader =>
     createIssueReader(this.graphql.bind(this), this.savedConnection().v2.source);
+
+  /**
+   * The saved work tracker section, read without any remote call.
+   *
+   * @returns Tracker section, or `null` before a save or for a damaged record.
+   */
+  public trackerSection(): TrackerConnection | null {
+    try {
+      return this.optionalConnection()?.v2.tracker ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The saved, verified Jira tracker with its transport and this project's
+   * capability gate. The token is resolved through the section's environment
+   * handle, which registers it for redaction.
+   *
+   * @returns Tracker settings, transport and gate.
+   * @throws {MeshError} GITHUB_NOT_CONNECTED unless the tracker is a verified Jira project;
+   *   CREDENTIALS_MISSING while its token variable is unset.
+   */
+  public jiraTracker(): JiraTrackerAccess {
+    const { tracker } = this.savedConnection().v2;
+    if (tracker.provider !== 'jira') {
+      throw new MeshError('GITHUB_NOT_CONNECTED', 'The work tracker of this workspace is not a Jira project.');
+    }
+    if ((tracker.verification?.state ?? 'verified') !== 'verified') {
+      throw new MeshError(
+        'GITHUB_NOT_CONNECTED',
+        'The saved Jira tracker is not verified. Verify it (mesh_github_verify) before the factory delivers through it.',
+      );
+    }
+    return {
+      tracker: savedJiraTracker(tracker),
+      transport: jiraTrackerTransport(tracker, this.presence.environment, this.presence.jiraFetch),
+      gate: this.policy,
+    };
+  }
+
+  /**
+   * Register the check a change of work tracker must pass; the factory refuses
+   * a switch while deliveries tracked by the current tracker are live.
+   *
+   * @param fence - Throws to refuse the change.
+   */
+  public fenceTrackerChange(fence: TrackerFence): void {
+    this.trackerFence = fence;
+  }
 
   /**
    * Execute an operation after earlier operations for this project finish.
@@ -179,6 +259,9 @@ export class ProjectGitHub {
       case 'jira_discover': {
         return discoverJiraConnection(parseInput(operation, input), this.presence.environment, this.presence.jiraFetch);
       }
+      case 'jira_workflow_save': {
+        return this.saveJiraWorkflow(parseInput(operation, input));
+      }
       case 'github_connect': {
         return this.connect(parseInput(operation, input));
       }
@@ -210,11 +293,13 @@ export class ProjectGitHub {
       connected: connectionV2 !== null && isConnected(connectionV2),
       verification: connectionV2 === null ? null : sectionStates(connectionV2),
       // The flat view names a GitHub Project; a Jira tracker has none.
-      connection: saved?.v2.tracker.provider === 'github-projects' ? saved.legacy : null,
+      connection: saved?.legacy ?? null,
       connectionV2,
       credentials: connectionV2 === null ? null : await connectionCredentials(connectionV2, this.presence),
       pendingOperations: this.journals().filter((journal) => journal.phase !== 'complete'),
       projectCreation: pendingCreationDecision(this.directory),
+      // What the factory's last read of the Jira intake filter offered and skipped.
+      jiraIntake: connectionV2?.tracker.provider === 'jira' ? readIntakeRecord(this.config.directory) : null,
     };
   }
 
@@ -243,8 +328,10 @@ export class ProjectGitHub {
    * @returns Status after the save.
    */
   private async saveSections(input: OperationInput<'github_section_save'>): Promise<unknown> {
-    const record = savedSections(this.optionalConnection()?.v2 ?? null, input, timestamp());
+    const current = this.optionalConnection()?.v2 ?? null;
+    const record = savedSections(current, input, timestamp());
     const { source, tracker } = record;
+    this.assertTrackerSwitch(trackerIdentity(tracker), current?.tracker ?? null);
     this.assertConnectionChange(source.repository, source.repositoryId, tracker.owner, tracker.projectNumber);
     this.mkdir(this.directory);
     writeAtomic(
@@ -253,6 +340,50 @@ export class ProjectGitHub {
 `,
     );
     return await this.status();
+  }
+
+  /**
+   * Set the factory's Jira intake filter and stage mapping after checking them against Jira.
+   *
+   * @param input - New filter and/or mapping.
+   * @returns Status after the save, and what intake would file under a new filter.
+   */
+  private async saveJiraWorkflow(input: OperationInput<'jira_workflow_save'>): Promise<unknown> {
+    const { record, preview } = await applyJiraWorkflow(this.savedConnection().v2, input, {
+      environment: this.presence.environment,
+      fetch: this.presence.jiraFetch,
+    });
+    writeAtomic(
+      path.join(this.directory, 'connection.json'),
+      `${JSON.stringify(record, null, 2)}
+`,
+    );
+    return {
+      ...z
+        .object({})
+        .passthrough()
+        .parse(await this.status()),
+      intakePreview: preview,
+    };
+  }
+
+  /**
+   * Ask the registered fence before the tracker changes provider or Jira project.
+   * Moving between GitHub Projects keeps GitHub issue numbers, so only pending
+   * ticket operations fence that (see `assertConnectionChange`).
+   *
+   * @param next - Identity of the tracker about to be saved.
+   * @param current - Saved tracker, or null before the first save.
+   */
+  private assertTrackerSwitch(next: string, current = this.optionalConnection()?.v2.tracker ?? null): void {
+    if (current === null) {
+      return;
+    }
+    const from = trackerIdentity(current);
+    const isGitHubMove = from.startsWith('github-projects:') && next.startsWith('github-projects:');
+    if (from !== next && !isGitHubMove) {
+      this.trackerFence?.({ from, to: next });
+    }
   }
 
   /**
@@ -300,10 +431,10 @@ export class ProjectGitHub {
   private connection(): LegacyConnection {
     const saved = this.savedConnection();
     // A Jira tracker's shared fields are Jira's, so they must never be read as a GitHub Project.
-    if (saved.v2.tracker.provider !== 'github-projects') {
+    if (saved.legacy === null) {
       throw new MeshError(
         'GITHUB_NOT_CONNECTED',
-        'The work tracker is a Jira project, so GitHub Project and issue operations are off. The factory does not deliver through a Jira tracker yet.',
+        'The work tracker is a Jira project, so GitHub Project and issue operations are off. The factory tracks its work in Jira instead.',
       );
     }
     // A section saved but not yet verified may name the wrong repository or Project; never act on it.
@@ -387,6 +518,7 @@ export class ProjectGitHub {
     const repository = identity.nameWithOwner;
     const repositoryId = identity.id ?? null;
     const owner = input.owner ?? repository.split('/', 1)[0] ?? '';
+    this.assertTrackerSwitch(`github-projects:${owner}`);
     const repositoryAliases = this.assertConnectionChange(repository, repositoryId, owner, input.projectNumber);
     const project =
       input.projectNumber === undefined
@@ -503,12 +635,13 @@ export class ProjectGitHub {
     if (journals.length === 0) {
       return [];
     }
-    const { legacy: current, v2 } = this.savedConnection();
+    const { v2 } = this.savedConnection();
+    const current = { repository: v2.source.repository, owner: v2.tracker.owner };
     // A rename keeps the node ID, so the same repository is not a switch.
     const isSameNode = repositoryId !== null && v2.source.repositoryId === repositoryId;
     const isSameRepository =
       repositoryId !== null && v2.source.repositoryId !== null ? isSameNode : current.repository === repository;
-    const isSameConnection = isSameRepository && current.owner === owner && current.project.number === projectNumber;
+    const isSameConnection = isSameRepository && current.owner === owner && v2.tracker.projectNumber === projectNumber;
     if (!isSameConnection && journals.some((journal) => journal.phase !== 'complete')) {
       throw new MeshError(
         'GITHUB_OPERATION_PENDING',

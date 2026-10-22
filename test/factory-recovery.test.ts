@@ -24,6 +24,7 @@ import { taskSchema, factoryConfigSchema, jobSchema, resultSchema } from '../src
 import { replaceScope } from '../src/factory/scope-changes.ts';
 import { installFactorySkills } from '../src/factory/skills.ts';
 import { sealSource, readSource } from '../src/factory/source-reader.ts';
+import { githubKey } from '../src/factory/tracker-key.ts';
 import { decideTriage } from '../src/factory/triage.ts';
 import { WorkspaceManager } from '../src/factory/workspaces.ts';
 import { ProjectLearning } from '../src/learning.ts';
@@ -385,8 +386,8 @@ await test('superseded parent waits for actual native children and closes as not
     remote: {
       ...context.remote,
       parentComplete: async (parent, children) => {
-        assert.equal(parent, 1);
-        assert.deepEqual(children, [2]);
+        assert.deepEqual(parent, githubKey(1));
+        assert.deepEqual(children, [githubKey(2)]);
         return await delay(0, areChildrenClosed);
       },
       effect: async (effect) => {

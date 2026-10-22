@@ -11,7 +11,7 @@
  */
 import { z } from 'zod/v3';
 
-import { DELIVERY_STATUSES } from '../github.ts';
+import { DELIVERY_STATUSES, stageTargetSchema } from '../connector.ts';
 
 import { jiraGet } from './client.ts';
 
@@ -21,10 +21,8 @@ import type { JiraIssueType } from './permissions.ts';
 /** A MALT delivery stage, as the tracker shows it. */
 export type DeliveryStage = (typeof DELIVERY_STATUSES)[number];
 
-/** The Jira status a stage moves an issue to. */
-const targetSchema = z.object({ statusId: z.string().min(1), statusName: z.string().min(1) }).strict();
 /** A human's stage-to-status mapping; unmapped stages are simply absent. */
-export const stageMappingSchema = z.record(z.enum(DELIVERY_STATUSES), targetSchema);
+export const stageMappingSchema = z.record(z.enum(DELIVERY_STATUSES), stageTargetSchema);
 /** Stage-to-status mapping. */
 export type StageMapping = z.output<typeof stageMappingSchema>;
 
